@@ -192,8 +192,11 @@ export function youtubeDashboardPage(
     <table class="yt-table"><thead><tr><th>Channel</th><th>Plays</th><th>Est. time</th></tr></thead><tbody>${channels.map((channel) =>
       `<tr><td><div class="yt-channel">${channelAvatar(channel)}${channel.channelId ? `<a href="https://www.youtube.com/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : `<span>${html(channel.name)}</span>`}</div></td><td>${channel.watches}</td><td>${hours(channel.estimatedWatchSeconds)}</td></tr>`
     ).join('')}</tbody></table></section>`;
+  const bucketOrder = ['< 1 min', '1-5 min', '5-20 min', '20-60 min', '60+ min', 'Unknown'];
+  const orderedBuckets = [...data.lengthBuckets]
+    .sort((a, b) => bucketOrder.indexOf(a.label) - bucketOrder.indexOf(b.label));
   const maxLength = Math.max(1, ...data.lengthBuckets.map((bucket) => bucket.videos));
-  const distribution = `<section><div class="yt-heading"><h2>Length mix</h2><span>unique videos</span></div><div class="yt-distribution">${data.lengthBuckets.map((bucket) =>
+  const distribution = `<section><div class="yt-heading"><h2>Length mix</h2><span>unique videos</span></div><div class="yt-distribution">${orderedBuckets.map((bucket) =>
     `<div class="yt-distribution-row"><span>${html(bucket.label)}</span><div class="yt-distribution-track"><i style="width:${Math.round(bucket.videos / maxLength * 100)}%"></i></div><span>${bucket.videos}</span></div>`
   ).join('')}</div></section>`;
   const maxKeywordVideos = Math.max(1, ...data.keywords.map((item) => item.videos));
