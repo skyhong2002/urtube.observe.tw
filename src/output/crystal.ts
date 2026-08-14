@@ -3,15 +3,15 @@ import { hours, html, shell } from './pages.js';
 
 const crystalStyles = `
   .cx-shifts{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
-  .cx-shift{align-items:center;border:1px solid var(--line);border-radius:8px;display:flex;gap:10px;padding:10px 12px}
+  .cx-shift{align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;gap:10px;padding:10px 12px}
   .cx-shift-delta{font-size:13px;font-weight:700;min-width:58px}
-  .cx-up{color:#63d8e6}.cx-down{color:#ff746b}
+  .cx-up{color:var(--good)}.cx-down{color:var(--accent-deep)}
   .cx-shift-copy{min-width:0}.cx-shift-copy strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cx-shift-copy span{color:var(--quiet);font-size:10px;text-transform:uppercase}
-  .cx-sim{display:flex;gap:12px;margin-bottom:24px}.cx-sim div{border:1px solid var(--line);border-radius:10px;flex:1;padding:14px}.cx-sim strong{display:block;font-size:26px}.cx-sim span{color:var(--quiet);font-size:11px;text-transform:uppercase}
+  .cx-sim{display:flex;gap:12px;margin-bottom:24px}.cx-sim div{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);flex:1;padding:16px}.cx-sim strong{display:block;font-size:26px}.cx-sim span{color:var(--quiet);font-size:11px;text-transform:uppercase}
   .cx-columns{display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
   .cx-list{border-top:1px solid var(--line)}.cx-row{align-items:center;border-bottom:1px solid var(--line);display:grid;gap:10px;grid-template-columns:minmax(0,1fr) auto;font-size:13px;padding:8px 2px}
-  .cx-row em{color:var(--quiet);font-size:11px;font-style:normal}
+  .cx-row em{color:var(--quiet);font-size:11px;font-style:normal;font-variant-numeric:tabular-nums}
   .cx-tag{border:1px solid var(--line-strong);border-radius:999px;color:#9ca5af;font-size:10px;padding:1px 7px;text-transform:uppercase}
 `;
 
