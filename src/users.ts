@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
@@ -153,6 +153,22 @@ export class UserRegistry {
   listUsers(): User[] {
     const rows = this.db.prepare('SELECT * FROM users ORDER BY id').all() as Array<Record<string, unknown>>;
     return rows.map(rowToUser);
+  }
+
+  deleteUser(handle: string): void {
+    if (handle === DEFAULT_HANDLE) throw new Error('Refusing to delete the instance owner');
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    const repository = this.repositories.get(handle);
+    if (repository) {
+      repository.close();
+      this.repositories.delete(handle);
+    }
+    this.db.prepare('DELETE FROM users WHERE handle=?').run(handle);
+    const path = this.databasePathFor(user);
+    if (path !== ':memory:') {
+      for (const suffix of ['', '-wal', '-shm']) rmSync(`${path}${suffix}`, { force: true });
+    }
   }
 
   rotateTokens(handle: string): { captureToken: string; dashboardToken: string } {

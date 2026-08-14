@@ -9,13 +9,16 @@ const registryPath = process.env.USERS_DATABASE_PATH ?? './data/users.sqlite';
 const [handle, ...rest] = process.argv.slice(2);
 
 if (!handle) {
-  console.error('Usage: npx tsx scripts/create-user.ts <handle> "<Display Name>" [--public] | <handle> --rotate');
+  console.error('Usage: npx tsx scripts/create-user.ts <handle> "<Display Name>" [--public] | <handle> --rotate | <handle> --delete');
   process.exit(2);
 }
 
 const registry = new UserRegistry(registryPath);
 try {
-  if (rest.includes('--rotate')) {
+  if (rest.includes('--delete')) {
+    registry.deleteUser(handle);
+    console.log(JSON.stringify({ handle, deleted: true, note: 'User row and their database file were removed.' }, null, 2));
+  } else if (rest.includes('--rotate')) {
     const tokens = registry.rotateTokens(handle);
     console.log(JSON.stringify({ handle, ...tokens, note: 'Old tokens are now invalid.' }, null, 2));
   } else {

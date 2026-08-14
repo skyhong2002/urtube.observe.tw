@@ -139,6 +139,8 @@ export interface YoutubeDashboardOptions {
   // Path the dashboard is served under; range/sort links stay on it.
   basePath?: string;
   nav?: ShellNavItem[];
+  // Extra HTML (e.g. onboarding instructions) rendered above the dashboard.
+  setupHtml?: string;
 }
 
 export function youtubeDashboardPage(
@@ -198,7 +200,7 @@ export function youtubeDashboardPage(
   ).join('')}</div></section>`;
   const intro = `<style>${dashboardStyles}</style><section class="page-intro"><div><div class="eyebrow">YouTube · attention archive</div><h1>YouTube</h1><p>${html(ownerName)}'s viewing patterns, channels, topics, and recent videos.</p></div><div class="page-intro-aside">${Math.round(data.stats.metadataCoverage * 100)}% metadata coverage · ${rangeLabel(data.range)}</div></section>
     <div class="context-line"><a href="/">Home</a><span>→</span><strong>YouTube</strong></div>`;
-  return shell(`${ownerName} · YouTube`, intro + rangeNav + importControl + stats + bars
+  return shell(`${ownerName} · YouTube`, intro + (options.setupHtml ?? '') + rangeNav + importControl + stats + bars
     + `<section class="yt-section yt-columns">${channelTable}${distribution}</section>`
     + channelChase(data) + taxonomy + recent, options.nav ?? []);
 }

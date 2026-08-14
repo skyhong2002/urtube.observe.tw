@@ -33,15 +33,22 @@ front with Caddy — see CUTOVER_RUNBOOK.md).
 
 ## Users
 
+Anyone can self-onboard at **`/signup`**: pick a handle, get a capture token
+and a private dashboard link (shown once, stored hashed), download the
+pinned extension from `/extension.zip`, and start tracking. Signups are
+rate-limited per IP; disable them entirely with `SIGNUP_ENABLED=false`.
+
+Admin equivalents:
+
 ```sh
 npm run user:create -- dad "Dad"        # prints capture + dashboard tokens once
-npm run user:create -- dad --rotate     # rotate tokens
+npm run user:create -- dad --rotate     # rotate tokens (lost-token recovery)
+npm run user:create -- dad --delete     # remove the user and their database
 ```
 
 Each user gets a private dashboard at `/u/<handle>?key=<dashboardToken>` and
-their own SQLite file under `data/users/`. The Chrome extension
-(`chrome-extension/`, load unpacked) is configured with the user's capture
-token; endpoint `https://urtube.observe.tw/api/ingest/youtube/capture`.
+their own SQLite file under `data/users/`, with a per-user derived search
+encryption key.
 
 ## Data import
 
