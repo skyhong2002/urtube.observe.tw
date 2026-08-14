@@ -3,16 +3,16 @@ import type { CreatedUser, User } from '../users.js';
 import { html, shell } from './pages.js';
 
 const formStyles = `
-  .ob-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;margin:0 auto;max-width:560px;padding:26px}
+  .ob-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin:0 auto;max-width:560px;padding:28px}
   .ob-card h2{margin:0 0 6px}.ob-card p{color:var(--muted);font-size:13px;margin:0 0 18px}
   .ob-form{display:grid;gap:10px}.ob-form label{color:var(--muted);font-size:12px;font-weight:700;margin-top:6px}
   .ob-form input[type=text]{background:var(--surface-raised);border:1px solid var(--line-strong);border-radius:6px;color:var(--text);font:inherit;padding:11px 12px;width:100%}
-  .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(255,69,58,.2)}
+  .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(208,59,59,.18)}
   .ob-check{align-items:center;color:var(--muted);display:flex;font-size:13px;gap:8px;margin-top:6px}
-  .ob-form button{background:var(--text);border:1px solid var(--text);border-radius:6px;color:#111;cursor:pointer;font:inherit;font-weight:700;margin-top:14px;padding:11px 14px}
-  .ob-error{border:1px solid #7a2c24;border-radius:8px;color:#ff9c87;font-size:13px;margin-bottom:14px;padding:10px 12px}
-  .ob-token{background:var(--surface-raised);border:1px solid var(--line-strong);border-radius:6px;display:block;font-family:ui-monospace,monospace;font-size:12px;margin:6px 0 14px;overflow-wrap:anywhere;padding:10px 12px;user-select:all}
-  .ob-warn{border:1px solid #6b5b18;border-radius:8px;color:#f2c14e;font-size:13px;margin:14px 0;padding:10px 12px}
+  .ob-form button{background:var(--accent);border:1px solid var(--accent);border-radius:999px;color:#fff;cursor:pointer;font:inherit;font-weight:700;margin-top:14px;padding:11px 16px}.ob-form button:hover{background:var(--accent-deep)}
+  .ob-error{background:#fdecea;border:1px solid #f0b6b0;border-radius:10px;color:#a12b23;font-size:13px;margin-bottom:14px;padding:10px 12px}
+  .ob-token{background:var(--surface-raised);border:1px solid var(--line);border-radius:8px;display:block;font-family:ui-monospace,monospace;font-size:12px;margin:6px 0 14px;overflow-wrap:anywhere;padding:10px 12px;user-select:all}
+  .ob-warn{background:#fff7e0;border:1px solid #ecd28a;border-radius:10px;color:#7a5b00;font-size:13px;margin:14px 0;padding:10px 12px}
   .ob-steps{color:var(--muted);font-size:14px;line-height:1.7;padding-left:20px}.ob-steps code{background:var(--surface-raised);border-radius:4px;padding:1px 5px}
   .ob-steps strong{color:var(--text)}
 `;
