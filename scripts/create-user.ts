@@ -15,7 +15,16 @@ if (!handle) {
 
 const registry = new UserRegistry(registryPath);
 try {
-  if (rest.includes('--delete')) {
+  if (rest.includes('--rename')) {
+    const newHandle = rest[rest.indexOf('--rename') + 1];
+    if (!newHandle) throw new Error('Usage: <handle> --rename <new-handle>');
+    const user = registry.renameUser(handle, newHandle);
+    console.log(JSON.stringify({
+      renamed: { from: handle, to: user.handle },
+      note: 'Tokens and the encryption key are unchanged; the dashboard URL moved.',
+      dashboard: `${config.publicBaseUrl}/u/${user.handle}`,
+    }, null, 2));
+  } else if (rest.includes('--delete')) {
     registry.deleteUser(handle);
     console.log(JSON.stringify({ handle, deleted: true, note: 'User row and their database file were removed.' }, null, 2));
   } else if (rest.includes('--rotate')) {

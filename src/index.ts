@@ -6,7 +6,9 @@ import { zipSync } from 'fflate';
 import { Hono, type Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import { config } from './config.js';
+import { comparePage, shiftsSection } from './output/crystal.js';
 import { dashboardSetupSection, signupPage, welcomePage } from './output/onboarding.js';
+import { buildYoutubeCrystal, compareCrystals } from './youtube/crystal.js';
 import { html, shell } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { UserRegistry, type User } from './users.js';
@@ -64,8 +66,10 @@ export function createApp(registry: UserRegistry): Hono {
     const key = c.req.query('key') ?? getCookie(c, cookieName) ?? '';
     if (!registry.userByDashboardToken(user.handle, key)) return false;
     if (c.req.query('key')) {
+      // Path '/' so /compare can also see which dashboards this browser may
+      // read.
       setCookie(c, cookieName, key, {
-        httpOnly: true, sameSite: 'Lax', path: `/u/${user.handle}`,
+        httpOnly: true, sameSite: 'Lax', path: '/',
         secure: config.publicBaseUrl.startsWith('https://'), maxAge: 180 * 86400,
       });
     }
@@ -75,11 +79,13 @@ export function createApp(registry: UserRegistry): Hono {
   function dashboardResponse(c: Context, user: User, basePath: string) {
     const repository = registry.repositoryFor(user);
     const data = repository.youtubeDashboard(requestedRange(c.req.query('range')));
+    const hasData = repository.youtubeCounts().watches > 0;
     c.header('Cache-Control', 'no-cache');
     return c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
       basePath,
       nav: [{ label: 'Dashboard', href: basePath, active: true }],
-      setupHtml: dashboardSetupSection(user, repository.youtubeCounts().watches > 0),
+      setupHtml: dashboardSetupSection(user, hasData)
+        + (hasData ? shiftsSection(buildYoutubeCrystal(repository, user)) : ''),
     }));
   }
 
@@ -144,6 +150,45 @@ export function createApp(registry: UserRegistry): Hono {
     if (!user) return c.text('Not found', 404);
     if (!dashboardAccess(c, user)) return c.text('Not found', 404);
     return dashboardResponse(c, user, `/u/${user.handle}`);
+  });
+
+  app.get('/u/:handle/crystal.json', (c) => {
+    const user = registry.userByHandle(c.req.param('handle'));
+    if (!user || !dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
+    return c.json(buildYoutubeCrystal(registry.repositoryFor(user), user));
+  });
+
+  app.get('/api/youtube/crystal.json', (c) => {
+    const user = registry.ensureDefaultUser();
+    if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
+    return c.json(buildYoutubeCrystal(registry.repositoryFor(user), user));
+  });
+
+  // Cross-person difference view. The requester must be allowed to see BOTH
+  // dashboards (public, ?key= / keyA/keyB, or cookies set by earlier visits).
+  app.get('/compare', (c) => {
+    const aHandle = c.req.query('a') ?? '';
+    const bHandle = c.req.query('b') ?? '';
+    const a = registry.userByHandle(aHandle);
+    const b = registry.userByHandle(bHandle);
+    if (!a || !b || a.handle === b.handle) {
+      return c.text('Pass two different handles: /compare?a=<handle>&b=<handle>', 400);
+    }
+    const keyed = (user: User, param: string): boolean => {
+      const key = c.req.query(param) ?? '';
+      return Boolean(key && registry.userByDashboardToken(user.handle, key));
+    };
+    const allowed = (user: User, param: string): boolean =>
+      user.dashboardPublic
+      || keyed(user, param)
+      || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
+    if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return c.text('Not found', 404);
+    const comparison = compareCrystals(
+      buildYoutubeCrystal(registry.repositoryFor(a), a),
+      buildYoutubeCrystal(registry.repositoryFor(b), b),
+    );
+    c.header('Cache-Control', 'no-cache');
+    return c.html(comparePage(comparison, `/u/${a.handle}`));
   });
 
   app.get('/u/:handle/summary.json', (c) => {

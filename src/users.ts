@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
@@ -11,7 +11,10 @@ import { Repository } from './data/database.js';
 // keeps the legacy env-token and env-data-key behaviour so a database
 // migrated from Infovore keeps decrypting.
 
-export const DEFAULT_HANDLE = 'sky';
+// The instance owner's handle; override with OWNER_HANDLE (e.g. skyhong.tw).
+export const DEFAULT_HANDLE = process.env.OWNER_HANDLE ?? 'sky';
+
+const HANDLE_PATTERN = /^[a-z0-9][a-z0-9.-]{1,31}$/;
 
 export interface User {
   id: number;
@@ -19,6 +22,7 @@ export interface User {
   displayName: string;
   dashboardPublic: boolean;
   dataKeyMode: 'legacy-env' | 'derived';
+  keySeed: string;
   createdAt: string;
 }
 
@@ -48,6 +52,7 @@ function rowToUser(row: Record<string, unknown>): User {
     displayName: String(row.display_name),
     dashboardPublic: Number(row.dashboard_public) === 1,
     dataKeyMode: row.data_key_mode as User['dataKeyMode'],
+    keySeed: String(row.key_seed ?? row.handle),
     createdAt: String(row.created_at),
   };
 }
@@ -75,6 +80,13 @@ export class UserRegistry {
         created_at TEXT NOT NULL
       );
     `);
+    // key_seed freezes the derivation input at creation time so renaming a
+    // user never changes their encryption key.
+    const columns = this.db.prepare("SELECT name FROM pragma_table_info('users')").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'key_seed')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN key_seed TEXT');
+    }
+    this.db.exec('UPDATE users SET key_seed=handle WHERE key_seed IS NULL');
   }
 
   close(): void {
@@ -88,8 +100,8 @@ export class UserRegistry {
     displayName: string,
     options: { dataKeyMode?: User['dataKeyMode']; dashboardPublic?: boolean } = {},
   ): CreatedUser {
-    if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(handle)) {
-      throw new Error('Handle must be 2-32 chars of lowercase letters, digits, or dashes');
+    if (!HANDLE_PATTERN.test(handle)) {
+      throw new Error('Handle must be 2-32 chars of lowercase letters, digits, dots, or dashes');
     }
     const captureToken = newToken();
     const dashboardToken = newToken();
@@ -97,11 +109,11 @@ export class UserRegistry {
     this.db.prepare(`
       INSERT INTO users (
         handle, display_name, capture_token_hash, dashboard_token_hash,
-        dashboard_public, data_key_mode, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        dashboard_public, data_key_mode, key_seed, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
-      options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', createdAt,
+      options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
     );
     const user = this.userByHandle(handle)!;
     return { ...user, captureToken, dashboardToken };
@@ -171,6 +183,32 @@ export class UserRegistry {
     }
   }
 
+  renameUser(oldHandle: string, newHandle: string): User {
+    if (!HANDLE_PATTERN.test(newHandle)) {
+      throw new Error('Handle must be 2-32 chars of lowercase letters, digits, dots, or dashes');
+    }
+    const user = this.userByHandle(oldHandle);
+    if (!user) throw new Error(`Unknown user: ${oldHandle}`);
+    if (this.userByHandle(newHandle)) throw new Error(`Handle already taken: ${newHandle}`);
+    const repository = this.repositories.get(oldHandle);
+    if (repository) {
+      repository.close();
+      this.repositories.delete(oldHandle);
+    }
+    // key_seed intentionally stays put: the encryption key must survive
+    // renames. Only per-user data files move.
+    const oldPath = this.databasePathFor(user);
+    this.db.prepare('UPDATE users SET handle=? WHERE handle=?').run(newHandle, oldHandle);
+    const renamed = this.userByHandle(newHandle)!;
+    const newPath = this.databasePathFor(renamed);
+    if (oldPath !== ':memory:' && newPath !== ':memory:' && oldPath !== newPath && existsSync(oldPath)) {
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (existsSync(`${oldPath}${suffix}`)) renameSync(`${oldPath}${suffix}`, `${newPath}${suffix}`);
+      }
+    }
+    return renamed;
+  }
+
   rotateTokens(handle: string): { captureToken: string; dashboardToken: string } {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
@@ -189,7 +227,7 @@ export class UserRegistry {
     if (!config.youtube.privateDataKey) return '';
     if (user.dataKeyMode === 'legacy-env') return config.youtube.privateDataKey;
     return createHash('sha256')
-      .update(`${config.youtube.privateDataKey}\u001f${user.handle}`)
+      .update(`${config.youtube.privateDataKey}\u001f${user.keySeed}`)
       .digest('hex');
   }
 
