@@ -8,6 +8,7 @@ RUN npm ci --omit=dev
 COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
+COPY chrome-extension ./chrome-extension
 
 EXPOSE 3000
 

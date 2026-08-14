@@ -26,6 +26,9 @@ export const config = {
   publicBaseUrl,
   ingestToken,
   ownerName: process.env.OWNER_NAME ?? 'Sky Hong',
+  // Self-serve signup is on unless explicitly disabled.
+  signupEnabled: !/^(0|false|no)$/i.test(process.env.SIGNUP_ENABLED ?? 'true'),
+  signupPerHourPerIp: Math.max(1, Number(process.env.SIGNUP_PER_HOUR_PER_IP ?? 5)),
   youtube: {
     apiKey: process.env.YOUTUBE_API_KEY ?? '',
     privateDataKey: youtubePrivateDataKey,
