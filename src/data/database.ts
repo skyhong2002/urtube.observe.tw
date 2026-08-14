@@ -1124,6 +1124,97 @@ export class Repository {
     };
   }
 
+  // Aggregates for one time window [start, end), the building block of a
+  // "crystal": a compressed, comparable slice of attention. Only aggregates
+  // leave this method — no timestamps, no searches, no per-event rows.
+  youtubeCrystalWindow(startIso: string | null, endIso: string | null): {
+    watchEvents: number;
+    uniqueVideos: number;
+    estimatedWatchSeconds: number;
+    activeDays: number;
+    channels: Array<{ key: string; channelId: string | null; name: string; watches: number; estimatedWatchSeconds: number }>;
+    topics: Array<{ slug: string; name: string; watches: number; estimatedWatchSeconds: number }>;
+    keywords: ReturnType<typeof extractYoutubeKeywords>;
+  } {
+    const bounds = [
+      startIso ? 'e.watched_at>=?' : null,
+      endIso ? 'e.watched_at<?' : null,
+    ].filter(Boolean).join(' AND ');
+    const where = bounds ? `WHERE ${bounds}` : 'WHERE 1=1';
+    const params = [startIso, endIso].filter((value): value is string => value !== null);
+    const totals = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      SELECT COUNT(*) watch_events,
+        COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
+        COUNT(DISTINCT strftime('%Y-%m-%d', e.watched_at, '+8 hours')) active_days
+      FROM estimated_events e
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const channelId = 'COALESCE(e.channel_id, v.channel_id)';
+    const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
+    const channelRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      SELECT ${channelId} channel_id, ${channelName} name,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
+      ${where}
+        AND ${channelName} IS NOT NULL
+        AND LOWER(TRIM(${channelName}))<>'unknown channel'
+      GROUP BY COALESCE(${channelId}, ${channelName})
+      ORDER BY estimated_watch_seconds DESC, watches DESC, name
+      LIMIT 60
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    const topicRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      SELECT t.slug, t.name, COUNT(*) watches,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      JOIN youtube_video_topics vt ON vt.video_id=e.video_id AND vt.rank=1
+      JOIN youtube_topics t ON t.id=vt.topic_id
+        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+      ${where}
+      GROUP BY t.id ORDER BY estimated_watch_seconds DESC, watches DESC, t.name
+    `).all(...params) as Array<Record<string, string | number>>;
+    const keywordRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_CTE},
+      ranked AS (
+        SELECT e.video_id, e.raw_url, e.raw_title, e.watched_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(e.video_id, e.raw_url) ORDER BY e.watched_at DESC
+          ) row_number
+        FROM estimated_events e
+        ${where}
+      )
+      SELECT COALESCE(v.title, w.raw_title) title,
+        SUBSTR(v.description, 1, 600) description, v.tags_json
+      FROM ranked w LEFT JOIN youtube_videos v ON v.video_id=w.video_id
+      WHERE w.row_number=1
+      ORDER BY w.watched_at DESC
+      LIMIT 1000
+    `).all(...params) as Array<{ title: string; description: string | null; tags_json: string | null }>;
+    return {
+      watchEvents: Number(totals.watch_events ?? 0),
+      uniqueVideos: Number(totals.unique_videos ?? 0),
+      estimatedWatchSeconds: Number(totals.estimated_watch_seconds ?? 0),
+      activeDays: Number(totals.active_days ?? 0),
+      channels: channelRows.map((row) => ({
+        key: row.channel_id === null ? String(row.name) : String(row.channel_id),
+        channelId: row.channel_id === null ? null : String(row.channel_id),
+        name: String(row.name),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      topics: topicRows.map((row) => ({
+        slug: String(row.slug), name: String(row.name),
+        watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      keywords: extractYoutubeKeywords(keywordRows, 30),
+    };
+  }
+
   youtubeVideosNeedingMetadata(limit = 500): string[] {
     const safeLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
     const rows = this.db.prepare(`
