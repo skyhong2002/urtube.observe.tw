@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>urtube YouTube Capture settings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="options">
+  <main>
+    <header>
+      <div class="mark">i</div>
+      <div>
+        <h1>urtube YouTube Capture</h1>
+        <p>Private connection settings</p>
+      </div>
+    </header>
+    <form id="settings">
+      <label for="endpoint">Capture endpoint</label>
+      <input id="endpoint" name="endpoint" type="url" required>
+      <label for="token">Capture token</label>
+      <input id="token" name="token" type="password" minlength="32" autocomplete="off" required>
+      <label class="toggle">
+        <input id="enabled" name="enabled" type="checkbox">
+        <span>Capture viewing sessions</span>
+      </label>
+      <label class="toggle">
+        <input id="auto-sync" name="autoSync" type="checkbox">
+        <span>Sync account history daily</span>
+      </label>
+      <div class="actions">
+        <button type="submit">Save</button>
+        <button id="test" type="button" class="secondary">Test connection</button>
+      </div>
+      <p id="result" role="status"></p>
+    </form>
+    <p class="privacy">The token and pending captures stay in this Chrome profile. Daily sync reads the signed-in Google My Activity YouTube page; search terms are encrypted by urtube before storage.</p>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

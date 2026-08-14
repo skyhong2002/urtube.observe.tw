@@ -1,0 +1,167 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #111317;
+  color: #f2f4f7;
+  margin: 0;
+}
+
+main {
+  margin: 0 auto;
+}
+
+.options main {
+  max-width: 620px;
+  padding: 48px 24px;
+}
+
+.popup main {
+  padding: 18px;
+  width: 330px;
+}
+
+header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.mark {
+  align-items: center;
+  background: #a9b0ff;
+  border-radius: 7px;
+  color: #101218;
+  display: flex;
+  font-size: 22px;
+  font-weight: 800;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+h1 {
+  font-size: 20px;
+  line-height: 1.2;
+  margin: 0 0 4px;
+}
+
+p {
+  color: #9da5b1;
+  margin: 0;
+}
+
+form {
+  border-top: 1px solid #30343b;
+  display: grid;
+  gap: 10px;
+  padding-top: 24px;
+}
+
+label {
+  color: #cdd2d9;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 8px;
+}
+
+input[type="url"],
+input[type="password"] {
+  background: #1a1d23;
+  border: 1px solid #3b404a;
+  border-radius: 6px;
+  color: #f2f4f7;
+  font: inherit;
+  padding: 11px 12px;
+  width: 100%;
+}
+
+input:focus {
+  border-color: #a9b0ff;
+  outline: 2px solid rgba(169, 176, 255, 0.2);
+}
+
+.toggle {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+button {
+  background: #f2f4f7;
+  border: 1px solid #f2f4f7;
+  border-radius: 6px;
+  color: #121419;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 9px 13px;
+}
+
+button.secondary {
+  background: transparent;
+  border-color: #4a505b;
+  color: #d9dde3;
+}
+
+button.danger {
+  border-color: #b9472e;
+  color: #ff9c87;
+}
+
+.popup .actions {
+  flex-wrap: wrap;
+}
+
+#result,
+.error {
+  min-height: 20px;
+}
+
+.privacy {
+  border-top: 1px solid #30343b;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 30px;
+  padding-top: 18px;
+}
+
+dl {
+  border-bottom: 1px solid #30343b;
+  border-top: 1px solid #30343b;
+  margin: 0 0 16px;
+}
+
+dl div {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+
+dt {
+  color: #9da5b1;
+}
+
+dd {
+  margin: 0;
+}
+
+.error {
+  color: #ff9c87;
+  font-size: 12px;
+  line-height: 1.4;
+}

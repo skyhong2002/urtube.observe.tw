@@ -1,0 +1,50 @@
+# urtube stack. Containers bind to localhost only; Caddy on the host
+# terminates TLS for urtube.observe.tw and proxies:
+#   /api/ingest/* -> 127.0.0.1:18081, everything else -> 127.0.0.1:18080
+services:
+  app:
+    build: .
+    image: urtube
+    container_name: urtube-app
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:18080:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_PATH=/data/urtube.sqlite
+      - USERS_DATABASE_PATH=/data/users.sqlite
+    volumes:
+      - urtube-data:/data
+  ingest:
+    build: .
+    image: urtube
+    container_name: urtube-ingest
+    command: ["npx", "tsx", "src/ingest.ts"]
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:18081:3001"
+    environment:
+      - PORT=3001
+      - DATABASE_PATH=/data/urtube.sqlite
+      - USERS_DATABASE_PATH=/data/users.sqlite
+    volumes:
+      - urtube-data:/data
+  worker:
+    build: .
+    image: urtube
+    container_name: urtube-worker
+    command: ["npx", "tsx", "src/youtube-worker.ts"]
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    env_file: .env
+    environment:
+      - DATABASE_PATH=/data/urtube.sqlite
+      - USERS_DATABASE_PATH=/data/users.sqlite
+    volumes:
+      - urtube-data:/data
+
+volumes:
+  urtube-data:
