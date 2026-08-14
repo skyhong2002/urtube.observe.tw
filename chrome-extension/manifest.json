@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "urtube YouTube Capture",
+  "version": "1.0.0",
+  "description": "Privately syncs cross-device YouTube history, saved progress, and measured Chrome viewing to urtube.",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://urtube.observe.tw/*",
+    "https://myactivity.google.com/*",
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "urtube YouTube Capture"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://urtube.observe.tw/youtube*",
+        "https://urtube.observe.tw/u/*"
+      ],
+      "js": [
+        "dashboard.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://myactivity.google.com/product/youtube*"
+      ],
+      "js": [
+        "myactivity.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "history.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

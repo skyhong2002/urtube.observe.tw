@@ -1,0 +1,135 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import test from 'node:test';
+import { zipSync, strToU8 } from 'fflate';
+import { Repository } from '../src/data/database.js';
+import { createApp } from '../src/index.js';
+import { UserRegistry } from '../src/users.js';
+import { decryptPrivateValue } from '../src/youtube/crypto.js';
+import { parseYoutubeArchive } from '../src/youtube/takeout.js';
+
+const SECRET = process.env.YOUTUBE_PRIVATE_DATA_KEY!;
+const PLAINTEXT_QUERY = 'extremely private search term';
+
+function fixtureZip(): Uint8Array {
+  return zipSync({
+    'Takeout/YouTube and YouTube Music/history/watch-history.json': strToU8(JSON.stringify([{
+      header: 'YouTube', title: 'Watched Privacy Fixture Video',
+      titleUrl: 'https://www.youtube.com/watch?v=privacyvid1',
+      subtitles: [{ name: 'Privacy Channel', url: 'https://www.youtube.com/channel/privacy-channel' }],
+      time: '2026-07-28T01:00:00Z', products: ['YouTube'],
+      activityControls: ['YouTube watch history'],
+    }])),
+    'Takeout/YouTube and YouTube Music/history/search-history.json': strToU8(JSON.stringify([{
+      header: 'YouTube', title: `Searched for ${PLAINTEXT_QUERY}`,
+      time: '2026-07-28T00:30:00Z', products: ['YouTube'],
+      activityControls: ['YouTube search history'],
+    }])),
+  });
+}
+
+test('search queries reach the database only as authenticated ciphertext', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'urtube-privacy-'));
+  const path = join(dir, 'privacy.sqlite');
+  const repository = new Repository(path);
+  try {
+    repository.ingestYoutubeArchive(parseYoutubeArchive(fixtureZip(), SECRET));
+  } finally {
+    repository.close();
+  }
+  const raw = new DatabaseSync(path, { readOnly: true });
+  try {
+    const rows = raw.prepare('SELECT query_ciphertext FROM youtube_search_events').all() as
+      Array<{ query_ciphertext: string }>;
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].query_ciphertext, /^v1\./);
+    assert.ok(!rows[0].query_ciphertext.includes(PLAINTEXT_QUERY));
+    assert.equal(decryptPrivateValue(rows[0].query_ciphertext, SECRET), PLAINTEXT_QUERY);
+    // The plaintext must not appear in ANY column of ANY table.
+    const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
+    for (const { name } of tables) {
+      const all = JSON.stringify(raw.prepare(`SELECT * FROM "${name}"`).all());
+      assert.ok(!all.includes(PLAINTEXT_QUERY), `plaintext leaked into ${name}`);
+    }
+  } finally {
+    raw.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('YouTube events never surface on public activity queries', () => {
+  const repository = new Repository(':memory:');
+  try {
+    repository.ingestYoutubeArchive(parseYoutubeArchive(fixtureZip(), SECRET));
+    assert.ok(repository.countActivities() > 0);
+    assert.equal(repository.queryActivities({}).total, 0);
+    assert.equal(repository.queryActivities({ source: 'youtube' }).total, 0);
+    assert.equal(repository.countPublicActivities(), 0);
+  } finally {
+    repository.close();
+  }
+});
+
+test('public JSON APIs expose aggregates but no timestamps, searches, or progress rows', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const user = registry.ensureDefaultUser();
+    const repository = registry.repositoryFor(user);
+    repository.ingestYoutubeArchive(parseYoutubeArchive(fixtureZip(), SECRET));
+    repository.ingestYoutubeProgress({
+      scanId: 'scan-privacy-1234567890',
+      observedAt: new Date().toISOString(),
+      complete: true,
+      items: [{ videoId: 'privacyvid1', progressPercent: 50, resumeSeconds: 90, durationSeconds: 600 }],
+    });
+
+    const recent = await app.request('/api/youtube/recent.json');
+    assert.equal(recent.status, 200);
+    const recentText = await recent.text();
+    assert.ok(!recentText.includes('watchedAt'));
+    assert.ok(!recentText.includes('actualWatchedSeconds'));
+    assert.ok(!recentText.includes(PLAINTEXT_QUERY));
+
+    const summary = await app.request('/api/youtube/summary.json');
+    assert.equal(summary.status, 200);
+    const summaryBody = await summary.json() as Record<string, unknown>;
+    assert.equal(summaryBody.recent, undefined);
+    const summaryText = JSON.stringify(summaryBody);
+    assert.ok(!summaryText.includes(PLAINTEXT_QUERY));
+    assert.ok(!summaryText.includes('resumeSeconds'));
+    assert.ok(!summaryText.includes('query_ciphertext'));
+
+    const status = await app.request('/status');
+    assert.ok(!(await status.text()).includes(PLAINTEXT_QUERY));
+  } finally {
+    registry.close();
+  }
+});
+
+test('private dashboards need their dashboard token; users cannot see each other', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const dad = registry.createUser('dad', 'Dad');
+    assert.equal((await app.request('/u/dad')).status, 404);
+    assert.equal((await app.request('/u/dad?key=wrong-key')).status, 404);
+    assert.equal((await app.request('/u/nobody')).status, 404);
+    assert.equal((await app.request(`/u/dad?key=${dad.dashboardToken}`)).status, 200);
+    assert.equal((await app.request(`/u/dad/summary.json?key=${dad.dashboardToken}`)).status, 200);
+
+    const sky = registry.createUser('sky2', 'Second');
+    assert.equal((await app.request(`/u/dad?key=${sky.dashboardToken}`)).status, 404);
+
+    // Distinct users have distinct derived data keys.
+    assert.notEqual(
+      registry.dataKeyFor(registry.userByHandle('dad')!),
+      registry.dataKeyFor(registry.userByHandle('sky2')!),
+    );
+  } finally {
+    registry.close();
+  }
+});
