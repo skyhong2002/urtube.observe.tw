@@ -16,21 +16,81 @@ export function duration(seconds: number | null): string {
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-// Light theme. Chart ink follows the validated palette: brand/series red
-// #d03b3b and series blue #2a78d6 both pass the six checks on #fcfcfb.
+// The screening room: a dark, cinematic surface where thumbnails glow and the
+// data is the only loud thing. Chart ink is validated against #141412 (marks
+// ≥3:1, text tokens ≥4.5:1; see the dataviz six checks).
 const styles = `
-  :root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--surface-raised:#f0efec;--line:#e1e0d9;--line-strong:#c3c2b7;--text:#0b0b0b;--muted:#52514e;--quiet:#898781;--accent:#d03b3b;--accent-deep:#b02f2f;--blue:#2a78d6;--good:#006300;--shadow:0 1px 2px rgba(11,11,11,.04),0 8px 24px -18px rgba(11,11,11,.25)}
-  *{box-sizing:border-box}html{scroll-behavior:smooth}body{background:var(--bg);color:var(--text);font:15px/1.55 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;min-height:100vh}a{color:var(--accent-deep)}a:focus-visible{border-radius:5px;outline:2px solid var(--accent);outline-offset:4px}
-  .site-header{align-items:center;background:var(--surface);border-bottom:1px solid var(--line);display:flex;gap:28px;justify-content:space-between;padding:14px max(20px,calc((100% - 1240px)/2))}
-  .site-brand{align-items:center;color:var(--text);display:flex;gap:11px;text-decoration:none}.brand-mark{align-items:center;background:var(--accent);border-radius:9px;color:#fff;display:flex;font-size:18px;font-weight:800;height:38px;justify-content:center;width:38px}.site-brand strong,.site-brand small{display:block}.site-brand strong{font-size:16px;letter-spacing:.01em}.site-brand small{color:var(--quiet);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
-  .site-nav{display:flex;gap:6px}.site-nav a{border:1px solid transparent;border-radius:999px;color:var(--muted);font-size:13px;font-weight:600;padding:7px 13px;text-decoration:none}.site-nav a:hover{background:var(--surface-raised);color:var(--text)}.site-nav a[aria-current=page]{background:var(--text);border-color:var(--text);color:#fff}
-  .site-main{margin:0 auto;max-width:1240px;padding:40px 20px 82px}.site-footer{border-top:1px solid var(--line);color:var(--quiet);font-size:12px;margin:0 auto;max-width:1240px;padding:26px 20px 48px}
-  h1,h2,h3,p{overflow-wrap:anywhere}.eyebrow{color:var(--accent-deep);font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase}.muted{color:var(--muted)}
-  .page-intro{align-items:end;display:flex;gap:30px;justify-content:space-between;margin-bottom:30px}.page-intro h1{font-size:clamp(32px,5vw,52px);letter-spacing:-.035em;line-height:1.04;margin:7px 0 12px}.page-intro p{color:var(--muted);margin:0;max-width:670px}.page-intro-aside{color:var(--quiet);font-size:12px;max-width:230px;text-align:right}.context-line{align-items:center;color:var(--quiet);display:flex;flex-wrap:wrap;font-size:12px;gap:8px;margin:-12px 0 30px}.context-line a{color:var(--muted);text-decoration:none}.context-line strong{color:var(--text);font-weight:600}
-  .card-surface{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
-  @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column}.site-nav{max-width:100%;overflow-x:auto;padding-bottom:3px;width:100%}.site-main{padding-top:34px}}
-  @media(max-width:560px){.page-intro{align-items:flex-start;flex-direction:column}.page-intro-aside{text-align:left}}
+  :root{color-scheme:dark;
+    --bg:#0d0d0c;--surface:#141412;--raised:#1d1d1b;--line:#262624;--line-strong:#3a3a36;
+    --ink:#f4f2ee;--ink-2:#b8b5ad;--muted:#8a877f;
+    --accent:#d03b3b;--accent-text:#ff8a8a;--blue:#3987e5;--blue-text:#7fb2ef;--good:#0ca30c;
+    --radius:14px;--shadow:0 1px 0 rgba(255,255,255,.03) inset,0 18px 40px -30px rgba(0,0,0,.9)}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);background-image:radial-gradient(1100px 420px at 50% -180px,rgba(208,59,59,.09),transparent 70%);background-repeat:no-repeat;color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;min-height:100vh}
+  a{color:var(--accent-text)}
+  a:focus-visible,button:focus-visible,input:focus-visible,[tabindex]:focus-visible{border-radius:6px;outline:2px solid var(--accent-text);outline-offset:3px}
+  ::selection{background:rgba(208,59,59,.35)}
+  h1,h2,h3,p{overflow-wrap:anywhere}
+  .eyebrow{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+  .muted{color:var(--ink-2)}
+  code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;padding:1px 5px}
+
+  .site-header{align-items:center;display:flex;gap:24px;justify-content:space-between;padding:18px max(22px,calc((100% - 1180px)/2))}
+  .site-brand{align-items:center;color:var(--ink);display:flex;gap:11px;text-decoration:none}
+  .site-brand svg{display:block;height:30px;width:30px}
+  .site-brand strong{font-size:15px;letter-spacing:.01em}
+  .site-brand small{color:var(--muted);display:block;font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+  .site-nav{display:flex;gap:4px}
+  .site-nav a{border-radius:999px;color:var(--ink-2);font-size:13px;font-weight:600;padding:7px 13px;text-decoration:none}
+  .site-nav a:hover{background:var(--raised);color:var(--ink)}
+  .site-nav a[aria-current=page]{background:var(--ink);color:#111}
+  .site-main{margin:0 auto;max-width:1180px;padding:26px 22px 90px}
+  .site-footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;margin:0 auto;max-width:1180px;padding:24px 22px 54px}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-top:18px;padding:22px 24px}
+  .section-head{align-items:baseline;display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;margin-bottom:16px}
+  .section-head h2{font-size:15px;letter-spacing:.01em;margin:0}
+  .section-head span{color:var(--muted);font-size:11px}
+  .section-head a{color:inherit}
+
+  .viz-tip{background:#262623;border:1px solid var(--line-strong);border-radius:9px;box-shadow:0 10px 30px -10px rgba(0,0,0,.8);color:var(--ink-2);font-size:11px;left:0;line-height:1.5;padding:7px 10px;pointer-events:none;position:fixed;top:0;transform:translate(-50%,calc(-100% - 10px));visibility:hidden;white-space:nowrap;z-index:30}
+  .viz-tip strong{color:var(--ink);display:block;font-size:13px}
+  details.viz-table{color:var(--ink-2);font-size:12px;margin-top:12px}
+  details.viz-table summary{color:var(--muted);cursor:pointer;font-size:11px}
+  details.viz-table table{border-collapse:collapse;margin-top:8px}
+  details.viz-table td,details.viz-table th{border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;padding:4px 14px 4px 0;text-align:left}
+
+  @media(max-width:760px){.site-header{padding-block:14px}.site-main{padding-top:16px}.section{padding:16px}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
+
+// One floating tooltip for every chart on the page: any element carrying
+// data-tip (value) / data-tip-label shows it on hover and keyboard focus.
+// Tooltips enhance — every value they show is also in text or a table view.
+const tooltipScript = `(()=>{
+  const tip=document.createElement('div');tip.className='viz-tip';tip.setAttribute('role','status');document.body.append(tip);
+  let current=null;
+  const show=(el)=>{current=el;
+    tip.replaceChildren();
+    const strong=document.createElement('strong');strong.textContent=el.dataset.tip||'';tip.append(strong);
+    if(el.dataset.tipLabel)tip.append(document.createTextNode(el.dataset.tipLabel));
+    const r=el.getBoundingClientRect();
+    tip.style.visibility='visible';
+    const w=tip.offsetWidth,x=Math.min(Math.max(r.left+r.width/2,w/2+8),innerWidth-w/2-8);
+    tip.style.left=x+'px';tip.style.top=Math.max(r.top,44)+'px';};
+  const hide=(el)=>{if(current===el){tip.style.visibility='hidden';current=null;}};
+  for(const el of document.querySelectorAll('[data-tip]')){
+    el.addEventListener('pointerenter',()=>show(el));
+    el.addEventListener('pointerleave',()=>hide(el));
+    el.addEventListener('focus',()=>show(el));
+    el.addEventListener('blur',()=>hide(el));
+  }
+  addEventListener('scroll',()=>{if(current)hide(current)},{passive:true});
+})();`;
+
+export const brandMark = `<svg viewBox="0 0 128 128" aria-hidden="true"><rect width="128" height="128" rx="28" fill="#d03b3b"/><ellipse cx="64" cy="64" rx="46" ry="16" fill="none" stroke="#fcfcfb" stroke-width="6" transform="rotate(-24 64 64)"/><path d="M52 40 L90 64 L52 88 Z" fill="#c23535" stroke="#c23535" stroke-width="14" stroke-linejoin="round"/><path d="M52 40 L90 64 L52 88 Z" fill="#fcfcfb" stroke="#fcfcfb" stroke-width="4" stroke-linejoin="round"/></svg>`;
 
 export interface ShellNavItem {
   label: string;
@@ -45,9 +105,11 @@ export function shell(title: string, body: string, nav: ShellNavItem[] = [], ext
   ).join('');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${description}">
   <meta property="og:type" content="website"><meta property="og:title" content="${html(title)} · urtube"><meta property="og:description" content="${description}">
+  <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${html(title)} · urtube</title><style>${styles}${extraStyles}</style></head><body>
-  <header class="site-header"><a class="site-brand" href="/"><span class="brand-mark">u</span><span><strong>urtube</strong><small>YouTube attention archive</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
+  <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>attention archive</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
   <main class="site-main">${body}</main>
   <footer class="site-footer">urtube · self-hosted at ${html(config.publicBaseUrl.replace(/^https?:\/\//, ''))} · watch history stays private</footer>
+  <script>${tooltipScript}</script>
   </body></html>`;
 }
