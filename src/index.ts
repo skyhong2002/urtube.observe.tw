@@ -9,7 +9,7 @@ import { config } from './config.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { dashboardSetupSection, signupPage, welcomePage } from './output/onboarding.js';
 import { buildYoutubeCrystal, compareCrystals } from './youtube/crystal.js';
-import { html, shell } from './output/pages.js';
+import { brandMark, html, shell } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { UserRegistry, type User } from './users.js';
 import type { YoutubeRange } from './youtube/types.js';
@@ -90,18 +90,57 @@ export function createApp(registry: UserRegistry): Hono {
   }
 
   app.get('/', (c) => {
-    const body = `<section class="page-intro"><div><div class="eyebrow">Private attention archive</div><h1>urtube</h1>
-      <p>Your YouTube life, archived privately: watch history from Takeout and Google My Activity, measured
-      viewing time from the Chrome extension, saved progress, channels, and AI topics. Searches are encrypted;
-      raw history never leaves this server.</p>
-      ${config.signupEnabled ? '<div class="hero-actions" style="margin-top:22px"><a href="/signup" style="background:var(--text);border-radius:999px;color:#111;font-weight:700;padding:11px 18px;text-decoration:none">Create your archive →</a></div>' : ''}</div></section>
-      <p><a href="/youtube">See a live example: ${html(config.ownerName)}'s dashboard →</a></p>
-      <p class="muted">Already have an account? Open the dashboard link you saved at signup
-      (<code>/u/&lt;handle&gt;?key=…</code>) — after the first visit a cookie keeps you signed in.</p>`;
+    const landingStyles = `
+      .lp-hero{margin:8vh 0 60px;max-width:760px}
+      .lp-hero .lp-mark{height:52px;margin-bottom:26px;width:52px}
+      .lp-hero h1{font-size:clamp(38px,6.5vw,68px);font-weight:750;letter-spacing:-.045em;line-height:1.02;margin:0 0 18px}
+      .lp-hero h1 em{color:var(--accent-text);font-style:normal}
+      .lp-hero p{color:var(--ink-2);font-size:16px;line-height:1.65;margin:0;max-width:600px}
+      .lp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+      .lp-actions a{border-radius:999px;font-size:14px;font-weight:700;padding:12px 20px;text-decoration:none}
+      .lp-actions a.lp-primary{background:var(--accent);color:#fff}
+      .lp-actions a.lp-primary:hover{background:#b02f2f}
+      .lp-actions a.lp-ghost{border:1px solid var(--line-strong);color:var(--ink)}
+      .lp-actions a.lp-ghost:hover{border-color:var(--muted)}
+      .lp-points{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:56px}
+      .lp-point{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px}
+      .lp-point strong{display:block;font-size:14px;margin-bottom:6px}
+      .lp-point p{color:var(--ink-2);font-size:13px;line-height:1.6;margin:0}
+      .lp-note{color:var(--muted);font-size:12px;margin-top:34px}
+    `;
+    const body = `<style>${landingStyles}</style><section class="lp-hero">
+      <div class="lp-mark">${brandMark}</div>
+      <h1>Your YouTube life,<br><em>remembered.</em></h1>
+      <p>urtube keeps a private archive of everything you watch — history from Takeout and Google
+      My Activity, measured viewing time from a small Chrome extension, saved progress, channels,
+      and AI-classified topics. Searches are encrypted; raw history never leaves this server.</p>
+      <div class="lp-actions">
+        ${config.signupEnabled ? '<a class="lp-primary" href="/signup">Create your archive →</a>' : ''}
+        <a class="lp-ghost" href="/youtube">See a live example: ${html(config.ownerName)}</a>
+      </div>
+    </section>
+    <div class="lp-points">
+      <div class="lp-point"><strong>Every source, one timeline</strong><p>Takeout backfills years of history; the extension measures real seconds from today forward. Nothing is sampled, nothing expires.</p></div>
+      <div class="lp-point"><strong>Private by construction</strong><p>Each account is its own database. Search terms are encrypted at rest, dashboards are private by default, and aggregates are all anyone can ever see.</p></div>
+      <div class="lp-point"><strong>See yourself change</strong><p>Attention shifts, channel momentum, and cross-person crystal comparisons show what you're drifting toward — and away from.</p></div>
+    </div>
+    <p class="lp-note">Already have an account? Open the dashboard link you saved at signup
+    (<code>/u/&lt;handle&gt;?key=…</code>) — after the first visit a cookie keeps you signed in.</p>`;
     return c.html(shell('urtube', body, [
       { label: 'Create your archive', href: '/signup' },
       { label: 'Example dashboard', href: '/youtube' },
     ]));
+  });
+
+  // The brand mark, served for browser tabs and OG scrapers.
+  let faviconSvg: string | null = null;
+  app.get('/favicon.svg', (c) => {
+    if (faviconSvg === null) {
+      faviconSvg = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'favicon.svg'), 'utf8');
+    }
+    c.header('Content-Type', 'image/svg+xml');
+    c.header('Cache-Control', 'public, max-age=86400');
+    return c.body(faviconSvg);
   });
 
   app.get('/signup', (c) => {
