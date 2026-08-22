@@ -9,6 +9,7 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY chrome-extension ./chrome-extension
+COPY favicon.svg ./
 
 EXPOSE 3000
 
