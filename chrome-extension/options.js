@@ -25,10 +25,11 @@ function values() {
   ) {
     throw new Error('Endpoint must be https://urtube.observe.tw/api/ingest/youtube/capture');
   }
-  if (token.value.length < 32) throw new Error('Capture token must contain at least 32 characters');
+  const tokenValue = token.value.trim();
+  if (tokenValue.length < 32) throw new Error('Capture token must contain at least 32 characters');
   return {
     endpoint: url.toString().replace(/\/$/, ''),
-    token: token.value,
+    token: tokenValue,
     enabled: enabled.checked,
     autoSync: autoSync.checked,
   };
