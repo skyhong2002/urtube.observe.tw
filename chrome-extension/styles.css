@@ -36,15 +36,9 @@ header {
 }
 
 .mark {
-  align-items: center;
-  background: #a9b0ff;
-  border-radius: 7px;
-  color: #101218;
-  display: flex;
-  font-size: 22px;
-  font-weight: 800;
+  border-radius: 9px;
+  display: block;
   height: 42px;
-  justify-content: center;
   width: 42px;
 }
 
