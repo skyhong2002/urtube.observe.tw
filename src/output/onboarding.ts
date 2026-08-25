@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import type { CreatedUser, User } from '../users.js';
+import { messages, type Lang } from './i18n.js';
 import { html, shell } from './pages.js';
 
 const formStyles = `
@@ -24,65 +25,65 @@ const formStyles = `
   .ob-steps strong{color:var(--ink)}
 `;
 
-const signupNav = [
-  { label: 'Home', href: '/' },
-  { label: 'Create your archive', href: '/signup', active: true },
-];
-
-export function signupPage(error = ''): string {
-  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">Self-serve onboarding</div><h1>Create your archive</h1>
-    <p>Pick a handle and you immediately get a private dashboard plus a personal capture token for the Chrome
-    extension. Your history stays yours: searches are encrypted, dashboards are private by default, and every
-    account lives in its own database.</p></section>
-    <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
-    <form class="ob-form" method="post" action="/signup">
-      <label for="handle">Handle (lowercase letters, digits, dashes)</label>
-      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9-]{1,31}" placeholder="dad">
-      <label for="displayName">Display name</label>
-      <input id="displayName" name="displayName" type="text" required maxlength="80" placeholder="Sky's Dad">
-      <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"> Make my dashboard public (anyone with the link can see aggregates — never searches)</label>
-      <button type="submit">Create my archive</button>
-    </form></div>`;
-  return shell('Create your archive', body, signupNav);
+function signupNav(lang: Lang) {
+  const t = messages(lang);
+  return [
+    { label: t.navHome, href: '/' },
+    { label: t.navSignup, href: '/signup', active: true },
+  ];
 }
 
-export function welcomePage(user: CreatedUser): string {
+export function signupPage(error = '', lang: Lang = 'en'): string {
+  const t = messages(lang);
+  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupTitle}</h1>
+    <p>${t.signupPara}</p></section>
+    <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
+    <form class="ob-form" method="post" action="/signup">
+      <label for="handle">${t.signupHandle}</label>
+      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9-]{1,31}" placeholder="dad">
+      <label for="displayName">${t.signupName}</label>
+      <input id="displayName" name="displayName" type="text" required maxlength="80" placeholder="Sky's Dad">
+      <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"> ${t.signupPublic}</label>
+      <button type="submit">${t.signupSubmit}</button>
+    </form></div>`;
+  return shell(t.signupTitle, body, signupNav(lang), '', lang);
+}
+
+export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
+  const t = messages(lang);
   const endpoint = `${config.publicBaseUrl}/api/ingest/youtube/capture`;
   const dashboardUrl = user.dashboardPublic
     ? `${config.publicBaseUrl}/u/${user.handle}`
     : `${config.publicBaseUrl}/u/${user.handle}?key=${user.dashboardToken}`;
-  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">Welcome, ${html(user.displayName)}</div><h1>Your archive is ready</h1>
-    <p>These credentials are shown <strong>once</strong> — we store only hashes. Save them somewhere safe now.</p></section>
+  const steps = t.welcomeSteps(html(endpoint)).map((step) => `<li>${step}</li>`).join('\n        ');
+  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.welcomeEyebrow(html(user.displayName))}</div><h1>${t.welcomeTitle}</h1>
+    <p>${t.welcomePara}</p></section>
     <div class="ob-card">
-      <div class="ob-warn">⚠ This page cannot be re-opened. Copy everything below before leaving.</div>
-      <h2>1 · Your dashboard</h2>
-      <p>Bookmark this exact link${user.dashboardPublic ? '' : ' — the key in it is your login'}:</p>
+      <div class="ob-warn">${t.welcomeWarn}</div>
+      <h2>${t.welcomeDash}</h2>
+      <p>${t.welcomeDashPara(user.dashboardPublic)}</p>
       <code class="ob-token"><a href="${html(dashboardUrl)}">${html(dashboardUrl)}</a></code>
-      <h2>2 · Capture token</h2>
-      <p>Paste this into the extension's settings as the capture token:</p>
+      <h2>${t.welcomeToken}</h2>
+      <p>${t.welcomeTokenPara}</p>
       <code class="ob-token">${html(user.captureToken)}</code>
-      <h2>3 · Install the Chrome extension</h2>
+      <h2>${t.welcomeExtension}</h2>
       <ol class="ob-steps">
-        <li>Download <a href="/extension.zip">extension.zip</a> and unzip it.</li>
-        <li>Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and pick the unzipped folder.</li>
-        <li>In the extension's <strong>Settings</strong>: endpoint <code>${html(endpoint)}</code>, token from step 2 → <strong>Test connection</strong> should say “Connection ready.”</li>
-        <li>Watch any YouTube video for ≥30 seconds — it appears on your dashboard as measured time.</li>
-        <li>Optional: press <strong>Sync now</strong> in the extension popup to pull your recent account history and saved progress, or upload a full <a href="https://takeout.google.com">Google Takeout</a> later.</li>
+        ${steps}
       </ol>
-      <p style="margin-top:16px">Lost your tokens? There is no recovery in this MVP — ask the instance owner to rotate them.</p>
+      <p style="margin-top:16px">${t.welcomeLost}</p>
     </div>`;
-  return shell('Welcome', body, signupNav);
+  return shell(t.welcomeTitle, body, signupNav(lang), '', lang);
 }
 
-export function dashboardSetupSection(user: User, hasData: boolean): string {
+export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang = 'en'): string {
   if (hasData) return '';
+  const t = messages(lang);
   const endpoint = `${config.publicBaseUrl}/api/ingest/youtube/capture`;
+  const steps = t.setupSteps(html(endpoint)).map((step) => `<li>${step}</li>`).join('\n      ');
   return `<style>${formStyles}</style><div class="ob-card" style="margin:18px 0 0;max-width:none">
-    <h2>Nothing here yet — finish your setup</h2>
+    <h2>${t.setupTitle}</h2>
     <ol class="ob-steps">
-      <li>Install the <a href="/extension.zip">Chrome extension</a> (chrome://extensions → Developer mode → Load unpacked).</li>
-      <li>Extension settings: endpoint <code>${html(endpoint)}</code> + the capture token you saved at signup.</li>
-      <li>Watch a video, or press <strong>Sync now</strong> in the extension popup to import recent history.</li>
+      ${steps}
     </ol>
   </div>`;
 }

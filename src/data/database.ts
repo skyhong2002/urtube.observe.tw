@@ -88,8 +88,17 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
       )
     `;
 
+// Read-side prelude: the same `estimated_events` name, but served from the
+// per-connection materialized copy (see Repository.ensureEstimatedEvents)
+// instead of re-running the expensive window-function CTE per statement.
+const YOUTUBE_ESTIMATED_EVENTS_VIEW = `
+      WITH estimated_events AS (SELECT * FROM temp.youtube_estimated_events)
+    `;
+
 export class Repository {
   private readonly db: DatabaseSync;
+  private estimatedEventsKey = '';
+  private estimatedEventsBuiltAt = 0;
 
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
@@ -883,14 +892,39 @@ export class Repository {
     };
   }
 
+  // Materialize the estimated-events CTE into a per-connection temp table so
+  // dashboard + crystal statements read it instead of each re-running the
+  // window functions. Rebuilt when the event set changes, and at most every
+  // five minutes so metadata enrichment (durations) keeps flowing in.
+  private ensureEstimatedEvents(): void {
+    const row = this.db.prepare(`
+      SELECT (SELECT COUNT(*) FROM youtube_watch_events) watches,
+        (SELECT COUNT(*) FROM youtube_search_events) searches,
+        (SELECT MAX(watched_at) FROM youtube_watch_events) latest
+    `).get() as Record<string, number | string | null>;
+    const key = `${row.watches}:${row.searches}:${row.latest}`;
+    const now = Date.now();
+    if (key === this.estimatedEventsKey && now - this.estimatedEventsBuiltAt < 300_000) return;
+    this.db.exec(`
+      DROP TABLE IF EXISTS temp.youtube_estimated_events;
+      CREATE TEMP TABLE youtube_estimated_events AS ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      SELECT * FROM estimated_events;
+      CREATE INDEX temp.youtube_estimated_time_idx ON youtube_estimated_events(watched_at);
+      CREATE INDEX temp.youtube_estimated_video_idx ON youtube_estimated_events(video_id);
+    `);
+    this.estimatedEventsKey = key;
+    this.estimatedEventsBuiltAt = now;
+  }
+
   youtubeDashboard(range: YoutubeRange = '28d', now = new Date()): YoutubeDashboardData {
+    this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);
     const where = cutoff
       ? "WHERE w.activity_type='video' AND w.watched_at>=?"
       : "WHERE w.activity_type='video'";
     const params = cutoff ? [cutoff] : [];
     const estimatedWhere = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
-    const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_CTE;
+    const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_VIEW;
     const stats = this.db.prepare(`
       ${estimatedEvents},
       selected_videos AS (
@@ -1136,6 +1170,7 @@ export class Repository {
     topics: Array<{ slug: string; name: string; watches: number; estimatedWatchSeconds: number }>;
     keywords: ReturnType<typeof extractYoutubeKeywords>;
   } {
+    this.ensureEstimatedEvents();
     const bounds = [
       startIso ? 'e.watched_at>=?' : null,
       endIso ? 'e.watched_at<?' : null,
@@ -1143,7 +1178,7 @@ export class Repository {
     const where = bounds ? `WHERE ${bounds}` : 'WHERE 1=1';
     const params = [startIso, endIso].filter((value): value is string => value !== null);
     const totals = this.db.prepare(`
-      ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
       SELECT COUNT(*) watch_events,
         COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
         COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
@@ -1154,7 +1189,7 @@ export class Repository {
     const channelId = 'COALESCE(e.channel_id, v.channel_id)';
     const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
     const channelRows = this.db.prepare(`
-      ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
       SELECT ${channelId} channel_id, ${channelName} name,
         COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
@@ -1168,7 +1203,7 @@ export class Repository {
       LIMIT 60
     `).all(...params) as Array<Record<string, string | number | null>>;
     const topicRows = this.db.prepare(`
-      ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
       SELECT t.slug, t.name, COUNT(*) watches,
         COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
@@ -1179,7 +1214,7 @@ export class Repository {
       GROUP BY t.id ORDER BY estimated_watch_seconds DESC, watches DESC, t.name
     `).all(...params) as Array<Record<string, string | number>>;
     const keywordRows = this.db.prepare(`
-      ${YOUTUBE_ESTIMATED_EVENTS_CTE},
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW},
       ranked AS (
         SELECT e.video_id, e.raw_url, e.raw_title, e.watched_at,
           ROW_NUMBER() OVER (
