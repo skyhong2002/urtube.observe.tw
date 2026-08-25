@@ -166,14 +166,14 @@ export function createApp(registry: UserRegistry): Hono {
       <p>${t.landingPara}</p>
       <div class="lp-actions">
         ${config.signupEnabled ? `<a class="lp-primary" href="/signup">${t.landingCta}</a>` : ''}
-        <a class="lp-ghost" href="/youtube">${t.landingExample(html(config.ownerName))}</a>
+        <a class="lp-ghost" href="/${registry.ensureDefaultUser().handle}">${t.landingExample(html(config.ownerName))}</a>
       </div>
     </section>
     <div class="lp-points">${points}</div>
     <p class="lp-note">${t.landingNote}</p>`;
     return c.html(shell('urtube', body, [
       { label: t.navSignup, href: '/signup' },
-      { label: t.navExample, href: '/youtube' },
+      { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
       langToggle(c, lang),
     ], '', lang));
   });
@@ -226,10 +226,9 @@ export function createApp(registry: UserRegistry): Hono {
     return c.body(zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer);
   });
 
+  // Legacy owner-dashboard path; the canonical URL is now /<owner handle>.
   app.get('/youtube', (c) => {
-    const user = registry.ensureDefaultUser();
-    if (!dashboardAccess(c, user)) return c.text('Not found', 404);
-    return dashboardResponse(c, user, '/youtube');
+    return c.redirect(`/${registry.ensureDefaultUser().handle}`, 301);
   });
 
   app.get('/u/:handle', (c) => {
@@ -345,6 +344,16 @@ export function createApp(registry: UserRegistry): Hono {
         error: error instanceof Error ? error.message : String(error),
       }, 503);
     }
+  });
+
+  // Registered last so every fixed route above wins: /<handle> is the
+  // canonical dashboard URL (e.g. /skyhong.tw), with /u/<handle> kept as an
+  // alias for existing links.
+  app.get('/:handle', (c) => {
+    const user = registry.userByHandle(c.req.param('handle'));
+    if (!user) return c.text('Not found', 404);
+    if (!dashboardAccess(c, user)) return c.text('Not found', 404);
+    return dashboardResponse(c, user, `/${user.handle}`);
   });
 
   return app;
