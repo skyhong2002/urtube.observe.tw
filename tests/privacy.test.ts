@@ -115,14 +115,21 @@ test('private dashboards need their dashboard token; users cannot see each other
   const app = createApp(registry);
   try {
     const dad = registry.createUser('dad', 'Dad');
-    assert.equal((await app.request('/u/dad')).status, 404);
-    assert.equal((await app.request('/u/dad?key=wrong-key')).status, 404);
-    assert.equal((await app.request('/u/nobody')).status, 404);
-    assert.equal((await app.request(`/u/dad?key=${dad.dashboardToken}`)).status, 200);
+    assert.equal((await app.request('/dad')).status, 404);
+    assert.equal((await app.request('/dad?key=wrong-key')).status, 404);
+    assert.equal((await app.request('/nobody')).status, 404);
+    assert.equal((await app.request(`/dad?key=${dad.dashboardToken}`)).status, 200);
     assert.equal((await app.request(`/u/dad/summary.json?key=${dad.dashboardToken}`)).status, 200);
 
+    // Legacy paths redirect to the top-level handle, keeping the query string.
+    const legacy = await app.request(`/u/dad?key=${dad.dashboardToken}`);
+    assert.equal(legacy.status, 301);
+    assert.equal(new URL(legacy.headers.get('location')!, 'http://x').pathname, '/dad');
+    assert.match(legacy.headers.get('location')!, new RegExp(`key=${dad.dashboardToken}`));
+    assert.equal((await app.request('/youtube')).status, 301);
+
     const sky = registry.createUser('sky2', 'Second');
-    assert.equal((await app.request(`/u/dad?key=${sky.dashboardToken}`)).status, 404);
+    assert.equal((await app.request(`/dad?key=${sky.dashboardToken}`)).status, 404);
 
     // Distinct users have distinct derived data keys.
     assert.notEqual(

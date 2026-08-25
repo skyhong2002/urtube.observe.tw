@@ -28,7 +28,7 @@ test('self-serve signup creates a working account and shows tokens exactly once'
     const pageHtml = await created.text();
     const captureToken = pageHtml.match(/<code class="ob-token">([A-Za-z0-9_-]{40,})<\/code>/)?.[1];
     assert.ok(captureToken, 'welcome page shows the capture token');
-    const dashboardKey = pageHtml.match(/\/u\/newbie\?key=([A-Za-z0-9_-]+)/)?.[1];
+    const dashboardKey = pageHtml.match(/\/newbie\?key=([A-Za-z0-9_-]+)/)?.[1];
     assert.ok(dashboardKey, 'welcome page links the private dashboard with its key');
 
     // The shown capture token authenticates ingest for this user only.
@@ -40,10 +40,10 @@ test('self-serve signup creates a working account and shows tokens exactly once'
 
     // The dashboard key opens the private dashboard, which shows setup help
     // while empty.
-    const dashboard = await app.request(`/u/newbie?key=${dashboardKey}`);
+    const dashboard = await app.request(`/newbie?key=${dashboardKey}`);
     assert.equal(dashboard.status, 200);
     assert.match(await dashboard.text(), /finish your setup/);
-    assert.equal((await app.request('/u/newbie')).status, 404);
+    assert.equal((await app.request('/newbie')).status, 404);
 
     const duplicate = await app.request('/signup', {
       ...signupBody('newbie'),
