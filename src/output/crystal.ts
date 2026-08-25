@@ -1,4 +1,5 @@
 import type { CrystalComparison, CrystalShift, YoutubeCrystal } from '../youtube/crystal.js';
+import { messages, type Lang, type Messages } from './i18n.js';
 import { html, shell } from './pages.js';
 
 // Shifts are polarity, so they wear the diverging pair: warm red up, cool
@@ -30,9 +31,13 @@ function sharePct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function shiftRow(shift: CrystalShift): string {
+function shiftRow(shift: CrystalShift, t: Messages): string {
   const arrow = shift.delta > 0 ? '▲' : '▼';
-  const label = shift.status === 'new' ? 'new' : shift.status === 'gone' ? 'gone' : shift.kind;
+  const label = shift.status === 'new'
+    ? t.shiftNew
+    : shift.status === 'gone'
+      ? t.shiftGone
+      : shift.kind === 'topic' ? t.shiftTopic : t.shiftChannel;
   return `<div class="cx-shift"><span class="cx-shift-delta ${shift.delta > 0 ? 'cx-up' : 'cx-down'}">${arrow} ${(Math.abs(shift.delta) * 100).toFixed(1)}pp</span>
     <div class="cx-shift-copy"><strong>${html(shift.name)}</strong><span>${html(label)} · ${sharePct(shift.priorShare)} → ${sharePct(shift.recentShare)}</span></div></div>`;
 }
@@ -40,46 +45,50 @@ function shiftRow(shift: CrystalShift): string {
 // The "what changed" section injected into a dashboard: recent window vs the
 // one before it. This is the single-user difference question the crystal
 // design starts from.
-export function shiftsSection(crystal: YoutubeCrystal): string {
+export function shiftsSection(crystal: YoutubeCrystal, lang: Lang = 'en'): string {
+  const t = messages(lang);
   if (!crystal.shifts.length && crystal.volumeChange === null) return '';
   const volume = crystal.volumeChange === null
     ? ''
-    : ` · volume ${crystal.volumeChange >= 0 ? '+' : ''}${Math.round(crystal.volumeChange * 100)}% vs prior ${crystal.windowDays}d`;
-  const rows = crystal.shifts.slice(0, 12).map(shiftRow).join('');
+    : t.changedVolume(`${crystal.volumeChange >= 0 ? '+' : ''}${Math.round(crystal.volumeChange * 100)}%`, crystal.windowDays);
+  const rows = crystal.shifts.slice(0, 12).map((shift) => shiftRow(shift, t)).join('');
   return `<style>${crystalStyles}</style>
-    <section class="section"><div class="section-head"><h2>What changed</h2>
-    <span>last ${crystal.windowDays}d vs the ${crystal.windowDays}d before${volume} · <a href="crystal.json">crystal.json</a></span></div>
-    ${rows ? `<div class="cx-shifts">${rows}</div>` : '<p class="muted">No attention shifts above 2 share-points yet.</p>'}</section>`;
+    <section class="section"><div class="section-head"><h2>${t.whatChanged}</h2>
+    <span>${t.changedSub(crystal.windowDays)}${volume} · <a href="crystal.json">crystal.json</a></span></div>
+    ${rows ? `<div class="cx-shifts">${rows}</div>` : `<p class="muted">${t.noShifts}</p>`}</section>`;
 }
 
-export function comparePage(comparison: CrystalComparison, requesterPath: string): string {
+export function comparePage(comparison: CrystalComparison, requesterPath: string, lang: Lang = 'en'): string {
+  const t = messages(lang);
   const list = (
     title: string,
     rows: Array<{ name: string; aShare?: number; bShare?: number; share?: number; kind?: string }>,
     render: (row: any) => string,
   ) => `<div><div class="section-head"><h2>${html(title)}</h2></div>
-    <div class="cx-list">${rows.length ? rows.map(render).join('') : '<div class="cx-row"><em>Nothing here.</em></div>'}</div></div>`;
+    <div class="cx-list">${rows.length ? rows.map(render).join('') : `<div class="cx-row"><em>${t.nothingHere}</em></div>`}</div></div>`;
   const sharedRow = (row: { name: string; aShare: number; bShare: number }) =>
     `<div class="cx-row"><span>${html(row.name)}</span><em>${sharePct(row.aShare)} · ${sharePct(row.bShare)}</em></div>`;
   const onlyRow = (row: { name: string; kind: string; share: number }) =>
-    `<div class="cx-row"><span>${html(row.name)} <span class="cx-tag">${html(row.kind)}</span></span><em>${sharePct(row.share)}</em></div>`;
+    `<div class="cx-row"><span>${html(row.name)} <span class="cx-tag">${html(row.kind === 'topic' ? t.shiftTopic : t.shiftChannel)}</span></span><em>${sharePct(row.share)}</em></div>`;
   const body = `<style>${crystalStyles}</style>
-    <section class="cx-intro"><div class="eyebrow">Crystal comparison</div>
+    <section class="cx-intro"><div class="eyebrow">${t.crystalCompare}</div>
     <h1>${html(comparison.a.displayName)} × ${html(comparison.b.displayName)}</h1>
-    <p>All-time attention compared as share-weighted vectors. Aggregates only — nobody's raw history, searches, or timestamps are exposed.</p></section>
+    <p>${t.comparePara}</p></section>
     <div class="cx-sim">
-      <div><strong>${Math.round(comparison.channelSimilarity * 100)}%</strong><span>channel similarity</span></div>
-      <div><strong>${Math.round(comparison.topicSimilarity * 100)}%</strong><span>topic similarity</span></div>
+      <div><strong>${Math.round(comparison.channelSimilarity * 100)}%</strong><span>${t.channelSimilarity}</span></div>
+      <div><strong>${Math.round(comparison.topicSimilarity * 100)}%</strong><span>${t.topicSimilarity}</span></div>
     </div>
     <div class="cx-columns">
-      ${list(`Shared ground`, comparison.sharedChannels, sharedRow)}
-      ${list(`Shared topics`, comparison.sharedTopics, sharedRow)}
-      ${list(`Only ${comparison.a.displayName} — ${comparison.b.displayName} is missing these`, comparison.onlyA, onlyRow)}
-      ${list(`Only ${comparison.b.displayName} — ${comparison.a.displayName} is missing these`, comparison.onlyB, onlyRow)}
+      ${list(t.sharedChannels, comparison.sharedChannels, sharedRow)}
+      ${list(t.sharedTopics, comparison.sharedTopics, sharedRow)}
+      ${list(t.onlyList(comparison.a.displayName, comparison.b.displayName), comparison.onlyA, onlyRow)}
+      ${list(t.onlyList(comparison.b.displayName, comparison.a.displayName), comparison.onlyB, onlyRow)}
     </div>`;
   return shell(
     `${comparison.a.displayName} × ${comparison.b.displayName}`,
     body,
-    [{ label: 'Back to dashboard', href: requesterPath }],
+    [{ label: t.navBack, href: requesterPath }],
+    '',
+    lang,
   );
 }

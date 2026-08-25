@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { messages, type Lang } from './i18n.js';
 
 export function html(value: unknown): string {
   return String(value ?? '').replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' }[char]!));
@@ -9,11 +10,12 @@ export function hours(seconds: number | null): string {
   return `${Math.round(seconds / 360) / 10}h`;
 }
 
-export function duration(seconds: number | null): string {
-  if (seconds === null) return 'Unknown length';
+export function duration(seconds: number | null, lang: Lang = 'en'): string {
+  const t = messages(lang);
+  if (seconds === null) return t.unknownLength;
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return minutes < 60 ? t.minutes(minutes) : t.hoursMinutes(Math.floor(minutes / 60), minutes % 60);
 }
 
 // The screening room: a dark, cinematic surface where thumbnails glow and the
@@ -98,18 +100,18 @@ export interface ShellNavItem {
   active?: boolean;
 }
 
-export function shell(title: string, body: string, nav: ShellNavItem[] = [], extraStyles = ''): string {
-  const description = 'A private YouTube attention archive: watch history, measured viewing time, channels, and topics.';
+export function shell(title: string, body: string, nav: ShellNavItem[] = [], extraStyles = '', lang: Lang = 'en'): string {
+  const t = messages(lang);
   const links = nav.map((item) =>
     `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}>${html(item.label)}</a>`
   ).join('');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${description}">
-  <meta property="og:type" content="website"><meta property="og:title" content="${html(title)} · urtube"><meta property="og:description" content="${description}">
+  return `<!doctype html><html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${t.description}">
+  <meta property="og:type" content="website"><meta property="og:title" content="${html(title)} · urtube"><meta property="og:description" content="${t.description}">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${html(title)} · urtube</title><style>${styles}${extraStyles}</style></head><body>
-  <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>attention archive</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
+  <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
   <main class="site-main">${body}</main>
-  <footer class="site-footer">urtube · self-hosted at ${html(config.publicBaseUrl.replace(/^https?:\/\//, ''))} · watch history stays private</footer>
+  <footer class="site-footer">${t.footer(html(config.publicBaseUrl.replace(/^https?:\/\//, '')))}</footer>
   <script>${tooltipScript}</script>
   </body></html>`;
 }

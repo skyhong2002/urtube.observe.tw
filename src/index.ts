@@ -7,12 +7,13 @@ import { Hono, type Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import { config } from './config.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
+import { messages, pickLang, type Lang } from './output/i18n.js';
 import { dashboardSetupSection, signupPage, welcomePage } from './output/onboarding.js';
-import { buildYoutubeCrystal, compareCrystals } from './youtube/crystal.js';
-import { brandMark, html, shell } from './output/pages.js';
+import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
+import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { UserRegistry, type User } from './users.js';
-import type { YoutubeRange } from './youtube/types.js';
+import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
   return ['7d', '28d', '90d', 'all'].includes(value ?? '') ? value as YoutubeRange : '28d';
@@ -55,8 +56,35 @@ function clientIp(c: Context): string {
   return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
 }
 
+// Dashboard aggregates and crystals are pure functions of the event set, so
+// cache them keyed on the table counts (cheap to read) with a short TTL as a
+// backstop for metadata enrichment that changes estimates without new rows.
+const CACHE_TTL_MS = 300_000;
+const dashboardCache = new Map<string, { key: string; at: number; data: YoutubeDashboardData }>();
+const crystalCache = new Map<string, { key: string; at: number; crystal: YoutubeCrystal }>();
+
 export function createApp(registry: UserRegistry): Hono {
   const app = new Hono();
+
+  // Requested language: explicit ?lang= wins (and persists via cookie),
+  // then the cookie, then the browser's Accept-Language.
+  function langOf(c: Context): Lang {
+    const query = c.req.query('lang');
+    const lang = pickLang(query, getCookie(c, 'urtube_lang'), c.req.header('accept-language'));
+    if (query === 'zh' || query === 'en') {
+      setCookie(c, 'urtube_lang', query, {
+        path: '/', sameSite: 'Lax', maxAge: 365 * 86400,
+        secure: config.publicBaseUrl.startsWith('https://'),
+      });
+    }
+    return lang;
+  }
+
+  function langToggle(c: Context, lang: Lang): ShellNavItem {
+    const url = new URL(c.req.url);
+    url.searchParams.set('lang', lang === 'zh' ? 'en' : 'zh');
+    return { label: messages(lang).langToggle, href: `${url.pathname}${url.search}` };
+  }
 
   // A dashboard is viewable when it is public, or the request carries the
   // user's dashboard token (?key=... on first visit, then a cookie).
@@ -77,19 +105,40 @@ export function createApp(registry: UserRegistry): Hono {
   }
 
   function dashboardResponse(c: Context, user: User, basePath: string) {
+    const lang = langOf(c);
     const repository = registry.repositoryFor(user);
-    const data = repository.youtubeDashboard(requestedRange(c.req.query('range')));
-    const hasData = repository.youtubeCounts().watches > 0;
+    const counts = repository.youtubeCounts();
+    const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+    const range = requestedRange(c.req.query('range'));
+    const now = Date.now();
+    const dataId = `${user.handle}:${range}`;
+    let cachedData = dashboardCache.get(dataId);
+    if (!cachedData || cachedData.key !== validity || now - cachedData.at > CACHE_TTL_MS) {
+      cachedData = { key: validity, at: now, data: repository.youtubeDashboard(range) };
+      dashboardCache.set(dataId, cachedData);
+    }
+    const hasData = counts.watches > 0;
+    let crystalHtml = '';
+    if (hasData) {
+      let cachedCrystal = crystalCache.get(user.handle);
+      if (!cachedCrystal || cachedCrystal.key !== validity || now - cachedCrystal.at > CACHE_TTL_MS) {
+        cachedCrystal = { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) };
+        crystalCache.set(user.handle, cachedCrystal);
+      }
+      crystalHtml = shiftsSection(cachedCrystal.crystal, lang);
+    }
     c.header('Cache-Control', 'no-cache');
-    return c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
+    return c.html(youtubeDashboardPage(user.displayName, cachedData.data, requestedSort(c.req.query('sort')), {
       basePath,
-      nav: [{ label: 'Dashboard', href: basePath, active: true }],
-      setupHtml: dashboardSetupSection(user, hasData)
-        + (hasData ? shiftsSection(buildYoutubeCrystal(repository, user)) : ''),
+      lang,
+      nav: [{ label: messages(lang).navDashboard, href: basePath, active: true }, langToggle(c, lang)],
+      setupHtml: dashboardSetupSection(user, hasData, lang) + crystalHtml,
     }));
   }
 
   app.get('/', (c) => {
+    const lang = langOf(c);
+    const t = messages(lang);
     const landingStyles = `
       .lp-hero{margin:8vh 0 60px;max-width:760px}
       .lp-hero .lp-mark{height:52px;margin-bottom:26px;width:52px}
@@ -108,28 +157,25 @@ export function createApp(registry: UserRegistry): Hono {
       .lp-point p{color:var(--ink-2);font-size:13px;line-height:1.6;margin:0}
       .lp-note{color:var(--muted);font-size:12px;margin-top:34px}
     `;
+    const points = t.landingPoints.map(([title, copy]) =>
+      `<div class="lp-point"><strong>${title}</strong><p>${copy}</p></div>`
+    ).join('');
     const body = `<style>${landingStyles}</style><section class="lp-hero">
       <div class="lp-mark">${brandMark}</div>
-      <h1>Your YouTube life,<br><em>remembered.</em></h1>
-      <p>urtube keeps a private archive of everything you watch — history from Takeout and Google
-      My Activity, measured viewing time from a small Chrome extension, saved progress, channels,
-      and AI-classified topics. Searches are encrypted; raw history never leaves this server.</p>
+      <h1>${t.landingTitle}</h1>
+      <p>${t.landingPara}</p>
       <div class="lp-actions">
-        ${config.signupEnabled ? '<a class="lp-primary" href="/signup">Create your archive →</a>' : ''}
-        <a class="lp-ghost" href="/youtube">See a live example: ${html(config.ownerName)}</a>
+        ${config.signupEnabled ? `<a class="lp-primary" href="/signup">${t.landingCta}</a>` : ''}
+        <a class="lp-ghost" href="/youtube">${t.landingExample(html(config.ownerName))}</a>
       </div>
     </section>
-    <div class="lp-points">
-      <div class="lp-point"><strong>Every source, one timeline</strong><p>Takeout backfills years of history; the extension measures real seconds from today forward. Nothing is sampled, nothing expires.</p></div>
-      <div class="lp-point"><strong>Private by construction</strong><p>Each account is its own database. Search terms are encrypted at rest, dashboards are private by default, and aggregates are all anyone can ever see.</p></div>
-      <div class="lp-point"><strong>See yourself change</strong><p>Attention shifts, channel momentum, and cross-person crystal comparisons show what you're drifting toward — and away from.</p></div>
-    </div>
-    <p class="lp-note">Already have an account? Open the dashboard link you saved at signup
-    (<code>/u/&lt;handle&gt;?key=…</code>) — after the first visit a cookie keeps you signed in.</p>`;
+    <div class="lp-points">${points}</div>
+    <p class="lp-note">${t.landingNote}</p>`;
     return c.html(shell('urtube', body, [
-      { label: 'Create your archive', href: '/signup' },
-      { label: 'Example dashboard', href: '/youtube' },
-    ]));
+      { label: t.navSignup, href: '/signup' },
+      { label: t.navExample, href: '/youtube' },
+      langToggle(c, lang),
+    ], '', lang));
   });
 
   // The brand mark, served for browser tabs and OG scrapers.
@@ -145,28 +191,30 @@ export function createApp(registry: UserRegistry): Hono {
 
   app.get('/signup', (c) => {
     if (!config.signupEnabled) return c.text('Signups are disabled on this instance', 403);
-    return c.html(signupPage());
+    return c.html(signupPage('', langOf(c)));
   });
 
   app.post('/signup', async (c) => {
     if (!config.signupEnabled) return c.text('Signups are disabled on this instance', 403);
+    const lang = langOf(c);
+    const t = messages(lang);
     if (!signupAllowed(clientIp(c))) {
-      return c.html(signupPage('Too many signups from your network — try again in an hour.'), 429);
+      return c.html(signupPage(t.errTooManySignups, lang), 429);
     }
     const form = await c.req.parseBody();
     const handle = String(form.handle ?? '').trim().toLocaleLowerCase('en-US');
     const displayName = String(form.displayName ?? '').trim().slice(0, 80);
     const dashboardPublic = form.dashboardPublic === '1';
-    if (!displayName) return c.html(signupPage('A display name is required.'), 400);
+    if (!displayName) return c.html(signupPage(t.errNameRequired, lang), 400);
     try {
       if (registry.userByHandle(handle)) {
-        return c.html(signupPage(`The handle “${handle}” is already taken.`), 409);
+        return c.html(signupPage(t.errHandleTaken(handle), lang), 409);
       }
       const created = registry.createUser(handle, displayName, { dashboardPublic });
       c.header('Cache-Control', 'no-store');
-      return c.html(welcomePage(created), 201);
+      return c.html(welcomePage(created, lang), 201);
     } catch (error) {
-      return c.html(signupPage(error instanceof Error ? error.message : String(error)), 400);
+      return c.html(signupPage(error instanceof Error ? error.message : String(error), lang), 400);
     }
   });
 
@@ -227,7 +275,7 @@ export function createApp(registry: UserRegistry): Hono {
       buildYoutubeCrystal(registry.repositoryFor(b), b),
     );
     c.header('Cache-Control', 'no-cache');
-    return c.html(comparePage(comparison, `/u/${a.handle}`));
+    return c.html(comparePage(comparison, `/u/${a.handle}`, langOf(c)));
   });
 
   app.get('/u/:handle/summary.json', (c) => {
@@ -302,6 +350,32 @@ export function createApp(registry: UserRegistry): Hono {
   return app;
 }
 
+// Best-effort pre-warm of the owner's dashboard caches, re-run just inside
+// the TTL so the first visitor after a deploy or quiet stretch never pays
+// the aggregate cost.
+function warmOwnerDashboards(registry: UserRegistry): void {
+  try {
+    const user = registry.ensureDefaultUser();
+    const repository = registry.repositoryFor(user);
+    const counts = repository.youtubeCounts();
+    const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+    const now = Date.now();
+    for (const range of ['7d', '28d', '90d', 'all'] as const) {
+      const id = `${user.handle}:${range}`;
+      const entry = dashboardCache.get(id);
+      if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+        dashboardCache.set(id, { key: validity, at: now, data: repository.youtubeDashboard(range) });
+      }
+    }
+    const crystal = crystalCache.get(user.handle);
+    if (!crystal || crystal.key !== validity || now - crystal.at > CACHE_TTL_MS) {
+      crystalCache.set(user.handle, { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) });
+    }
+  } catch (error) {
+    console.error('dashboard warm failed:', error instanceof Error ? error.message : error);
+  }
+}
+
 if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   registry.ensureDefaultUser();
@@ -309,4 +383,6 @@ if (process.env.NODE_ENV !== 'test') {
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);
   });
+  setTimeout(() => warmOwnerDashboards(registry), 2000);
+  setInterval(() => warmOwnerDashboards(registry), 240_000).unref();
 }
