@@ -29,6 +29,16 @@ export const config = {
   // Self-serve signup is on unless explicitly disabled.
   signupEnabled: !/^(0|false|no)$/i.test(process.env.SIGNUP_ENABLED ?? 'true'),
   signupPerHourPerIp: Math.max(1, Number(process.env.SIGNUP_PER_HOUR_PER_IP ?? 5)),
+  // "Sign in with Google" for signup/login. Defaults to the Data Portability
+  // OAuth client (same Cloud Console project); only the redirect URI differs.
+  login: {
+    googleClientId: process.env.GOOGLE_LOGIN_CLIENT_ID
+      ?? process.env.GOOGLE_DATA_PORTABILITY_CLIENT_ID ?? '',
+    googleClientSecret: process.env.GOOGLE_LOGIN_CLIENT_SECRET
+      ?? process.env.GOOGLE_DATA_PORTABILITY_CLIENT_SECRET ?? '',
+    googleRedirectUri: process.env.GOOGLE_LOGIN_REDIRECT_URI
+      ?? `${publicBaseUrl}/auth/google/callback`,
+  },
   youtube: {
     apiKey: process.env.YOUTUBE_API_KEY ?? '',
     privateDataKey: youtubePrivateDataKey,

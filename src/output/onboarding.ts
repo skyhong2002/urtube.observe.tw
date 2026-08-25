@@ -23,6 +23,8 @@ const formStyles = `
   .ob-warn{background:rgba(250,178,25,.1);border:1px solid rgba(250,178,25,.35);border-radius:10px;color:#f5c95e;font-size:13px;margin:14px 0;padding:10px 12px}
   .ob-steps{color:var(--ink-2);font-size:14px;line-height:1.7;padding-left:20px}
   .ob-steps strong{color:var(--ink)}
+  .ob-google{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);display:inline-flex;font-size:14px;font-weight:700;gap:10px;padding:11px 20px;text-decoration:none}
+  .ob-google:hover{border-color:var(--muted)}
 `;
 
 function signupNav(lang: Lang) {
@@ -33,20 +35,79 @@ function signupNav(lang: Lang) {
   ];
 }
 
-export function signupPage(error = '', lang: Lang = 'en'): string {
+const googleButton = (label: string) => `
+  <a class="ob-google" href="/auth/google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>${label}</a>`;
+
+// Step 1: a verified Google identity is the only way in.
+export function signupStartPage(error = '', lang: Lang = 'en'): string {
   const t = messages(lang);
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupTitle}</h1>
-    <p>${t.signupPara}</p></section>
+    <p>${t.signupStartPara}</p></section>
+    <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
+    ${googleButton(t.signinGoogle)}</div>`;
+  return shell(t.signupTitle, body, signupNav(lang), '', lang);
+}
+
+// Step 2: Google identity verified, pick a handle (or claim a pre-Google
+// account by proving ownership with its dashboard key).
+export function signupCompletePage(
+  pending: { email: string; suggestedHandle: string },
+  error = '',
+  lang: Lang = 'en',
+): string {
+  const t = messages(lang);
+  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupCompleteTitle}</h1>
+    <p>${t.signupCompletePara(html(pending.email))}</p></section>
     <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
     <form class="ob-form" method="post" action="/signup">
       <label for="handle">${t.signupHandle}</label>
-      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9-]{1,31}" placeholder="dad">
+      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="dad">
       <label for="displayName">${t.signupName}</label>
       <input id="displayName" name="displayName" type="text" required maxlength="80" placeholder="Sky's Dad">
       <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"> ${t.signupPublic}</label>
       <button type="submit">${t.signupSubmit}</button>
-    </form></div>`;
-  return shell(t.signupTitle, body, signupNav(lang), '', lang);
+    </form>
+    <details style="margin-top:18px"><summary style="cursor:pointer;color:var(--ink-2);font-size:13px">${t.signupClaimSummary}</summary>
+    <form class="ob-form" method="post" action="/signup" style="margin-top:10px">
+      <p style="margin:0">${t.signupClaimPara}</p>
+      <label for="claimHandle">${t.signupClaimHandle}</label>
+      <input id="claimHandle" name="claimHandle" type="text" maxlength="32" placeholder="skyhong.tw">
+      <label for="claimKey">${t.signupClaimKey}</label>
+      <input id="claimKey" name="claimKey" type="text" maxlength="128" autocomplete="off">
+      <button type="submit">${t.signupClaimSubmit}</button>
+    </form></details></div>`;
+  return shell(t.signupCompleteTitle, body, signupNav(lang), '', lang);
+}
+
+export function accountPage(
+  user: User,
+  rotated: { captureToken: string; dashboardToken: string } | null,
+  lang: Lang = 'en',
+): string {
+  const t = messages(lang);
+  const dashboardHref = `/${user.handle}`;
+  const rotatedHtml = rotated ? `
+      <div class="ob-warn">${t.accountRotated}</div>
+      <p style="margin-bottom:2px">${t.accountCaptureToken}</p>
+      <code class="ob-token">${html(rotated.captureToken)}</code>
+      <p style="margin-bottom:2px">${t.accountDashboardKey}</p>
+      <code class="ob-token">${html(rotated.dashboardToken)}</code>` : '';
+  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
+    <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></section>
+    <div class="ob-card">
+      <h2>${t.accountDashboard}</h2>
+      <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
+      ${rotatedHtml}
+      <h2>${t.accountRotate}</h2>
+      <p>${t.accountRotatePara}</p>
+      <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
+      <form method="post" action="/logout" class="ob-form" style="margin-top:10px"><button type="submit" style="background:var(--raised);border-color:var(--line-strong);color:var(--ink)">${t.accountLogout}</button></form>
+    </div>`;
+  return shell(t.accountTitle, body, [
+    { label: t.navHome, href: '/' },
+    { label: t.navDashboard, href: dashboardHref },
+    { label: t.navAccount, href: '/account', active: true },
+  ], '', lang);
 }
 
 export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
