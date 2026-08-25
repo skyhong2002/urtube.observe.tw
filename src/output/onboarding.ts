@@ -53,8 +53,8 @@ export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
   const t = messages(lang);
   const endpoint = `${config.publicBaseUrl}/api/ingest/youtube/capture`;
   const dashboardUrl = user.dashboardPublic
-    ? `${config.publicBaseUrl}/u/${user.handle}`
-    : `${config.publicBaseUrl}/u/${user.handle}?key=${user.dashboardToken}`;
+    ? `${config.publicBaseUrl}/${user.handle}`
+    : `${config.publicBaseUrl}/${user.handle}?key=${user.dashboardToken}`;
   const steps = t.welcomeSteps(html(endpoint)).map((step) => `<li>${step}</li>`).join('\n        ');
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.welcomeEyebrow(html(user.displayName))}</div><h1>${t.welcomeTitle}</h1>
     <p>${t.welcomePara}</p></section>

@@ -231,11 +231,11 @@ export function createApp(registry: UserRegistry): Hono {
     return c.redirect(`/${registry.ensureDefaultUser().handle}`, 301);
   });
 
+  // Legacy dashboard path; JSON endpoints below stay under /u/ so existing
+  // API consumers keep working.
   app.get('/u/:handle', (c) => {
-    const user = registry.userByHandle(c.req.param('handle'));
-    if (!user) return c.text('Not found', 404);
-    if (!dashboardAccess(c, user)) return c.text('Not found', 404);
-    return dashboardResponse(c, user, `/u/${user.handle}`);
+    const query = new URL(c.req.url).search;
+    return c.redirect(`/${c.req.param('handle')}${query}`, 301);
   });
 
   app.get('/u/:handle/crystal.json', (c) => {
@@ -274,7 +274,7 @@ export function createApp(registry: UserRegistry): Hono {
       buildYoutubeCrystal(registry.repositoryFor(b), b),
     );
     c.header('Cache-Control', 'no-cache');
-    return c.html(comparePage(comparison, `/u/${a.handle}`, langOf(c)));
+    return c.html(comparePage(comparison, `/${a.handle}`, langOf(c)));
   });
 
   app.get('/u/:handle/summary.json', (c) => {
