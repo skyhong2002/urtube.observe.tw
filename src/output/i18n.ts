@@ -165,6 +165,11 @@ const en = {
     'Watch a video, or press <strong>Sync now</strong> in the extension popup to import recent history.',
   ],
 
+  agoMinutes: (n: number) => `${n} min ago`,
+  agoHours: (n: number) => `${n} hr ago`,
+  agoDays: (n: number) => `${n} ${n === 1 ? 'day' : 'days'} ago`,
+  agoWeeks: (n: number) => `${n} wk ago`,
+  fullDate: (year: number, month: number, day: number) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1]} ${day}, ${year}`,
   monthDay: (month: number, day: number) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1]} ${day}`,
   monthYear: (year: number, month: number) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1]} ${year}`,
   monthTick: (month: number) => ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][month - 1],
@@ -323,6 +328,11 @@ const zh: typeof en = {
     '看一部影片，或在擴充功能 popup 按<strong>立即同步</strong>匯入近期紀錄。',
   ],
 
+  agoMinutes: (n: number) => `${n} 分鐘前`,
+  agoHours: (n: number) => `${n} 小時前`,
+  agoDays: (n: number) => `${n} 天前`,
+  agoWeeks: (n: number) => `${n} 週前`,
+  fullDate: (year: number, month: number, day: number) => `${year}年${month}月${day}日`,
   monthDay: (month: number, day: number) => `${month}月${day}日`,
   monthYear: (year: number, month: number) => `${year}年${month}月`,
   monthTick: (month: number) => `${month}月`,

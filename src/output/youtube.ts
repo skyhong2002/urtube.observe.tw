@@ -1,6 +1,6 @@
 import type { YoutubeDailySummary, YoutubeDashboardData, YoutubeRange } from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { duration, hours, html, shell, type ShellNavItem } from './pages.js';
+import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 
 function compact(value: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -289,6 +289,7 @@ const dashboardStyles = `
   .yt-video h3{font-size:13px;line-height:1.35;margin:9px 0 4px}
   .yt-video:hover h3{color:var(--accent-text)}
   .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0}
+  .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
   @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy{grid-template-columns:1fr}}
   @media(max-width:560px){.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
@@ -390,7 +391,7 @@ export function youtubeDashboardPage(
       return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(keyword.term)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
     }).join('')}</div></div></div>`;
   const recent = `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${data.recent.map((video) =>
-    `<a class="yt-video" href="${html(video.url)}"><span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p></a>`
+    `<a class="yt-video" href="${html(video.url)}"><span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p><p class="yt-video-when">${timeAgo(video.watchedAt, lang)}</p></a>`
   ).join('')}</div></section>`;
   const intro = `<style>${dashboardStyles}</style><section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
