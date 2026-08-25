@@ -54,7 +54,7 @@ export function shiftsSection(crystal: YoutubeCrystal, lang: Lang = 'en'): strin
   const rows = crystal.shifts.slice(0, 12).map((shift) => shiftRow(shift, t)).join('');
   return `<style>${crystalStyles}</style>
     <section class="section"><div class="section-head"><h2>${t.whatChanged}</h2>
-    <span>${t.changedSub(crystal.windowDays)}${volume} · <a href="crystal.json">crystal.json</a></span></div>
+    <span>${t.changedSub(crystal.windowDays)}${volume} · <a href="/u/${html(crystal.handle)}/crystal.json">crystal.json</a></span></div>
     ${rows ? `<div class="cx-shifts">${rows}</div>` : `<p class="muted">${t.noShifts}</p>`}</section>`;
 }
 
