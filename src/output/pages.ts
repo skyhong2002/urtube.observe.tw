@@ -18,6 +18,27 @@ export function duration(seconds: number | null, lang: Lang = 'en'): string {
   return minutes < 60 ? t.minutes(minutes) : t.hoursMinutes(Math.floor(minutes / 60), minutes % 60);
 }
 
+// Tiered relative time for watch cards: minutes/hours/days/weeks ago, then a
+// plain calendar date (Taipei time) once it is more than a month old.
+export function timeAgo(iso: string, lang: Lang = 'en', now = Date.now()): string {
+  const t = messages(lang);
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '';
+  const minutes = Math.floor((now - then) / 60_000);
+  if (minutes < 60) return t.agoMinutes(Math.max(1, minutes));
+  const hoursAgo = Math.floor(minutes / 60);
+  if (hoursAgo < 24) return t.agoHours(hoursAgo);
+  const days = Math.floor(hoursAgo / 24);
+  if (days < 7) return t.agoDays(days);
+  if (days < 31) return t.agoWeeks(Math.floor(days / 7));
+  const taipei = new Date(then + 8 * 3600_000);
+  const nowTaipei = new Date(now + 8 * 3600_000);
+  const sameYear = taipei.getUTCFullYear() === nowTaipei.getUTCFullYear();
+  return sameYear
+    ? t.monthDay(taipei.getUTCMonth() + 1, taipei.getUTCDate())
+    : t.fullDate(taipei.getUTCFullYear(), taipei.getUTCMonth() + 1, taipei.getUTCDate());
+}
+
 // The screening room: a dark, cinematic surface where thumbnails glow and the
 // data is the only loud thing. Chart ink is validated against #141412 (marks
 // ≥3:1, text tokens ≥4.5:1; see the dataviz six checks).
