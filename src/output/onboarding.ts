@@ -116,21 +116,25 @@ export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
   const dashboardUrl = user.dashboardPublic
     ? `${config.publicBaseUrl}/${user.handle}`
     : `${config.publicBaseUrl}/${user.handle}?key=${user.dashboardToken}`;
-  const steps = t.welcomeSteps(html(endpoint)).map((step) => `<li>${step}</li>`).join('\n        ');
+  const installSteps = t.welcomeInstallSteps.map((step) => `<li>${step}</li>`).join('\n        ');
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.welcomeEyebrow(html(user.displayName))}</div><h1>${t.welcomeTitle}</h1>
     <p>${t.welcomePara}</p></section>
     <div class="ob-card">
       <div class="ob-warn">${t.welcomeWarn}</div>
+      <h2>${t.welcomeInstall}</h2>
+      <ol class="ob-steps">
+        ${installSteps}
+      </ol>
+      <h2>${t.welcomeConfigure}</h2>
+      <p>${t.welcomeConfigurePara}</p>
+      <p style="margin-bottom:2px">${t.welcomeEndpointLabel}</p>
+      <code class="ob-token">${html(endpoint)}</code>
+      <p style="margin-bottom:2px">${t.welcomeTokenLabel}</p>
+      <code class="ob-token">${html(user.captureToken)}</code>
       <h2>${t.welcomeDash}</h2>
       <p>${t.welcomeDashPara(user.dashboardPublic)}</p>
       <code class="ob-token"><a href="${html(dashboardUrl)}">${html(dashboardUrl)}</a></code>
-      <h2>${t.welcomeToken}</h2>
-      <p>${t.welcomeTokenPara}</p>
-      <code class="ob-token">${html(user.captureToken)}</code>
-      <h2>${t.welcomeExtension}</h2>
-      <ol class="ob-steps">
-        ${steps}
-      </ol>
+      <p>${t.welcomeAfterPara}</p>
       <p style="margin-top:16px">${t.welcomeLost}</p>
     </div>`;
   return shell(t.welcomeTitle, body, signupNav(lang), '', lang);
