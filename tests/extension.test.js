@@ -12,16 +12,18 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.0.0');
+  assert.equal(manifest.version, '1.1.0');
+  assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
     'https://urtube.observe.tw/*',
     'https://myactivity.google.com/*',
     'https://www.youtube.com/*',
   ]);
+  // Dashboards live at top-level /<handle> since 2026-08-25, so the dashboard
+  // bridge matches the whole site; dashboard.js no-ops without its DOM hook.
   assert.deepEqual(manifest.content_scripts[0].matches, [
-    'https://urtube.observe.tw/youtube*',
-    'https://urtube.observe.tw/u/*',
+    'https://urtube.observe.tw/*',
   ]);
   assert.deepEqual(manifest.content_scripts[0].js, ['dashboard.js']);
   assert.deepEqual(manifest.content_scripts[1].matches, [
