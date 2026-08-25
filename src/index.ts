@@ -4,11 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { zipSync } from 'fflate';
 import { Hono, type Context } from 'hono';
-import { getCookie, setCookie } from 'hono/cookie';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { completeGoogleLogin, googleLoginUrl, suggestedHandle } from './auth.js';
 import { config } from './config.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
-import { dashboardSetupSection, signupPage, welcomePage } from './output/onboarding.js';
+import {
+  accountPage, dashboardSetupSection, signupCompletePage, signupStartPage, welcomePage,
+} from './output/onboarding.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
@@ -86,10 +89,25 @@ export function createApp(registry: UserRegistry): Hono {
     return { label: messages(lang).langToggle, href: `${url.pathname}${url.search}` };
   }
 
-  // A dashboard is viewable when it is public, or the request carries the
-  // user's dashboard token (?key=... on first visit, then a cookie).
+  const secureCookies = config.publicBaseUrl.startsWith('https://');
+
+  function sessionUser(c: Context): User | null {
+    const token = getCookie(c, 'urtube_session') ?? '';
+    return token ? registry.userBySession(token) : null;
+  }
+
+  function startSession(c: Context, user: User): void {
+    setCookie(c, 'urtube_session', registry.createSession(user), {
+      httpOnly: true, sameSite: 'Lax', path: '/', secure: secureCookies, maxAge: 180 * 86400,
+    });
+  }
+
+  // A dashboard is viewable when it is public, when the viewer is signed in
+  // as its owner, or when the request carries the user's dashboard token
+  // (?key=... on first visit, then a cookie).
   function dashboardAccess(c: Context, user: User): boolean {
     if (user.dashboardPublic) return true;
+    if (sessionUser(c)?.id === user.id) return true;
     const cookieName = `urtube_dash_${user.handle}`;
     const key = c.req.query('key') ?? getCookie(c, cookieName) ?? '';
     if (!registry.userByDashboardToken(user.handle, key)) return false;
@@ -171,8 +189,9 @@ export function createApp(registry: UserRegistry): Hono {
     </section>
     <div class="lp-points">${points}</div>
     <p class="lp-note">${t.landingNote}</p>`;
+    const me = sessionUser(c);
     return c.html(shell('urtube', body, [
-      { label: t.navSignup, href: '/signup' },
+      me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
       { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
       langToggle(c, lang),
     ], '', lang));
@@ -189,33 +208,125 @@ export function createApp(registry: UserRegistry): Hono {
     return c.body(faviconSvg);
   });
 
+  // Google sign-in entry point: also the login for existing accounts, so it
+  // stays available even when signups are disabled.
+  app.get('/auth/google', (c) => {
+    try {
+      return c.redirect(googleLoginUrl(registry));
+    } catch (error) {
+      return c.text(error instanceof Error ? error.message : String(error), 503);
+    }
+  });
+
+  app.get('/auth/google/callback', async (c) => {
+    // e.g. the user pressed Cancel on the Google consent screen.
+    if (c.req.query('error')) return c.redirect('/signup');
+    const code = c.req.query('code');
+    const state = c.req.query('state');
+    if (!code || !state) return c.text('Missing OAuth code or state', 400);
+    try {
+      const identity = await completeGoogleLogin(registry, code, state);
+      const existing = registry.userByGoogleSub(identity.sub);
+      if (existing) {
+        startSession(c, existing);
+        return c.redirect(`/${existing.handle}`);
+      }
+      // New Google account: park the verified identity and let them pick a
+      // handle (or claim a pre-Google account).
+      setCookie(c, 'urtube_signup', registry.createPendingSignup(identity.sub, identity.email), {
+        httpOnly: true, sameSite: 'Lax', path: '/', secure: secureCookies, maxAge: 1800,
+      });
+      return c.redirect('/signup');
+    } catch (error) {
+      return c.text(error instanceof Error ? error.message : String(error), 400);
+    }
+  });
+
   app.get('/signup', (c) => {
-    if (!config.signupEnabled) return c.text('Signups are disabled on this instance', 403);
-    return c.html(signupPage('', langOf(c)));
+    const lang = langOf(c);
+    const me = sessionUser(c);
+    if (me) return c.redirect('/account');
+    const pending = registry.pendingSignup(getCookie(c, 'urtube_signup') ?? '');
+    if (!pending) return c.html(signupStartPage('', lang));
+    return c.html(signupCompletePage({ email: pending.email, suggestedHandle: suggestedHandle(pending.email) }, '', lang));
   });
 
   app.post('/signup', async (c) => {
-    if (!config.signupEnabled) return c.text('Signups are disabled on this instance', 403);
     const lang = langOf(c);
     const t = messages(lang);
-    if (!signupAllowed(clientIp(c))) {
-      return c.html(signupPage(t.errTooManySignups, lang), 429);
-    }
+    const pendingToken = getCookie(c, 'urtube_signup') ?? '';
+    const pending = registry.pendingSignup(pendingToken);
+    if (!pending) return c.html(signupStartPage('', lang), 403);
+    const pageInput = { email: pending.email, suggestedHandle: suggestedHandle(pending.email) };
     const form = await c.req.parseBody();
+    const finish = (user: User) => {
+      registry.consumePendingSignup(pendingToken);
+      deleteCookie(c, 'urtube_signup', { path: '/' });
+      startSession(c, user);
+    };
+
+    // Claim path: bind this Google account to a pre-Google user by proving
+    // ownership with the dashboard key. Allowed even when signups are off.
+    const claimHandle = String(form.claimHandle ?? '').trim().toLocaleLowerCase('en-US');
+    if (claimHandle) {
+      const claimKey = String(form.claimKey ?? '').trim();
+      const user = registry.userByDashboardToken(claimHandle, claimKey);
+      if (!user) return c.html(signupCompletePage(pageInput, t.errClaimInvalid, lang), 400);
+      try {
+        const linked = registry.linkGoogle(user.handle, pending.sub, pending.email);
+        finish(linked);
+        return c.redirect(`/${linked.handle}`);
+      } catch (error) {
+        return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 409);
+      }
+    }
+
+    if (!config.signupEnabled) return c.html(signupStartPage(t.errSignupsDisabled, lang), 403);
+    if (!signupAllowed(clientIp(c))) {
+      return c.html(signupCompletePage(pageInput, t.errTooManySignups, lang), 429);
+    }
     const handle = String(form.handle ?? '').trim().toLocaleLowerCase('en-US');
     const displayName = String(form.displayName ?? '').trim().slice(0, 80);
     const dashboardPublic = form.dashboardPublic === '1';
-    if (!displayName) return c.html(signupPage(t.errNameRequired, lang), 400);
+    if (!displayName) return c.html(signupCompletePage(pageInput, t.errNameRequired, lang), 400);
     try {
-      if (registry.userByHandle(handle)) {
-        return c.html(signupPage(t.errHandleTaken(handle), lang), 409);
+      if (registry.userByGoogleSub(pending.sub)) {
+        return c.html(signupStartPage(t.errGoogleTaken, lang), 409);
       }
-      const created = registry.createUser(handle, displayName, { dashboardPublic });
+      if (registry.userByHandle(handle)) {
+        return c.html(signupCompletePage(pageInput, t.errHandleTaken(handle), lang), 409);
+      }
+      const created = registry.createUser(handle, displayName, {
+        dashboardPublic, googleSub: pending.sub, googleEmail: pending.email,
+      });
+      finish(created);
       c.header('Cache-Control', 'no-store');
       return c.html(welcomePage(created, lang), 201);
     } catch (error) {
-      return c.html(signupPage(error instanceof Error ? error.message : String(error), lang), 400);
+      return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 400);
     }
+  });
+
+  app.get('/account', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    return c.html(accountPage(me, null, langOf(c)));
+  });
+
+  // Token recovery: rotating invalidates both old tokens and shows the new
+  // pair exactly once, same show-once rule as signup.
+  app.post('/account/rotate', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const rotated = registry.rotateTokens(me.handle);
+    c.header('Cache-Control', 'no-store');
+    return c.html(accountPage(me, rotated, langOf(c)));
+  });
+
+  app.post('/logout', (c) => {
+    registry.deleteSession(getCookie(c, 'urtube_session') ?? '');
+    deleteCookie(c, 'urtube_session', { path: '/' });
+    return c.redirect('/');
   });
 
   app.get('/extension.zip', (c) => {

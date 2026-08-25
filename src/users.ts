@@ -24,6 +24,13 @@ export interface User {
   dataKeyMode: 'legacy-env' | 'derived';
   keySeed: string;
   createdAt: string;
+  googleSub: string | null;
+  googleEmail: string | null;
+}
+
+export interface PendingSignup {
+  sub: string;
+  email: string;
 }
 
 export interface CreatedUser extends User {
@@ -54,6 +61,8 @@ function rowToUser(row: Record<string, unknown>): User {
     dataKeyMode: row.data_key_mode as User['dataKeyMode'],
     keySeed: String(row.key_seed ?? row.handle),
     createdAt: String(row.created_at),
+    googleSub: row.google_sub == null ? null : String(row.google_sub),
+    googleEmail: row.google_email == null ? null : String(row.google_email),
   };
 }
 
@@ -87,6 +96,36 @@ export class UserRegistry {
       this.db.exec('ALTER TABLE users ADD COLUMN key_seed TEXT');
     }
     this.db.exec('UPDATE users SET key_seed=handle WHERE key_seed IS NULL');
+    // Google identity: sub is Google's permanent account id (emails can
+    // change), unique so one Google account maps to at most one user.
+    for (const name of ['google_sub', 'google_email']) {
+      if (!columns.some((column) => column.name === name)) {
+        this.db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
+      }
+    }
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub
+        ON users(google_sub) WHERE google_sub IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      -- Single-use short-lived tokens for the login flow: 'oauth' rows are
+      -- OAuth state values, 'pending' rows carry a verified Google identity
+      -- that has not picked a handle yet.
+      CREATE TABLE IF NOT EXISTS login_states (
+        state TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('oauth', 'pending')),
+        payload TEXT NOT NULL DEFAULT '',
+        expires_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  private expireLoginState(): void {
+    this.db.prepare('DELETE FROM login_states WHERE expires_at < ?').run(new Date().toISOString());
   }
 
   close(): void {
@@ -98,7 +137,12 @@ export class UserRegistry {
   createUser(
     handle: string,
     displayName: string,
-    options: { dataKeyMode?: User['dataKeyMode']; dashboardPublic?: boolean } = {},
+    options: {
+      dataKeyMode?: User['dataKeyMode'];
+      dashboardPublic?: boolean;
+      googleSub?: string;
+      googleEmail?: string;
+    } = {},
   ): CreatedUser {
     if (!HANDLE_PATTERN.test(handle)) {
       throw new Error('Handle must be 2-32 chars of lowercase letters, digits, dots, or dashes');
@@ -109,11 +153,12 @@ export class UserRegistry {
     this.db.prepare(`
       INSERT INTO users (
         handle, display_name, capture_token_hash, dashboard_token_hash,
-        dashboard_public, data_key_mode, key_seed, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
       options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
+      options.googleSub ?? null, options.googleEmail ?? null,
     );
     const user = this.userByHandle(handle)!;
     return { ...user, captureToken, dashboardToken };
@@ -176,6 +221,7 @@ export class UserRegistry {
       repository.close();
       this.repositories.delete(handle);
     }
+    this.db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
     this.db.prepare('DELETE FROM users WHERE handle=?').run(handle);
     const path = this.databasePathFor(user);
     if (path !== ':memory:') {
@@ -207,6 +253,89 @@ export class UserRegistry {
       }
     }
     return renamed;
+  }
+
+  userByGoogleSub(sub: string): User | null {
+    if (!sub) return null;
+    const row = this.db.prepare('SELECT * FROM users WHERE google_sub=?').get(sub) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToUser(row) : null;
+  }
+
+  linkGoogle(handle: string, sub: string, email: string): User {
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    const taken = this.userByGoogleSub(sub);
+    if (taken && taken.id !== user.id) {
+      throw new Error(`That Google account is already linked to another user`);
+    }
+    this.db.prepare('UPDATE users SET google_sub=?, google_email=? WHERE id=?').run(sub, email, user.id);
+    return this.userByHandle(handle)!;
+  }
+
+  // --- Google login plumbing: OAuth states, pending signups, sessions ---
+
+  createLoginState(): string {
+    this.expireLoginState();
+    const state = newToken();
+    this.db.prepare("INSERT INTO login_states (state, kind, expires_at) VALUES (?, 'oauth', ?)")
+      .run(state, new Date(Date.now() + 10 * 60_000).toISOString());
+    return state;
+  }
+
+  consumeLoginState(state: string): boolean {
+    if (!state) return false;
+    this.expireLoginState();
+    const changes = this.db.prepare("DELETE FROM login_states WHERE state=? AND kind='oauth'").run(state);
+    return Number(changes.changes) === 1;
+  }
+
+  // A verified Google identity waiting for the user to pick a handle. The
+  // returned token travels in an HttpOnly cookie, never in a URL.
+  createPendingSignup(sub: string, email: string): string {
+    this.expireLoginState();
+    const token = newToken();
+    this.db.prepare("INSERT INTO login_states (state, kind, payload, expires_at) VALUES (?, 'pending', ?, ?)")
+      .run(token, JSON.stringify({ sub, email }), new Date(Date.now() + 30 * 60_000).toISOString());
+    return token;
+  }
+
+  pendingSignup(token: string): PendingSignup | null {
+    if (!token) return null;
+    this.expireLoginState();
+    const row = this.db.prepare("SELECT payload FROM login_states WHERE state=? AND kind='pending'")
+      .get(token) as { payload: string } | undefined;
+    if (!row) return null;
+    const parsed = JSON.parse(row.payload) as PendingSignup;
+    return { sub: String(parsed.sub), email: String(parsed.email ?? '') };
+  }
+
+  consumePendingSignup(token: string): void {
+    this.db.prepare("DELETE FROM login_states WHERE state=? AND kind='pending'").run(token);
+  }
+
+  createSession(user: User, ttlDays = 180): string {
+    this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+    const token = newToken();
+    const now = new Date();
+    this.db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+      .run(tokenHash(token), user.id, now.toISOString(), new Date(now.getTime() + ttlDays * 86400_000).toISOString());
+    return token;
+  }
+
+  userBySession(token: string): User | null {
+    if (!token) return null;
+    const row = this.db.prepare(`
+      SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id
+      WHERE sessions.token_hash=? AND sessions.expires_at >= ?
+    `).get(tokenHash(token), new Date().toISOString()) as Record<string, unknown> | undefined;
+    return row ? rowToUser(row) : null;
+  }
+
+  deleteSession(token: string): void {
+    if (!token) return;
+    this.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(tokenHash(token));
   }
 
   rotateTokens(handle: string): { captureToken: string; dashboardToken: string } {
