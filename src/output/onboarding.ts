@@ -64,7 +64,7 @@ export function signupCompletePage(
       <label for="handle">${t.signupHandle}</label>
       <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="dad">
       <label for="displayName">${t.signupName}</label>
-      <input id="displayName" name="displayName" type="text" required maxlength="80" placeholder="Sky's Dad">
+      <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(pending.email.split('@')[0] ?? '')}" placeholder="Sky's Dad">
       <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"> ${t.signupPublic}</label>
       <button type="submit">${t.signupSubmit}</button>
     </form>

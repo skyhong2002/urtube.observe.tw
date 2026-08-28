@@ -458,7 +458,13 @@ export function createApp(registry: UserRegistry): Hono {
     const a = registry.userByHandle(aHandle);
     const b = registry.userByHandle(bHandle);
     if (!a || !b || a.handle === b.handle) {
-      return c.text('Pass two different handles: /compare?a=<handle>&b=<handle>', 400);
+      const lang = langOf(c);
+      const t = messages(lang);
+      const body = `<section style="margin:16vh auto 10vh;max-width:560px;text-align:center">
+        <h1 style="letter-spacing:-.03em;margin:0 0 10px">/compare</h1>
+        <p style="color:var(--ink-2)"><code>/compare?a=&lt;handle&gt;&amp;b=&lt;handle&gt;</code></p>
+      </section>`;
+      return c.html(shell('compare', body, [{ label: t.navHome, href: '/' }], '', lang), 400);
     }
     const me = sessionUser(c);
     const keyed = (user: User, param: string): boolean => {
