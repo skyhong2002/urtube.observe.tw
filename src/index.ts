@@ -147,10 +147,15 @@ export function createApp(registry: UserRegistry): Hono {
       crystalHtml = shiftsSection(cachedCrystal.crystal, lang);
     }
     c.header('Cache-Control', 'no-cache');
+    const viewerOwns = sessionUser(c)?.id === user.id;
     return c.html(youtubeDashboardPage(user.displayName, cachedData.data, requestedSort(c.req.query('sort')), {
       basePath,
       lang,
-      nav: [{ label: messages(lang).navDashboard, href: basePath, active: true }, langToggle(c, lang)],
+      nav: [
+        { label: messages(lang).navDashboard, href: basePath, active: true },
+        ...(viewerOwns ? [{ label: messages(lang).navAccount, href: '/account' }] : []),
+        langToggle(c, lang),
+      ],
       setupHtml: dashboardSetupSection(user, hasData, lang) + crystalHtml,
     }));
   }
@@ -208,6 +213,8 @@ export function createApp(registry: UserRegistry): Hono {
     c.header('Cache-Control', 'public, max-age=86400');
     return c.body(faviconSvg);
   });
+
+  app.get('/login', (c) => c.redirect('/auth/google'));
 
   // Google sign-in entry point: also the login for existing accounts, so it
   // stays available even when signups are disabled.
@@ -516,29 +523,33 @@ export function createApp(registry: UserRegistry): Hono {
   return app;
 }
 
-// Best-effort pre-warm of the owner's dashboard caches, re-run just inside
+// Best-effort pre-warm of every user's dashboard caches, re-run just inside
 // the TTL so the first visitor after a deploy or quiet stretch never pays
-// the aggregate cost.
-function warmOwnerDashboards(registry: UserRegistry): void {
-  try {
-    const user = registry.ensureDefaultUser();
-    const repository = registry.repositoryFor(user);
-    const counts = repository.youtubeCounts();
-    const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
-    const now = Date.now();
-    for (const range of ['7d', '28d', '90d', 'all'] as const) {
-      const id = `${user.handle}:${range}`;
-      const entry = dashboardCache.get(id);
-      if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-        dashboardCache.set(id, { key: validity, at: now, data: repository.youtubeDashboard(range) });
+// the aggregate cost. Users without data are skipped (their dashboards render
+// instantly anyway), so the sweep stays cheap as accounts accumulate.
+function warmDashboards(registry: UserRegistry): void {
+  registry.ensureDefaultUser();
+  for (const user of registry.listUsers()) {
+    try {
+      const repository = registry.repositoryFor(user);
+      const counts = repository.youtubeCounts();
+      if (counts.watches === 0) continue;
+      const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+      const now = Date.now();
+      for (const range of ['7d', '28d', '90d', 'all'] as const) {
+        const id = `${user.handle}:${range}`;
+        const entry = dashboardCache.get(id);
+        if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+          dashboardCache.set(id, { key: validity, at: now, data: repository.youtubeDashboard(range) });
+        }
       }
+      const crystal = crystalCache.get(user.handle);
+      if (!crystal || crystal.key !== validity || now - crystal.at > CACHE_TTL_MS) {
+        crystalCache.set(user.handle, { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) });
+      }
+    } catch (error) {
+      console.error(`dashboard warm failed for ${user.handle}:`, error instanceof Error ? error.message : error);
     }
-    const crystal = crystalCache.get(user.handle);
-    if (!crystal || crystal.key !== validity || now - crystal.at > CACHE_TTL_MS) {
-      crystalCache.set(user.handle, { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) });
-    }
-  } catch (error) {
-    console.error('dashboard warm failed:', error instanceof Error ? error.message : error);
   }
 }
 
@@ -549,6 +560,6 @@ if (process.env.NODE_ENV !== 'test') {
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);
   });
-  setTimeout(() => warmOwnerDashboards(registry), 2000);
-  setInterval(() => warmOwnerDashboards(registry), 240_000).unref();
+  setTimeout(() => warmDashboards(registry), 2000);
+  setInterval(() => warmDashboards(registry), 240_000).unref();
 }
