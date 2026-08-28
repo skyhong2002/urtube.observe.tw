@@ -16,6 +16,7 @@ import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './you
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { UserRegistry, type User } from './users.js';
+import { parseYoutubeArchive } from './youtube/takeout.js';
 import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
@@ -310,7 +311,7 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/account', (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
-    return c.html(accountPage(me, null, langOf(c)));
+    return c.html(accountPage(me, {}, langOf(c)));
   });
 
   // Token recovery: rotating invalidates both old tokens and shows the new
@@ -320,7 +321,39 @@ export function createApp(registry: UserRegistry): Hono {
     if (!me) return c.redirect('/signup');
     const rotated = registry.rotateTokens(me.handle);
     c.header('Cache-Control', 'no-store');
-    return c.html(accountPage(me, rotated, langOf(c)));
+    return c.html(accountPage(me, { rotated }, langOf(c)));
+  });
+
+  app.post('/account/visibility', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const form = await c.req.parseBody();
+    registry.setDashboardPublic(me.handle, form.dashboardPublic === '1');
+    return c.redirect('/account');
+  });
+
+  // Browser-friendly Takeout import: same parser and idempotent ingest as
+  // the API endpoint, but authenticated by the login session.
+  app.post('/account/takeout', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const lang = langOf(c);
+    const t = messages(lang);
+    const dataKey = registry.dataKeyFor(me);
+    if (!dataKey) return c.html(accountPage(me, { error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, lang), 503);
+    try {
+      const form = await c.req.parseBody();
+      const file = form.archive;
+      if (!(file instanceof File) || file.size === 0) {
+        return c.html(accountPage(me, { error: t.errTakeoutMissing }, lang), 400);
+      }
+      const archive = new Uint8Array(await file.arrayBuffer());
+      const parsed = parseYoutubeArchive(archive, dataKey, 'takeout');
+      const result = registry.repositoryFor(me).ingestYoutubeArchive(parsed);
+      return c.html(accountPage(me, { importResult: result }, lang), 201);
+    } catch (error) {
+      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, lang), 400);
+    }
   });
 
   app.post('/logout', (c) => {
@@ -379,7 +412,7 @@ export function createApp(registry: UserRegistry): Hono {
       user.dashboardPublic
       || keyed(user, param)
       || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
-    if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return c.text('Not found', 404);
+    if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return notFoundPage(c);
     const comparison = compareCrystals(
       buildYoutubeCrystal(registry.repositoryFor(a), a),
       buildYoutubeCrystal(registry.repositoryFor(b), b),
@@ -457,15 +490,28 @@ export function createApp(registry: UserRegistry): Hono {
     }
   });
 
+  function notFoundPage(c: Context) {
+    const lang = langOf(c);
+    const t = messages(lang);
+    const body = `<section style="margin:16vh auto 10vh;max-width:520px;text-align:center">
+      <h1 style="font-size:72px;letter-spacing:-.05em;line-height:1;margin:0 0 12px">404</h1>
+      <p style="color:var(--ink-2)">${t.notFoundPara}</p>
+      <p style="margin-top:26px"><a href="/" style="background:var(--accent);border-radius:999px;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;text-decoration:none">${t.navHome}</a></p>
+    </section>`;
+    return c.html(shell(t.notFoundTitle, body, [{ label: t.navHome, href: '/' }], '', lang), 404);
+  }
+
   // Registered last so every fixed route above wins: /<handle> is the
   // canonical dashboard URL (e.g. /skyhong.tw), with /u/<handle> kept as an
   // alias for existing links.
   app.get('/:handle', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
-    if (!user) return c.text('Not found', 404);
-    if (!dashboardAccess(c, user)) return c.text('Not found', 404);
+    if (!user) return notFoundPage(c);
+    if (!dashboardAccess(c, user)) return notFoundPage(c);
     return dashboardResponse(c, user, `/${user.handle}`);
   });
+
+  app.notFound((c) => notFoundPage(c));
 
   return app;
 }

@@ -338,6 +338,13 @@ export class UserRegistry {
     this.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(tokenHash(token));
   }
 
+  setDashboardPublic(handle: string, dashboardPublic: boolean): User {
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    this.db.prepare('UPDATE users SET dashboard_public=? WHERE id=?').run(dashboardPublic ? 1 : 0, user.id);
+    return this.userByHandle(handle)!;
+  }
+
   rotateTokens(handle: string): { captureToken: string; dashboardToken: string } {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
