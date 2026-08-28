@@ -160,6 +160,57 @@ test('login states and pending signups are single-use and expire', async () => {
   }
 });
 
+test('account page toggles dashboard visibility and imports Takeout uploads', async () => {
+  const { zipSync, strToU8 } = await import('fflate');
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const pending = registry.createPendingSignup('google-sub-30', 'vis@gmail.com');
+    const created = await app.request('/signup', signupBody(pending, { handle: 'vis', displayName: 'Vis' }));
+    const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
+
+    // Private by default; the visibility form flips it both ways.
+    assert.equal((await app.request('/vis')).status, 404);
+    const publish = await app.request('/account/visibility', {
+      method: 'POST',
+      headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'dashboardPublic=1',
+    });
+    assert.equal(publish.status, 302);
+    assert.equal((await app.request('/vis')).status, 200);
+    await app.request('/account/visibility', {
+      method: 'POST',
+      headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
+      body: '',
+    });
+    assert.equal((await app.request('/vis')).status, 404);
+
+    // Takeout upload through the browser form lands in this user's archive.
+    const zip = zipSync({
+      'Takeout/YouTube and YouTube Music/history/watch-history.json': strToU8(JSON.stringify([{
+        header: 'YouTube', title: 'Watched Uploaded Video',
+        titleUrl: 'https://www.youtube.com/watch?v=UPLOADVID01',
+        subtitles: [{ name: 'Upload Channel', url: 'https://www.youtube.com/channel/UCupload' }],
+        time: '2026-07-01T10:00:00Z', products: ['YouTube'],
+      }])),
+    });
+    const form = new FormData();
+    form.set('archive', new File([zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer], 'takeout.zip', { type: 'application/zip' }));
+    const uploaded = await app.request('/account/takeout', { method: 'POST', headers: { cookie: session }, body: form });
+    assert.equal(uploaded.status, 201);
+    assert.match(await uploaded.text(), /1 new watch event/);
+    const counts = registry.repositoryFor(registry.userByHandle('vis')!).youtubeCounts();
+    assert.equal(counts.watches, 1);
+
+    // Empty and unauthenticated uploads are rejected.
+    const empty = await app.request('/account/takeout', { method: 'POST', headers: { cookie: session }, body: new FormData() });
+    assert.equal(empty.status, 400);
+    assert.equal((await app.request('/account/takeout', { method: 'POST', body: new FormData() })).status, 302);
+  } finally {
+    registry.close();
+  }
+});
+
 test('signups are rate-limited per IP', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);

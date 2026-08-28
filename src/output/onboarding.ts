@@ -13,6 +13,7 @@ const formStyles = `
   .ob-form{display:grid;gap:10px}
   .ob-form label{color:var(--ink-2);font-size:12px;font-weight:700;margin-top:6px}
   .ob-form input[type=text]{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
+  .ob-form input[type=file]{background:var(--raised);border:1px dashed var(--line-strong);border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;padding:14px 12px;width:100%}
   .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(208,59,59,.3)}
   .ob-check{align-items:center;color:var(--ink-2);display:flex;font-size:13px;gap:8px;margin-top:6px}
   .ob-check input{accent-color:var(--accent)}
@@ -79,24 +80,43 @@ export function signupCompletePage(
   return shell(t.signupCompleteTitle, body, signupNav(lang), '', lang);
 }
 
-export function accountPage(
-  user: User,
-  rotated: { captureToken: string; dashboardToken: string } | null,
-  lang: Lang = 'en',
-): string {
+export interface AccountPageState {
+  rotated?: { captureToken: string; dashboardToken: string };
+  importResult?: { watchesInserted: number; searchesInserted: number };
+  error?: string;
+}
+
+export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
   const t = messages(lang);
   const dashboardHref = `/${user.handle}`;
-  const rotatedHtml = rotated ? `
+  const rotatedHtml = state.rotated ? `
       <div class="ob-warn">${t.accountRotated}</div>
       <p style="margin-bottom:2px">${t.accountCaptureToken}</p>
-      <code class="ob-token">${html(rotated.captureToken)}</code>
+      <code class="ob-token">${html(state.rotated.captureToken)}</code>
       <p style="margin-bottom:2px">${t.accountDashboardKey}</p>
-      <code class="ob-token">${html(rotated.dashboardToken)}</code>` : '';
+      <code class="ob-token">${html(state.rotated.dashboardToken)}</code>` : '';
+  const importedHtml = state.importResult
+    ? `<div class="ob-warn" style="border-color:rgba(94,182,125,.4);background:rgba(94,182,125,.1);color:#7ecf9d">${t.accountTakeoutResult(state.importResult.watchesInserted, state.importResult.searchesInserted)}</div>`
+    : '';
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
     <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></section>
     <div class="ob-card">
+      ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
       <h2>${t.accountDashboard}</h2>
       <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
+      <h2>${t.accountVisibility}</h2>
+      <p>${t.accountVisibilityPara}</p>
+      <form method="post" action="/account/visibility" class="ob-form">
+        <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}> ${t.signupPublic}</label>
+        <button type="submit">${t.accountVisibilitySave}</button>
+      </form>
+      ${importedHtml}
+      <h2>${t.accountTakeout}</h2>
+      <p>${t.accountTakeoutPara}</p>
+      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
+        <input type="file" name="archive" accept=".zip,application/zip">
+        <button type="submit">${t.accountTakeoutButton}</button>
+      </form>
       ${rotatedHtml}
       <h2>${t.accountRotate}</h2>
       <p>${t.accountRotatePara}</p>
