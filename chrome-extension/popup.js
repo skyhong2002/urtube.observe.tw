@@ -38,7 +38,7 @@ async function render() {
   document.querySelector('#lifelog-state').textContent = lifelogRunning
     ? lifelog.stage === 'activity'
       ? urtubeT.events(lifelog.events ?? 0)
-      : urtubeT.progressRows(history.videos ?? 0)
+      : urtubeT.progressRows(lifelog.videos ?? 0)
     : lifelog.state === 'complete'
       ? urtubeT.upToDate
       : lifelog.state === 'error'

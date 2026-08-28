@@ -339,7 +339,8 @@ export class UserRegistry {
   }
 
   setDisplayName(handle: string, displayName: string): User {
-    const trimmed = displayName.trim().slice(0, 80);
+    // Slice by code points so an 80-unit cut cannot split a surrogate pair.
+    const trimmed = [...displayName.trim()].slice(0, 80).join('');
     if (!trimmed) throw new Error('A display name is required');
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
