@@ -388,6 +388,26 @@ export function createApp(registry: UserRegistry): Hono {
     }
   });
 
+  // Self-serve deletion: session plus retyping the handle. deleteUser refuses
+  // the instance owner, which we surface as a friendly error.
+  app.post('/account/delete', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const lang = langOf(c);
+    const t = messages(lang);
+    const form = await c.req.parseBody();
+    if (String(form.confirmHandle ?? '').trim() !== me.handle) {
+      return c.html(accountPage(me, { error: t.errDeleteConfirm }, lang), 400);
+    }
+    try {
+      registry.deleteUser(me.handle);
+    } catch {
+      return c.html(accountPage(me, { error: t.errOwnerDelete }, lang), 400);
+    }
+    deleteCookie(c, 'urtube_session', { path: '/' });
+    return c.redirect('/');
+  });
+
   app.post('/logout', (c) => {
     registry.deleteSession(getCookie(c, 'urtube_session') ?? '');
     deleteCookie(c, 'urtube_session', { path: '/' });

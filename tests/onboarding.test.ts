@@ -224,6 +224,44 @@ test('account page toggles dashboard visibility and imports Takeout uploads', as
   }
 });
 
+test('self-serve deletion needs the retyped handle and spares the owner', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const pending = registry.createPendingSignup('google-sub-40', 'del@gmail.com');
+    const created = await app.request('/signup', signupBody(pending, { handle: 'deleteme', displayName: 'Del' }));
+    const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
+    const post = (body: string) => app.request('/account/delete', {
+      method: 'POST',
+      headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+    assert.equal((await post('confirmHandle=wrong')).status, 400);
+    assert.ok(registry.userByHandle('deleteme'));
+    const gone = await post('confirmHandle=deleteme');
+    assert.equal(gone.status, 302);
+    assert.equal(registry.userByHandle('deleteme'), null);
+    assert.equal(registry.userByGoogleSub('google-sub-40'), null);
+    // The deleted session no longer opens /account.
+    assert.equal((await app.request('/account', { headers: { cookie: session } })).status, 302);
+
+    // The owner's account refuses self-deletion.
+    const owner = registry.ensureDefaultUser();
+    registry.linkGoogle(owner.handle, 'google-sub-owner', 'owner@gmail.com');
+    const ownerSession = `urtube_session=${registry.createSession(registry.userByHandle(owner.handle)!)}`;
+    const refused = await app.request('/account/delete', {
+      method: 'POST',
+      headers: { cookie: ownerSession, 'content-type': 'application/x-www-form-urlencoded' },
+      body: `confirmHandle=${owner.handle}`,
+    });
+    assert.equal(refused.status, 400);
+    assert.ok(registry.userByHandle(owner.handle));
+  } finally {
+    registry.close();
+  }
+});
+
 test('signups are rate-limited per IP', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
