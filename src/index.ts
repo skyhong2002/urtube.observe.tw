@@ -123,6 +123,21 @@ export function createApp(registry: UserRegistry): Hono {
     return true;
   }
 
+  // One cache discipline for every crystal consumer (dashboard section,
+  // crystal.json, /compare): keyed on table counts with the shared TTL.
+  function cachedCrystalFor(user: User): YoutubeCrystal {
+    const repository = registry.repositoryFor(user);
+    const counts = repository.youtubeCounts();
+    const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+    const now = Date.now();
+    let entry = crystalCache.get(user.handle);
+    if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+      entry = { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) };
+      crystalCache.set(user.handle, entry);
+    }
+    return entry.crystal;
+  }
+
   function dashboardResponse(c: Context, user: User, basePath: string) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
@@ -137,20 +152,15 @@ export function createApp(registry: UserRegistry): Hono {
       dashboardCache.set(dataId, cachedData);
     }
     const hasData = counts.watches > 0;
-    let crystalHtml = '';
-    if (hasData) {
-      let cachedCrystal = crystalCache.get(user.handle);
-      if (!cachedCrystal || cachedCrystal.key !== validity || now - cachedCrystal.at > CACHE_TTL_MS) {
-        cachedCrystal = { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) };
-        crystalCache.set(user.handle, cachedCrystal);
-      }
-      crystalHtml = shiftsSection(cachedCrystal.crystal, lang);
-    }
+    const viewerOwns = sessionUser(c)?.id === user.id;
+    const crystalHtml = hasData ? shiftsSection(cachedCrystalFor(user), lang) : '';
     c.header('Cache-Control', 'no-cache');
     // Private dashboards reached via key/session must not end up in search
     // engines even if a keyed link leaks into a crawler.
     if (!user.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
-    const viewerOwns = sessionUser(c)?.id === user.id;
+    // Setup instructions are for people who can act on them: the owner, or a
+    // key-holding viewer of a private archive — not passersby on a public one.
+    const showSetup = viewerOwns || !user.dashboardPublic;
     return c.html(youtubeDashboardPage(user.displayName, cachedData.data, requestedSort(c.req.query('sort')), {
       basePath,
       lang,
@@ -159,7 +169,7 @@ export function createApp(registry: UserRegistry): Hono {
         ...(viewerOwns ? [{ label: messages(lang).navAccount, href: '/account' }] : []),
         langToggle(c, lang),
       ],
-      setupHtml: dashboardSetupSection(user, hasData, lang) + crystalHtml,
+      setupHtml: (showSetup ? dashboardSetupSection(user, hasData, lang) : '') + crystalHtml,
     }));
   }
 
@@ -411,13 +421,13 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/u/:handle/crystal.json', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
     if (!user || !dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    return c.json(buildYoutubeCrystal(registry.repositoryFor(user), user));
+    return c.json(cachedCrystalFor(user));
   });
 
   app.get('/api/youtube/crystal.json', (c) => {
     const user = registry.ensureDefaultUser();
     if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    return c.json(buildYoutubeCrystal(registry.repositoryFor(user), user));
+    return c.json(cachedCrystalFor(user));
   });
 
   // Cross-person difference view. The requester must be allowed to see BOTH
@@ -430,19 +440,18 @@ export function createApp(registry: UserRegistry): Hono {
     if (!a || !b || a.handle === b.handle) {
       return c.text('Pass two different handles: /compare?a=<handle>&b=<handle>', 400);
     }
+    const me = sessionUser(c);
     const keyed = (user: User, param: string): boolean => {
       const key = c.req.query(param) ?? '';
       return Boolean(key && registry.userByDashboardToken(user.handle, key));
     };
     const allowed = (user: User, param: string): boolean =>
       user.dashboardPublic
+      || me?.id === user.id
       || keyed(user, param)
       || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
     if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return notFoundPage(c);
-    const comparison = compareCrystals(
-      buildYoutubeCrystal(registry.repositoryFor(a), a),
-      buildYoutubeCrystal(registry.repositoryFor(b), b),
-    );
+    const comparison = compareCrystals(cachedCrystalFor(a), cachedCrystalFor(b));
     c.header('Cache-Control', 'no-cache');
     return c.html(comparePage(comparison, `/${a.handle}`, langOf(c)));
   });
