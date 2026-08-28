@@ -147,6 +147,9 @@ export function createApp(registry: UserRegistry): Hono {
       crystalHtml = shiftsSection(cachedCrystal.crystal, lang);
     }
     c.header('Cache-Control', 'no-cache');
+    // Private dashboards reached via key/session must not end up in search
+    // engines even if a keyed link leaks into a crawler.
+    if (!user.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
     const viewerOwns = sessionUser(c)?.id === user.id;
     return c.html(youtubeDashboardPage(user.displayName, cachedData.data, requestedSort(c.req.query('sort')), {
       basePath,
@@ -331,6 +334,18 @@ export function createApp(registry: UserRegistry): Hono {
     return c.html(accountPage(me, { rotated }, langOf(c)));
   });
 
+  app.post('/account/profile', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const form = await c.req.parseBody();
+    try {
+      registry.setDisplayName(me.handle, String(form.displayName ?? ''));
+      return c.redirect('/account');
+    } catch (error) {
+      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, langOf(c)), 400);
+    }
+  });
+
   app.post('/account/visibility', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
@@ -367,6 +382,10 @@ export function createApp(registry: UserRegistry): Hono {
     registry.deleteSession(getCookie(c, 'urtube_session') ?? '');
     deleteCookie(c, 'urtube_session', { path: '/' });
     return c.redirect('/');
+  });
+
+  app.get('/robots.txt', (c) => {
+    return c.text('User-agent: *\nDisallow: /compare\nDisallow: /account\nDisallow: /signup\nDisallow: /auth/\n');
   });
 
   app.get('/extension.zip', (c) => {

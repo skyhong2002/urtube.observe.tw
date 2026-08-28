@@ -202,6 +202,19 @@ test('account page toggles dashboard visibility and imports Takeout uploads', as
     const counts = registry.repositoryFor(registry.userByHandle('vis')!).youtubeCounts();
     assert.equal(counts.watches, 1);
 
+    // Display name edits apply immediately.
+    await app.request('/account/profile', {
+      method: 'POST',
+      headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'displayName=Renamed Vis',
+    });
+    assert.equal(registry.userByHandle('vis')?.displayName, 'Renamed Vis');
+
+    // Private dashboards carry a noindex header; robots.txt hides app pages.
+    const privateDash = await app.request('/vis', { headers: { cookie: session } });
+    assert.equal(privateDash.headers.get('x-robots-tag'), 'noindex');
+    assert.match(await (await app.request('/robots.txt')).text(), /Disallow: \/account/);
+
     // Empty and unauthenticated uploads are rejected.
     const empty = await app.request('/account/takeout', { method: 'POST', headers: { cookie: session }, body: new FormData() });
     assert.equal(empty.status, 400);
