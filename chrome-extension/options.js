@@ -39,7 +39,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
     await chrome.storage.local.set({ [SETTINGS_KEY]: values() });
-    result.textContent = 'Settings saved.';
+    result.textContent = urtubeT.saved;
     await chrome.runtime.sendMessage({ type: 'settings-updated' });
   } catch (error) {
     result.textContent = error instanceof Error ? error.message : String(error);
@@ -49,13 +49,13 @@ form.addEventListener('submit', async (event) => {
 document.querySelector('#test').addEventListener('click', async () => {
   try {
     const settings = values();
-    result.textContent = 'Testing connection...';
+    result.textContent = urtubeT.testing;
     const statusUrl = settings.endpoint.replace(/\/capture$/, '/capture/status');
     const response = await fetch(statusUrl, {
       headers: { authorization: `Bearer ${settings.token}` },
     });
     if (!response.ok) throw new Error(`Connection failed: HTTP ${response.status}`);
-    result.textContent = 'Connection ready.';
+    result.textContent = urtubeT.connectionReady;
   } catch (error) {
     result.textContent = error instanceof Error ? error.message : String(error);
   }

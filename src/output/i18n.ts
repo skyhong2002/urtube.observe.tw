@@ -305,7 +305,7 @@ const zh: typeof en = {
     '打開 <code>chrome://extensions</code>，開啟<strong>開發人員模式</strong>，點<strong>載入未封裝項目</strong>，選擇解壓後的資料夾。',
   ] as string[],
   welcomeConfigure: '2 · 把它接上你的檔案館',
-  welcomeConfigurePara: '在擴充功能的<strong>設定</strong>中填入下面兩個值，然後按 <strong>Test connection</strong>——應顯示「Connection ready.」',
+  welcomeConfigurePara: '在擴充功能的<strong>設定</strong>中填入下面兩個值，然後按<strong>測試連線</strong>——應顯示「連線就緒。」',
   welcomeEndpointLabel: 'Endpoint',
   welcomeTokenLabel: '擷取 token（capture token）',
   welcomeDash: '3 · 打開你的儀表板',

@@ -12,38 +12,38 @@ async function render() {
   const lifelog = stored.lifelogSyncStatus ?? {};
   const configured = Boolean(settings.token);
   document.querySelector('#state').textContent = !settings.enabled
-    ? 'Capture paused'
-    : configured ? 'Capture active' : 'Setup required';
+    ? urtubeT.paused
+    : configured ? urtubeT.active : urtubeT.setupRequired;
   document.querySelector('#pending').textContent = String(
     status.pending ?? stored.captureQueue?.length ?? 0
   );
   document.querySelector('#last-sync').textContent = lifelog.lastSuccessAt
     ? new Date(lifelog.lastSuccessAt).toLocaleString()
-    : 'Never';
+    : urtubeT.never;
   document.querySelector('#error').textContent = status.lastError ?? '';
   const historyButton = document.querySelector('#history');
   const running = history.state === 'running';
-  historyButton.textContent = running ? 'Cancel scan' : 'Full progress scan';
+  historyButton.textContent = running ? urtubeT.cancelScan : urtubeT.fullScan;
   historyButton.classList.toggle('danger', running);
   document.querySelector('#history-state').textContent = running
-    ? `${history.videos ?? 0} videos`
+    ? urtubeT.videos(history.videos ?? 0)
     : history.state === 'complete'
-      ? `${history.videos ?? 0} imported`
+      ? urtubeT.importedVideos(history.videos ?? 0)
       : history.state === 'error'
-        ? 'Import failed'
-        : 'Not imported';
+        ? urtubeT.importFailed
+        : urtubeT.notImported;
   if (history.lastError) document.querySelector('#error').textContent = history.lastError;
   const lifelogRunning = lifelog.state === 'running';
-  document.querySelector('#sync').textContent = lifelogRunning ? 'Cancel sync' : 'Sync now';
+  document.querySelector('#sync').textContent = lifelogRunning ? urtubeT.cancelSync : urtubeT.syncNow;
   document.querySelector('#lifelog-state').textContent = lifelogRunning
     ? lifelog.stage === 'activity'
-      ? `${lifelog.events ?? 0} events`
-      : `${history.videos ?? 0} progress rows`
+      ? urtubeT.events(lifelog.events ?? 0)
+      : urtubeT.progressRows(history.videos ?? 0)
     : lifelog.state === 'complete'
-      ? 'Up to date'
+      ? urtubeT.upToDate
       : lifelog.state === 'error'
-        ? 'Sync failed'
-        : 'Not synced';
+        ? urtubeT.syncFailed
+        : urtubeT.notSynced;
   if (lifelog.lastError) document.querySelector('#error').textContent = lifelog.lastError;
 }
 

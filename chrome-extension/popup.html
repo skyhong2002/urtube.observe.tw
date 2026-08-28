@@ -6,28 +6,29 @@
   <title>urtube YouTube Capture</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body class="popup">
+<body class="popup" data-i18n-title="popupTitle">
   <main>
     <header>
       <img class="mark" src="icon128.png" alt="">
       <div>
-        <h1>YouTube Capture</h1>
-        <p id="state">Checking status...</p>
+        <h1 data-i18n="popupTitle">YouTube Capture</h1>
+        <p id="state" data-i18n="checking">Checking status...</p>
       </div>
     </header>
     <dl>
-      <div><dt>Pending</dt><dd id="pending">0</dd></div>
-      <div><dt>Account sync</dt><dd id="lifelog-state">Not synced</dd></div>
-      <div><dt>Last sync</dt><dd id="last-sync">Never</dd></div>
-      <div><dt>History progress</dt><dd id="history-state">Not imported</dd></div>
+      <div><dt data-i18n="pending">Pending</dt><dd id="pending">0</dd></div>
+      <div><dt data-i18n="accountSync">Account sync</dt><dd id="lifelog-state">Not synced</dd></div>
+      <div><dt data-i18n="lastSync">Last sync</dt><dd id="last-sync">Never</dd></div>
+      <div><dt data-i18n="historyProgress">History progress</dt><dd id="history-state">Not imported</dd></div>
     </dl>
     <p id="error" class="error"></p>
     <div class="actions">
-      <button id="sync" type="button">Sync now</button>
-      <button id="history" type="button" class="secondary">Full progress scan</button>
-      <button id="options" type="button" class="secondary">Settings</button>
+      <button id="sync" type="button" data-i18n="syncNow">Sync now</button>
+      <button id="history" type="button" class="secondary" data-i18n="fullScan">Full progress scan</button>
+      <button id="options" type="button" class="secondary" data-i18n="settings">Settings</button>
     </div>
   </main>
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
