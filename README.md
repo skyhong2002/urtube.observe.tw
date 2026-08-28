@@ -33,24 +33,37 @@ front with Caddy — see CUTOVER_RUNBOOK.md).
 
 ## Users
 
-Anyone can self-onboard at **`/signup`**: pick a handle, get a capture token
-and a private dashboard link (shown once, stored hashed), download the
-pinned extension from `/extension.zip`, and start tracking. Signups are
-rate-limited per IP; disable them entirely with `SIGNUP_ENABLED=false`.
+Signup is gated behind **Sign in with Google** (`/signup` → OAuth → pick a
+handle): one Google account maps to exactly one archive, keyed on Google's
+permanent `sub` claim (never the email, which can change). Accounts created
+before Google sign-in can be claimed from the same form with their dashboard
+key. Sessions live in an HttpOnly cookie for 180 days; `/account` shows your
+dashboard link and lets you rename yourself, toggle visibility, upload a
+Google Takeout, rotate tokens (lost-token recovery), and sign out. Signups
+are rate-limited per IP; disable them with `SIGNUP_ENABLED=false` (login and
+claiming stay available).
+
+Google OAuth env: `GOOGLE_LOGIN_CLIENT_ID` / `GOOGLE_LOGIN_CLIENT_SECRET`
+(fall back to the `GOOGLE_DATA_PORTABILITY_*` pair); the redirect URI is
+`<PUBLIC_BASE_URL>/auth/google/callback`.
 
 Admin equivalents:
 
 ```sh
 npm run user:create -- dad "Dad"        # prints capture + dashboard tokens once
-npm run user:create -- dad --rotate     # rotate tokens (lost-token recovery)
+npm run user:create -- dad --rotate     # rotate tokens
 npm run user:create -- dad --delete     # remove the user and their database
 ```
 
-Each user gets a private dashboard at `/u/<handle>?key=<dashboardToken>` and
-their own SQLite file under `data/users/`, with a per-user derived search
-encryption key.
+Each user's dashboard is at **`/<handle>`** (`/u/<handle>` redirects; private
+dashboards append `?key=<dashboardToken>` for keyless browsers) and their
+data is its own SQLite file under `data/users/`, with a per-user derived
+search encryption key.
 
 ## Data import
+
+Per-user: upload a Takeout ZIP from `/account`, or POST it to
+`/api/ingest/youtube/takeout` with your capture token. Owner CLI:
 
 ```sh
 npm run youtube:import -- /path/to/takeout.zip     # owner CLI import

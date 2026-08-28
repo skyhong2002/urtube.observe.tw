@@ -127,6 +127,12 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <p>${t.accountRotatePara}</p>
       <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
       <form method="post" action="/logout" class="ob-form" style="margin-top:10px"><button type="submit" style="background:var(--raised);border-color:var(--line-strong);color:var(--ink)">${t.accountLogout}</button></form>
+      <details style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
+      <form method="post" action="/account/delete" class="ob-form" style="margin-top:10px">
+        <p style="margin:0">${t.accountDeletePara(html(user.handle))}</p>
+        <input name="confirmHandle" type="text" autocomplete="off" placeholder="${html(user.handle)}">
+        <button type="submit">${t.accountDeleteButton}</button>
+      </form></details>
     </div>`;
   return shell(t.accountTitle, body, [
     { label: t.navHome, href: '/' },
