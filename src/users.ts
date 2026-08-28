@@ -338,6 +338,15 @@ export class UserRegistry {
     this.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(tokenHash(token));
   }
 
+  setDisplayName(handle: string, displayName: string): User {
+    const trimmed = displayName.trim().slice(0, 80);
+    if (!trimmed) throw new Error('A display name is required');
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    this.db.prepare('UPDATE users SET display_name=? WHERE id=?').run(trimmed, user.id);
+    return this.userByHandle(handle)!;
+  }
+
   setDashboardPublic(handle: string, dashboardPublic: boolean): User {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);

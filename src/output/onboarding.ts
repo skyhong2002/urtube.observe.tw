@@ -104,6 +104,11 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
       <h2>${t.accountDashboard}</h2>
       <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
+      <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
+        <label for="displayName">${t.signupName}</label>
+        <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">
+        <button type="submit">${t.accountNameSave}</button>
+      </form>
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
       <form method="post" action="/account/visibility" class="ob-form">
