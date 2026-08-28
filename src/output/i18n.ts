@@ -10,6 +10,8 @@ export function pickLang(
   return /(^|[,;\s])zh\b/i.test(acceptLanguage ?? '') ? 'zh' : 'en';
 }
 
+const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 // One flat message object per language; every user-facing string lives here.
 // Interpolated strings are functions so word order can differ per language.
 const en = {
@@ -122,7 +124,7 @@ const en = {
   welcomeInstallSteps: [
     'Download <a href="/extension.zip">extension.zip</a> and unzip it.',
     'Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and pick the unzipped folder.',
-  ] as string[],
+  ],
   welcomeConfigure: '2 · Point it at your archive',
   welcomeConfigurePara: "In the extension's <strong>Settings</strong>, fill in these two values, then press <strong>Test connection</strong> — it should say “Connection ready.”",
   welcomeEndpointLabel: 'Endpoint',
@@ -170,6 +172,7 @@ const en = {
   accountTakeoutResult: (watches: number, searches: number) =>
     `Imported ${watches} new watch event${watches === 1 ? '' : 's'} and ${searches} new search${searches === 1 ? '' : 'es'}.`,
   errTakeoutMissing: 'Choose the Takeout ZIP file first.',
+  errTakeoutTooLarge: 'That ZIP is over the 100MB limit — export only YouTube history from Takeout (not the full account) and try again.',
   notFoundTitle: 'Page not found',
   notFoundPara: 'Nothing lives at this address. Check the link, or head back to the projection room.',
   navAccount: 'Account',
@@ -187,10 +190,10 @@ const en = {
   agoHours: (n: number) => `${n} hr ago`,
   agoDays: (n: number) => `${n} ${n === 1 ? 'day' : 'days'} ago`,
   agoWeeks: (n: number) => `${n} wk ago`,
-  fullDate: (year: number, month: number, day: number) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1]} ${day}, ${year}`,
-  monthDay: (month: number, day: number) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1]} ${day}`,
-  monthYear: (year: number, month: number) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1]} ${year}`,
-  monthTick: (month: number) => ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][month - 1],
+  fullDate: (year: number, month: number, day: number) => `${MONTHS_EN[month - 1]} ${day}, ${year}`,
+  monthDay: (month: number, day: number) => `${MONTHS_EN[month - 1]} ${day}`,
+  monthYear: (year: number, month: number) => `${MONTHS_EN[month - 1]} ${year}`,
+  monthTick: (month: number) => MONTHS_EN[month - 1].toUpperCase(),
 };
 
 const zh: typeof en = {
@@ -303,7 +306,7 @@ const zh: typeof en = {
   welcomeInstallSteps: [
     '下載 <a href="/extension.zip">extension.zip</a> 並解壓縮。',
     '打開 <code>chrome://extensions</code>，開啟<strong>開發人員模式</strong>，點<strong>載入未封裝項目</strong>，選擇解壓後的資料夾。',
-  ] as string[],
+  ],
   welcomeConfigure: '2 · 把它接上你的檔案館',
   welcomeConfigurePara: '在擴充功能的<strong>設定</strong>中填入下面兩個值，然後按<strong>測試連線</strong>——應顯示「連線就緒。」',
   welcomeEndpointLabel: 'Endpoint',
@@ -350,6 +353,7 @@ const zh: typeof en = {
   accountTakeoutButton: '上傳並匯入',
   accountTakeoutResult: (watches: number, searches: number) => `匯入了 ${watches} 筆新觀看紀錄和 ${searches} 筆新搜尋。`,
   errTakeoutMissing: '請先選擇 Takeout 的 ZIP 檔。',
+  errTakeoutTooLarge: 'ZIP 超過 100MB 上限——請在 Takeout 只匯出 YouTube 歷史紀錄（不要整個帳號）再試一次。',
   notFoundTitle: '找不到頁面',
   notFoundPara: '這個網址沒有東西。檢查一下連結，或回放映廳首頁。',
   navAccount: '帳號',
