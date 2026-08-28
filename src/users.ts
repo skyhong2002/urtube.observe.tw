@@ -344,14 +344,14 @@ export class UserRegistry {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
     this.db.prepare('UPDATE users SET display_name=? WHERE id=?').run(trimmed, user.id);
-    return this.userByHandle(handle)!;
+    return { ...user, displayName: trimmed };
   }
 
   setDashboardPublic(handle: string, dashboardPublic: boolean): User {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
     this.db.prepare('UPDATE users SET dashboard_public=? WHERE id=?').run(dashboardPublic ? 1 : 0, user.id);
-    return this.userByHandle(handle)!;
+    return { ...user, dashboardPublic };
   }
 
   rotateTokens(handle: string): { captureToken: string; dashboardToken: string } {

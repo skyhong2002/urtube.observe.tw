@@ -122,8 +122,8 @@ export interface ShellNavItem {
 }
 
 export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], extraStyles = '', lang: Lang = 'en'): string {
-  // "urtube" alone should not become "urtube · urtube" (the landing page).
-  const title = rawTitle === 'urtube' ? 'urtube' : `${rawTitle} · urtube`;
+  // An empty title means brand-only (the landing page).
+  const title = rawTitle ? `${rawTitle} · urtube` : 'urtube';
   const t = messages(lang);
   const links = nav.map((item) =>
     `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}>${html(item.label)}</a>`

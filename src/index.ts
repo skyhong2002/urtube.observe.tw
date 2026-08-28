@@ -15,7 +15,7 @@ import {
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
-import { UserRegistry, type User } from './users.js';
+import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
 import { parseYoutubeArchive } from './youtube/takeout.js';
 import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
 
@@ -66,6 +66,45 @@ function clientIp(c: Context): string {
 const CACHE_TTL_MS = 300_000;
 const dashboardCache = new Map<string, { key: string; at: number; data: YoutubeDashboardData }>();
 const crystalCache = new Map<string, { key: string; at: number; crystal: YoutubeCrystal }>();
+// Handles worth pre-warming: the owner plus anyone whose dashboard was
+// actually visited since boot. Keeps the warm sweep (and its open SQLite
+// handles) proportional to traffic, not to total signups.
+const warmedHandles = new Set<string>();
+
+function validityFor(counts: { watches: number; searches: number; videos: number; channels: number }): string {
+  return `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+}
+
+function evictUserCaches(handle: string): void {
+  for (const range of ['7d', '28d', '90d', 'all']) dashboardCache.delete(`${handle}:${range}`);
+  crystalCache.delete(handle);
+  warmedHandles.delete(handle);
+}
+
+// One cache discipline for every aggregate consumer (dashboard pages,
+// crystal.json, /compare, the warm sweep): entries are keyed on the table
+// counts with a shared TTL. Callers that already computed counts pass them
+// in so a request never runs the COUNT aggregates twice.
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts())): YoutubeDashboardData {
+  const now = Date.now();
+  const id = `${user.handle}:${range}`;
+  let entry = dashboardCache.get(id);
+  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+    entry = { key: validity, at: now, data: repository.youtubeDashboard(range) };
+    dashboardCache.set(id, entry);
+  }
+  return entry.data;
+}
+
+function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts())): YoutubeCrystal {
+  const now = Date.now();
+  let entry = crystalCache.get(user.handle);
+  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+    entry = { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) };
+    crystalCache.set(user.handle, entry);
+  }
+  return entry.crystal;
+}
 
 export function createApp(registry: UserRegistry): Hono {
   const app = new Hono();
@@ -123,45 +162,27 @@ export function createApp(registry: UserRegistry): Hono {
     return true;
   }
 
-  // One cache discipline for every crystal consumer (dashboard section,
-  // crystal.json, /compare): keyed on table counts with the shared TTL.
-  function cachedCrystalFor(user: User): YoutubeCrystal {
-    const repository = registry.repositoryFor(user);
-    const counts = repository.youtubeCounts();
-    const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
-    const now = Date.now();
-    let entry = crystalCache.get(user.handle);
-    if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-      entry = { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) };
-      crystalCache.set(user.handle, entry);
-    }
-    return entry.crystal;
-  }
-
   function dashboardResponse(c: Context, user: User, basePath: string) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
     const counts = repository.youtubeCounts();
-    const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+    const validity = validityFor(counts);
     const range = requestedRange(c.req.query('range'));
-    const now = Date.now();
-    const dataId = `${user.handle}:${range}`;
-    let cachedData = dashboardCache.get(dataId);
-    if (!cachedData || cachedData.key !== validity || now - cachedData.at > CACHE_TTL_MS) {
-      cachedData = { key: validity, at: now, data: repository.youtubeDashboard(range) };
-      dashboardCache.set(dataId, cachedData);
-    }
+    const data = cachedDashboardFor(registry, user, range, repository, validity);
     const hasData = counts.watches > 0;
     const viewerOwns = sessionUser(c)?.id === user.id;
-    const crystalHtml = hasData ? shiftsSection(cachedCrystalFor(user), lang) : '';
+    const crystalHtml = hasData ? shiftsSection(cachedCrystalFor(registry, user, repository, validity), lang) : '';
+    warmedHandles.add(user.handle);
     c.header('Cache-Control', 'no-cache');
     // Private dashboards reached via key/session must not end up in search
     // engines even if a keyed link leaks into a crawler.
     if (!user.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
-    // Setup instructions are for people who can act on them: the owner, or a
-    // key-holding viewer of a private archive — not passersby on a public one.
-    const showSetup = viewerOwns || !user.dashboardPublic;
-    return c.html(youtubeDashboardPage(user.displayName, cachedData.data, requestedSort(c.req.query('sort')), {
+    // Setup instructions are for people who can act on them: the owner, a
+    // viewer of a private archive — or anyone on a still-empty dashboard,
+    // which is otherwise a blank page (and how a CLI-created owner with no
+    // session learns the setup steps).
+    const showSetup = viewerOwns || !user.dashboardPublic || !hasData;
+    return c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
       basePath,
       lang,
       nav: [
@@ -209,7 +230,7 @@ export function createApp(registry: UserRegistry): Hono {
     <div class="lp-points">${points}</div>
     <p class="lp-note">${t.landingNote}</p>`;
     const me = sessionUser(c);
-    return c.html(shell('urtube', body, [
+    return c.html(shell('', body, [
       me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
       { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
       langToggle(c, lang),
@@ -350,6 +371,9 @@ export function createApp(registry: UserRegistry): Hono {
     const form = await c.req.parseBody();
     try {
       registry.setDisplayName(me.handle, String(form.displayName ?? ''));
+      // The crystal embeds the display name; drop it so /compare and
+      // crystal.json pick up the rename immediately.
+      evictUserCaches(me.handle);
       return c.redirect('/account');
     } catch (error) {
       return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, langOf(c)), 400);
@@ -373,6 +397,12 @@ export function createApp(registry: UserRegistry): Hono {
     const t = messages(lang);
     const dataKey = registry.dataKeyFor(me);
     if (!dataKey) return c.html(accountPage(me, { error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, lang), 503);
+    // Reject oversized uploads before buffering the body: the parser's own
+    // 100MB archive limit only runs after the whole upload sits in memory.
+    const declaredBytes = Number(c.req.header('content-length') ?? 0);
+    if (declaredBytes > 110 * 1024 * 1024) {
+      return c.html(accountPage(me, { error: t.errTakeoutTooLarge }, lang), 413);
+    }
     try {
       const form = await c.req.parseBody();
       const file = form.archive;
@@ -399,11 +429,15 @@ export function createApp(registry: UserRegistry): Hono {
     if (String(form.confirmHandle ?? '').trim() !== me.handle) {
       return c.html(accountPage(me, { error: t.errDeleteConfirm }, lang), 400);
     }
-    try {
-      registry.deleteUser(me.handle);
-    } catch {
+    if (me.handle === DEFAULT_HANDLE) {
       return c.html(accountPage(me, { error: t.errOwnerDelete }, lang), 400);
     }
+    try {
+      registry.deleteUser(me.handle);
+    } catch (error) {
+      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, lang), 500);
+    }
+    evictUserCaches(me.handle);
     deleteCookie(c, 'urtube_session', { path: '/' });
     return c.redirect('/');
   });
@@ -441,13 +475,13 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/u/:handle/crystal.json', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
     if (!user || !dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    return c.json(cachedCrystalFor(user));
+    return c.json(cachedCrystalFor(registry, user));
   });
 
   app.get('/api/youtube/crystal.json', (c) => {
     const user = registry.ensureDefaultUser();
     if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    return c.json(cachedCrystalFor(user));
+    return c.json(cachedCrystalFor(registry, user));
   });
 
   // Cross-person difference view. The requester must be allowed to see BOTH
@@ -477,8 +511,10 @@ export function createApp(registry: UserRegistry): Hono {
       || keyed(user, param)
       || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
     if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return notFoundPage(c);
-    const comparison = compareCrystals(cachedCrystalFor(a), cachedCrystalFor(b));
+    const comparison = compareCrystals(cachedCrystalFor(registry, a), cachedCrystalFor(registry, b));
     c.header('Cache-Control', 'no-cache');
+    // Keyed compare links must not get indexed if they leak to a crawler.
+    if (!a.dashboardPublic || !b.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
     return c.html(comparePage(comparison, `/${a.handle}`, langOf(c)));
   });
 
@@ -577,32 +613,36 @@ export function createApp(registry: UserRegistry): Hono {
   return app;
 }
 
-// Best-effort pre-warm of every user's dashboard caches, re-run just inside
-// the TTL so the first visitor after a deploy or quiet stretch never pays
-// the aggregate cost. Users without data are skipped (their dashboards render
-// instantly anyway), so the sweep stays cheap as accounts accumulate.
+// Best-effort pre-warm of dashboard caches, re-run just inside the TTL so
+// the first visitor after a deploy or quiet stretch never pays the aggregate
+// cost. Only the owner and handles visited since boot are swept, using the
+// exact same cache fills as the serve path.
 function warmDashboards(registry: UserRegistry): void {
-  registry.ensureDefaultUser();
-  for (const user of registry.listUsers()) {
+  // The whole sweep runs inside timer callbacks: any escape here would crash
+  // the process (registry reads can throw on SQLITE_BUSY during backups).
+  try {
+    warmedHandles.add(registry.ensureDefaultUser().handle);
+  } catch (error) {
+    console.error('dashboard warm failed:', error instanceof Error ? error.message : error);
+    return;
+  }
+  for (const handle of warmedHandles) {
     try {
+      const user = registry.userByHandle(handle);
+      if (!user) {
+        warmedHandles.delete(handle);
+        continue;
+      }
       const repository = registry.repositoryFor(user);
       const counts = repository.youtubeCounts();
       if (counts.watches === 0) continue;
-      const validity = `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
-      const now = Date.now();
+      const validity = validityFor(counts);
       for (const range of ['7d', '28d', '90d', 'all'] as const) {
-        const id = `${user.handle}:${range}`;
-        const entry = dashboardCache.get(id);
-        if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-          dashboardCache.set(id, { key: validity, at: now, data: repository.youtubeDashboard(range) });
-        }
+        cachedDashboardFor(registry, user, range, repository, validity);
       }
-      const crystal = crystalCache.get(user.handle);
-      if (!crystal || crystal.key !== validity || now - crystal.at > CACHE_TTL_MS) {
-        crystalCache.set(user.handle, { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) });
-      }
+      cachedCrystalFor(registry, user, repository, validity);
     } catch (error) {
-      console.error(`dashboard warm failed for ${user.handle}:`, error instanceof Error ? error.message : error);
+      console.error(`dashboard warm failed for ${handle}:`, error instanceof Error ? error.message : error);
     }
   }
 }
