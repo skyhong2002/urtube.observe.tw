@@ -229,7 +229,7 @@ const en = {
   tagLeanEyebrow: 'YouTube · channel leanings',
   tagLeanTitle: 'Leanings',
   tagGroups: {
-    news: 'News', editorial: 'Commentary', editorialShows: 'Commentary shows',
+    news: 'News', editorial: 'Personal commentary', editorialShows: 'Commentary shows',
     blue: 'Pan-Blue', green: 'Pan-Green', white: 'Pan-White', red: 'Pan-Red',
   } as Record<string, string>,
   tagLeanHeroSub: (range: string) => `of your political-channel watch time · ${range.toLowerCase()}`,
@@ -468,7 +468,7 @@ const zh: typeof en = {
   tagLeanEyebrow: 'YouTube · 頻道傾向',
   tagLeanTitle: '頻道傾向',
   tagGroups: {
-    news: '新聞', editorial: '社論', editorialShows: '社論節目',
+    news: '新聞', editorial: '個人社論', editorialShows: '社論節目',
     blue: '泛藍', green: '泛綠', white: '泛白', red: '泛紅',
   } as Record<string, string>,
   tagLeanHeroSub: (range: string) => `佔政治標籤頻道觀看時間 · ${range}`,
