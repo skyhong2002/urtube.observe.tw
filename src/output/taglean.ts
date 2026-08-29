@@ -46,6 +46,7 @@ const tagLeanStyles = `
   .tl-channel-name a{color:var(--ink);text-decoration:none}.tl-channel-name a:hover{color:var(--accent-text)}
   .tl-channel-hours{color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums;text-align:right}
   .tl-empty{color:var(--muted);font-size:12px}
+  .tl-coverage{color:var(--ink-2);font-size:14px;line-height:1.6;margin:16px 2px 0}
   .tl-foot{color:var(--muted);font-size:11px;margin-top:16px}
   @media(max-width:820px){.tl-hero{grid-template-columns:1fr}.tl-row{grid-template-columns:88px minmax(0,1fr) 118px}}
 `;
@@ -160,7 +161,10 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
     () => CONTENT_COLOR, t,
   );
 
-  const foot = `<p class="tl-foot">${t.tagLeanCoverage(Math.round(matchedShare))} ${t.tagLeanSource(html(config.tagListsUrl.replace(/^https?:\/\//, '').split('/')[0]))}</p>`;
+  // The coverage sentence scopes every number below it, so it sits right
+  // under the hero at reading size; only the source note stays in the footer.
+  const coverage = `<p class="tl-coverage">${t.tagLeanCoverage(Math.round(matchedShare))}</p>`;
+  const foot = `<p class="tl-foot">${t.tagLeanSource(html(config.tagListsUrl.replace(/^https?:\/\//, '').split('/')[0]))}</p>`;
   // Page name + range in the title and h1: distinct from the dashboard's h1
   // for the same owner, and distinct across every ?range variant.
   const scope = `${t.tagLeanTitle} · ${t.ranges[data.range]}`;
@@ -169,6 +173,6 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
     <div class="yt-profile-copy"><div class="eyebrow">${t.tagLeanEyebrow}</div>
     <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
     <div class="yt-profile-meta"><a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;
-  return shell(`${ownerName} · ${scope}`, intro + rangeNav + hero + politics + content + foot,
+  return shell(`${ownerName} · ${scope}`, intro + rangeNav + hero + coverage + politics + content + foot,
     options.nav ?? [], '', lang, options.basePath);
 }
