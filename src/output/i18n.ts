@@ -41,7 +41,7 @@ const en = {
 
   eyebrowArchive: 'YouTube · attention archive',
   home: 'home',
-  ranges: { '7d': 'Last 7 days', '28d': 'Last 28 days', '90d': 'Last 90 days', all: 'All time' } as Record<string, string>,
+  ranges: { '7d': 'Last 7 days', '28d': 'Last 28 days', '90d': 'Last 90 days', '365d': 'Last 365 days', all: 'All time' } as Record<string, string>,
   heroHoursUnit: 'hours',
   heroSub: (range: string) => `estimated time in front of YouTube · ${range.toLowerCase()}`,
   statWatchEvents: 'watch events',
@@ -251,7 +251,7 @@ const zh: typeof en = {
 
   eyebrowArchive: 'YouTube · 注意力檔案館',
   home: '首頁',
-  ranges: { '7d': '最近 7 天', '28d': '最近 28 天', '90d': '最近 90 天', all: '全部時間' } as Record<string, string>,
+  ranges: { '7d': '最近 7 天', '28d': '最近 28 天', '90d': '最近 90 天', '365d': '最近 365 天', all: '全部時間' } as Record<string, string>,
   heroHoursUnit: '小時',
   heroSub: (range: string) => `估計花在 YouTube 上的時間 · ${range}`,
   statWatchEvents: '觀看事件',
