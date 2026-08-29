@@ -12,7 +12,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.3.0');
+  assert.equal(manifest.version, '1.4.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -33,12 +33,17 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'https://urtube.observe.tw/auth/*',
   ]);
   assert.deepEqual(manifest.content_scripts[0].js, ['dashboard.js']);
+  // One-click provisioning bridge only lives on the setup page.
   assert.deepEqual(manifest.content_scripts[1].matches, [
+    'https://urtube.observe.tw/extension-setup*',
+  ]);
+  assert.deepEqual(manifest.content_scripts[1].js, ['provision.js']);
+  assert.deepEqual(manifest.content_scripts[2].matches, [
     'https://myactivity.google.com/product/youtube*',
   ]);
-  assert.deepEqual(manifest.content_scripts[1].js, ['myactivity.js']);
-  assert.deepEqual(manifest.content_scripts[2].matches, ['https://www.youtube.com/*']);
-  assert.deepEqual(manifest.content_scripts[2].js, ['history.js', 'content.js']);
+  assert.deepEqual(manifest.content_scripts[2].js, ['myactivity.js']);
+  assert.deepEqual(manifest.content_scripts[3].matches, ['https://www.youtube.com/*']);
+  assert.deepEqual(manifest.content_scripts[3].js, ['history.js', 'content.js']);
   assert.equal(manifest.background.type, 'module');
 });
 

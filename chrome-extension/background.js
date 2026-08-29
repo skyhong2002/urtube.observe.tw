@@ -750,7 +750,9 @@ chrome.runtime.onInstalled.addListener(async () => {
         autoSync: true,
       },
     });
-    await chrome.runtime.openOptionsPage();
+    // One-click provisioning: the site page hands us endpoint + token via
+    // the provision content script; no manual copying.
+    await chrome.tabs.create({ url: new URL('/extension-setup', DEFAULT_ENDPOINT).toString() });
   }
   const historyImport = stored[HISTORY_STATUS_KEY] ?? {};
   if (historyImport.state === 'running') {

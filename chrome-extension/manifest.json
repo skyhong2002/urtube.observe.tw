@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "urtube YouTube Capture",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "icons": {
     "16": "icon16.png",
     "32": "icon32.png",
@@ -46,6 +46,15 @@
       ],
       "js": [
         "dashboard.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://urtube.observe.tw/extension-setup*"
+      ],
+      "js": [
+        "provision.js"
       ],
       "run_at": "document_idle"
     },

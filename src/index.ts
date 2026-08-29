@@ -10,7 +10,7 @@ import { config } from './config.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import {
-  accountPage, dashboardSetupSection, signupCompletePage, signupStartPage, welcomePage,
+  accountPage, dashboardSetupSection, extensionSetupPage, signupCompletePage, signupStartPage, welcomePage,
 } from './output/onboarding.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
@@ -253,10 +253,11 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/login', (c) => c.redirect('/auth/google'));
 
   // Google sign-in entry point: also the login for existing accounts, so it
-  // stays available even when signups are disabled.
+  // stays available even when signups are disabled. ?next=/path continues
+  // there after the round trip (same-site paths only).
   app.get('/auth/google', (c) => {
     try {
-      return c.redirect(googleLoginUrl(registry));
+      return c.redirect(googleLoginUrl(registry, c.req.query('next') ?? ''));
     } catch (error) {
       return c.text(error instanceof Error ? error.message : String(error), 503);
     }
@@ -273,7 +274,7 @@ export function createApp(registry: UserRegistry): Hono {
       const existing = registry.userByGoogleSub(identity.sub);
       if (existing) {
         startSession(c, existing);
-        return c.redirect(`/${existing.handle}`);
+        return c.redirect(identity.next || `/${existing.handle}`);
       }
       // New Google account: park the verified identity and let them pick a
       // handle (or claim a pre-Google account).
@@ -349,6 +350,37 @@ export function createApp(registry: UserRegistry): Hono {
     } catch (error) {
       return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 400);
     }
+  });
+
+  // One-click extension provisioning: the page the extension opens right
+  // after install. It hands the endpoint plus a fresh capture token to the
+  // extension via the provision content script, which then starts the first
+  // sync — no copy-pasting.
+  app.get('/extension-setup', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fextension-setup');
+    return c.html(extensionSetupPage(me, langOf(c)));
+  });
+
+  app.post('/extension-setup/token', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.json({ error: 'not signed in' }, 401);
+    c.header('Cache-Control', 'no-store');
+    return c.json({
+      endpoint: `${config.publicBaseUrl}/api/ingest/youtube/capture`,
+      token: registry.rotateCaptureToken(me.handle),
+      googleAccount: me.googleEmail ?? '',
+    });
+  });
+
+  // Live handle-availability check for the signup form; gated behind a
+  // verified pending signup so it is not an anonymous enumeration endpoint.
+  app.get('/signup/handle-check', (c) => {
+    const pending = registry.pendingSignup(getCookie(c, 'urtube_signup') ?? '');
+    if (!pending) return c.json({ error: 'no pending signup' }, 403);
+    const handle = (c.req.query('handle') ?? '').trim().toLocaleLowerCase('en-US');
+    if (!/^[a-z0-9][a-z0-9.-]{1,31}$/.test(handle)) return c.json({ available: false, invalid: true });
+    return c.json({ available: !registry.userByHandle(handle) });
   });
 
   app.get('/account', (c) => {
