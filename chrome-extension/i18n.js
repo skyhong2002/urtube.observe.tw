@@ -26,6 +26,7 @@ const urtubeT = urtubeZh ? {
   testing: '測試連線中…',
   connectionReady: '連線就緒。',
   googleAccountInvalid: 'Google 帳號請填完整的 email 地址。',
+  updateAvailable: (v) => `有新版 v${v} 可用——點這裡看更新方式`,
 } : {
   paused: 'Capture paused',
   active: 'Capture active',
@@ -48,6 +49,7 @@ const urtubeT = urtubeZh ? {
   testing: 'Testing connection...',
   connectionReady: 'Connection ready.',
   googleAccountInvalid: 'Enter the full email address of the Google account.',
+  updateAvailable: (v) => `Version ${v} is available — click for update steps`,
 };
 
 // Static zh overrides: keys match data-i18n attributes in popup/options HTML.

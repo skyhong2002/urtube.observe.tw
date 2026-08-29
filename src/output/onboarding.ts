@@ -105,6 +105,7 @@ export function signupCompletePage(
 export interface AccountPageState {
   rotated?: { captureToken: string; dashboardToken: string };
   error?: string;
+  extensionVersion?: string;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -127,6 +128,11 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">
         <button type="submit">${t.accountNameSave}</button>
       </form>
+      <h2>${t.accountExtension}</h2>
+      <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
+      <ol class="ob-steps">
+        ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
+      </ol>
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
       <form method="post" action="/account/visibility" class="ob-form">
