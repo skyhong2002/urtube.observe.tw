@@ -10,11 +10,13 @@ export const CONTENT_KEYS = ['news', 'editorial', 'editorialShows'] as const;
 export const POLITICAL_KEYS = ['blue', 'green', 'white', 'red'] as const;
 export type TagGroupKey = typeof CONTENT_KEYS[number] | typeof POLITICAL_KEYS[number];
 
-// Full query per group: comma = tag intersection, not= excludes a tag (社論
-// is tag 1 minus the 政論節目 shows, which get their own group).
+// Full query per group: comma = tag intersection, not= excludes tags. 社論 is
+// the "personal editorial" definition supplied by the tag API's maintainer:
+// tag 1 minus shows, news, simplified-Chinese channels, and other non-personal
+// categories.
 export const TAG_GROUP_QUERIES: Record<TagGroupKey, string> = {
   news: 'tagid=13',
-  editorial: 'tagid=1&not=9',
+  editorial: 'tagid=1&not=2,9,10,12,13,33,36,81',
   editorialShows: 'tagid=1,9',
   blue: 'tagid=3',
   green: 'tagid=4',
