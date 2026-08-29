@@ -222,6 +222,33 @@ const en = {
   monthDay: (month: number, day: number) => `${MONTHS_EN[month - 1]} ${day}`,
   monthYear: (year: number, month: number) => `${MONTHS_EN[month - 1]} ${year}`,
   monthTick: (month: number) => MONTHS_EN[month - 1].toUpperCase(),
+
+  navTagLean: 'Leanings',
+  tagLeanEyebrow: 'YouTube · channel leanings',
+  tagLeanTitle: 'Leanings',
+  tagGroups: {
+    news: 'News', editorial: 'Commentary', editorialShows: 'Commentary shows',
+    blue: 'Pan-Blue', green: 'Pan-Green', white: 'Pan-White', red: 'Pan-Red',
+  } as Record<string, string>,
+  tagLeanHeroSub: (range: string) => `of your political-channel watch time · ${range.toLowerCase()}`,
+  tagLeanHeroNone: 'No politically tagged watches in this range.',
+  tagLeanStatTaggedTime: 'tagged watch time',
+  tagLeanStatTaggedShare: 'of all watch time',
+  tagLeanStatTaggedChannels: 'tagged channels watched',
+  tagLeanStatWatches: 'tagged watch events',
+  tagLeanPolitics: 'Political spectrum',
+  tagLeanPoliticsSub: 'share of estimated watch time across politically tagged channels',
+  tagLeanContent: 'Content type',
+  tagLeanContentSub: 'share of all your watch time · groups overlap (a channel can carry several tags)',
+  tagLeanGroupMeta: (watches: number, channels: number) => `${watches} watches · ${channels} channels`,
+  tagLeanCoverage: (pct: number) =>
+    `${pct}% of your estimated watch time landed on tagged channels; the rest is untagged.`,
+  tagLeanSource: (host: string) => `Channel tags: ${host} · lists refresh every few hours`,
+  tagLeanEmpty: 'No watches matched the tag lists in this range.',
+  tagLeanUnavailable: 'The channel tag lists are unreachable right now — try again in a minute.',
+  colGroup: 'Group',
+  colShare: 'Share',
+  colChannels: 'Channels',
 };
 
 const zh: typeof en = {
@@ -432,6 +459,32 @@ const zh: typeof en = {
   monthDay: (month: number, day: number) => `${month}月${day}日`,
   monthYear: (year: number, month: number) => `${year}年${month}月`,
   monthTick: (month: number) => `${month}月`,
+
+  navTagLean: '頻道傾向',
+  tagLeanEyebrow: 'YouTube · 頻道傾向',
+  tagLeanTitle: '頻道傾向',
+  tagGroups: {
+    news: '新聞', editorial: '社論', editorialShows: '社論節目',
+    blue: '泛藍', green: '泛綠', white: '泛白', red: '泛紅',
+  } as Record<string, string>,
+  tagLeanHeroSub: (range: string) => `佔政治標籤頻道觀看時間 · ${range}`,
+  tagLeanHeroNone: '這個範圍內沒有政治標籤頻道的觀看。',
+  tagLeanStatTaggedTime: '標籤頻道觀看時間',
+  tagLeanStatTaggedShare: '佔全部觀看時間',
+  tagLeanStatTaggedChannels: '看過的標籤頻道',
+  tagLeanStatWatches: '標籤頻道觀看次數',
+  tagLeanPolitics: '政治光譜',
+  tagLeanPoliticsSub: '依政治標籤頻道的估計觀看時間佔比',
+  tagLeanContent: '內容類型',
+  tagLeanContentSub: '佔你全部觀看時間的比例 · 分組可重疊（同一頻道可同屬多組）',
+  tagLeanGroupMeta: (watches: number, channels: number) => `${watches} 次觀看 · ${channels} 個頻道`,
+  tagLeanCoverage: (pct: number) => `你的估計觀看時間有 ${pct}% 落在有標籤的頻道，其餘未被標記。`,
+  tagLeanSource: (host: string) => `頻道標籤來源：${host} · 清單每數小時更新`,
+  tagLeanEmpty: '這個範圍內沒有觀看落在標籤頻道。',
+  tagLeanUnavailable: '頻道標籤清單暫時無法取得，請稍後再試。',
+  colGroup: '分組',
+  colShare: '比例',
+  colChannels: '頻道數',
 };
 
 export type Messages = typeof en;

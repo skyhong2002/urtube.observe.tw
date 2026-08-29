@@ -971,6 +971,37 @@ export class Repository {
     this.estimatedEventsBuiltAt = now;
   }
 
+  // Every channel with at least one watch in range, no top-N cut: the
+  // leanings page matches these against external tag lists, and rows without
+  // a channel id (or name) still count toward honest coverage totals.
+  youtubeChannelTotals(range: YoutubeRange = 'all', now = new Date()): YoutubeChannelSummary[] {
+    this.ensureEstimatedEvents();
+    const cutoff = youtubeCutoff(range, now);
+    const estimatedWhere = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
+    const params = cutoff ? [cutoff] : [];
+    const channelId = 'COALESCE(e.channel_id, v.channel_id)';
+    const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
+    const rows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT ${channelId} channel_id, ${channelName} name,
+        COALESCE(c.thumbnail_url, '') thumbnail_url,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
+      ${estimatedWhere}
+      GROUP BY COALESCE(${channelId}, ${channelName})
+      ORDER BY estimated_watch_seconds DESC, watches DESC
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    return rows.map((row) => ({
+      channelId: row.channel_id === null ? null : String(row.channel_id),
+      name: row.name === null ? '' : String(row.name),
+      thumbnailUrl: String(row.thumbnail_url),
+      watches: Number(row.watches),
+      estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+    }));
+  }
+
   youtubeDashboard(range: YoutubeRange = '28d', now = new Date()): YoutubeDashboardData {
     this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);

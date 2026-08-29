@@ -15,6 +15,8 @@ import {
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
+import { tagLeanPage } from './output/taglean.js';
+import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
 
@@ -200,6 +202,7 @@ export function createApp(registry: UserRegistry): Hono {
       lang,
       nav: [
         { label: messages(lang).navDashboard, href: basePath, active: true },
+        { label: messages(lang).navTagLean, href: `${basePath}/tags` },
         ...(viewerOwns ? [{ label: messages(lang).navAccount, href: '/account' }] : []),
         langToggle(c, lang),
       ],
@@ -638,6 +641,41 @@ export function createApp(registry: UserRegistry): Hono {
     </section>`;
     return c.html(shell(t.notFoundTitle, body, [{ label: t.navHome, href: '/' }], '', lang), 404);
   }
+
+  // Channel-leanings subpage: watch time joined against the shared
+  // channels_list tag lists (news/editorial + political camps). Same access
+  // rule as the dashboard it belongs to.
+  app.get('/:handle/tags', async (c) => {
+    const user = registry.userByHandle(c.req.param('handle'));
+    if (!user || !dashboardAccess(c, user)) return notFoundPage(c);
+    const lang = langOf(c);
+    const t = messages(lang);
+    const range = requestedRange(c.req.query('range'));
+    let lists;
+    try {
+      lists = await fetchTagLists();
+    } catch {
+      return c.html(shell(t.tagLeanTitle, `<section style="margin:16vh auto 10vh;max-width:560px;text-align:center">
+        <p style="color:var(--ink-2)">${t.tagLeanUnavailable}</p>
+      </section>`, [{ label: t.navDashboard, href: `/${user.handle}` }], '', lang), 503);
+    }
+    const channels = registry.repositoryFor(user).youtubeChannelTotals(range);
+    const data = computeTagLean(range, channels, lists);
+    const viewerOwns = sessionUser(c)?.id === user.id;
+    c.header('Cache-Control', 'no-cache');
+    if (!user.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
+    return c.html(tagLeanPage(user.displayName, data, {
+      basePath: `/${user.handle}/tags`,
+      dashboardPath: `/${user.handle}`,
+      lang,
+      nav: [
+        { label: t.navDashboard, href: `/${user.handle}` },
+        { label: t.navTagLean, href: `/${user.handle}/tags`, active: true },
+        ...(viewerOwns ? [{ label: t.navAccount, href: '/account' }] : []),
+        langToggle(c, lang),
+      ],
+    }));
+  });
 
   // Registered last so every fixed route above wins: /<handle> is the
   // canonical dashboard URL (e.g. /skyhong.tw), with /u/<handle> kept as an

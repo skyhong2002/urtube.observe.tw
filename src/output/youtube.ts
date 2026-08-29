@@ -198,16 +198,6 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
 }
 
 const dashboardStyles = `
-  .yt-profile{align-items:center;display:flex;gap:18px;margin:14px 0 22px}
-  .yt-avatar{align-items:center;background:linear-gradient(140deg,#e66767,#a92f2f);border-radius:50%;color:#fff;display:flex;flex:0 0 70px;font-size:30px;font-weight:800;height:70px;justify-content:center;width:70px}
-  .yt-profile-copy h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.05;margin:2px 0 4px}
-  .yt-profile-meta{color:var(--muted);font-size:12px}.yt-profile-meta a{color:var(--ink-2)}
-
-  .yt-range{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding:2px 0}
-  .yt-range a{background:var(--surface);border:1px solid var(--line);border-radius:999px;color:var(--ink-2);font-size:12px;font-weight:600;padding:7px 14px;text-decoration:none;white-space:nowrap}
-  .yt-range a:hover{border-color:var(--line-strong);color:var(--ink)}
-  .yt-range a[aria-current=page]{background:var(--accent);border-color:var(--accent);color:#fff}
-
   .yt-import-control{align-items:center;display:flex;gap:12px;margin:0 0 18px}.yt-import-control[hidden]{display:none}
   .yt-import-control button{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:600;padding:7px 14px}
   .yt-import-control button:hover{border-color:var(--muted)}.yt-import-control button:disabled{cursor:wait;opacity:.6}
@@ -218,8 +208,6 @@ const dashboardStyles = `
   .yt-hero-figure strong em{color:var(--accent-text);font-size:.42em;font-style:normal;font-weight:700;letter-spacing:-.01em;margin-left:4px;vertical-align:.12em}
   .yt-hero-figure span{color:var(--ink-2);display:block;font-size:13px;margin-top:10px}
   .yt-hero-stats{display:grid;gap:10px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
-  .yt-stat strong{display:block;font-size:22px;font-weight:650;letter-spacing:-.02em}
-  .yt-stat span{color:var(--muted);display:block;font-size:10px;font-weight:700;letter-spacing:.09em;margin-top:2px;text-transform:uppercase}
   .yt-hero-foot{border-top:1px solid var(--line);color:var(--muted);font-size:11px;grid-column:1/-1;margin-top:6px;padding-top:12px}
 
   .yt-rhythm{align-items:end;border-bottom:1px solid var(--line-strong);display:flex;height:150px}
@@ -292,7 +280,7 @@ const dashboardStyles = `
   .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
   @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy{grid-template-columns:1fr}}
-  @media(max-width:560px){.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
+  @media(max-width:560px){.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
 `;
 
 // Ordinal ramp for the length buckets (short → long, light → dark), validated
