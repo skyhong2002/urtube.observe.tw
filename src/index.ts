@@ -454,6 +454,21 @@ export function createApp(registry: UserRegistry): Hono {
     return c.redirect('/');
   });
 
+  app.get('/privacy', (c) => {
+    const lang = langOf(c);
+    const t = messages(lang);
+    const sections = t.privacySections.map(([heading, para]) =>
+      `<h2 style="font-size:16px;margin:26px 0 8px">${heading}</h2><p style="color:var(--ink-2);line-height:1.7;margin:0">${para}</p>`
+    ).join('');
+    const body = `<section style="margin:6vh auto 0;max-width:720px">
+      <div class="eyebrow">${t.privacyLink}</div>
+      <h1 style="letter-spacing:-.03em;margin:8px 0 14px">${t.privacyTitle}</h1>
+      <p style="color:var(--ink-2)">${t.privacyIntro}</p>
+      ${sections}
+    </section>`;
+    return c.html(shell(t.privacyTitle, body, [{ label: t.navHome, href: '/' }, langToggle(c, lang)], '', lang));
+  });
+
   app.get('/robots.txt', (c) => {
     return c.text('User-agent: *\nDisallow: /compare\nDisallow: /account\nDisallow: /signup\nDisallow: /auth/\n');
   });
