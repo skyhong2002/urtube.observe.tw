@@ -5,6 +5,7 @@ const endpoint = document.querySelector('#endpoint');
 const token = document.querySelector('#token');
 const enabled = document.querySelector('#enabled');
 const autoSync = document.querySelector('#auto-sync');
+const googleAccount = document.querySelector('#google-account');
 const result = document.querySelector('#result');
 
 async function load() {
@@ -14,6 +15,7 @@ async function load() {
   token.value = settings.token ?? '';
   enabled.checked = settings.enabled ?? true;
   autoSync.checked = settings.autoSync ?? true;
+  googleAccount.value = settings.googleAccount ?? '';
 }
 
 function values() {
@@ -27,11 +29,16 @@ function values() {
   }
   const tokenValue = token.value.trim();
   if (tokenValue.length < 32) throw new Error('Capture token must contain at least 32 characters');
+  const googleAccountValue = googleAccount.value.trim();
+  if (googleAccountValue && !googleAccountValue.includes('@')) {
+    throw new Error(urtubeT.googleAccountInvalid);
+  }
   return {
     endpoint: url.toString().replace(/\/$/, ''),
     token: tokenValue,
     enabled: enabled.checked,
     autoSync: autoSync.checked,
+    googleAccount: googleAccountValue,
   };
 }
 
