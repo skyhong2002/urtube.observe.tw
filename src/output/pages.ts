@@ -145,8 +145,12 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   // the bare path). Error pages pass nothing and get no canonical.
   const canonical = canonicalPath
     ? `<link rel="canonical" href="${html(config.publicBaseUrl + canonicalPath)}">\n  ` : '';
+  const ogUrl = canonicalPath
+    ? `<meta property="og:url" content="${html(config.publicBaseUrl + canonicalPath)}">` : '';
   return `<!doctype html><html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${t.description}">
-  ${canonical}<meta property="og:type" content="website"><meta property="og:title" content="${html(title)}"><meta property="og:description" content="${t.description}">
+  ${canonical}<meta property="og:type" content="website"><meta property="og:title" content="${html(title)}"><meta property="og:description" content="${t.description}">${ogUrl}
+  <meta property="og:image" content="${html(config.publicBaseUrl)}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="${t.landingDocTitle}">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${html(title)}</title><style>${styles}${extraStyles}</style></head><body>
   <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
