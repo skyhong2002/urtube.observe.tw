@@ -187,6 +187,7 @@ export interface YoutubeDashboardData {
     progressCoverage: number;
     actualWatchedSeconds: number | null;
     metadataCoverage: number;
+    topicCoverage: number;
   };
   daily: YoutubeDailySummary[];
   lengthBuckets: YoutubeLengthBucket[];

@@ -84,6 +84,11 @@ function crystalWindow(repository: Repository, start: string | null, end: string
 // A shift is reportable when a channel/topic enters, leaves, or moves by at
 // least two share-points between the prior and recent window.
 const SHIFT_MIN_DELTA = 0.02;
+const TOPIC_SHIFT_MIN_COVERAGE = 0.8;
+
+function topicCoverage(window: CrystalWindow): number {
+  return window.topics.reduce((sum, topic) => sum + topic.share, 0);
+}
 
 function shiftsBetween(recent: CrystalItem[], prior: CrystalItem[], kind: CrystalShift['kind']): CrystalShift[] {
   const priorByKey = new Map(prior.map((item) => [item.key, item]));
@@ -123,8 +128,16 @@ export function buildYoutubeCrystal(
   const recent = crystalWindow(repository, mid, end);
   const prior = crystalWindow(repository, start, mid);
   const allTime = crystalWindow(repository, null, null);
+  // Topic rows are filled asynchronously. Comparing a mostly classified
+  // recent window with an unclassified prior window manufactures "new"
+  // interests, so channel shifts remain live while topic shifts wait until
+  // both samples have enough estimated-time coverage.
+  const topicShifts = topicCoverage(recent) >= TOPIC_SHIFT_MIN_COVERAGE
+    && topicCoverage(prior) >= TOPIC_SHIFT_MIN_COVERAGE
+    ? shiftsBetween(recent.topics, prior.topics, 'topic')
+    : [];
   const shifts = [
-    ...shiftsBetween(recent.topics, prior.topics, 'topic'),
+    ...topicShifts,
     ...shiftsBetween(recent.channels, prior.channels, 'channel'),
   ].slice(0, 24);
   return {

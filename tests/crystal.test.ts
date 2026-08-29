@@ -67,6 +67,33 @@ test('crystal windows compute shares and shifts between recent and prior periods
     assert.equal(falling?.status, 'falling');
     assert.ok(crystal.volumeChange! > 0.5);
 
+    const topics = repository.replaceYoutubeTaxonomy([
+      { version: 1, slug: 'prior', name: 'Prior topic', description: 'Prior' },
+      { version: 1, slug: 'recent', name: 'Recent topic', description: 'Recent' },
+    ]);
+    const priorTopic = topics.find((topic) => topic.slug === 'prior')!;
+    const recentTopic = topics.find((topic) => topic.slug === 'recent')!;
+    for (const videoId of ['BBBBBBBBBB1', 'BBBBBBBBBB2', 'AAAAAAAAAA3']) {
+      repository.saveYoutubeVideoTopics(
+        videoId, [{ topicId: recentTopic.id, rank: 1, confidence: 1 }],
+        'test-model', 'test-prompt', '',
+      );
+    }
+    const partialTopics = buildYoutubeCrystal(
+      repository, { handle: 'tester', displayName: 'Tester' }, NOW,
+    );
+    assert.ok(!partialTopics.shifts.some((shift) => shift.kind === 'topic'));
+    for (const videoId of ['AAAAAAAAAA1', 'AAAAAAAAAA2']) {
+      repository.saveYoutubeVideoTopics(
+        videoId, [{ topicId: priorTopic.id, rank: 1, confidence: 1 }],
+        'test-model', 'test-prompt', '',
+      );
+    }
+    const completeTopics = buildYoutubeCrystal(
+      repository, { handle: 'tester', displayName: 'Tester' }, NOW,
+    );
+    assert.ok(completeTopics.shifts.some((shift) => shift.kind === 'topic'));
+
     // Crystals carry aggregates only: no event ids, timestamps, or searches.
     const serialized = JSON.stringify(crystal);
     assert.doesNotMatch(serialized, /eventId|watchedAt|queryCiphertext|raw_url/);
