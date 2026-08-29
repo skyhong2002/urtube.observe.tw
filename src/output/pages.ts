@@ -134,7 +134,7 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   <title>${html(title)}</title><style>${styles}${extraStyles}</style></head><body>
   <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
   <main class="site-main">${body}</main>
-  <footer class="site-footer">${t.footer(html(config.publicBaseUrl.replace(/^https?:\/\//, '')))}</footer>
+  <footer class="site-footer">${t.footer(html(config.publicBaseUrl.replace(/^https?:\/\//, '')))} · <a href="/privacy" style="color:inherit">${t.privacyLink}</a></footer>
   <script>${tooltipScript}</script>
   </body></html>`;
 }
