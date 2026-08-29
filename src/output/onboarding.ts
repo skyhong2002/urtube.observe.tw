@@ -9,6 +9,8 @@ const formStyles = `
   .ob-intro p{color:var(--ink-2);margin:0;max-width:640px}
   .ob-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin:0 auto;max-width:560px;padding:28px}
   .ob-card h2{font-size:16px;margin:0 0 6px}
+  .ob-card h2:not(:first-child){margin-top:34px}
+  .ob-card details:not(:first-child){margin-top:26px}
   .ob-card p{color:var(--ink-2);font-size:13px;margin:0 0 16px}
   .ob-form{display:grid;gap:10px}
   .ob-form label{color:var(--ink-2);font-size:12px;font-weight:700;margin-top:6px}
