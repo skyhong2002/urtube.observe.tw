@@ -253,7 +253,7 @@ export function createApp(registry: UserRegistry): Hono {
       me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
       { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
       langToggle(c, lang),
-    ], '', lang));
+    ], '', lang, '/'));
   });
 
   // The brand mark, served for browser tabs and OG scrapers.
@@ -483,7 +483,7 @@ export function createApp(registry: UserRegistry): Hono {
       <p style="color:var(--ink-2)">${t.privacyIntro}</p>
       ${sections}
     </section>`;
-    return c.html(shell(t.privacyTitle, body, [{ label: t.navHome, href: '/' }, langToggle(c, lang)], '', lang));
+    return c.html(shell(t.privacyTitle, body, [{ label: t.navHome, href: '/' }, langToggle(c, lang)], '', lang, '/privacy'));
   });
 
   app.get('/robots.txt', (c) => {
@@ -542,7 +542,7 @@ export function createApp(registry: UserRegistry): Hono {
         <h1 style="letter-spacing:-.03em;margin:0 0 10px">/compare</h1>
         <p style="color:var(--ink-2)"><code>/compare?a=&lt;handle&gt;&amp;b=&lt;handle&gt;</code></p>
       </section>`;
-      return c.html(shell('compare', body, [{ label: t.navHome, href: '/' }], '', lang), 400);
+      return c.html(shell('compare', body, [{ label: t.navHome, href: '/' }], '', lang, '/compare'), 400);
     }
     const me = sessionUser(c);
     const keyed = (user: User, param: string): boolean => {

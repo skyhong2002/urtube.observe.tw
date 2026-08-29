@@ -90,5 +90,6 @@ export function comparePage(comparison: CrystalComparison, requesterPath: string
     [{ label: t.navBack, href: requesterPath }],
     '',
     lang,
+    '/compare',
   );
 }

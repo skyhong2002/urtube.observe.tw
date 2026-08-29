@@ -48,7 +48,7 @@ export function signupStartPage(error = '', lang: Lang = 'en'): string {
     <p>${t.signupStartPara}</p></section>
     <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
     ${googleButton(t.signinGoogle)}</div>`;
-  return shell(t.signupTitle, body, signupNav(lang), '', lang);
+  return shell(t.signupTitle, body, signupNav(lang), '', lang, '/signup');
 }
 
 // Step 2: Google identity verified, pick a handle (or claim a pre-Google
@@ -101,7 +101,7 @@ export function signupCompletePage(
       input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(check, 300); });
       if (input.value) check();
     })();</script></div>`;
-  return shell(t.signupCompleteTitle, body, signupNav(lang), '', lang);
+  return shell(t.signupCompleteTitle, body, signupNav(lang), '', lang, '/signup');
 }
 
 export interface AccountPageState {
@@ -157,7 +157,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     { label: t.navHome, href: '/' },
     { label: t.navDashboard, href: dashboardHref },
     { label: t.navAccount, href: '/account', active: true },
-  ], '', lang);
+  ], '', lang, '/account');
 }
 
 export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
@@ -192,7 +192,7 @@ export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
       <p>${t.welcomeAfterPara}</p>
       <p style="margin-top:16px">${t.welcomeLost}</p>
     </div>`;
-  return shell(t.welcomeTitle, body, signupNav(lang), '', lang);
+  return shell(t.welcomeTitle, body, signupNav(lang), '', lang, '/signup');
 }
 
 // The page the extension opens right after install (and the target of the
@@ -255,7 +255,7 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
     { label: t.navHome, href: '/' },
     { label: t.navDashboard, href: `/${user.handle}` },
     { label: t.navAccount, href: '/account' },
-  ], '', lang);
+  ], '', lang, '/extension-setup');
 }
 
 export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang = 'en'): string {

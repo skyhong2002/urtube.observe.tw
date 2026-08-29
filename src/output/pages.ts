@@ -133,15 +133,19 @@ export interface ShellNavItem {
   active?: boolean;
 }
 
-export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], extraStyles = '', lang: Lang = 'en'): string {
+export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], extraStyles = '', lang: Lang = 'en', canonicalPath = ''): string {
   // An empty title means brand-only (the landing page).
   const title = rawTitle ? `${rawTitle} · urtube` : 'urtube';
   const t = messages(lang);
   const links = nav.map((item) =>
     `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}>${html(item.label)}</a>`
   ).join('');
+  // Query-free canonical (?range/?sort/?lang/?key variants all collapse onto
+  // the bare path). Error pages pass nothing and get no canonical.
+  const canonical = canonicalPath
+    ? `<link rel="canonical" href="${html(config.publicBaseUrl + canonicalPath)}">\n  ` : '';
   return `<!doctype html><html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${t.description}">
-  <meta property="og:type" content="website"><meta property="og:title" content="${html(title)}"><meta property="og:description" content="${t.description}">
+  ${canonical}<meta property="og:type" content="website"><meta property="og:title" content="${html(title)}"><meta property="og:description" content="${t.description}">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${html(title)}</title><style>${styles}${extraStyles}</style></head><body>
   <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
