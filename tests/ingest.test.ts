@@ -215,6 +215,68 @@ test('history batches dedupe overlapping checkpoint windows across syncs', async
   }
 });
 
+test('backfill batches create per-day events, rescan idempotently, and yield to exact events', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createIngestApp(registry);
+  const headers = { authorization: `Bearer ${CAPTURE_TOKEN}`, 'content-type': 'application/json' };
+  const payload = (items: unknown[]) => JSON.stringify({
+    scanId: 'history-scan-aaaaaaaaaa', observedAt: new Date().toISOString(), items,
+  });
+  const item = (watchedAt: string, videoId = 'OjgytNhTjtI') => ({
+    videoId, title: 'Backfilled Video', channelId: 'UCEevYX4rCcfF0ZrxmnnONXA',
+    channelTitle: 'Faz', durationSeconds: 600, watchedAt,
+  });
+  try {
+    // Years-old events are accepted (no 90-day window) and land day-precise.
+    const first = await app.request('/api/ingest/youtube/backfill', {
+      method: 'POST', headers,
+      body: payload([item('2019-03-01T04:00:00.000Z'), item('2019-03-02T04:00:00.000Z')]),
+    });
+    assert.equal(first.status, 201);
+    assert.equal((await first.json() as Record<string, any>).watchesInserted, 2);
+
+    // A rescan of the same page re-sends the same days: nothing duplicates.
+    const rescan = await app.request('/api/ingest/youtube/backfill', {
+      method: 'POST', headers, body: payload([item('2019-03-01T04:00:00.000Z')]),
+    });
+    assert.equal((await rescan.json() as Record<string, any>).watchesInserted, 0);
+
+    // An exact event replaces the day placeholder for the same Taipei day
+    // (different second, as in reality: backfill stamps noon, exact is real).
+    const recentDay = new Date(Date.now() - 3600_000);
+    const exactTime = new Date(recentDay.getTime() + 60_000);
+    await app.request('/api/ingest/youtube/backfill', {
+      method: 'POST', headers, body: payload([item(recentDay.toISOString())]),
+    });
+    const owner = registry.ensureDefaultUser();
+    const before = registry.repositoryFor(owner).youtubeCounts().watches;
+    const exact = await app.request('/api/ingest/youtube/history', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        syncId: 'history-sync-cccccccccc', observedAt: new Date().toISOString(),
+        events: [{
+          kind: 'watch', occurredAt: exactTime.toISOString(), videoId: 'OjgytNhTjtI',
+          title: 'Backfilled Video', url: 'https://www.youtube.com/watch?v=OjgytNhTjtI',
+          channelId: 'UCEevYX4rCcfF0ZrxmnnONXA', channelTitle: 'Faz',
+          durationSeconds: 600, activityType: 'video',
+        }],
+      }),
+    });
+    assert.equal(exact.status, 200);
+    assert.equal((await exact.json() as Record<string, any>).watchesInserted, 1);
+    // Placeholder deleted, exact inserted: net count unchanged.
+    assert.equal(registry.repositoryFor(owner).youtubeCounts().watches, before);
+
+    // Malformed and ancient timestamps are rejected.
+    const tooOld = await app.request('/api/ingest/youtube/backfill', {
+      method: 'POST', headers, body: payload([item('2004-01-01T04:00:00.000Z')]),
+    });
+    assert.equal(tooOld.status, 400);
+  } finally {
+    registry.close();
+  }
+});
+
 test('per-user capture tokens isolate data and admin token maps to the owner', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createIngestApp(registry);

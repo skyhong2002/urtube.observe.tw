@@ -14,6 +14,9 @@ export interface YoutubeWatchInput {
   actualWatchedSeconds: number | null;
   durationSeconds?: number | null;
   activityType: 'video' | 'post' | 'other';
+  // 'day' marks backfilled events whose true time-of-day is unknown (history
+  // page date groups); they dedupe per-day and yield to exact events.
+  precision?: 'exact' | 'day';
 }
 
 export interface YoutubeSearchInput {
@@ -25,7 +28,7 @@ export interface YoutubeSearchInput {
 
 export interface YoutubeParsedArchive {
   archiveHash: string;
-  source: 'takeout' | 'dataportability' | 'extension';
+  source: 'takeout' | 'dataportability' | 'extension' | 'history-page';
   watches: YoutubeWatchInput[];
   searches: YoutubeSearchInput[];
 }

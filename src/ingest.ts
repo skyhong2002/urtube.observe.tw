@@ -6,7 +6,7 @@ import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './use
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
 import { parseYoutubeArchive } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
-import { normalizeYoutubeHistoryBatch } from './youtube/history-sync.js';
+import { normalizeYoutubeBackfillBatch, normalizeYoutubeHistoryBatch } from './youtube/history-sync.js';
 import { normalizeYoutubeProgressBatch } from './youtube/progress.js';
 
 interface IngestContext {
@@ -118,6 +118,29 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
     return c.json({ status: 'ready', ...context.repository.youtubeHistoryStatus() });
   });
+  // Deep backfill from the YouTube history page: day-precision watch events
+  // derived from the page's date groups (no 90-day window — the whole point
+  // is reaching years back). Search terms never ride this path, so no data
+  // key is required.
+  app.post('/api/ingest/youtube/backfill', async (c) => {
+    if (!config.youtube.captureToken && !registry.listUsers().length) {
+      return c.json({ error: 'YouTube capture is not configured' }, 503);
+    }
+    const context = captureContext(c.req.header('authorization'));
+    if (!context) return c.json({ error: 'Unauthorized' }, 401);
+    try {
+      const body = await c.req.text();
+      if (Buffer.byteLength(body) > 256 * 1024) {
+        return c.json({ error: 'Backfill payload exceeds 256 KiB' }, 413);
+      }
+      const input = normalizeYoutubeBackfillBatch(JSON.parse(body));
+      const result = context.repository.ingestYoutubeArchive(input);
+      return c.json({ ok: true, user: context.user.handle, ...result }, 201);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
   app.post('/api/ingest/youtube/history', async (c) => {
     if (!config.youtube.captureToken && !registry.listUsers().length) {
       return c.json({ error: 'YouTube capture is not configured' }, 503);

@@ -5,6 +5,54 @@
     return parts.reduce((total, part) => total * 60 + part, 0);
   }
 
+  // The history page groups lockups under date headers (今天/昨天/8月26日 or
+  // Today/Yesterday/Aug 26[, 2024]/weekday names). Resolving a lockup's group
+  // lets the scan emit day-precision watch events, not just progress.
+  function parseHistoryDateLabel(text, now = new Date()) {
+    const value = String(text ?? '').trim();
+    if (!value) return null;
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const iso = (date) => [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0'),
+    ].join('-');
+    if (/^(今天|today)$/i.test(value)) return iso(today);
+    if (/^(昨天|yesterday)$/i.test(value)) return iso(new Date(today.getTime() - 86_400_000));
+    let match = value.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+    if (match) return iso(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    match = value.match(/^(\d{1,2})月(\d{1,2})日$/);
+    if (match) {
+      const candidate = new Date(now.getFullYear(), Number(match[1]) - 1, Number(match[2]));
+      if (candidate > today) candidate.setFullYear(candidate.getFullYear() - 1);
+      return iso(candidate);
+    }
+    match = value.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:,\s*(\d{4}))?$/);
+    if (match) {
+      const monthIndex = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        .indexOf(match[1].slice(0, 3).toLowerCase());
+      if (monthIndex === -1) return null;
+      const candidate = new Date(match[3] ? Number(match[3]) : now.getFullYear(), monthIndex, Number(match[2]));
+      if (!match[3] && candidate > today) candidate.setFullYear(candidate.getFullYear() - 1);
+      return iso(candidate);
+    }
+    const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    let weekday = weekdays.indexOf(value.toLowerCase());
+    const zhWeekday = value.match(/^(?:星期|週|周)([日一二三四五六])$/);
+    if (zhWeekday) weekday = '日一二三四五六'.indexOf(zhWeekday[1]);
+    if (weekday >= 0) {
+      const diff = ((today.getDay() - weekday) + 7) % 7 || 7;
+      return iso(new Date(today.getTime() - diff * 86_400_000));
+    }
+    return null;
+  }
+
+  function dateForLockup(root, now = new Date()) {
+    const section = root.closest?.('ytd-item-section-renderer');
+    const label = section?.querySelector?.('#title')?.textContent;
+    return parseHistoryDateLabel(label, now);
+  }
+
   function progressFromLockup(root) {
     const link = root.querySelector('h3 a[href*="/watch?v="], a[href*="/shorts/"]');
     if (!link) return null;
@@ -26,9 +74,18 @@
     const resumeUrl = resumeLink ? new URL(resumeLink.href, location.origin) : url;
     const resumeValue = resumeUrl.searchParams.get('t')?.replace(/s$/, '') ?? '';
     const resumeSeconds = /^\d+$/.test(resumeValue) ? Number(resumeValue) : null;
-    if (progressPercent === null && resumeSeconds === null) return null;
+    const watchedDate = dateForLockup(root);
+    // Items carry the watch even without a progress bar as long as the date
+    // group resolved; with neither there is nothing to report.
+    if (progressPercent === null && resumeSeconds === null && watchedDate === null) return null;
+    const channelLink = root.querySelector('a[href^="/@"], a[href*="/channel/"]');
+    const channelId = channelLink?.getAttribute?.('href')?.match(/\/channel\/(UC[A-Za-z0-9_-]{10,})/)?.[1] ?? null;
     return {
       videoId,
+      title: link.textContent?.trim() || null,
+      channelId,
+      channelTitle: channelLink?.textContent?.trim() || null,
+      watchedDate,
       progressPercent,
       resumeSeconds: durationSeconds === null || resumeSeconds === null
         ? resumeSeconds
@@ -51,6 +108,10 @@
         : Math.max(current.resumeSeconds, incoming.resumeSeconds);
     return {
       videoId: current.videoId,
+      title: current.title ?? incoming.title,
+      channelId: current.channelId ?? incoming.channelId,
+      channelTitle: current.channelTitle ?? incoming.channelTitle,
+      watchedDate: current.watchedDate ?? incoming.watchedDate,
       progressPercent,
       resumeSeconds,
       durationSeconds: current.durationSeconds ?? incoming.durationSeconds,
@@ -58,10 +119,14 @@
   }
 
   function collectProgressFromRoots(roots) {
+    // Keyed per video AND day: the same video watched on several days must
+    // become several day-precision events, while progress still merges.
     const items = new Map();
     for (const root of roots) {
       const item = progressFromLockup(root);
-      if (item) items.set(item.videoId, mergeProgress(items.get(item.videoId), item));
+      if (!item) continue;
+      const key = `${item.videoId}|${item.watchedDate ?? ''}`;
+      items.set(key, mergeProgress(items.get(key), item));
     }
     return [...items.values()];
   }
@@ -95,5 +160,6 @@
     collectProgressFromRoots,
     mergeProgress,
     parseDurationText,
+    parseHistoryDateLabel,
   };
 })();

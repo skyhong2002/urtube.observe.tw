@@ -12,7 +12,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.4.0');
+  assert.equal(manifest.version, '1.5.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -228,6 +228,10 @@ test('history helper parses duration and merges duplicate resume progress', () =
   });
   assert.deepEqual(items, [{
     videoId: 'ABCDEFGHIJK',
+    title: null,
+    channelId: null,
+    channelTitle: null,
+    watchedDate: null,
     progressPercent: 40,
     resumeSeconds: 120,
     durationSeconds: 600,
@@ -236,10 +240,28 @@ test('history helper parses duration and merges duplicate resume progress', () =
     lockup({ progress: 25, resume: 75, duration: '10:00' }),
   ]), [{
     videoId: 'ABCDEFGHIJK',
+    title: null,
+    channelId: null,
+    channelTitle: null,
+    watchedDate: null,
     progressPercent: 25,
     resumeSeconds: 75,
     durationSeconds: 600,
   }]);
+
+  // Date-group labels resolve across locales, relative names, and year ends.
+  const now = new Date(2026, 7, 29); // 2026-08-29, a Saturday
+  assert.equal(helper.parseHistoryDateLabel('今天', now), '2026-08-29');
+  assert.equal(helper.parseHistoryDateLabel('Yesterday', now), '2026-08-28');
+  assert.equal(helper.parseHistoryDateLabel('8月26日', now), '2026-08-26');
+  assert.equal(helper.parseHistoryDateLabel('12月31日', now), '2025-12-31');
+  assert.equal(helper.parseHistoryDateLabel('2024年1月5日', now), '2024-01-05');
+  assert.equal(helper.parseHistoryDateLabel('Aug 26', now), '2026-08-26');
+  assert.equal(helper.parseHistoryDateLabel('Nov 5, 2024', now), '2024-11-05');
+  assert.equal(helper.parseHistoryDateLabel('Wednesday', now), '2026-08-26');
+  assert.equal(helper.parseHistoryDateLabel('星期三', now), '2026-08-26');
+  assert.equal(helper.parseHistoryDateLabel('Saturday', now), '2026-08-22');
+  assert.equal(helper.parseHistoryDateLabel('random text', now), null);
 });
 
 test('history import processes only newly added lockups and stops after an idle window', () => {
