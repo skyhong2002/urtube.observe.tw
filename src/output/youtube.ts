@@ -1,4 +1,4 @@
-import type { YoutubeDailySummary, YoutubeDashboardData, YoutubeRange } from '../youtube/types.js';
+import { YOUTUBE_RANGES, type YoutubeDailySummary, type YoutubeDashboardData } from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 
@@ -324,8 +324,7 @@ export function youtubeDashboardPage(
   const lang = options.lang ?? 'en';
   const t = messages(lang);
   const basePath = options.basePath ?? '/youtube';
-  const ranges: YoutubeRange[] = ['7d', '28d', '90d', 'all'];
-  const rangeNav = `<nav class="yt-range" aria-label="Time range">${ranges.map((range) =>
+  const rangeNav = `<nav class="yt-range" aria-label="Time range">${YOUTUBE_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}&sort=${sort}"${range === data.range ? ' aria-current="page"' : ''}>${t.ranges[range]}</a>`
   ).join('')}</nav>`;
   const importLabels = JSON.stringify({

@@ -1042,7 +1042,7 @@ export class Repository {
     const trendKeys = trendChannels.map((channel) => channel.channelId ?? channel.name);
     let channelTrend: YoutubeChannelTrendFrame[] = [];
     if (trendKeys.length) {
-      const period = range === 'all'
+      const period = range === 'all' || range === '365d'
         ? "strftime('%Y-%m', e.watched_at, '+8 hours')"
         : range === '90d'
           ? "strftime('%Y-%W', e.watched_at, '+8 hours')"

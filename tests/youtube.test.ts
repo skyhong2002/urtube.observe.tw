@@ -543,6 +543,49 @@ test('YouTube watch estimates, measured sessions, and content progress remain se
   }
 });
 
+test('365-day dashboard range excludes older watches', () => {
+  const repository = new Repository(':memory:');
+  try {
+    repository.ingestYoutubeArchive({
+      archiveHash: 'range-365-fixture',
+      source: 'takeout',
+      watches: [
+        {
+          eventId: 'range-365-inside',
+          videoId: 'inside365aa',
+          title: 'Inside the yearly range',
+          url: 'https://www.youtube.com/watch?v=inside365aa',
+          channelId: null,
+          channelTitle: 'Yearly Channel',
+          channelUrl: null,
+          watchedAt: '2025-08-30T00:00:00.000Z',
+          actualWatchedSeconds: null,
+          activityType: 'video',
+        },
+        {
+          eventId: 'range-365-outside',
+          videoId: 'outside365a',
+          title: 'Outside the yearly range',
+          url: 'https://www.youtube.com/watch?v=outside365a',
+          channelId: null,
+          channelTitle: 'Yearly Channel',
+          channelUrl: null,
+          watchedAt: '2025-08-28T00:00:00.000Z',
+          actualWatchedSeconds: null,
+          activityType: 'video',
+        },
+      ],
+      searches: [],
+    });
+
+    const now = new Date('2026-08-29T00:00:00.000Z');
+    assert.equal(repository.youtubeDashboard('365d', now).stats.watchEvents, 1);
+    assert.equal(repository.youtubeDashboard('all', now).stats.watchEvents, 2);
+  } finally {
+    repository.close();
+  }
+});
+
 test('Data Portability combined activity JSON uses the same parser', () => {
   const combined = [
     {

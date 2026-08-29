@@ -16,10 +16,10 @@ import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './you
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
-import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
+import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
-  return ['7d', '28d', '90d', 'all'].includes(value ?? '') ? value as YoutubeRange : '28d';
+  return YOUTUBE_RANGES.includes(value as YoutubeRange) ? value as YoutubeRange : '28d';
 }
 
 function requestedSort(value: string | undefined): 'watches' | 'duration' {
@@ -89,7 +89,7 @@ function validityFor(counts: { watches: number; searches: number; videos: number
 }
 
 function evictUserCaches(handle: string): void {
-  for (const range of ['7d', '28d', '90d', 'all']) dashboardCache.delete(`${handle}:${range}`);
+  for (const range of YOUTUBE_RANGES) dashboardCache.delete(`${handle}:${range}`);
   crystalCache.delete(handle);
   warmedHandles.delete(handle);
 }
@@ -678,7 +678,7 @@ function warmDashboards(registry: UserRegistry): void {
       const counts = repository.youtubeCounts();
       if (counts.watches === 0) continue;
       const validity = validityFor(counts);
-      for (const range of ['7d', '28d', '90d', 'all'] as const) {
+      for (const range of YOUTUBE_RANGES) {
         cachedDashboardFor(registry, user, range, repository, validity);
       }
       cachedCrystalFor(registry, user, repository, validity);
