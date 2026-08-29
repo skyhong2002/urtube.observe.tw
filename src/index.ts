@@ -267,6 +267,18 @@ export function createApp(registry: UserRegistry): Hono {
     return c.body(faviconSvg);
   });
 
+  // The Open Graph card (1200×630 PNG — scrapers don't take SVG), referenced
+  // by every page's og:image.
+  let ogImage: Buffer | null = null;
+  app.get('/og.png', (c) => {
+    if (ogImage === null) {
+      ogImage = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'og.png'));
+    }
+    c.header('Content-Type', 'image/png');
+    c.header('Cache-Control', 'public, max-age=86400');
+    return c.body(ogImage.buffer.slice(ogImage.byteOffset, ogImage.byteOffset + ogImage.byteLength) as ArrayBuffer);
+  });
+
   app.get('/login', (c) => c.redirect('/auth/google'));
 
   // Google sign-in entry point: also the login for existing accounts, so it
