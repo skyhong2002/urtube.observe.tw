@@ -388,5 +388,5 @@ export function youtubeDashboardPage(
   return shell(`${ownerName} · YouTube`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
     + rhythmSection(data, t)
     + `<div class="yt-columns">${channelList}${distribution}</div>`
-    + channelChase(data, t) + taxonomy + recent, options.nav ?? [], '', lang);
+    + channelChase(data, t) + taxonomy + recent, options.nav ?? [], '', lang, basePath);
 }

@@ -167,5 +167,5 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
     <h1>${html(ownerName)}</h1>
     <div class="yt-profile-meta">${t.ranges[data.range]} · <a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;
   return shell(`${ownerName} · ${t.tagLeanTitle}`, intro + rangeNav + hero + politics + content + foot,
-    options.nav ?? [], '', lang);
+    options.nav ?? [], '', lang, options.basePath);
 }

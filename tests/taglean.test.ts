@@ -106,6 +106,10 @@ test('tagLeanPage renders shares, camps, and the table view in both languages', 
     blue: ['UCblue-talk'],
   }));
   const zh = tagLeanPage('Sky', data, { basePath: '/sky/tags', dashboardPath: '/sky', lang: 'zh' });
+  // Canonical is the bare path — no ?range/?lang/?key query survives.
+  assert.match(zh, /<link rel="canonical" href="http:\/\/localhost:3000\/sky\/tags">/);
+  assert.match(zh, /<h1>Sky<\/h1>/);
+  assert.match(zh, /<title>Sky · 頻道傾向 · urtube<\/title>/);
   assert.match(zh, /泛綠/);
   assert.match(zh, /政治光譜/);
   assert.match(zh, /67%/); // 3600 of 5400 politically tagged seconds
