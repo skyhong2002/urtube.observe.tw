@@ -161,11 +161,14 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
   );
 
   const foot = `<p class="tl-foot">${t.tagLeanCoverage(Math.round(matchedShare))} ${t.tagLeanSource(html(config.tagListsUrl.replace(/^https?:\/\//, '').split('/')[0]))}</p>`;
+  // Page name + range in the title and h1: distinct from the dashboard's h1
+  // for the same owner, and distinct across every ?range variant.
+  const scope = `${t.tagLeanTitle} · ${t.ranges[data.range]}`;
   const intro = `<style>${tagLeanStyles}</style><section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
     <div class="yt-profile-copy"><div class="eyebrow">${t.tagLeanEyebrow}</div>
-    <h1>${html(ownerName)}</h1>
-    <div class="yt-profile-meta">${t.ranges[data.range]} · <a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;
-  return shell(`${ownerName} · ${t.tagLeanTitle}`, intro + rangeNav + hero + politics + content + foot,
+    <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
+    <div class="yt-profile-meta"><a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;
+  return shell(`${ownerName} · ${scope}`, intro + rangeNav + hero + politics + content + foot,
     options.nav ?? [], '', lang, options.basePath);
 }

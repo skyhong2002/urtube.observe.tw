@@ -28,6 +28,7 @@ const en = {
   navBack: 'Back to dashboard',
 
   landingTitle: 'Your YouTube life,<br><em>remembered.</em>',
+  landingDocTitle: 'Your YouTube life, remembered',
   landingPara: 'urtube keeps a private archive of everything you watch — cross-device history from Google My Activity, measured viewing time from a small Chrome extension, saved progress, channels, and AI-classified topics. Searches are encrypted; raw history never leaves this server.',
   landingCta: 'Create your archive →',
   landingMyDashboard: 'Open my dashboard →',
@@ -63,6 +64,7 @@ const en = {
   topChannels: 'Top channels',
   sortPlays: 'plays',
   sortTime: 'time',
+  sortedBy: (label: string) => `by ${label}`,
   plays: (n: number) => `${n} plays`,
   lengthMix: 'Length mix',
   uniqueVideos: 'unique videos',
@@ -265,6 +267,7 @@ const zh: typeof en = {
   navBack: '回到儀表板',
 
   landingTitle: '你的 YouTube 人生，<br><em>都記得。</em>',
+  landingDocTitle: '你的 YouTube 人生，都記得',
   landingPara: 'urtube 為你保存一份私人的觀看檔案——Google「我的活動」的跨裝置歷史紀錄、Chrome 擴充功能實測的觀看秒數、儲存進度、頻道與 AI 分類主題。搜尋紀錄加密保存；原始紀錄絕不離開這台伺服器。',
   landingCta: '建立你的檔案館 →',
   landingMyDashboard: '打開我的儀表板 →',
@@ -300,6 +303,7 @@ const zh: typeof en = {
   topChannels: '熱門頻道',
   sortPlays: '次數',
   sortTime: '時間',
+  sortedBy: (label: string) => `依${label}`,
   plays: (n: number) => `${n} 次播放`,
   lengthMix: '影片長度分布',
   uniqueVideos: '不重複影片',
