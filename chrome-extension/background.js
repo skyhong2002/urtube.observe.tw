@@ -13,6 +13,15 @@ const DAILY_SYNC_OVERLAP_MS = 2 * 60 * 60_000;
 let queueMutation = Promise.resolve();
 let flushPromise = null;
 
+// When Chrome is signed into several Google accounts, Google pages open as
+// the default account unless the URL pins one; authuser accepts an email.
+function withAuthuser(url, googleAccount) {
+  if (!googleAccount) return url;
+  const pinned = new URL(url);
+  pinned.searchParams.set('authuser', googleAccount);
+  return pinned.toString();
+}
+
 async function settings() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   return {
@@ -20,6 +29,7 @@ async function settings() {
     token: '',
     enabled: true,
     autoSync: true,
+    googleAccount: '',
     ...(stored[SETTINGS_KEY] ?? {}),
   };
 }
@@ -288,7 +298,7 @@ async function startHistoryImport({
   const observedAt = new Date().toISOString();
   const tab = await chrome.tabs.create({
     active,
-    url: 'https://www.youtube.com/feed/history',
+    url: withAuthuser('https://www.youtube.com/feed/history', config.googleAccount),
   });
   if (!tab.id) throw new Error('Could not open YouTube History');
   await historyStatus({
@@ -408,9 +418,10 @@ async function finishLifelogSync(syncId, videos) {
 }
 
 async function startActivitySync(syncId, observedAt, since) {
+  const config = await settings();
   const tab = await chrome.tabs.create({
     active: false,
-    url: 'https://myactivity.google.com/product/youtube',
+    url: withAuthuser('https://myactivity.google.com/product/youtube', config.googleAccount),
   });
   if (!tab.id) throw new Error('Could not open Google My Activity');
   await lifelogStatus({ activityTabId: tab.id });

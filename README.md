@@ -1,7 +1,7 @@
 # urtube
 
 A self-hosted, multi-user YouTube attention archive, extracted from
-[Infovore]'s YouTube subsystem. Tracks watch history (Takeout, Google My
+[Infovore]'s YouTube subsystem. Tracks watch history (Google My
 Activity, YouTube History), measured viewing time (Chrome extension), saved
 progress, metadata, and AI topics — privately, per user.
 
@@ -38,8 +38,8 @@ handle): one Google account maps to exactly one archive, keyed on Google's
 permanent `sub` claim (never the email, which can change). Accounts created
 before Google sign-in can be claimed from the same form with their dashboard
 key. Sessions live in an HttpOnly cookie for 180 days; `/account` shows your
-dashboard link and lets you rename yourself, toggle visibility, upload a
-Google Takeout, rotate tokens (lost-token recovery), and sign out. Signups
+dashboard link and lets you rename yourself, toggle visibility, rotate
+tokens (lost-token recovery), and sign out. Signups
 are rate-limited per IP; disable them with `SIGNUP_ENABLED=false` (login and
 claiming stay available).
 
@@ -62,8 +62,8 @@ search encryption key.
 
 ## Data import
 
-Per-user: upload a Takeout ZIP from `/account`, or POST it to
-`/api/ingest/youtube/takeout` with your capture token. Owner CLI:
+Per-user: POST a historical archive ZIP to `/api/ingest/youtube/takeout`
+with your capture token (kept for old Takeout exports). Owner CLI:
 
 ```sh
 npm run youtube:import -- /path/to/takeout.zip     # owner CLI import

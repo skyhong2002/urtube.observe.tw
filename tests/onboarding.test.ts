@@ -135,6 +135,11 @@ test('account page rotates tokens behind a session and logout ends it', async ()
     assert.equal(tokens.length, 2, 'rotate shows both new tokens once');
     assert.ok(registry.userByDashboardToken('rotator', tokens[1]), 'second token is the dashboard key');
 
+    // A signed-in visitor gets a direct door to their own dashboard on /.
+    const home = await (await app.request('/', { headers: { cookie: session } })).text();
+    assert.match(home, /href="\/rotator"/);
+    assert.match(home, /Open my dashboard/);
+
     const out = await app.request('/logout', { method: 'POST', headers: { cookie: session } });
     assert.equal(out.status, 302);
     assert.equal((await app.request('/account', { headers: { cookie: session } })).status, 302);
@@ -160,8 +165,7 @@ test('login states and pending signups are single-use and expire', async () => {
   }
 });
 
-test('account page toggles dashboard visibility and imports Takeout uploads', async () => {
-  const { zipSync, strToU8 } = await import('fflate');
+test('account page toggles dashboard visibility and edits the display name', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
@@ -185,23 +189,6 @@ test('account page toggles dashboard visibility and imports Takeout uploads', as
     });
     assert.equal((await app.request('/vis')).status, 404);
 
-    // Takeout upload through the browser form lands in this user's archive.
-    const zip = zipSync({
-      'Takeout/YouTube and YouTube Music/history/watch-history.json': strToU8(JSON.stringify([{
-        header: 'YouTube', title: 'Watched Uploaded Video',
-        titleUrl: 'https://www.youtube.com/watch?v=UPLOADVID01',
-        subtitles: [{ name: 'Upload Channel', url: 'https://www.youtube.com/channel/UCupload' }],
-        time: '2026-07-01T10:00:00Z', products: ['YouTube'],
-      }])),
-    });
-    const form = new FormData();
-    form.set('archive', new File([zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer], 'takeout.zip', { type: 'application/zip' }));
-    const uploaded = await app.request('/account/takeout', { method: 'POST', headers: { cookie: session }, body: form });
-    assert.equal(uploaded.status, 201);
-    assert.match(await uploaded.text(), /1 new watch event/);
-    const counts = registry.repositoryFor(registry.userByHandle('vis')!).youtubeCounts();
-    assert.equal(counts.watches, 1);
-
     // Display name edits apply immediately.
     await app.request('/account/profile', {
       method: 'POST',
@@ -215,10 +202,6 @@ test('account page toggles dashboard visibility and imports Takeout uploads', as
     assert.equal(privateDash.headers.get('x-robots-tag'), 'noindex');
     assert.match(await (await app.request('/robots.txt')).text(), /Disallow: \/account/);
 
-    // Empty and unauthenticated uploads are rejected.
-    const empty = await app.request('/account/takeout', { method: 'POST', headers: { cookie: session }, body: new FormData() });
-    assert.equal(empty.status, 400);
-    assert.equal((await app.request('/account/takeout', { method: 'POST', body: new FormData() })).status, 302);
   } finally {
     registry.close();
   }

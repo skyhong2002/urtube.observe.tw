@@ -25,6 +25,7 @@ const urtubeT = urtubeZh ? {
   saved: '設定已儲存。',
   testing: '測試連線中…',
   connectionReady: '連線就緒。',
+  googleAccountInvalid: 'Google 帳號請填完整的 email 地址。',
 } : {
   paused: 'Capture paused',
   active: 'Capture active',
@@ -46,6 +47,7 @@ const urtubeT = urtubeZh ? {
   saved: 'Settings saved.',
   testing: 'Testing connection...',
   connectionReady: 'Connection ready.',
+  googleAccountInvalid: 'Enter the full email address of the Google account.',
 };
 
 // Static zh overrides: keys match data-i18n attributes in popup/options HTML.
@@ -65,6 +67,7 @@ if (urtubeZh) {
     optionsSub: '私人連線設定',
     endpointLabel: '擷取 endpoint',
     tokenLabel: '擷取 token',
+    googleAccountLabel: 'Google 帳號（選填——Chrome 同時登入多個帳號時務必填寫）',
     captureToggle: '擷取觀看工作階段',
     dailySyncToggle: '每天同步帳號紀錄',
     save: '儲存',

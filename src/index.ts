@@ -16,7 +16,6 @@ import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './you
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
-import { parseYoutubeArchive } from './youtube/takeout.js';
 import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
@@ -218,18 +217,21 @@ export function createApp(registry: UserRegistry): Hono {
     const points = t.landingPoints.map(([title, copy]) =>
       `<div class="lp-point"><strong>${title}</strong><p>${copy}</p></div>`
     ).join('');
+    const me = sessionUser(c);
+    const primaryAction = me
+      ? `<a class="lp-primary" href="/${html(me.handle)}">${t.landingMyDashboard}</a>`
+      : config.signupEnabled ? `<a class="lp-primary" href="/signup">${t.landingCta}</a>` : '';
     const body = `<style>${landingStyles}</style><section class="lp-hero">
       <div class="lp-mark">${brandMark}</div>
       <h1>${t.landingTitle}</h1>
       <p>${t.landingPara}</p>
       <div class="lp-actions">
-        ${config.signupEnabled ? `<a class="lp-primary" href="/signup">${t.landingCta}</a>` : ''}
+        ${primaryAction}
         <a class="lp-ghost" href="/${registry.ensureDefaultUser().handle}">${t.landingExample(html(config.ownerName))}</a>
       </div>
     </section>
     <div class="lp-points">${points}</div>
-    <p class="lp-note">${t.landingNote}</p>`;
-    const me = sessionUser(c);
+    ${me ? '' : `<p class="lp-note">${t.landingNote}</p>`}`;
     return c.html(shell('', body, [
       me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
       { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
@@ -390,34 +392,6 @@ export function createApp(registry: UserRegistry): Hono {
 
   // Browser-friendly Takeout import: same parser and idempotent ingest as
   // the API endpoint, but authenticated by the login session.
-  app.post('/account/takeout', async (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
-    const lang = langOf(c);
-    const t = messages(lang);
-    const dataKey = registry.dataKeyFor(me);
-    if (!dataKey) return c.html(accountPage(me, { error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, lang), 503);
-    // Reject oversized uploads before buffering the body: the parser's own
-    // 100MB archive limit only runs after the whole upload sits in memory.
-    const declaredBytes = Number(c.req.header('content-length') ?? 0);
-    if (declaredBytes > 110 * 1024 * 1024) {
-      return c.html(accountPage(me, { error: t.errTakeoutTooLarge }, lang), 413);
-    }
-    try {
-      const form = await c.req.parseBody();
-      const file = form.archive;
-      if (!(file instanceof File) || file.size === 0) {
-        return c.html(accountPage(me, { error: t.errTakeoutMissing }, lang), 400);
-      }
-      const archive = new Uint8Array(await file.arrayBuffer());
-      const parsed = parseYoutubeArchive(archive, dataKey, 'takeout');
-      const result = registry.repositoryFor(me).ingestYoutubeArchive(parsed);
-      return c.html(accountPage(me, { importResult: result }, lang), 201);
-    } catch (error) {
-      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, lang), 400);
-    }
-  });
-
   // Self-serve deletion: session plus retyping the handle. deleteUser refuses
   // the instance owner, which we surface as a friendly error.
   app.post('/account/delete', async (c) => {
