@@ -191,6 +191,15 @@ test('account page toggles dashboard visibility and edits the display name', asy
     });
     assert.equal((await app.request('/vis')).status, 404);
 
+    // The account page carries the extension download + update steps, and the
+    // public version endpoint matches the bundled manifest.
+    const { readFileSync } = await import('node:fs');
+    const bundledVersion = JSON.parse(readFileSync(new URL('../chrome-extension/manifest.json', import.meta.url), 'utf8')).version;
+    const accountHtml = await (await app.request('/account', { headers: { cookie: session } })).text();
+    assert.match(accountHtml, /extension\.zip/);
+    assert.ok(accountHtml.includes(`v${bundledVersion}`), 'account shows the bundled extension version');
+    assert.deepEqual(await (await app.request('/extension-version.json')).json(), { version: bundledVersion });
+
     // Display name edits apply immediately.
     await app.request('/account/profile', {
       method: 'POST',

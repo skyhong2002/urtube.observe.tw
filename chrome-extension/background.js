@@ -827,9 +827,44 @@ chrome.runtime.onStartup.addListener(async () => {
   await ensureAlarms();
   void flushQueue();
   void maybeStartLifelogSync();
+  void checkExtensionUpdate();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === FLUSH_ALARM) void flushQueue();
-  if (alarm.name === DAILY_SYNC_ALARM) void maybeStartLifelogSync();
+  if (alarm.name === DAILY_SYNC_ALARM) {
+    void maybeStartLifelogSync();
+    void checkExtensionUpdate();
+  }
 });
+
+// Unpacked installs cannot auto-update, but they can know an update exists:
+// the server publishes its bundled extension version; a newer one lights a
+// badge and a notice in the popup pointing at the update steps.
+function isNewerVersion(latest, current) {
+  const a = String(latest ?? '').split('.').map(Number);
+  const b = String(current ?? '').split('.').map(Number);
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const diff = (a[index] ?? 0) - (b[index] ?? 0);
+    if (diff > 0) return true;
+    if (diff < 0) return false;
+  }
+  return false;
+}
+
+async function checkExtensionUpdate() {
+  try {
+    const config = await settings();
+    const origin = new URL(config.endpoint).origin;
+    const response = await fetch(`${origin}/extension-version.json`);
+    if (!response.ok) return;
+    const latest = String((await response.json())?.version ?? '');
+    await chrome.storage.local.set({ latestExtensionVersion: latest });
+    const updateDue = isNewerVersion(latest, chrome.runtime.getManifest().version);
+    await chrome.action.setBadgeText({ text: updateDue ? 'NEW' : '' });
+    if (updateDue) await chrome.action.setBadgeBackgroundColor({ color: '#d03b3b' });
+  } catch {
+    // Version discovery is best-effort; never disturb capture over it.
+  }
+}
+void checkExtensionUpdate();

@@ -1,3 +1,14 @@
+function isNewerVersion(latest, current) {
+  const a = String(latest ?? '').split('.').map(Number);
+  const b = String(current ?? '').split('.').map(Number);
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const diff = (a[index] || 0) - (b[index] || 0);
+    if (diff > 0) return true;
+    if (diff < 0) return false;
+  }
+  return false;
+}
+
 async function render() {
   const stored = await chrome.storage.local.get([
     'captureSettings',
@@ -5,6 +16,7 @@ async function render() {
     'captureStatus',
     'historyImportStatus',
     'lifelogSyncStatus',
+    'latestExtensionVersion',
   ]);
   const settings = stored.captureSettings ?? {};
   const status = stored.captureStatus ?? {};
@@ -21,6 +33,19 @@ async function render() {
     ? new Date(lifelog.lastSuccessAt).toLocaleString()
     : urtubeT.never;
   document.querySelector('#error').textContent = status.lastError ?? '';
+  const latest = stored.latestExtensionVersion ?? '';
+  const updateDue = isNewerVersion(latest, chrome.runtime.getManifest().version);
+  const updateBox = document.querySelector('#update');
+  updateBox.hidden = !updateDue;
+  if (updateDue) {
+    const link = document.querySelector('#update-link');
+    link.textContent = urtubeT.updateAvailable(latest);
+    const origin = settings.endpoint ? new URL(settings.endpoint).origin : 'https://urtube.observe.tw';
+    link.onclick = (event) => {
+      event.preventDefault();
+      void chrome.tabs.create({ url: `${origin}/account` });
+    };
+  }
   const historyButton = document.querySelector('#history');
   const running = history.state === 'running';
   historyButton.textContent = running ? urtubeT.cancelScan : urtubeT.fullScan;

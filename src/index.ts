@@ -41,6 +41,20 @@ function buildExtensionZip(): Uint8Array {
   return extensionZip;
 }
 
+let cachedExtensionVersion = '';
+function extensionVersion(): string {
+  if (!cachedExtensionVersion) {
+    try {
+      const manifest = JSON.parse(readFileSync(
+        join(fileURLToPath(new URL('..', import.meta.url)), 'chrome-extension', 'manifest.json'), 'utf8'));
+      cachedExtensionVersion = String(manifest.version ?? '');
+    } catch {
+      cachedExtensionVersion = '';
+    }
+  }
+  return cachedExtensionVersion;
+}
+
 // Minimal in-memory signup throttle; behind Caddy the client lands in the
 // first X-Forwarded-For entry.
 const signupHits = new Map<string, number[]>();
@@ -386,7 +400,7 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/account', (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
-    return c.html(accountPage(me, {}, langOf(c)));
+    return c.html(accountPage(me, { extensionVersion: extensionVersion() }, langOf(c)));
   });
 
   // Token recovery: rotating invalidates both old tokens and shows the new
@@ -396,7 +410,7 @@ export function createApp(registry: UserRegistry): Hono {
     if (!me) return c.redirect('/signup');
     const rotated = registry.rotateTokens(me.handle);
     c.header('Cache-Control', 'no-store');
-    return c.html(accountPage(me, { rotated }, langOf(c)));
+    return c.html(accountPage(me, { rotated, extensionVersion: extensionVersion() }, langOf(c)));
   });
 
   app.post('/account/profile', async (c) => {
@@ -410,7 +424,7 @@ export function createApp(registry: UserRegistry): Hono {
       evictUserCaches(me.handle);
       return c.redirect('/account');
     } catch (error) {
-      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, langOf(c)), 400);
+      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error), extensionVersion: extensionVersion() }, langOf(c)), 400);
     }
   });
 
@@ -433,15 +447,15 @@ export function createApp(registry: UserRegistry): Hono {
     const t = messages(lang);
     const form = await c.req.parseBody();
     if (String(form.confirmHandle ?? '').trim() !== me.handle) {
-      return c.html(accountPage(me, { error: t.errDeleteConfirm }, lang), 400);
+      return c.html(accountPage(me, { error: t.errDeleteConfirm, extensionVersion: extensionVersion() }, lang), 400);
     }
     if (me.handle === DEFAULT_HANDLE) {
-      return c.html(accountPage(me, { error: t.errOwnerDelete }, lang), 400);
+      return c.html(accountPage(me, { error: t.errOwnerDelete, extensionVersion: extensionVersion() }, lang), 400);
     }
     try {
       registry.deleteUser(me.handle);
     } catch (error) {
-      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error) }, lang), 500);
+      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error), extensionVersion: extensionVersion() }, lang), 500);
     }
     evictUserCaches(me.handle);
     deleteCookie(c, 'urtube_session', { path: '/' });
@@ -471,6 +485,12 @@ export function createApp(registry: UserRegistry): Hono {
 
   app.get('/robots.txt', (c) => {
     return c.text('User-agent: *\nDisallow: /compare\nDisallow: /account\nDisallow: /signup\nDisallow: /auth/\n');
+  });
+
+  // Installed extensions poll this to learn a newer build is available.
+  app.get('/extension-version.json', (c) => {
+    c.header('Cache-Control', 'public, max-age=300');
+    return c.json({ version: extensionVersion() });
   });
 
   app.get('/extension.zip', (c) => {
