@@ -49,6 +49,9 @@ export const config = {
       ?? `${publicBaseUrl}/api/ingest/youtube/oauth/callback`,
     syncHour: youtubeSyncHour,
   },
+  // Shared channel-tag lists (news / editorial / political leaning) used by
+  // the per-user leanings page.
+  tagListsUrl: (process.env.TAG_LISTS_URL ?? 'https://urtubeapi.analysis.tw/api/channels_list.php').replace(/\/$/, ''),
   ai: {
     enabled: aiClassificationEnabled,
     baseUrl: (process.env.AI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, ''),
