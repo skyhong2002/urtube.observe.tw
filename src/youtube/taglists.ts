@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import type { YoutubeChannelSummary, YoutubeRange } from './types.js';
 
 // Audience tag lists from the shared channels_list API. Two independent axes:
-// content type (news / editorial, where "editorial shows" is the tagid=1,13
+// content type (news / editorial, where "editorial shows" is the tagid=1,9
 // intersection — channels carrying both tags) and political leaning. A channel
 // can sit on both axes at once, so shares are computed per axis, never summed
 // across them.
@@ -13,7 +13,7 @@ export type TagGroupKey = typeof CONTENT_KEYS[number] | typeof POLITICAL_KEYS[nu
 export const TAG_GROUP_TAGIDS: Record<TagGroupKey, string> = {
   news: '13',
   editorial: '1',
-  editorialShows: '1,13',
+  editorialShows: '1,9',
   blue: '3',
   green: '4',
   white: '6',
