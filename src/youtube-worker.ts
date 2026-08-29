@@ -30,7 +30,10 @@ const defaultSteps: YoutubeWorkerSteps = {
   // API requests and prevents a new account from waiting days for enrichment.
   metadata: (repository) => enrichYoutubeMetadata(repository, 5000),
   channelMetadata: (repository) => enrichYoutubeChannelMetadata(repository, 5000),
-  classification: (repository) => classifyYoutubeVideos(repository),
+  // A deep extension backfill can also contain tens of thousands of videos.
+  // Recency ordering makes the current dashboard useful first; a larger
+  // cycle keeps new extension-only accounts from waiting days for analysis.
+  classification: (repository) => classifyYoutubeVideos(repository, 1000),
 };
 
 function errorMessage(error: unknown): string {

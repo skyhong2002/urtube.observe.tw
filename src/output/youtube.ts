@@ -377,7 +377,7 @@ export function youtubeDashboardPage(
     `<div class="yt-mix-row"><span>${html(t.buckets[bucket.label] ?? bucket.label)}</span><div class="yt-mix-track"><i style="background:${LENGTH_RAMP[bucket.label] ?? '#55534e'};width:${Math.round(bucket.videos / maxLength * 100)}%"></i></div><span>${bucket.videos}</span></div>`
   ).join('')}</div></section>`;
   const maxKeywordVideos = Math.max(1, ...data.keywords.map((item) => item.videos));
-  const taxonomy = `<div class="yt-taxonomy"><div><div class="section-head"><h2>${t.topics}</h2><span>${t.topicsSub}</span></div>
+  const taxonomy = `<div class="yt-taxonomy"><div><div class="section-head"><h2>${t.topics}</h2><span>${t.topicsSub(Math.round(data.stats.topicCoverage * 100))}</span></div>
     <div class="yt-topic-list">${data.topics.length ? data.topics.map((topic) =>
       `<div class="yt-topic"><strong>${html(topic.name)}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
     ).join('') : `<span class="muted">${t.topicsPending}</span>`}</div></div>

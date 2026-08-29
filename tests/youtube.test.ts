@@ -259,6 +259,7 @@ test('Chrome captures validate YouTube URLs and idempotently increase measured w
     assert.equal(duplicate.inserted, false);
     assert.equal(duplicate.updated, false);
     assert.equal(repository.youtubeCounts().videoWatches, 1);
+    assert.equal(repository.youtubeDashboard('all', now).stats.estimatedWatchSeconds, 12);
 
     const increased = repository.upsertYoutubeCapture({
       ...first,
@@ -538,6 +539,150 @@ test('YouTube watch estimates, measured sessions, and content progress remain se
     assert.equal(ranged.stats.watchEvents, 3);
     assert.equal(ranged.stats.estimatedWatchSeconds, 340);
     assert.equal(ranged.stats.catalogDurationSeconds, 1800);
+  } finally {
+    repository.close();
+  }
+});
+
+test('extension-only data combines measured captures with bounded day-history progress', () => {
+  const repository = new Repository(':memory:');
+  const now = new Date('2026-07-29T12:00:00Z');
+  try {
+    repository.ingestYoutubeArchive({
+      archiveHash: 'day-progress-estimate-fixture',
+      source: 'history-page',
+      watches: [
+        {
+          eventId: 'day-progress-long',
+          videoId: 'DAYLONG0001',
+          title: 'Long live stream',
+          url: 'https://www.youtube.com/watch?v=DAYLONG0001',
+          channelId: 'channel-live',
+          channelTitle: 'Live Channel',
+          channelUrl: null,
+          watchedAt: '2026-07-29T04:00:00Z',
+          actualWatchedSeconds: null,
+          activityType: 'video',
+          precision: 'day',
+        },
+        {
+          eventId: 'day-progress-short',
+          videoId: 'DAYSHORT001',
+          title: 'Short video',
+          url: 'https://www.youtube.com/watch?v=DAYSHORT001',
+          channelId: 'channel-short',
+          channelTitle: 'Short Channel',
+          channelUrl: null,
+          watchedAt: '2026-07-29T04:00:00Z',
+          actualWatchedSeconds: null,
+          activityType: 'video',
+          precision: 'day',
+        },
+      ],
+      searches: [],
+    });
+    repository.upsertYoutubeVideoMetadata([
+      {
+        videoId: 'DAYLONG0001', title: 'Long live stream',
+        channelId: 'channel-live', channelTitle: 'Live Channel',
+        description: '', tags: [], thumbnailUrl: '', durationSeconds: 86_400,
+        publishedAt: null, categoryId: null, availability: 'available', metadataHash: 'day-long',
+      },
+      {
+        videoId: 'DAYSHORT001', title: 'Short video',
+        channelId: 'channel-short', channelTitle: 'Short Channel',
+        description: '', tags: [], thumbnailUrl: '', durationSeconds: 300,
+        publishedAt: null, categoryId: null, availability: 'available', metadataHash: 'day-short',
+      },
+    ]);
+    repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+      sessionId: '87654321-4321-4321-8321-cba987654321',
+      videoId: 'EXACTEXT001',
+      title: 'Measured by the extension',
+      url: 'https://www.youtube.com/watch?v=EXACTEXT001',
+      channelTitle: 'Measured Channel',
+      watchedAt: '2026-07-29T11:30:00Z',
+      actualWatchedSeconds: 120,
+      durationSeconds: 600,
+    }, now));
+
+    // A user does not need Takeout: precise live captures retain their
+    // measured seconds, while older day-history rows use bounded estimates.
+    assert.equal(repository.youtubeDashboard('all', now).stats.estimatedWatchSeconds, 1020);
+    repository.ingestYoutubeProgress({
+      scanId: 'day-progress-scan-123456',
+      observedAt: '2026-07-29T11:00:00.000Z',
+      complete: true,
+      items: [{
+        videoId: 'DAYLONG0001', progressPercent: null,
+        resumeSeconds: 60, durationSeconds: 86_400,
+      }],
+    });
+
+    // A newly stored position invalidates the materialized estimate now,
+    // rather than leaving the old number visible for five minutes.
+    assert.equal(repository.youtubeDashboard('all', now).stats.estimatedWatchSeconds, 480);
+  } finally {
+    repository.close();
+  }
+});
+
+test('AI taxonomy and classification queues prioritize recently watched videos', () => {
+  const repository = new Repository(':memory:');
+  try {
+    repository.ingestYoutubeArchive({
+      archiveHash: 'classification-recency-fixture',
+      source: 'takeout',
+      watches: [
+        {
+          eventId: 'classification-old', videoId: 'CLASSOLD001', title: 'Old',
+          url: 'https://www.youtube.com/watch?v=CLASSOLD001', channelId: null,
+          channelTitle: 'Channel', channelUrl: null, watchedAt: '2025-01-01T00:00:00Z',
+          actualWatchedSeconds: null, activityType: 'video',
+        },
+        {
+          eventId: 'classification-new', videoId: 'CLASSNEW001', title: 'New',
+          url: 'https://www.youtube.com/watch?v=CLASSNEW001', channelId: null,
+          channelTitle: 'Channel', channelUrl: null, watchedAt: '2026-07-29T00:00:00Z',
+          actualWatchedSeconds: null, activityType: 'video',
+        },
+      ],
+      searches: [],
+    });
+    repository.upsertYoutubeVideoMetadata([
+      {
+        videoId: 'CLASSOLD001', title: 'Old', channelId: null, channelTitle: 'Channel',
+        description: '', tags: [], thumbnailUrl: '', durationSeconds: 300,
+        publishedAt: null, categoryId: null, availability: 'available', metadataHash: 'old',
+      },
+      {
+        videoId: 'CLASSNEW001', title: 'New', channelId: null, channelTitle: 'Channel',
+        description: '', tags: [], thumbnailUrl: '', durationSeconds: 300,
+        publishedAt: null, categoryId: null, availability: 'available', metadataHash: 'new',
+      },
+    ]);
+    assert.equal(repository.youtubeVideosForClassification(1)[0]?.videoId, 'CLASSNEW001');
+    assert.equal(repository.youtubeVideosForTaxonomy(12)[0]?.videoId, 'CLASSNEW001');
+
+    const [topic] = repository.replaceYoutubeTaxonomy([{
+      version: 1, slug: 'recent-topic', name: 'Recent topic', description: 'Recent videos',
+    }]);
+    repository.saveYoutubeVideoTopics(
+      'CLASSNEW001', [{ topicId: topic.id, rank: 1, confidence: 1 }],
+      'test-model', 'test-prompt', 'new',
+    );
+    const partial = repository.youtubeDashboard('all');
+    assert.equal(partial.stats.topicCoverage, 0.5);
+    assert.equal(partial.topics[0]?.slug, 'recent-topic');
+
+    repository.upsertYoutubeVideoMetadata([{
+      videoId: 'CLASSNEW001', title: 'New', channelId: null, channelTitle: 'Channel',
+      description: 'changed', tags: [], thumbnailUrl: '', durationSeconds: 300,
+      publishedAt: null, categoryId: null, availability: 'available', metadataHash: 'newer',
+    }]);
+    const stale = repository.youtubeDashboard('all');
+    assert.equal(stale.stats.topicCoverage, 0);
+    assert.deepEqual(stale.topics, []);
   } finally {
     repository.close();
   }

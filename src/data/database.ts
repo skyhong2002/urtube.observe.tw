@@ -53,8 +53,10 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
 // Shared by youtubeDashboard(). Per-event watch seconds: the measured value
 // when the extension captured one, zero when a measured event for the same
 // video sits within five minutes (a duplicate sighting of the same session),
-// otherwise the gap to the next watch/search event capped at the video
-// length.
+// saved progress capped at ten minutes for history-page rows that only have
+// day precision, otherwise the gap to the next watch/search event capped at
+// the video length. The day cap prevents a live stream's multi-day playback
+// position from being mistaken for one viewing session.
 const YOUTUBE_ESTIMATED_EVENTS_CTE = `
       WITH timeline AS (
         SELECT 'watch' kind, event_id, watched_at occurred_at
@@ -76,6 +78,11 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
                 AND measured.actual_watched_seconds IS NOT NULL
                 AND ABS((julianday(measured.watched_at)-julianday(w.watched_at))*86400)<=300
             ) THEN 0
+            WHEN a.occurred_precision='day' THEN MIN(
+              COALESCE(vp.progress_seconds, v.duration_seconds, 0),
+              COALESCE(v.duration_seconds, vp.progress_seconds, 0),
+              600
+            )
             WHEN v.duration_seconds IS NULL OR o.next_activity_at IS NULL THEN 0
             ELSE MIN(
               v.duration_seconds,
@@ -84,7 +91,9 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
           END estimated_watch_seconds
         FROM youtube_watch_events w
         JOIN ordered o ON o.kind='watch' AND o.event_id=w.event_id
+        JOIN activities a ON a.id=w.activity_id
         LEFT JOIN youtube_videos v ON v.video_id=w.video_id
+        LEFT JOIN youtube_video_progress vp ON vp.video_id=w.video_id
         WHERE w.activity_type='video'
       )
     `;
@@ -929,15 +938,26 @@ export class Repository {
 
   // Materialize the estimated-events CTE into a per-connection temp table so
   // dashboard + crystal statements read it instead of each re-running the
-  // window functions. Rebuilt when the event set changes, and at most every
-  // five minutes so metadata enrichment (durations) keeps flowing in.
+  // window functions. Rebuilt immediately when events, durations, metadata,
+  // or saved progress change, and periodically as a final consistency guard.
   private ensureEstimatedEvents(): void {
     const row = this.db.prepare(`
       SELECT (SELECT COUNT(*) FROM youtube_watch_events) watches,
         (SELECT COUNT(*) FROM youtube_search_events) searches,
-        (SELECT MAX(watched_at) FROM youtube_watch_events) latest
+        (SELECT MAX(watched_at) FROM youtube_watch_events) latest,
+        (SELECT COALESCE(SUM(actual_watched_seconds), 0) FROM youtube_watch_events) measured,
+        (SELECT COUNT(*) FROM youtube_videos WHERE duration_seconds IS NOT NULL) durations,
+        (SELECT COALESCE(SUM(duration_seconds), 0) FROM youtube_videos) duration_seconds,
+        (SELECT MAX(metadata_fetched_at) FROM youtube_videos) metadata_latest,
+        (SELECT COUNT(*) FROM youtube_video_progress) progress,
+        (SELECT COALESCE(SUM(progress_seconds), 0) FROM youtube_video_progress) progress_seconds,
+        (SELECT MAX(observed_at) FROM youtube_video_progress) progress_latest
     `).get() as Record<string, number | string | null>;
-    const key = `${row.watches}:${row.searches}:${row.latest}`;
+    const key = [
+      row.watches, row.searches, row.latest, row.measured,
+      row.durations, row.duration_seconds, row.metadata_latest,
+      row.progress, row.progress_seconds, row.progress_latest,
+    ].join(':');
     const now = Date.now();
     if (key === this.estimatedEventsKey && now - this.estimatedEventsBuiltAt < 300_000) return;
     this.db.exec(`
@@ -988,7 +1008,17 @@ export class Repository {
           FROM selected_videos s
           JOIN youtube_videos v2 ON v2.video_id=s.video_id
           LEFT JOIN youtube_video_progress vp ON vp.video_id=s.video_id
-        ) progress_duration_seconds
+        ) progress_duration_seconds,
+        (SELECT COUNT(*) FROM selected_videos s
+          JOIN youtube_videos v2 ON v2.video_id=s.video_id
+          WHERE EXISTS (
+            SELECT 1 FROM youtube_video_topics vt
+            JOIN youtube_topics t ON t.id=vt.topic_id
+            WHERE vt.video_id=s.video_id AND vt.rank=1
+              AND vt.metadata_hash=v2.metadata_hash
+              AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+          )
+        ) classified_videos
       FROM estimated_events e
       LEFT JOIN youtube_videos v ON v.video_id=e.video_id
       ${estimatedWhere}
@@ -1095,6 +1125,8 @@ export class Repository {
         COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
       JOIN youtube_video_topics vt ON vt.video_id=e.video_id AND vt.rank=1
+      JOIN youtube_videos topic_video ON topic_video.video_id=e.video_id
+        AND vt.metadata_hash=topic_video.metadata_hash
       JOIN youtube_topics t ON t.id=vt.topic_id
         AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
       ${estimatedWhere}
@@ -1168,6 +1200,7 @@ export class Repository {
           : 0,
         actualWatchedSeconds: stats.actual_watched_seconds === null ? null : Number(stats.actual_watched_seconds),
         metadataCoverage: uniqueVideos ? Number(stats.enriched_videos ?? 0) / uniqueVideos : 0,
+        topicCoverage: uniqueVideos ? Number(stats.classified_videos ?? 0) / uniqueVideos : 0,
       },
       daily: daily.map((row) => ({
         day: String(row.day), watches: Number(row.watches),
@@ -1243,6 +1276,8 @@ export class Repository {
         COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
       JOIN youtube_video_topics vt ON vt.video_id=e.video_id AND vt.rank=1
+      JOIN youtube_videos topic_video ON topic_video.video_id=e.video_id
+        AND vt.metadata_hash=topic_video.metadata_hash
       JOIN youtube_topics t ON t.id=vt.topic_id
         AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
       ${where}
@@ -1369,6 +1404,11 @@ export class Repository {
   youtubeVideosForClassification(limit = 250): Array<YoutubeVideoMetadata> {
     const rows = this.db.prepare(`
       SELECT v.* FROM youtube_videos v
+      LEFT JOIN (
+        SELECT video_id, MAX(watched_at) latest_watched_at
+        FROM youtube_watch_events WHERE activity_type='video'
+        GROUP BY video_id
+      ) watched ON watched.video_id=v.video_id
       WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
         AND NOT EXISTS (
           SELECT 1 FROM youtube_video_topics vt
@@ -1376,7 +1416,9 @@ export class Repository {
           WHERE vt.video_id=v.video_id AND vt.metadata_hash=v.metadata_hash
             AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
         )
-      ORDER BY v.metadata_fetched_at LIMIT ?
+      ORDER BY watched.latest_watched_at IS NULL,
+        watched.latest_watched_at DESC, v.metadata_fetched_at DESC, v.video_id
+      LIMIT ?
     `).all(Math.max(1, Math.min(1000, Math.floor(limit)))) as Array<Record<string, unknown>>;
     return this.youtubeMetadataRows(rows);
   }
@@ -1384,8 +1426,15 @@ export class Repository {
   youtubeVideosForTaxonomy(limit = 160): Array<YoutubeVideoMetadata> {
     const rows = this.db.prepare(`
       SELECT v.* FROM youtube_videos v
+      LEFT JOIN (
+        SELECT video_id, MAX(watched_at) latest_watched_at
+        FROM youtube_watch_events WHERE activity_type='video'
+        GROUP BY video_id
+      ) watched ON watched.video_id=v.video_id
       WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
-      ORDER BY v.metadata_fetched_at DESC, v.video_id LIMIT ?
+      ORDER BY watched.latest_watched_at IS NULL,
+        watched.latest_watched_at DESC, v.metadata_fetched_at DESC, v.video_id
+      LIMIT ?
     `).all(Math.max(12, Math.min(1000, Math.floor(limit)))) as Array<Record<string, unknown>>;
     return this.youtubeMetadataRows(rows);
   }
