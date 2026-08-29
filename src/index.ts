@@ -249,7 +249,7 @@ export function createApp(registry: UserRegistry): Hono {
     </section>
     <div class="lp-points">${points}</div>
     ${me ? '' : `<p class="lp-note">${t.landingNote}</p>`}`;
-    return c.html(shell('', body, [
+    return c.html(shell(t.landingDocTitle, body, [
       me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
       { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
       langToggle(c, lang),
@@ -656,6 +656,7 @@ export function createApp(registry: UserRegistry): Hono {
       lists = await fetchTagLists();
     } catch {
       return c.html(shell(t.tagLeanTitle, `<section style="margin:16vh auto 10vh;max-width:560px;text-align:center">
+        <h1 style="letter-spacing:-.03em;margin:0 0 10px">${t.tagLeanTitle}</h1>
         <p style="color:var(--ink-2)">${t.tagLeanUnavailable}</p>
       </section>`, [{ label: t.navDashboard, href: `/${user.handle}` }], '', lang), 503);
     }

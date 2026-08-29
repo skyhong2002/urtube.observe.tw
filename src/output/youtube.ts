@@ -380,12 +380,15 @@ export function youtubeDashboardPage(
   const recent = `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${data.recent.map((video) =>
     `<a class="yt-video" href="${html(video.url)}"><span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p><p class="yt-video-when">${timeAgo(video.watchedAt, lang)}</p></a>`
   ).join('')}</div></section>`;
+  // The range and sort ride along in the title and h1 so every ?range/?sort
+  // variant of the page is uniquely named.
+  const scope = `${t.ranges[data.range]} · ${t.sortedBy(sort === 'watches' ? t.sortPlays : t.sortTime)}`;
   const intro = `<style>${dashboardStyles}</style><section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
-    <h1>${html(ownerName)}</h1>
-    <div class="yt-profile-meta">${t.ranges[data.range]} · <a href="/">${t.home}</a></div></div></section>`;
-  return shell(`${ownerName} · YouTube`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
+    <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
+    <div class="yt-profile-meta"><a href="/">${t.home}</a></div></div></section>`;
+  return shell(`${ownerName} · YouTube · ${scope}`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
     + rhythmSection(data, t)
     + `<div class="yt-columns">${channelList}${distribution}</div>`
     + channelChase(data, t) + taxonomy + recent, options.nav ?? [], '', lang, basePath);
