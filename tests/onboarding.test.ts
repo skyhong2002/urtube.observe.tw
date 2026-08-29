@@ -152,9 +152,11 @@ test('login states and pending signups are single-use and expire', async () => {
   const registry = new UserRegistry(':memory:');
   try {
     const state = registry.createLoginState();
-    assert.equal(registry.consumeLoginState(state), true);
-    assert.equal(registry.consumeLoginState(state), false);
-    assert.equal(registry.consumeLoginState('missing'), false);
+    assert.deepEqual(registry.consumeLoginState(state), { valid: true, next: '' });
+    assert.equal(registry.consumeLoginState(state).valid, false);
+    assert.equal(registry.consumeLoginState('missing').valid, false);
+    const withNext = registry.createLoginState('/extension-setup');
+    assert.deepEqual(registry.consumeLoginState(withNext), { valid: true, next: '/extension-setup' });
 
     const pending = registry.createPendingSignup('sub-x', 'x@gmail.com');
     assert.deepEqual(registry.pendingSignup(pending), { sub: 'sub-x', email: 'x@gmail.com' });
@@ -240,6 +242,52 @@ test('self-serve deletion needs the retyped handle and spares the owner', async 
     });
     assert.equal(refused.status, 400);
     assert.ok(registry.userByHandle(owner.handle));
+  } finally {
+    registry.close();
+  }
+});
+
+test('extension-setup provisions a fresh capture token without breaking the dashboard key', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  const ingest = createIngestApp(registry);
+  try {
+    // Signed out: the page bounces through Google login and the token
+    // endpoint refuses.
+    const anon = await app.request('/extension-setup');
+    assert.equal(anon.status, 302);
+    assert.match(anon.headers.get('location') ?? '', /auth\/google\?next=/);
+    assert.equal((await app.request('/extension-setup/token', { method: 'POST' })).status, 401);
+
+    const pending = registry.createPendingSignup('google-sub-50', 'prov@gmail.com');
+    const created = await app.request('/signup', signupBody(pending, { handle: 'prov', displayName: 'Prov' }));
+    const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
+    const dashboardKey = (await created.text()).match(/\/prov\?key=([A-Za-z0-9_-]+)/)![1];
+
+    const page = await app.request('/extension-setup', { headers: { cookie: session } });
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /data-urtube-provision/);
+
+    const provisioned = await app.request('/extension-setup/token', { method: 'POST', headers: { cookie: session } });
+    assert.equal(provisioned.status, 200);
+    const payload = await provisioned.json() as { endpoint: string; token: string; googleAccount: string };
+    assert.match(payload.endpoint, /\/api\/ingest\/youtube\/capture$/);
+    assert.equal(payload.googleAccount, 'prov@gmail.com');
+
+    // The fresh token authenticates ingest as this user...
+    const status = await ingest.request('/api/ingest/youtube/capture/status', {
+      headers: { authorization: `Bearer ${payload.token}` },
+    });
+    assert.equal(((await status.json()) as Record<string, unknown>).user, 'prov');
+    // ...and the dashboard key survived the capture-token rotation.
+    assert.ok(registry.userByDashboardToken('prov', dashboardKey));
+
+    // handle-check is pending-gated and truthful.
+    assert.equal((await app.request('/signup/handle-check?handle=prov')).status, 403);
+    const p2 = registry.createPendingSignup('google-sub-51', 'check@gmail.com');
+    const checkCookie = { headers: { cookie: `urtube_signup=${p2}` } };
+    assert.deepEqual(await (await app.request('/signup/handle-check?handle=prov', checkCookie)).json(), { available: false });
+    assert.deepEqual(await (await app.request('/signup/handle-check?handle=fresh-name', checkCookie)).json(), { available: true });
   } finally {
     registry.close();
   }

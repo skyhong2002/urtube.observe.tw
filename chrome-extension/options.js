@@ -63,6 +63,15 @@ document.querySelector('#test').addEventListener('click', async () => {
     });
     if (!response.ok) throw new Error(`Connection failed: HTTP ${response.status}`);
     result.textContent = urtubeT.connectionReady;
+    // Manual setup path: a working connection that has never synced starts
+    // its first sync immediately, same as one-click provisioning.
+    const status = await chrome.storage.local.get('lifelogSyncStatus');
+    if (!status.lifelogSyncStatus?.lastSuccessAt) {
+      await chrome.storage.local.set({ captureSettings: values() });
+      try {
+        await chrome.runtime.sendMessage({ type: 'lifelog-sync-start' });
+      } catch { /* already running */ }
+    }
   } catch (error) {
     result.textContent = error instanceof Error ? error.message : String(error);
   }

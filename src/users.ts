@@ -276,19 +276,24 @@ export class UserRegistry {
 
   // --- Google login plumbing: OAuth states, pending signups, sessions ---
 
-  createLoginState(): string {
+  // `next` is an optional same-site path to land on after the OAuth round
+  // trip (e.g. /extension-setup); it rides in the state row, never the URL.
+  createLoginState(next = ''): string {
     this.expireLoginState();
     const state = newToken();
-    this.db.prepare("INSERT INTO login_states (state, kind, expires_at) VALUES (?, 'oauth', ?)")
-      .run(state, new Date(Date.now() + 10 * 60_000).toISOString());
+    this.db.prepare("INSERT INTO login_states (state, kind, payload, expires_at) VALUES (?, 'oauth', ?, ?)")
+      .run(state, next, new Date(Date.now() + 10 * 60_000).toISOString());
     return state;
   }
 
-  consumeLoginState(state: string): boolean {
-    if (!state) return false;
+  consumeLoginState(state: string): { valid: boolean; next: string } {
+    if (!state) return { valid: false, next: '' };
     this.expireLoginState();
-    const changes = this.db.prepare("DELETE FROM login_states WHERE state=? AND kind='oauth'").run(state);
-    return Number(changes.changes) === 1;
+    const row = this.db.prepare("SELECT payload FROM login_states WHERE state=? AND kind='oauth'")
+      .get(state) as { payload: string } | undefined;
+    if (!row) return { valid: false, next: '' };
+    this.db.prepare("DELETE FROM login_states WHERE state=? AND kind='oauth'").run(state);
+    return { valid: true, next: row.payload };
   }
 
   // A verified Google identity waiting for the user to pick a handle. The
@@ -353,6 +358,17 @@ export class UserRegistry {
     if (!user) throw new Error(`Unknown user: ${handle}`);
     this.db.prepare('UPDATE users SET dashboard_public=? WHERE id=?').run(dashboardPublic ? 1 : 0, user.id);
     return { ...user, dashboardPublic };
+  }
+
+  // Extension provisioning issues a fresh capture token without touching the
+  // dashboard key: re-authorizing a (re)installed extension must not break
+  // saved dashboard links.
+  rotateCaptureToken(handle: string): string {
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    const captureToken = newToken();
+    this.db.prepare('UPDATE users SET capture_token_hash=? WHERE id=?').run(tokenHash(captureToken), user.id);
+    return captureToken;
   }
 
   rotateTokens(handle: string): { captureToken: string; dashboardToken: string } {

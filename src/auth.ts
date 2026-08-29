@@ -9,13 +9,15 @@ import type { UserRegistry } from './users.js';
 export interface GoogleIdentity {
   sub: string;
   email: string;
+  // Same-site path to continue to after login, carried through OAuth state.
+  next: string;
 }
 
 export function googleLoginConfigured(): boolean {
   return Boolean(config.login.googleClientId && config.login.googleClientSecret);
 }
 
-export function googleLoginUrl(registry: UserRegistry): string {
+export function googleLoginUrl(registry: UserRegistry, next = ''): string {
   if (!googleLoginConfigured()) {
     throw new Error('Google login is not configured (set GOOGLE_LOGIN_CLIENT_ID / GOOGLE_LOGIN_CLIENT_SECRET)');
   }
@@ -24,7 +26,7 @@ export function googleLoginUrl(registry: UserRegistry): string {
   url.searchParams.set('redirect_uri', config.login.googleRedirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', 'openid email');
-  url.searchParams.set('state', registry.createLoginState());
+  url.searchParams.set('state', registry.createLoginState(next));
   url.searchParams.set('prompt', 'select_account');
   return url.toString();
 }
@@ -35,7 +37,8 @@ export async function completeGoogleLogin(
   state: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<GoogleIdentity> {
-  if (!registry.consumeLoginState(state)) throw new Error('OAuth state is invalid or expired');
+  const consumed = registry.consumeLoginState(state);
+  if (!consumed.valid) throw new Error('OAuth state is invalid or expired');
   const response = await fetchImpl('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -57,7 +60,9 @@ export async function completeGoogleLogin(
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
   const sub = String(claims.sub ?? '');
   if (!sub) throw new Error('Google id_token is missing the sub claim');
-  return { sub, email: claims.email ? String(claims.email) : '' };
+  // Only same-site absolute paths may be continued to after login.
+  const next = consumed.next.startsWith('/') && !consumed.next.startsWith('//') ? consumed.next : '';
+  return { sub, email: claims.email ? String(claims.email) : '', next };
 }
 
 // Suggest a handle from the Gmail local part, squeezed into the handle rules.

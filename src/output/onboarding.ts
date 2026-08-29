@@ -61,8 +61,8 @@ export function signupCompletePage(
     <p>${t.signupCompletePara(html(pending.email))}</p></section>
     <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
     <form class="ob-form" method="post" action="/signup">
-      <label for="handle">${t.signupHandle}</label>
-      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="dad">
+      <label for="handle">${t.signupHandle} <span id="handle-hint" style="font-weight:400"></span></label>
+      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="dad" autocomplete="off">
       <label for="displayName">${t.signupName}</label>
       <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(pending.email.split('@')[0] ?? '')}" placeholder="Sky's Dad">
       <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"> ${t.signupPublic}</label>
@@ -76,7 +76,29 @@ export function signupCompletePage(
       <label for="claimKey">${t.signupClaimKey}</label>
       <input id="claimKey" name="claimKey" type="text" maxlength="128" autocomplete="off">
       <button type="submit">${t.signupClaimSubmit}</button>
-    </form></details></div>`;
+    </form></details>
+    <script>(() => {
+      // Live availability check so a taken handle never survives to submit.
+      const input = document.getElementById('handle');
+      const hint = document.getElementById('handle-hint');
+      const free = ${JSON.stringify(t.handleFree)};
+      const taken = ${JSON.stringify(t.handleTakenHint)};
+      let timer = 0;
+      const check = async () => {
+        const handle = input.value.trim().toLowerCase();
+        if (!/^[a-z0-9][a-z0-9.-]{1,31}$/.test(handle)) { hint.textContent = ''; return; }
+        try {
+          const response = await fetch('/signup/handle-check?handle=' + encodeURIComponent(handle));
+          if (!response.ok) return;
+          const body = await response.json();
+          if (input.value.trim().toLowerCase() !== handle) return;
+          hint.textContent = body.available ? free : taken;
+          hint.style.color = body.available ? '#7ecf9d' : 'var(--accent-text)';
+        } catch { /* advisory only */ }
+      };
+      input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(check, 300); });
+      if (input.value) check();
+    })();</script></div>`;
   return shell(t.signupCompleteTitle, body, signupNav(lang), '', lang);
 }
 
@@ -147,10 +169,15 @@ export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
       </ol>
       <h2>${t.welcomeConfigure}</h2>
       <p>${t.welcomeConfigurePara}</p>
-      <p style="margin-bottom:2px">${t.welcomeEndpointLabel}</p>
-      <code class="ob-token">${html(endpoint)}</code>
-      <p style="margin-bottom:2px">${t.welcomeTokenLabel}</p>
-      <code class="ob-token">${html(user.captureToken)}</code>
+      <details style="margin:0 0 18px"><summary style="color:var(--muted);cursor:pointer;font-size:13px">${t.welcomeManualSummary}</summary>
+      <div style="margin-top:10px">
+        <p>${t.welcomeManualPara}</p>
+        <p style="margin-bottom:2px">${t.welcomeEndpointLabel}</p>
+        <code class="ob-token">${html(endpoint)}</code>
+        <p style="margin-bottom:2px">${t.welcomeTokenLabel}</p>
+        <code class="ob-token">${html(user.captureToken)}</code>
+        <p>${t.welcomeManualAccount}</p>
+      </div></details>
       <h2>${t.welcomeDash}</h2>
       <p>${t.welcomeDashPara(user.dashboardPublic)}</p>
       <code class="ob-token"><a href="${html(dashboardUrl)}">${html(dashboardUrl)}</a></code>
@@ -158,6 +185,69 @@ export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
       <p style="margin-top:16px">${t.welcomeLost}</p>
     </div>`;
   return shell(t.welcomeTitle, body, signupNav(lang), '', lang);
+}
+
+// The page the extension opens right after install (and the target of the
+// welcome page's step 2). Talks to the provision content script through DOM
+// dataset attributes + events — the same bridge pattern dashboard.js uses.
+export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
+  const t = messages(lang);
+  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.esTitle}</h1>
+    <p>${t.esPara(html(user.googleEmail ?? user.handle))}</p></section>
+    <div class="ob-card" data-urtube-provision>
+      <div id="es-waiting">
+        <p>${t.esWaiting}</p>
+        <ol class="ob-steps">${t.welcomeInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+      </div>
+      <div id="es-ready" hidden>
+        <p>${t.esAuthorizePara}</p>
+        <form class="ob-form"><button id="es-authorize" type="button">${t.esAuthorize}</button></form>
+      </div>
+      <div id="es-done" hidden>
+        <div class="ob-warn" style="border-color:rgba(94,182,125,.4);background:rgba(94,182,125,.1);color:#7ecf9d">${t.esDone}</div>
+        <p>${t.esDonePara}</p>
+        <p><a href="/${html(user.handle)}">${t.landingMyDashboard}</a></p>
+      </div>
+      <p id="es-error" class="ob-error" hidden>${t.esError}</p>
+    </div>
+    <script>(() => {
+      const root = document.querySelector('[data-urtube-provision]');
+      const show = (id) => {
+        for (const section of ['es-waiting', 'es-ready', 'es-done']) {
+          document.getElementById(section).hidden = section !== id;
+        }
+      };
+      const refresh = () => {
+        if (root.dataset.provisioned === '1') show('es-done');
+        else if (root.dataset.extensionReady === '1') show('es-ready');
+      };
+      window.addEventListener('urtube-extension-ready', refresh);
+      window.addEventListener('urtube-provision-done', refresh);
+      window.addEventListener('urtube-provision-error', () => {
+        document.getElementById('es-error').hidden = false;
+      });
+      // The content script may have run before our listeners attached.
+      setInterval(refresh, 800);
+      refresh();
+      document.getElementById('es-authorize').addEventListener('click', async () => {
+        const button = document.getElementById('es-authorize');
+        button.disabled = true;
+        try {
+          const response = await fetch('/extension-setup/token', { method: 'POST' });
+          if (!response.ok) throw new Error('token request failed');
+          root.dataset.provisionPayload = JSON.stringify(await response.json());
+          window.dispatchEvent(new Event('urtube-provision-request'));
+        } catch {
+          document.getElementById('es-error').hidden = false;
+          button.disabled = false;
+        }
+      });
+    })();</script>`;
+  return shell(t.esTitle, body, [
+    { label: t.navHome, href: '/' },
+    { label: t.navDashboard, href: `/${user.handle}` },
+    { label: t.navAccount, href: '/account' },
+  ], '', lang);
 }
 
 export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang = 'en'): string {
@@ -170,5 +260,25 @@ export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang =
     <ol class="ob-steps">
       ${steps}
     </ol>
+    <p id="setup-ext-status" hidden style="color:#7ecf9d;font-weight:600;margin:14px 0 0"></p>
+    <script>(() => {
+      // Closes the loop: when the extension's dashboard bridge reports in,
+      // the static install steps gain a live "connected / syncing" line.
+      const badge = document.getElementById('setup-ext-status');
+      const control = document.querySelector('[data-youtube-import-control]');
+      if (!badge || !control) return;
+      const connected = ${JSON.stringify(t.setupConnected)};
+      const syncingTemplate = ${JSON.stringify(t.setupSyncing(-1))};
+      const syncing = (n) => syncingTemplate.replace('-1', String(n));
+      const update = () => {
+        let status;
+        try { status = JSON.parse(control.dataset.extensionStatus || ''); } catch { return; }
+        if (!status || !status.extensionReady) return;
+        badge.hidden = false;
+        badge.textContent = status.state === 'running' ? syncing(status.events ?? 0) : connected;
+      };
+      window.addEventListener('urtube-youtube-import-status', update);
+      update();
+    })();</script>
   </div>`;
 }
