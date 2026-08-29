@@ -39,7 +39,7 @@ const tagLeanStyles = `
 
   .tl-groups{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-top:20px}
   .tl-group h3{align-items:center;display:flex;font-size:12px;gap:7px;letter-spacing:.02em;margin:0 0 9px}
-  .tl-group h3 span{color:var(--muted);font-size:10px;font-weight:600;margin-left:auto}
+  .tl-group h3 .tl-group-meta{color:var(--muted);font-size:10px;font-weight:600;margin-left:auto;text-align:right}
   .tl-channel{align-items:center;border-radius:8px;display:grid;gap:8px;grid-template-columns:24px minmax(0,1fr) 46px;padding:4px 4px 4px 0}
   .tl-channel img,.tl-channel-avatar{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;font-size:10px;font-weight:700;height:24px;object-fit:cover;place-items:center;width:24px}
   .tl-channel-name{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -87,7 +87,7 @@ function axisSection(
     </div>`;
   }).join('');
   const columns = groups.map((group) => `<div class="tl-group">
-    <h3><span class="tl-dot" style="background:${colorOf(group.key)}"></span>${html(t.tagGroups[group.key])}<span>${t.tagLeanGroupMeta(group.watches, group.watchedChannels)}</span></h3>
+    <h3><span class="tl-dot" style="background:${colorOf(group.key)}"></span>${html(t.tagGroups[group.key])}<span class="tl-group-meta">${t.tagLeanGroupMeta(group.watches, group.watchedChannels)}</span></h3>
     ${group.topChannels.length ? group.topChannels.map((channel) => `<div class="tl-channel">
       ${channelAvatar(channel)}
       <span class="tl-channel-name">${channel.channelId ? `<a href="https://www.youtube.com/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
