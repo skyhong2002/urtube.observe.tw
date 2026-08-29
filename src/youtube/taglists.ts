@@ -10,14 +10,16 @@ export const CONTENT_KEYS = ['news', 'editorial', 'editorialShows'] as const;
 export const POLITICAL_KEYS = ['blue', 'green', 'white', 'red'] as const;
 export type TagGroupKey = typeof CONTENT_KEYS[number] | typeof POLITICAL_KEYS[number];
 
-export const TAG_GROUP_TAGIDS: Record<TagGroupKey, string> = {
-  news: '13',
-  editorial: '1',
-  editorialShows: '1,9',
-  blue: '3',
-  green: '4',
-  white: '6',
-  red: '5',
+// Full query per group: comma = tag intersection, not= excludes a tag (社論
+// is tag 1 minus the 政論節目 shows, which get their own group).
+export const TAG_GROUP_QUERIES: Record<TagGroupKey, string> = {
+  news: 'tagid=13',
+  editorial: 'tagid=1&not=9',
+  editorialShows: 'tagid=1,9',
+  blue: 'tagid=3',
+  green: 'tagid=4',
+  white: 'tagid=6',
+  red: 'tagid=5',
 };
 
 export type TagLists = Record<TagGroupKey, Set<string>>;
@@ -31,14 +33,14 @@ const TAG_LISTS_TTL_MS = 6 * 3600_000;
 let cached: { at: number; lists: TagLists } | null = null;
 let pending: Promise<TagLists> | null = null;
 
-async function fetchList(tagids: string): Promise<Set<string>> {
-  const response = await fetch(`${config.tagListsUrl}?tagid=${encodeURIComponent(tagids)}`, {
+async function fetchList(query: string): Promise<Set<string>> {
+  const response = await fetch(`${config.tagListsUrl}?${query}`, {
     headers: { 'User-Agent': config.userAgent },
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) throw new Error(`tag list ${tagids}: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`tag list ${query}: HTTP ${response.status}`);
   const body = await response.json() as { result?: Array<{ youtube_id?: string }> };
-  if (!Array.isArray(body.result)) throw new Error(`tag list ${tagids}: unexpected payload`);
+  if (!Array.isArray(body.result)) throw new Error(`tag list ${query}: unexpected payload`);
   return new Set(body.result
     .map((channel) => String(channel.youtube_id ?? ''))
     .filter((id) => id.startsWith('UC')));
@@ -48,7 +50,7 @@ export async function fetchTagLists(now = Date.now()): Promise<TagLists> {
   if (cached && now - cached.at < TAG_LISTS_TTL_MS) return cached.lists;
   if (!pending) {
     pending = (async () => {
-      const sets = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUP_TAGIDS[key])));
+      const sets = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUP_QUERIES[key])));
       const lists = Object.fromEntries(ALL_KEYS.map((key, index) => [key, sets[index]])) as TagLists;
       cached = { at: Date.now(), lists };
       return lists;
