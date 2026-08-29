@@ -344,7 +344,7 @@ export function youtubeDashboardPage(
       <div class="yt-stat"><strong>${compact(data.stats.watchEvents)}</strong><span>${t.statWatchEvents}</span></div>
       <div class="yt-stat"><strong>${compact(data.stats.uniqueVideos)}</strong><span>${t.statVideos}</span></div>
       <div class="yt-stat"><strong>${compact(data.stats.uniqueChannels)}</strong><span>${t.statChannels}</span></div>
-      <div class="yt-stat"><strong>${hours(data.stats.contentCoveredSeconds)}</strong><span>${t.statCovered}</span></div>
+      <div class="yt-stat"><strong>${Math.round(data.stats.topicCoverage * 100)}%</strong><span>${t.statTopicCoverage}</span></div>
       <div class="yt-stat"><strong>${hours(data.stats.actualWatchedSeconds)}</strong><span>${t.statMeasured}</span></div>
     </div>
     <div class="yt-hero-foot">${t.heroFoot(Math.round(data.stats.metadataCoverage * 100), Math.round(data.stats.progressCoverage * 100))}</div>

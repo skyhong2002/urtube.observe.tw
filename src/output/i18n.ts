@@ -47,7 +47,7 @@ const en = {
   statWatchEvents: 'watch events',
   statVideos: 'different videos',
   statChannels: 'channels',
-  statCovered: 'content covered',
+  statTopicCoverage: 'AI topic coverage',
   statMeasured: 'measured',
   heroFoot: (meta: number, progress: number) =>
     `${meta}% metadata coverage · ${progress}% progress coverage · estimates blend measured seconds, saved progress, and video length`,
@@ -257,7 +257,7 @@ const zh: typeof en = {
   statWatchEvents: '觀看事件',
   statVideos: '不同影片',
   statChannels: '頻道',
-  statCovered: '內容涵蓋',
+  statTopicCoverage: 'AI 主題涵蓋',
   statMeasured: '實測時間',
   heroFoot: (meta: number, progress: number) =>
     `中繼資料涵蓋率 ${meta}% · 進度涵蓋率 ${progress}% · 估計值綜合實測秒數、儲存進度與影片長度`,
