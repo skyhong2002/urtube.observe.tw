@@ -168,15 +168,50 @@
       item.progressPercent ?? '',
       item.resumeSeconds ?? '',
       item.durationSeconds ?? '',
+      item.watchedDate ?? '',
     ].join(':');
   }
 
   async function sendProgressBatch(scanId, observedAt, items, complete = false) {
+    const payloadItems = items
+      .filter((item) => item.progressPercent !== null || item.resumeSeconds !== null)
+      .map((item) => ({
+        videoId: item.videoId,
+        progressPercent: item.progressPercent,
+        resumeSeconds: item.resumeSeconds,
+        durationSeconds: item.durationSeconds,
+      }));
+    if (!payloadItems.length && !complete) return { ok: true };
     const response = await chrome.runtime.sendMessage({
       type: 'history-progress-batch',
-      payload: { scanId, observedAt, items, complete },
+      payload: { scanId, observedAt, items: payloadItems, complete },
     });
     if (!response?.ok) throw new Error(response?.error || 'Progress batch was rejected');
+    return response;
+  }
+
+  // Day-precision watch events for items whose date group resolved: noon
+  // local time stands in for the unknown time-of-day.
+  async function sendBackfillBatch(scanId, observedAt, items) {
+    const payloadItems = items
+      .filter((item) => item.watchedDate)
+      .map((item) => {
+        const [year, month, day] = item.watchedDate.split('-').map(Number);
+        return {
+          videoId: item.videoId,
+          title: item.title || item.videoId,
+          channelId: item.channelId,
+          channelTitle: item.channelTitle,
+          durationSeconds: item.durationSeconds,
+          watchedAt: new Date(year, month - 1, day, 12).toISOString(),
+        };
+      });
+    if (!payloadItems.length) return { ok: true };
+    const response = await chrome.runtime.sendMessage({
+      type: 'history-backfill-batch',
+      payload: { scanId, observedAt, items: payloadItems },
+    });
+    if (!response?.ok) throw new Error(response?.error || 'Backfill batch was rejected');
     return response;
   }
 
@@ -215,13 +250,16 @@
         pendingRoots.clear();
         const items = globalThis.urtubeYoutubeHistory.collectProgressFromRoots(roots);
         const changed = items.filter((item) => {
+          const key = `${item.videoId}|${item.watchedDate ?? ''}`;
           const fingerprint = progressFingerprint(item);
-          if (sent.get(item.videoId) === fingerprint) return false;
-          sent.set(item.videoId, fingerprint);
+          if (sent.get(key) === fingerprint) return false;
+          sent.set(key, fingerprint);
           return true;
         });
         for (let index = 0; index < changed.length; index += 250) {
-          await sendProgressBatch(scanId, observedAt, changed.slice(index, index + 250));
+          const slice = changed.slice(index, index + 250);
+          await sendProgressBatch(scanId, observedAt, slice);
+          await sendBackfillBatch(scanId, observedAt, slice);
         }
         await chrome.runtime.sendMessage({
           type: 'history-import-progress',

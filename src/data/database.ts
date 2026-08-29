@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { activityFromEntry } from './activity.js';
+import { taipeiDay } from '../youtube/history-sync.js';
 import type { Activity, SourceSnapshot } from './types.js';
 import type {
   YoutubeChannelMetadata,
@@ -556,12 +557,33 @@ export class Repository {
       return `${value.watched_minute}\u001f${value.identity}`;
     }));
 
+    // Day-precision backfill events dedupe per Taipei calendar day: one per
+    // video per day, and never next to an existing event of any precision.
+    const watchDayKeys = new Set(this.db.prepare(`
+      SELECT strftime('%Y-%m-%d', watched_at, '+8 hours') watched_day,
+        COALESCE(video_id, NULLIF(raw_url, ''), raw_title) identity
+      FROM youtube_watch_events
+    `).all().map((row) => {
+      const value = row as { watched_day: string; identity: string };
+      return `${value.watched_day}\u001f${value.identity}`;
+    }));
+    const selectDayPlaceholders = this.db.prepare(`
+      SELECT w.event_id, w.activity_id
+      FROM youtube_watch_events w JOIN activities a ON a.id = w.activity_id
+      WHERE a.occurred_precision = 'day'
+        AND COALESCE(w.video_id, NULLIF(w.raw_url, ''), w.raw_title) = ?
+        AND strftime('%Y-%m-%d', w.watched_at, '+8 hours') = ?
+    `);
+    const deleteWatchEvent = this.db.prepare('DELETE FROM youtube_watch_events WHERE event_id=?');
+    const deleteActivity = this.db.prepare('DELETE FROM activities WHERE id=?');
+
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const watch of archive.watches) {
         const identity = watch.videoId ?? (watch.url || watch.title);
         const secondKey = `${watch.watchedAt.slice(0, 19)}\u001f${identity}`;
         const minuteKey = `${watch.watchedAt.slice(0, 16)}\u001f${identity}`;
+        const dayKey = `${taipeiDay(watch.watchedAt)}\u001f${identity}`;
         // HTML Takeout records omit milliseconds. Match at second precision so
         // importing HTML after JSON does not duplicate the overlapping window.
         const thumbnail = watch.videoId ? `https://i.ytimg.com/vi/${watch.videoId}/hqdefault.jpg` : '';
@@ -575,6 +597,18 @@ export class Repository {
           watchSecondKeys.has(secondKey)
           || (archive.source === 'extension' && watchMinuteKeys.has(minuteKey))
         ) continue;
+        if (watch.precision === 'day') {
+          if (watchDayKeys.has(dayKey)) continue;
+        } else if (watch.videoId) {
+          // An exact event supersedes any day-precision placeholder for the
+          // same video on the same Taipei day.
+          const placeholders = selectDayPlaceholders.all(identity, taipeiDay(watch.watchedAt)) as
+            Array<{ event_id: string; activity_id: string }>;
+          for (const row of placeholders) {
+            deleteWatchEvent.run(row.event_id);
+            deleteActivity.run(row.activity_id);
+          }
+        }
         const activity = activityFromEntry({
           source: 'youtube',
           sourceItemId: watch.videoId ?? watch.eventId,
@@ -583,7 +617,7 @@ export class Repository {
           title: watch.title.slice(0, 500),
           image: thumbnail,
           status: watch.activityType === 'video' ? 'watched' : watch.activityType,
-          activityAt: watch.watchedAt,
+          activityAt: watch.precision === 'day' ? taipeiDay(watch.watchedAt) : watch.watchedAt,
           rating: null,
           extra: {
             channel: watch.channelTitle ?? '',
@@ -608,6 +642,7 @@ export class Repository {
           watchesInserted++;
           watchSecondKeys.add(secondKey);
           watchMinuteKeys.add(minuteKey);
+          watchDayKeys.add(dayKey);
         }
         // A prior interrupted import can leave the generic activity but not the
         // YouTube event. Count only the canonical event insert.

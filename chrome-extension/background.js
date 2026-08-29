@@ -199,6 +199,40 @@ async function sendProgressBatch(payload) {
   throw lastError;
 }
 
+function backfillEndpoint(endpoint) {
+  return endpoint.replace(/\/capture$/, '/backfill');
+}
+
+async function sendBackfillBatch(payload) {
+  const config = await settings();
+  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PROGRESS_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(backfillEndpoint(config.endpoint), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${config.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (response.ok) return await response.json();
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body?.error || `Backfill import failed: HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError;
+}
+
 async function sendHistoryBatch(payload) {
   const config = await settings();
   if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
@@ -618,6 +652,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'history-progress-batch' && message.payload) {
     sendProgressBatch(message.payload)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    return true;
+  }
+  if (message?.type === 'history-backfill-batch' && message.payload) {
+    sendBackfillBatch(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({
         ok: false,

@@ -71,6 +71,71 @@ function validEventTime(value: string, now: Date): string {
   return date.toISOString();
 }
 
+// Deep backfill from the YouTube history page's date groups: day-precision
+// watch events with no 90-day window (that cap exists for the live My
+// Activity sync; a backfill's whole point is reaching years back). Events
+// carry precision 'day' so ingestion dedupes them per Taipei day and lets
+// exact events replace them.
+export function taipeiDay(iso: string): string {
+  return new Date(new Date(iso).getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+}
+
+const backfillItem = z.object({
+  videoId,
+  title: z.string().trim().min(1).max(500),
+  channelId: z.string().trim().min(1).max(200).nullable().optional(),
+  channelTitle: z.string().trim().min(1).max(200).nullable().optional(),
+  durationSeconds: z.number().int().min(1).max(MAX_YOUTUBE_DURATION_SECONDS).nullable().optional(),
+  watchedAt: timestamp,
+}).strict();
+
+const backfillSchema = z.object({
+  scanId: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+  observedAt: timestamp,
+  items: z.array(backfillItem).max(250),
+}).strict();
+
+export function normalizeYoutubeBackfillBatch(value: unknown, now = new Date()): YoutubeParsedArchive {
+  const parsed = backfillSchema.parse(value);
+  const watches: YoutubeWatchInput[] = [];
+  for (const item of parsed.items) {
+    const at = new Date(item.watchedAt);
+    if (at.getTime() > now.getTime() + 5 * 60_000) {
+      throw new Error('Backfill event time is too far in the future');
+    }
+    if (at.getTime() < Date.parse('2005-04-23T00:00:00Z')) {
+      throw new Error('Backfill event time predates YouTube');
+    }
+    const day = taipeiDay(item.watchedAt);
+    watches.push({
+      // One event per video per day: rescans regenerate the same id.
+      eventId: stableId('watch-day', item.videoId, day),
+      videoId: item.videoId,
+      title: item.title,
+      url: `https://www.youtube.com/watch?v=${encodeURIComponent(item.videoId)}`,
+      channelId: item.channelId ?? null,
+      channelTitle: item.channelTitle ?? null,
+      channelUrl: item.channelId
+        ? `https://www.youtube.com/channel/${encodeURIComponent(item.channelId)}`
+        : null,
+      watchedAt: at.toISOString(),
+      actualWatchedSeconds: null,
+      durationSeconds: item.durationSeconds ?? null,
+      activityType: 'video',
+      precision: 'day',
+    });
+  }
+  const eventIds = watches.map((event) => event.eventId).sort();
+  return {
+    archiveHash: createHash('sha256')
+      .update(`history-page\u001f${parsed.scanId}\u001f${eventIds.join('\u001f')}`)
+      .digest('hex'),
+    source: 'history-page',
+    watches,
+    searches: [],
+  };
+}
+
 export function normalizeYoutubeHistoryBatch(
   value: unknown,
   secret: string,
