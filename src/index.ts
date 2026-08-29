@@ -499,7 +499,21 @@ export function createApp(registry: UserRegistry): Hono {
   });
 
   app.get('/robots.txt', (c) => {
-    return c.text('User-agent: *\nDisallow: /compare\nDisallow: /account\nDisallow: /signup\nDisallow: /auth/\n');
+    return c.text(`User-agent: *\nDisallow: /compare\nDisallow: /account\nDisallow: /signup\nDisallow: /auth/\nSitemap: ${config.publicBaseUrl}/sitemap.xml\n`);
+  });
+
+  // The indexable surface: the landing page, privacy, and every PUBLIC
+  // dashboard with its leanings subpage. Private dashboards are keyed,
+  // noindexed, and never listed here.
+  app.get('/sitemap.xml', (c) => {
+    const paths = ['/', '/privacy'];
+    for (const user of registry.listUsers()) {
+      if (user.dashboardPublic) paths.push(`/${user.handle}`, `/${user.handle}/tags`);
+    }
+    const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${paths.map((path) => `  <url><loc>${html(config.publicBaseUrl + path)}</loc></url>`).join('\n')}\n</urlset>\n`;
+    c.header('Content-Type', 'application/xml');
+    c.header('Cache-Control', 'public, max-age=3600');
+    return c.body(body);
   });
 
   // Installed extensions poll this to learn a newer build is available.
