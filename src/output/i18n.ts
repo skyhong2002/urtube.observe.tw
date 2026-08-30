@@ -12,6 +12,9 @@ export function pickLang(
 
 const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// The published Chrome Web Store listing for the capture extension.
+export const WEB_STORE_URL = 'https://chromewebstore.google.com/detail/abjgkcmhdaboniinbadnapieidenacnc';
+
 // One flat message object per language; every user-facing string lives here.
 // Interpolated strings are functions so word order can differ per language.
 const en = {
@@ -125,11 +128,11 @@ const en = {
   welcomeWarn: '⚠ This page is shown once. Nothing is lost if you close it though — sign in with Google and regenerate anything from your <a href="/account">account page</a>.',
   welcomeInstall: '1 · Install the Chrome extension',
   welcomeInstallSteps: [
-    'Download <a href="/extension.zip">extension.zip</a> and unzip it.',
-    'Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and pick the unzipped folder.',
+    `Add <a href="${WEB_STORE_URL}"><strong>urtube YouTube Capture</strong></a> from the Chrome Web Store.`,
+    'No Web Store access? Download <a href="/extension.zip">extension.zip</a>, unzip it, and load it via <code>chrome://extensions</code> → Developer mode → Load unpacked.',
   ],
   welcomeConfigure: '2 · Authorize it — one click',
-  welcomeConfigurePara: 'Right after loading, the extension opens the <a href="/extension-setup">authorization page</a> by itself. One click there connects it to your archive and starts your first sync — nothing to copy.',
+  welcomeConfigurePara: 'Right after installing, the extension opens the <a href="/extension-setup">authorization page</a> by itself. One click there connects it to your archive and starts your first sync — nothing to copy.',
   welcomeManualSummary: 'Manual setup (if the authorization page did not open)',
   welcomeManualPara: "In the extension's <strong>Settings</strong>, fill in these two values, then press <strong>Test connection</strong> — it should say “Connection ready.”",
   welcomeManualAccount: 'Signed into several Google accounts in Chrome? Also fill the <strong>Google account</strong> field with the Gmail this archive should follow.',
@@ -178,7 +181,7 @@ const en = {
   accountLogout: 'Sign out',
   accountNameSave: 'Save name',
   accountExtension: 'Chrome extension',
-  accountExtensionPara: (version: string) => `Latest version: <strong>v${version}</strong>. Unpacked installs do not update themselves — to update:`,
+  accountExtensionPara: (version: string) => `Latest version: <strong>v${version}</strong>. Installed from the <a href="${WEB_STORE_URL}">Chrome Web Store</a>, the extension updates itself. Running an unpacked copy instead? To update:`,
   accountExtensionSteps: [
     'Download <a href="/extension.zip">extension.zip</a> and unzip it over your existing extension folder.',
     'Open <code>chrome://extensions</code> and press the reload (↻) button on the extension.',
@@ -211,8 +214,8 @@ const en = {
 
   setupTitle: 'Nothing here yet — finish your setup',
   setupSteps: (endpoint: string) => [
-    'Install the <a href="/extension.zip">Chrome extension</a> (chrome://extensions → Developer mode → Load unpacked).',
-    `Extension settings: endpoint <code>${endpoint}</code> + the capture token you saved at signup.`,
+    `Add <a href="${WEB_STORE_URL}"><strong>urtube YouTube Capture</strong></a> from the Chrome Web Store.`,
+    `It opens the authorization page by itself — one click there connects it. Manual alternative: in the extension settings, fill endpoint <code>${endpoint}</code> + the capture token you saved at signup.`,
     'Watch a video, or press <strong>Sync now</strong> in the extension popup to import recent history.',
   ],
 
@@ -364,11 +367,11 @@ const zh: typeof en = {
   welcomeWarn: '⚠ 這個頁面只顯示一次。不過關掉也沒關係——用 Google 登入後隨時可以在<a href="/account">帳號頁</a>重新產生。',
   welcomeInstall: '1 · 安裝 Chrome 擴充功能',
   welcomeInstallSteps: [
-    '下載 <a href="/extension.zip">extension.zip</a> 並解壓縮。',
-    '打開 <code>chrome://extensions</code>，開啟<strong>開發人員模式</strong>，點<strong>載入未封裝項目</strong>，選擇解壓後的資料夾。',
+    `到 Chrome 線上應用程式商店加入 <a href="${WEB_STORE_URL}"><strong>urtube YouTube Capture</strong></a>。`,
+    '無法使用商店？下載 <a href="/extension.zip">extension.zip</a> 解壓縮，再到 <code>chrome://extensions</code> → 開發人員模式 → 載入未封裝項目。',
   ],
   welcomeConfigure: '2 · 一鍵授權',
-  welcomeConfigurePara: '載入完成後，擴充功能會自動開啟<a href="/extension-setup">授權頁</a>。在那裡按一下就會連上你的檔案館並開始首次同步——不需要複製任何東西。',
+  welcomeConfigurePara: '安裝完成後，擴充功能會自動開啟<a href="/extension-setup">授權頁</a>。在那裡按一下就會連上你的檔案館並開始首次同步——不需要複製任何東西。',
   welcomeManualSummary: '手動設定（授權頁沒有自動開啟時）',
   welcomeManualPara: '在擴充功能的<strong>設定</strong>中填入下面兩個值，然後按<strong>測試連線</strong>——應顯示「連線就緒。」',
   welcomeManualAccount: 'Chrome 同時登入多個 Google 帳號？記得也在<strong>Google 帳號</strong>欄位填入這個檔案館要追蹤的 Gmail。',
@@ -417,7 +420,7 @@ const zh: typeof en = {
   accountLogout: '登出',
   accountNameSave: '儲存名稱',
   accountExtension: 'Chrome 擴充功能',
-  accountExtensionPara: (version: string) => `目前最新版本：<strong>v${version}</strong>。未封裝安裝的擴充功能不會自動更新——更新方式：`,
+  accountExtensionPara: (version: string) => `目前最新版本：<strong>v${version}</strong>。從 <a href="${WEB_STORE_URL}">Chrome 線上應用程式商店</a>安裝的會自動更新。如果你是用未封裝方式安裝，更新方式：`,
   accountExtensionSteps: [
     '下載 <a href="/extension.zip">extension.zip</a>，解壓縮並覆蓋原本的擴充功能資料夾。',
     '打開 <code>chrome://extensions</code>，按該擴充功能上的重新載入（↻）。',
@@ -450,8 +453,8 @@ const zh: typeof en = {
 
   setupTitle: '還沒有資料——完成最後設定',
   setupSteps: (endpoint: string) => [
-    '安裝 <a href="/extension.zip">Chrome 擴充功能</a>（chrome://extensions → 開發人員模式 → 載入未封裝項目）。',
-    `擴充功能設定：endpoint 填 <code>${endpoint}</code>，token 用註冊時保存的值。`,
+    `到 Chrome 線上應用程式商店加入 <a href="${WEB_STORE_URL}"><strong>urtube YouTube Capture</strong></a>。`,
+    `它會自動開啟授權頁——按一下即可連接。手動替代方案：在擴充功能設定填 endpoint <code>${endpoint}</code> 和註冊時保存的 token。`,
     '看一部影片，或在擴充功能 popup 按<strong>立即同步</strong>匯入近期紀錄。',
   ],
 
