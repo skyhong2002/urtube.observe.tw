@@ -129,7 +129,7 @@ function shortFormBars(data: YoutubeDashboardData, t: Messages): {
 function shortFormSection(
   data: YoutubeDashboardData,
   t: Messages,
-  variant: ShortFormVariant = 'current',
+  variant: ShortFormVariant = 'line',
 ): string {
   const { bars, unit } = shortFormBars(data, t);
   if (!bars.length) return '';
@@ -151,7 +151,7 @@ function shortFormSection(
     stacked: '方案 A · 100% 組成趨勢',
     absolute: '方案 A1 · 時間堆疊柱',
     dual: '方案 A2 · 組成＋總時數',
-    line: '方案 A3 · 組成＋時數趨勢線',
+    line: '組成＋時數趨勢線',
     compare: '方案 B · 前後期比較',
     heatmap: '方案 C · 年月熱圖',
     short: '短影音', other: '其他已知片長', previous: '前半段', recent: '近期半段',
@@ -160,7 +160,7 @@ function shortFormSection(
     stacked: 'Option A · 100% composition trend',
     absolute: 'Option A1 · absolute stacked time',
     dual: 'Option A2 · composition + total time',
-    line: 'Option A3 · composition + time trend',
+    line: 'Composition + time trend',
     compare: 'Option B · period comparison',
     heatmap: 'Option C · year/month heatmap',
     short: 'Short-form', other: 'Other known duration', previous: 'Earlier half', recent: 'Recent half',

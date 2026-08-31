@@ -306,6 +306,9 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
     ]);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh',
+    }), /組成＋時數趨勢線/);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', shortFormVariant: 'stacked',
     }), /方案 A · 100% 組成趨勢/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
@@ -322,7 +325,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     }), /方案 A2 · 組成＋總時數/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', shortFormVariant: 'line',
-    }), /方案 A3 · 組成＋時數趨勢線/);
+    }), /組成＋時數趨勢線/);
   } finally {
     repository.close();
   }
