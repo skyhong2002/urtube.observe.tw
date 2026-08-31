@@ -1,4 +1,9 @@
-import { YOUTUBE_RANGES, type YoutubeDailySummary, type YoutubeDashboardData } from '../youtube/types.js';
+import {
+  YOUTUBE_RANGES,
+  type YoutubeDailySummary,
+  type YoutubeDashboardData,
+  type YoutubeHourlySummary,
+} from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 
@@ -61,35 +66,59 @@ function rhythmBars(daily: YoutubeDailySummary[], t: Messages): { bars: RhythmBa
   return { bars, unit: 'day' };
 }
 
-function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
-  const { bars, unit } = rhythmBars(data.daily, t);
-  if (!bars.length) return '';
-  const max = Math.max(1, ...bars.map((bar) => bar.watches));
-  const peak = bars.reduce((a, b) => (b.watches > a.watches ? b : a));
-  // Month (or year) ticks along the baseline, at the bar where the period turns.
-  const ticks: string[] = [];
-  let lastTick = '';
-  bars.forEach((bar, index) => {
-    const tick = unit === 'day' ? bar.key.slice(0, 7) : bar.key.slice(0, 4);
-    if (tick !== lastTick) {
-      lastTick = tick;
-      const label = unit === 'day' ? t.monthTick(Number(bar.key.slice(5, 7))) : bar.key.slice(0, 4);
-      ticks.push(`<span style="left:${(index / bars.length * 100).toFixed(2)}%">${label}</span>`);
-    }
-  });
-  const columns = bars.map((bar) => {
-    const tip = `${t.tipVideos(bar.watches)} · ${hours(bar.estimatedWatchSeconds)}`;
-    return `<div class="yt-rhythm-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${(bar.watches / max * 100).toFixed(1)}%"></i></div>`;
+function polarPoint(angle: number, radius: number): [number, number] {
+  const radians = (angle - 90) * Math.PI / 180;
+  return [150 + Math.cos(radians) * radius, 150 + Math.sin(radians) * radius];
+}
+
+function radialSector(hour: number, value: number, max: number): string {
+  const inner = 9;
+  const outer = inner + value / Math.max(1, max) * 108;
+  const startAngle = hour * 15 + 1.5;
+  const endAngle = (hour + 1) * 15 - 1.5;
+  const [innerStartX, innerStartY] = polarPoint(startAngle, inner);
+  const [outerStartX, outerStartY] = polarPoint(startAngle, outer);
+  const [outerEndX, outerEndY] = polarPoint(endAngle, outer);
+  const [innerEndX, innerEndY] = polarPoint(endAngle, inner);
+  return `M${innerStartX.toFixed(2)},${innerStartY.toFixed(2)}L${outerStartX.toFixed(2)},${outerStartY.toFixed(2)}A${outer.toFixed(2)},${outer.toFixed(2)} 0 0 1 ${outerEndX.toFixed(2)},${outerEndY.toFixed(2)}L${innerEndX.toFixed(2)},${innerEndY.toFixed(2)}A${inner},${inner} 0 0 0 ${innerStartX.toFixed(2)},${innerStartY.toFixed(2)}Z`;
+}
+
+function rhythmClock(
+  hourly: YoutubeHourlySummary[],
+  metric: 'watches' | 'estimatedWatchSeconds',
+  label: string,
+  t: Messages,
+): string {
+  const byHour = new Map(hourly.map((entry) => [entry.hour, entry]));
+  const values = Array.from({ length: 24 }, (_, hour) => byHour.get(hour)?.[metric] ?? 0);
+  const max = Math.max(1, ...values);
+  const spokes = values.map((_, hour) => {
+    const [x1, y1] = polarPoint(hour * 15, 10);
+    const [x2, y2] = polarPoint(hour * 15, 126);
+    return `<line${hour % 6 === 0 ? ' class="yt-rhythm-major"' : ''} x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
   }).join('');
-  const tableRows = bars.filter((bar) => bar.watches > 0).map((bar) =>
-    `<tr><td>${html(bar.label)}</td><td>${bar.watches}</td><td>${hours(bar.estimatedWatchSeconds)}</td></tr>`
-  ).join('');
+  const sectors = values.map((value, hour) => value > 0
+    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${t.hourRange(hour)}" data-tip-label="${metric === 'watches' ? t.tipVideos(value) : hours(value)}"></path>`
+    : '').join('');
+  return `<figure class="yt-rhythm-clock"><svg viewBox="0 0 300 300" role="img" aria-label="${t.rhythmAria(label)}">
+    <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
+    <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
+    </svg><figcaption>${label}</figcaption></figure>`;
+}
+
+function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
+  if (!data.hourly.length) return '';
+  const tableRows = Array.from({ length: 24 }, (_, hour) => {
+    const entry = data.hourly.find((item) => item.hour === hour);
+    return entry?.watches
+      ? `<tr><td>${t.hourRange(hour)}</td><td>${entry.watches}</td><td>${hours(entry.estimatedWatchSeconds)}</td></tr>`
+      : '';
+  }).join('');
   return `<section class="section"><div class="section-head"><h2>${t.rhythm}</h2>
-    <span>${t.rhythmSub(unit, peak.watches, html(peak.label))}</span></div>
-    <div class="yt-rhythm" role="img" aria-label="${t.rhythmAria(unit)}">${columns}</div>
-    <div class="yt-rhythm-axis">${ticks.join('')}</div>
+    <span>${t.rhythmSub(t.ranges[data.range])}</span></div>
+    <div class="yt-rhythm-clocks">${rhythmClock(data.hourly, 'watches', t.rhythmWatches, t)}${rhythmClock(data.hourly, 'estimatedWatchSeconds', t.rhythmTime, t)}</div>
     <details class="viz-table"><summary>${t.tableView}</summary><table>
-      <thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
+      <thead><tr><th>${t.colHour}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
       <tbody>${tableRows}</tbody></table></details>
   </section>`;
 }
@@ -103,7 +132,7 @@ interface ShortFormBar {
 
 export type ShortFormVariant =
   | 'current' | 'stacked' | 'compare' | 'heatmap'
-  | 'absolute' | 'dual' | 'line';
+  | 'absolute' | 'dual';
 
 function shortFormBars(data: YoutubeDashboardData, t: Messages): {
   bars: ShortFormBar[];
@@ -129,7 +158,7 @@ function shortFormBars(data: YoutubeDashboardData, t: Messages): {
 function shortFormSection(
   data: YoutubeDashboardData,
   t: Messages,
-  variant: ShortFormVariant = 'line',
+  variant: ShortFormVariant = 'absolute',
 ): string {
   const { bars, unit } = shortFormBars(data, t);
   if (!bars.length) return '';
@@ -149,21 +178,19 @@ function shortFormSection(
   const isZh = t.htmlLang === 'zh-Hant';
   const copy = isZh ? {
     stacked: '方案 A · 100% 組成趨勢',
-    absolute: '方案 A1 · 時間堆疊柱',
+    absolute: 'Shorts 與一般影片時間',
     dual: '方案 A2 · 組成＋總時數',
-    line: '組成＋時數趨勢線',
     compare: '方案 B · 前後期比較',
     heatmap: '方案 C · 年月熱圖',
-    short: '短影音', other: '其他已知片長', previous: '前半段', recent: '近期半段',
+    short: 'Shorts', other: '一般影片', previous: '前半段', recent: '近期半段',
     delta: '占比變化', coverage: '片長涵蓋率', months: '月份', total: '總觀看時間',
   } : {
     stacked: 'Option A · 100% composition trend',
-    absolute: 'Option A1 · absolute stacked time',
+    absolute: 'Shorts and regular-video time',
     dual: 'Option A2 · composition + total time',
-    line: 'Composition + time trend',
     compare: 'Option B · period comparison',
     heatmap: 'Option C · year/month heatmap',
-    short: 'Short-form', other: 'Other known duration', previous: 'Earlier half', recent: 'Recent half',
+    short: 'Shorts', other: 'Regular videos', previous: 'Earlier half', recent: 'Recent half',
     delta: 'Share change', coverage: 'Duration coverage', months: 'Months', total: 'Total watch time',
   };
   const shareOf = (bar: ShortFormBar) => bar.knownDurationWatchSeconds
@@ -171,10 +198,10 @@ function shortFormSection(
     : 0;
   const tableRows = bars.filter((bar) => bar.knownDurationWatchSeconds > 0).map((bar) => {
     const share = shareOf(bar);
-    return `<tr><td>${html(bar.label)}</td><td>${Math.round(share)}%</td><td>${hours(bar.shortWatchSeconds)}</td><td>${hours(bar.knownDurationWatchSeconds)}</td></tr>`;
+    return `<tr><td>${html(bar.label)}</td><td>${Math.round(share)}%</td><td>${hours(bar.shortWatchSeconds)}</td><td>${hours(bar.knownDurationWatchSeconds - bar.shortWatchSeconds)}</td></tr>`;
   }).join('');
   const details = `<details class="viz-table"><summary>${t.tableView}</summary><table>
-    <thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${t.colShare}</th><th>${t.colShortTime}</th><th>${t.colKnownTime}</th></tr></thead>
+    <thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${t.colShare}</th><th>${t.colShortTime}</th><th>${copy.other}</th></tr></thead>
     <tbody>${tableRows}</tbody></table></details>`;
   const method = `<div class="yt-short-method"><span>${t.shortFormMethod}</span><span>${copy.coverage} ${Math.round(coverage)}%</span></div>`;
 
@@ -245,7 +272,7 @@ function shortFormSection(
       const share = shareOf(bar);
       const totalHeight = bar.knownDurationWatchSeconds / maxKnown * 100;
       const tip = `${Math.round(share)}% · ${copy.short} ${hours(bar.shortWatchSeconds)} · ${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
-      return `<div class="yt-short-absolute-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${totalHeight.toFixed(1)}%"><i style="height:${share.toFixed(1)}%"></i></span></div>`;
+      return `<div class="yt-short-absolute-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${totalHeight.toFixed(1)}%"><i class="yt-short-segment" style="height:${share.toFixed(1)}%"></i><b class="yt-regular-segment" style="height:${(100 - share).toFixed(1)}%"></b></span></div>`;
     }).join('');
     return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.absolute}</span></div>
       <div class="yt-short-absolute-axis"><span>${hours(maxKnown)}</span><span>0h</span></div>
@@ -260,19 +287,6 @@ function shortFormSection(
       <div class="yt-short-dual-label"><strong>${copy.total}</strong><span>max ${hours(maxKnown)}</span></div>
       <div class="yt-short-volume">${volumeColumns}</div>
       <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span><span class="yt-short-total-key"><i></i>${copy.total}</span></div>${method}${details}</section>`;
-  }
-
-  if (variant === 'line') {
-    const points = bars.map((bar, index) => {
-      const x = (index + .5) / bars.length * 1000;
-      const y = 176 - bar.knownDurationWatchSeconds / maxKnown * 150;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.line}</span></div>
-      <div class="yt-short-line-chart"><div class="yt-short-stack" role="img" aria-label="${t.shortFormAria}">${stackColumns}</div>
-        <svg viewBox="0 0 1000 180" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points}"></polyline></svg>
-        <div class="yt-short-line-axis"><span>${hours(maxKnown)}</span><span>0h</span></div></div>
-      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span><span class="yt-short-line-key"><i></i>${copy.total}</span></div>${method}${details}</section>`;
   }
 
   const columns = bars.map((bar) => {
@@ -451,12 +465,12 @@ const dashboardStyles = `
   .yt-hero-stats{display:grid;gap:10px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
   .yt-hero-foot{border-top:1px solid var(--line);color:var(--muted);font-size:11px;grid-column:1/-1;margin-top:6px;padding-top:12px}
 
-  .yt-rhythm{align-items:end;border-bottom:1px solid var(--line-strong);display:flex;height:150px}
-  .yt-rhythm-col{align-items:end;display:flex;flex:1 0 3px;height:100%;justify-content:center;min-width:0;padding:0 1px}
-  .yt-rhythm-col i{background:var(--accent);border-radius:3px 3px 0 0;display:block;max-width:22px;min-height:0;transition:background .15s;width:100%}
-  .yt-rhythm-col:hover i{background:#e66767}
-  .yt-rhythm-axis{color:var(--muted);font-size:10px;height:18px;letter-spacing:.04em;margin-top:6px;position:relative;text-transform:uppercase}
-  .yt-rhythm-axis span{position:absolute;top:0}
+  .yt-rhythm-clocks{display:grid;gap:clamp(16px,5vw,64px);grid-template-columns:repeat(2,minmax(0,1fr));margin:4px auto 8px;max-width:820px}
+  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock svg{display:block;margin:auto;max-width:340px;overflow:visible;width:100%}
+  .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
+  .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
+  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
+  .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
 
   .yt-columns{display:grid;gap:18px;grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr);margin-top:18px}
   .yt-columns>section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px}
@@ -505,15 +519,13 @@ const dashboardStyles = `
   .yt-short-stack-compact{height:112px}
   .yt-short-stack-col{background:var(--raised);border-radius:3px 3px 0 0;display:flex;flex:1 1 4px;justify-content:stretch;min-width:2px;overflow:hidden;position:relative}
   .yt-short-stack-col i{align-self:end;background:var(--accent);display:block;min-height:1px;width:100%}
-  .yt-short-stack-legend{display:flex;gap:20px;justify-content:center;margin-top:12px}.yt-short-stack-legend span{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px}.yt-short-stack-legend i{background:var(--accent);border-radius:2px;height:10px;width:10px}.yt-short-stack-legend span+span i{background:var(--raised);border:1px solid var(--line-strong)}
-  .yt-short-stack-legend .yt-short-total-key i{background:var(--ink-2);border:0}.yt-short-stack-legend .yt-short-line-key i{background:transparent;border:0;border-top:2px solid var(--ink);border-radius:0;height:0;width:14px}
+  .yt-short-stack-legend{display:flex;gap:20px;justify-content:center;margin-top:12px}.yt-short-stack-legend span{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px}.yt-short-stack-legend i{background:var(--accent);border-radius:2px;height:10px;width:10px}.yt-short-stack-legend span+span i{background:#55534e;border:0}
+  .yt-short-stack-legend .yt-short-total-key i{background:var(--ink-2);border:0}
 
-  .yt-short-absolute{align-items:end;background:linear-gradient(to bottom,var(--line) 1px,transparent 1px);display:flex;gap:2px;height:190px}.yt-short-absolute-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-absolute-col>span{background:var(--raised);border-radius:3px 3px 0 0;display:flex;overflow:hidden;width:100%}.yt-short-absolute-col i{align-self:end;background:var(--accent);display:block;width:100%}.yt-short-absolute-axis{color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin-bottom:4px}
+  .yt-short-absolute{align-items:end;background:linear-gradient(to bottom,var(--line) 1px,transparent 1px);display:flex;gap:2px;height:190px}.yt-short-absolute-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-absolute-col>span{border-radius:3px 3px 0 0;display:flex;flex-direction:column;overflow:hidden;width:100%}.yt-short-absolute-col .yt-short-segment,.yt-short-absolute-col .yt-regular-segment{display:block;width:100%}.yt-short-absolute-col .yt-short-segment{background:var(--accent)}.yt-short-absolute-col .yt-regular-segment{background:#55534e}.yt-short-absolute-axis{color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin-bottom:4px}
 
   .yt-short-dual-label{align-items:center;color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin:12px 0 5px}.yt-short-dual-label strong{color:var(--ink-2);font-size:10px;font-weight:650;text-transform:uppercase}
   .yt-short-volume{align-items:end;display:flex;gap:2px;height:64px}.yt-short-volume-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-volume-col i{background:var(--ink-2);border-radius:2px 2px 0 0;display:block;opacity:.72;width:100%}
-
-  .yt-short-line-chart{height:180px;position:relative}.yt-short-line-chart .yt-short-stack{height:180px}.yt-short-line-chart svg{height:100%;inset:0;overflow:visible;pointer-events:none;position:absolute;width:100%}.yt-short-line-chart polyline{fill:none;stroke:var(--ink);stroke-linecap:round;stroke-linejoin:round;stroke-width:2;vector-effect:non-scaling-stroke}.yt-short-line-axis{color:var(--ink);display:flex;flex-direction:column;font-size:9px;font-weight:650;inset:4px 4px 4px auto;justify-content:space-between;position:absolute;text-shadow:0 1px 2px var(--surface)}
 
   .yt-short-compare-summary{align-items:baseline;display:flex;gap:10px;margin:-4px 0 18px}.yt-short-compare-summary>strong{color:var(--accent-text);font-size:34px;letter-spacing:-.04em}.yt-short-compare-summary small{font-size:14px;margin-left:2px}.yt-short-compare-summary>span{color:var(--muted);font-size:11px}
   .yt-short-compare{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.yt-short-compare-card{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px}
@@ -562,7 +574,7 @@ const dashboardStyles = `
   .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
   @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy,.yt-top-videos,.yt-short-compare{grid-template-columns:1fr}}
-  @media(max-width:560px){.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
+  @media(max-width:560px){.yt-rhythm-clocks{grid-template-columns:1fr;max-width:300px}.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
 `;
 
 // Ordinal ramp for the length buckets (short → long, light → dark), validated

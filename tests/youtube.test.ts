@@ -226,6 +226,11 @@ test('YouTube imports are idempotent, aggregate-only, and preserve duration sema
     assert.equal(dashboard.stats.uniqueVideos, 2);
     assert.equal(dashboard.stats.openedDurationSeconds, 1200);
     assert.equal(dashboard.stats.actualWatchedSeconds, null);
+    assert.deepEqual(dashboard.hourly.map(({ hour, watches }) => ({ hour, watches })), [
+      { hour: 9, watches: 1 },
+      { hour: 10, watches: 1 },
+      { hour: 11, watches: 1 },
+    ]);
     assert.equal(dashboard.topChannels[0].name, 'Channel One');
     assert.equal(dashboard.topChannels[0].thumbnailUrl, 'https://yt3.ggpht.com/channel-one');
     assert.ok(dashboard.topChannels.every((channel) => channel.name !== 'Unknown channel'));
@@ -308,7 +313,12 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     const defaultPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh',
     });
-    assert.match(defaultPage, /組成＋時數趨勢線/);
+    assert.match(defaultPage, /yt-rhythm-clocks/);
+    assert.match(defaultPage, /yt-rhythm-sector/);
+    assert.match(defaultPage, /Shorts 與一般影片時間/);
+    assert.match(defaultPage, /yt-short-segment/);
+    assert.match(defaultPage, /yt-regular-segment/);
+    assert.doesNotMatch(defaultPage, /yt-short-line-chart/);
     assert.match(defaultPage, /data-youtube-sort="watches"/);
     assert.match(defaultPage, /data-youtube-sort-list="channels"/);
     assert.match(defaultPage, /history\.pushState/);
@@ -326,13 +336,10 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     }), /方案 C · 年月熱圖/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', shortFormVariant: 'absolute',
-    }), /方案 A1 · 時間堆疊柱/);
+    }), /Shorts 與一般影片時間/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', shortFormVariant: 'dual',
     }), /方案 A2 · 組成＋總時數/);
-    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', shortFormVariant: 'line',
-    }), /組成＋時數趨勢線/);
   } finally {
     repository.close();
   }

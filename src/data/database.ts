@@ -1174,6 +1174,14 @@ export class Repository {
       ${estimatedWhere}
       GROUP BY day ORDER BY day
     `).all(...params) as Array<Record<string, string | number>>;
+    const hourly = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT CAST(strftime('%H', e.watched_at, '+8 hours') AS INTEGER) hour,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      ${estimatedWhere}
+      GROUP BY hour ORDER BY hour
+    `).all(...params) as Array<Record<string, string | number>>;
     // YouTube does not expose a definitive Shorts flag through the metadata
     // API. Use duration <= 3 minutes as an explicit short-form proxy and keep
     // unknown-duration time out of the denominator so missing metadata cannot
@@ -1360,6 +1368,10 @@ export class Repository {
       },
       daily: daily.map((row) => ({
         day: String(row.day), watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      hourly: hourly.map((row) => ({
+        hour: Number(row.hour), watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
       shortFormDaily: shortFormDaily.map((row) => ({

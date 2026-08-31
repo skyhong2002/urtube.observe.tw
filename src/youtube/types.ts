@@ -191,6 +191,12 @@ export interface YoutubeDailySummary {
   estimatedWatchSeconds: number;
 }
 
+export interface YoutubeHourlySummary {
+  hour: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
 export interface YoutubeLengthBucket {
   label: string;
   videos: number;
@@ -220,6 +226,7 @@ export interface YoutubeDashboardData {
     topicCoverage: number;
   };
   daily: YoutubeDailySummary[];
+  hourly: YoutubeHourlySummary[];
   shortFormDaily: YoutubeShortFormDailySummary[];
   lengthBuckets: YoutubeLengthBucket[];
   topChannels: YoutubeChannelSummary[];
