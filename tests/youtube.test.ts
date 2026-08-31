@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { zipSync, strToU8 } from 'fflate';
 import { buildChannelRace, Repository } from '../src/data/database.js';
+import { youtubeDashboardPage } from '../src/output/youtube.js';
 import {
   classifyYoutubeVideosWithClient,
   ensureYoutubeTaxonomyWithClient,
@@ -304,6 +305,15 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { day: '2026-07-28', shortWatchSeconds: 60, knownDurationWatchSeconds: 60 },
       { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
     ]);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', shortFormVariant: 'stacked',
+    }), /方案 A · 100% 組成趨勢/);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', shortFormVariant: 'compare',
+    }), /方案 B · 前後期比較/);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', shortFormVariant: 'heatmap',
+    }), /方案 C · 年月熱圖/);
   } finally {
     repository.close();
   }
