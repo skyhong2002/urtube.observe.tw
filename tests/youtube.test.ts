@@ -305,9 +305,16 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { day: '2026-07-28', shortWatchSeconds: 60, knownDurationWatchSeconds: 60 },
       { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
     ]);
-    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+    const defaultPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh',
-    }), /組成＋時數趨勢線/);
+    });
+    assert.match(defaultPage, /組成＋時數趨勢線/);
+    assert.match(defaultPage, /data-youtube-sort="watches"/);
+    assert.match(defaultPage, /data-youtube-sort-list="channels"/);
+    assert.match(defaultPage, /history\.pushState/);
+    for (const script of defaultPage.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+      assert.doesNotThrow(() => Function(script[1]));
+    }
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', shortFormVariant: 'stacked',
     }), /方案 A · 100% 組成趨勢/);
