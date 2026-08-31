@@ -51,6 +51,8 @@ services:
     container_name: urtube-backup
     command: ["npx", "tsx", "scripts/backup-worker.ts"]
     restart: unless-stopped
+    healthcheck:
+      disable: true
     depends_on:
       app:
         condition: service_healthy
