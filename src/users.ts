@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
@@ -399,6 +399,15 @@ export class UserRegistry {
     // data); everyone else gets their own file under data/users/.
     if (user.handle === DEFAULT_HANDLE) return config.databasePath;
     return join(this.dataDir, `${user.handle}.sqlite`);
+  }
+
+  databaseBytesFor(user: User): number {
+    const path = this.databasePathFor(user);
+    if (path === ':memory:') return 0;
+    return ['', '-wal', '-shm'].reduce((total, suffix) => {
+      const candidate = `${path}${suffix}`;
+      return total + (existsSync(candidate) ? statSync(candidate).size : 0);
+    }, 0);
   }
 
   repositoryFor(user: User): Repository {

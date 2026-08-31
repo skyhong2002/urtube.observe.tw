@@ -109,26 +109,19 @@ counts · Chrome extension passes a real capture test against production
 urtube · old Infovore YouTube ingestion disabled or redirected. Until then,
 this migration is *in progress*.
 
-## Multi-user roadmap (future, not in this extraction)
+## Current multi-user architecture
 
-The extraction stays single-user to preserve data semantics 1:1. To open
-urtube to other people, the follow-up work is:
+The earlier single-user roadmap has been implemented. Google login maps one
+permanent Google `sub` to one urtube account; tokens are hashed; each non-owner
+account has an isolated SQLite file and a key derived from the server master
+key; dashboards are private by default; the Web Store extension provisions a
+capture token in one click. Self-service rename, visibility, token rotation,
+and deletion are live.
 
-1. **Accounts**: `users` table + Google/GitHub OAuth login; per-user ingest
-   and capture tokens (hashed at rest) replacing the two global tokens.
-2. **Tenancy**: add `user_id` to `activities` and every `youtube_*` table
-   (schema `user_version` 9 migration; existing rows adopt the owner user).
-   All repository queries become user-scoped; per-user
-   `YOUTUBE_PRIVATE_DATA_KEY` derivation (per-user data key wrapped by a
-   server master key) so one user's search history can never be decrypted in
-   another's context.
-3. **Extension**: options page gains a sign-in / token-paste flow; endpoint
-   validation loosened to the configured PUBLIC_BASE_URL host.
-4. **Dashboards**: `/youtube` becomes `/u/:handle` (private by default,
-   opt-in share links); rate limits and per-user quota on metadata/AI usage.
-5. **Ops**: per-user export/delete (GDPR-style), backup covers all tenants.
+Launch safeguards include total-account capacity, per-user database and
+ingest-rate limits, aggregate-only public dashboards, all-tenant checksummed
+backup/restore bundles, a daily backup service, and `/readyz` coverage for
+configuration, every user database, worker completion, and backup freshness.
 
-Decision points to settle before building: SQLite-per-user vs. one shared
-database (SQLite-per-user keeps the current schema untouched and isolates
-backups; shared DB simplifies ops), and whether AI classification cost is
-pooled or per-user keyed.
+Remaining post-launch product work: self-service data export before deletion,
+and finer per-user/day accounting for pooled YouTube API and AI costs.

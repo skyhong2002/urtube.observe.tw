@@ -631,6 +631,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'settings-updated') {
     ensureAlarms()
+      // Re-run the queue immediately after provisioning or saving settings.
+      // Besides sending pending captures, this replaces any stale
+      // "token is not configured" status left by the install-time flush.
+      .then(() => flushQueue())
       .then(() => maybeStartLifelogSync())
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));

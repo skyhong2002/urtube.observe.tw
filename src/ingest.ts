@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './users.js';
+import { securityHeaders } from './security-headers.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
 import { parseYoutubeArchive } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
@@ -20,6 +21,8 @@ function bearer(auth: string | undefined): string {
 }
 
 export function createIngestApp(registry: UserRegistry): Hono {
+  const ingestHits = new Map<number, number[]>();
+
   // Any per-user capture token (or the legacy env capture token) identifies
   // the calling user; the admin INGEST_TOKEN additionally maps to the
   // instance owner for Takeout uploads and OAuth control.
@@ -38,7 +41,23 @@ export function createIngestApp(registry: UserRegistry): Hono {
     return captureContext(auth);
   }
 
+  function writeQuotaError(context: IngestContext): { error: string; status: 429 | 507 } | null {
+    if (registry.databaseBytesFor(context.user) >= config.maxUserDatabaseBytes) {
+      return { error: 'This archive has reached its storage limit', status: 507 };
+    }
+    const now = Date.now();
+    const hits = (ingestHits.get(context.user.id) ?? []).filter((at) => now - at < 60_000);
+    if (hits.length >= config.ingestRequestsPerMinute) {
+      ingestHits.set(context.user.id, hits);
+      return { error: 'Too many ingest requests; retry in a minute', status: 429 };
+    }
+    hits.push(now);
+    ingestHits.set(context.user.id, hits);
+    return null;
+  }
+
   const app = new Hono();
+  app.use('*', securityHeaders());
   app.get('/healthz', (c) => {
     const configured = Boolean(config.ingestToken || config.youtube.captureToken || registry.listUsers().length);
     return c.json(
@@ -52,6 +71,8 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     const context = adminContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
+    const quota = writeQuotaError(context);
+    if (quota) return c.json({ error: quota.error }, quota.status);
     if (!context.dataKey) return c.json({ error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, 503);
     const contentType = c.req.header('content-type')?.split(';')[0]?.trim();
     if (!['application/zip', 'application/octet-stream'].includes(contentType ?? '')) {
@@ -80,6 +101,8 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     const context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
+    const quota = writeQuotaError(context);
+    if (quota) return c.json({ error: quota.error }, quota.status);
     try {
       const body = await c.req.text();
       if (Buffer.byteLength(body) > 16 * 1024) {
@@ -98,6 +121,8 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     const context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
+    const quota = writeQuotaError(context);
+    if (quota) return c.json({ error: quota.error }, quota.status);
     try {
       const body = await c.req.text();
       if (Buffer.byteLength(body) > 96 * 1024) {
@@ -128,6 +153,8 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     const context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
+    const quota = writeQuotaError(context);
+    if (quota) return c.json({ error: quota.error }, quota.status);
     try {
       const body = await c.req.text();
       if (Buffer.byteLength(body) > 256 * 1024) {
@@ -147,6 +174,8 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     const context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
+    const quota = writeQuotaError(context);
+    if (quota) return c.json({ error: quota.error }, quota.status);
     if (!context.dataKey) {
       return c.json({ error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, 503);
     }

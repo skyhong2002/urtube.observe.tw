@@ -9,6 +9,8 @@ disabling old Infovore YouTube ingestion. Commands assume:
   `/home/ubuntu/apps/status.skyhong.tw`, volume `infovore-data`.
 - **Never** run migration steps while coding; Phase 3 is a deliberate,
   operator-triggered window.
+- The current stack is multi-user: `users.sqlite`, owner `urtube.sqlite`, and
+  every database under `users/` must always be backed up and restored together.
 
 ## 0. Caddy / TLS (must succeed before anything else)
 
@@ -66,19 +68,30 @@ curl -fsS https://urtube.observe.tw/api/ingest/youtube/capture/status \
 curl -is https://urtube.observe.tw/api/ingest/youtube/capture -X POST \
   -H 'content-type: application/json' -d '{}' | head -1  # HTTP/2 401 (no token)
 curl -fsS https://urtube.observe.tw/status | jq .youtube.counts
-docker compose ps                                      # all three containers Up
+curl -fsS https://urtube.observe.tw/readyz              # config + all DBs + worker + backup
+docker compose ps                                      # all four containers Up
 ```
 
 ## 3. Backup
 
-**urtube (routine):** consistent snapshot without stopping writes:
+**urtube (automatic):** configure the host bind mount in `.env`. Keep this
+directory on storage that is also copied off-host:
 
 ```sh
-ssh SkyLabMac 'cd /Users/skyhong/Projects/urtube && docker compose exec app \
-  npx tsx scripts/backup.ts /data/urtube.sqlite /data/backups/urtube-$(date +%Y%m%d%H%M%S).sqlite'
-# copy off-host:
-ssh SkyLabMac 'docker compose -f /Users/skyhong/Projects/urtube/docker-compose.yml cp \
-  app:/data/backups/. /Users/skyhong/backups/urtube/'
+URTUBE_BACKUP_HOST_DIRECTORY=/Users/skyhong/backups/urtube
+BACKUP_INTERVAL_HOURS=24
+BACKUP_RETENTION_DAYS=30
+docker compose up -d backup
+curl -fsS https://urtube.observe.tw/readyz | jq .backup
+```
+
+The backup service snapshots registry, owner, and every materialized user DB
+with SQLite `VACUUM INTO`. Each bundle contains integrity-checked row counts
+and SHA-256 hashes. `YOUTUBE_PRIVATE_DATA_KEY` stays in a password manager;
+only its fingerprint enters the bundle. Manual bundle:
+
+```sh
+docker compose exec backup npx tsx scripts/backup.ts /backups/urtube-manual-$(date +%Y%m%d%H%M%S)
 ```
 
 **Infovore production (for migration):** run *on skyhong.tw*, inside its
@@ -129,19 +142,26 @@ docker compose up -d
    `https://urtube.observe.tw/youtube` and spot-check history depth,
    channels, and topics.
 
-## 5. Restore (from any urtube backup)
+## 5. Restore (from a complete urtube bundle)
 
 ```sh
-ssh SkyLabMac 'cd /Users/skyhong/Projects/urtube && docker compose stop && \
-  docker compose run --rm app sh -c "cp /data/backups/<FILE>.sqlite /data/urtube.sqlite && rm -f /data/urtube.sqlite-wal /data/urtube.sqlite-shm" && \
-  docker compose up -d'
-curl -fsS https://urtube.observe.tw/status | jq .youtube.counts   # compare to counts recorded at backup time
+ssh SkyLabMac
+cd /Users/skyhong/Projects/urtube
+docker compose stop app ingest worker backup
+docker compose run --rm --no-deps backup npx tsx scripts/restore-backup.ts \
+  /backups/<BUNDLE_DIRECTORY> /data
+docker compose up -d
+curl -fsS https://urtube.observe.tw/readyz
 ```
+
+Restore verifies every file hash, SQLite integrity, and private-key
+fingerprint before changing data. Existing databases are moved aside with a
+`.pre-restore-*` suffix so the restore remains recoverable.
 
 ## 6. Chrome extension cutover
 
-1. `chrome://extensions` → load `chrome-extension/` unpacked (or update the
-   installed copy).
+1. Install/update **urtube YouTube Capture** from the Chrome Web Store. Use
+   `extension.zip` unpacked only as a development fallback.
 2. Options → endpoint `https://urtube.observe.tw/api/ingest/youtube/capture`,
    token = urtube's `YOUTUBE_CAPTURE_TOKEN` → *Test connection* must say
    "Connection ready."
@@ -186,5 +206,6 @@ serve, and `https://infovore.skyhong.tw/api/ingest/youtube/capture` returns
 - Production Infovore data is only ever read via the vacuumed backup file.
 - urtube containers publish on 127.0.0.1 only; TLS is Caddy's job.
 - No secrets in git; `YOUTUBE_PRIVATE_DATA_KEY` moves by hand exactly once.
-- Every restore/migration ends with a row-count verification before the
-  service is considered up.
+- Every urtube backup/restore covers registry, owner, and all user databases;
+  every restore ends with hash, integrity, key-fingerprint, and `/readyz`
+  verification before the service is considered up.

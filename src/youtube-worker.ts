@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
+import { writeOpsStatus } from './ops-status.js';
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
 import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata } from './youtube/metadata.js';
@@ -79,17 +80,37 @@ if (process.env.NODE_ENV !== 'test') {
   if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
   let running = false;
 
+  const recordStatus = (value: unknown) => {
+    try {
+      writeOpsStatus('worker', value);
+    } catch (error) {
+      console.error(`worker status write failed: ${errorMessage(error)}`);
+    }
+  };
+
   const run = async (): Promise<void> => {
     if (running) return;
     running = true;
+    const lastStartedAt = new Date().toISOString();
+    recordStatus({ lastStartedAt });
     try {
       const users = await runYoutubeWorkerCycle(registry);
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
+      const failedUsers = users.filter((result) => result.error).length;
       for (const result of users) {
         if (result.error) console.error(`[${result.user}] ${result.error}`);
       }
+      recordStatus({
+        lastStartedAt,
+        lastCompletedAt: new Date().toISOString(),
+        users: users.length,
+        failedUsers,
+        lastError: '',
+      });
     } catch (error) {
-      console.error(errorMessage(error));
+      const lastError = errorMessage(error);
+      console.error(lastError);
+      recordStatus({ lastStartedAt, lastError });
     } finally {
       running = false;
     }

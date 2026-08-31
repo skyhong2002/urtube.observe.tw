@@ -32,7 +32,12 @@ async function render() {
   document.querySelector('#last-sync').textContent = lifelog.lastSuccessAt
     ? new Date(lifelog.lastSuccessAt).toLocaleString()
     : urtubeT.never;
-  document.querySelector('#error').textContent = status.lastError ?? '';
+  // Provisioning can race the install-time background flush. Never show its
+  // missing-token error after captureSettings already contains a token.
+  const captureError = configured && status.lastError === 'Capture token is not configured'
+    ? ''
+    : status.lastError ?? '';
+  document.querySelector('#error').textContent = captureError;
   const latest = stored.latestExtensionVersion ?? '';
   const updateDue = isNewerVersion(latest, chrome.runtime.getManifest().version);
   const updateBox = document.querySelector('#update');
