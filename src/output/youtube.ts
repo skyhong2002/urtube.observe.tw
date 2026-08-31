@@ -101,6 +101,8 @@ interface ShortFormBar {
   knownDurationWatchSeconds: number;
 }
 
+export type ShortFormVariant = 'current' | 'stacked' | 'compare' | 'heatmap';
+
 function shortFormBars(data: YoutubeDashboardData, t: Messages): {
   bars: ShortFormBar[];
   unit: 'day' | 'month';
@@ -122,40 +124,120 @@ function shortFormBars(data: YoutubeDashboardData, t: Messages): {
   return { bars, unit: rhythm.unit };
 }
 
-function shortFormSection(data: YoutubeDashboardData, t: Messages): string {
+function shortFormSection(
+  data: YoutubeDashboardData,
+  t: Messages,
+  variant: ShortFormVariant = 'current',
+): string {
   const { bars, unit } = shortFormBars(data, t);
   if (!bars.length) return '';
   const midpoint = bars.length > 1 ? Math.floor(bars.length / 2) : 0;
-  const shareFor = (slice: ShortFormBar[]) => {
+  const totalsFor = (slice: ShortFormBar[]) => {
     const short = slice.reduce((sum, bar) => sum + bar.shortWatchSeconds, 0);
     const known = slice.reduce((sum, bar) => sum + bar.knownDurationWatchSeconds, 0);
-    return known ? short / known * 100 : 0;
+    return { short, known, share: known ? short / known * 100 : 0 };
   };
-  const recentShare = shareFor(midpoint ? bars.slice(midpoint) : bars);
-  const previousShare = midpoint ? shareFor(bars.slice(0, midpoint)) : recentShare;
+  const recent = totalsFor(midpoint ? bars.slice(midpoint) : bars);
+  const previous = midpoint ? totalsFor(bars.slice(0, midpoint)) : recent;
   const known = bars.reduce((sum, bar) => sum + bar.knownDurationWatchSeconds, 0);
   if (!known) return '';
   const total = data.daily.reduce((sum, day) => sum + day.estimatedWatchSeconds, 0);
   const coverage = total ? known / total * 100 : 0;
-  const columns = bars.map((bar) => {
-    const share = bar.knownDurationWatchSeconds
-      ? bar.shortWatchSeconds / bar.knownDurationWatchSeconds * 100
-      : 0;
-    const tip = `${Math.round(share)}% · ${hours(bar.shortWatchSeconds)} / ${hours(bar.knownDurationWatchSeconds)}`;
-    return `<div class="yt-short-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${share.toFixed(1)}%"></i></div>`;
-  }).join('');
+  const delta = recent.share - previous.share;
+  const isZh = t.htmlLang === 'zh-Hant';
+  const copy = isZh ? {
+    stacked: '方案 A · 100% 組成趨勢',
+    compare: '方案 B · 前後期比較',
+    heatmap: '方案 C · 年月熱圖',
+    short: '短影音', other: '其他已知片長', previous: '前半段', recent: '近期半段',
+    delta: '占比變化', coverage: '片長涵蓋率', months: '月份',
+  } : {
+    stacked: 'Option A · 100% composition trend',
+    compare: 'Option B · period comparison',
+    heatmap: 'Option C · year/month heatmap',
+    short: 'Short-form', other: 'Other known duration', previous: 'Earlier half', recent: 'Recent half',
+    delta: 'Share change', coverage: 'Duration coverage', months: 'Months',
+  };
+  const shareOf = (bar: ShortFormBar) => bar.knownDurationWatchSeconds
+    ? bar.shortWatchSeconds / bar.knownDurationWatchSeconds * 100
+    : 0;
   const tableRows = bars.filter((bar) => bar.knownDurationWatchSeconds > 0).map((bar) => {
-    const share = bar.shortWatchSeconds / bar.knownDurationWatchSeconds * 100;
+    const share = shareOf(bar);
     return `<tr><td>${html(bar.label)}</td><td>${Math.round(share)}%</td><td>${hours(bar.shortWatchSeconds)}</td><td>${hours(bar.knownDurationWatchSeconds)}</td></tr>`;
   }).join('');
+  const details = `<details class="viz-table"><summary>${t.tableView}</summary><table>
+    <thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${t.colShare}</th><th>${t.colShortTime}</th><th>${t.colKnownTime}</th></tr></thead>
+    <tbody>${tableRows}</tbody></table></details>`;
+  const method = `<div class="yt-short-method"><span>${t.shortFormMethod}</span><span>${copy.coverage} ${Math.round(coverage)}%</span></div>`;
+
+  if (variant === 'compare') {
+    const periodLabel = (slice: ShortFormBar[]) => slice.length
+      ? `${slice[0].label}–${slice.at(-1)!.label}` : '';
+    const periods = [
+      { label: copy.previous, range: periodLabel(bars.slice(0, midpoint || bars.length)), totals: previous },
+      { label: copy.recent, range: periodLabel(midpoint ? bars.slice(midpoint) : bars), totals: recent },
+    ];
+    const cards = periods.map((period) => `<div class="yt-short-compare-card">
+      <div class="yt-short-compare-head"><span><strong>${period.label}</strong><small>${html(period.range)}</small></span><b>${Math.round(period.totals.share)}%</b></div>
+      <div class="yt-short-compare-track"><i style="width:${period.totals.share.toFixed(1)}%"></i></div>
+      <div class="yt-short-compare-meta"><span>${copy.short} ${hours(period.totals.short)}</span><span>${copy.other} ${hours(period.totals.known - period.totals.short)}</span></div>
+    </div>`).join('');
+    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.compare}</span></div>
+      <div class="yt-short-compare-summary"><strong>${delta >= 0 ? '+' : ''}${Math.round(delta)}<small>pp</small></strong><span>${copy.delta}</span></div>
+      <div class="yt-short-compare">${cards}</div>${method}${details}</section>`;
+  }
+
+  if (variant === 'heatmap') {
+    const monthly = new Map<string, ShortFormBar>();
+    for (const entry of data.shortFormDaily) {
+      const key = entry.day.slice(0, 7);
+      const month = monthly.get(key) ?? {
+        key, label: key, shortWatchSeconds: 0, knownDurationWatchSeconds: 0,
+      };
+      month.shortWatchSeconds += entry.shortWatchSeconds;
+      month.knownDurationWatchSeconds += entry.knownDurationWatchSeconds;
+      monthly.set(key, month);
+    }
+    const keys = [...monthly.keys()].sort();
+    const firstYear = Number(keys[0]?.slice(0, 4));
+    const lastYear = Number(keys.at(-1)?.slice(0, 4));
+    const monthHeads = Array.from({ length: 12 }, (_, index) =>
+      `<span>${t.monthTick(index + 1)}</span>`).join('');
+    const rows = Array.from({ length: lastYear - firstYear + 1 }, (_, offset) => {
+      const year = firstYear + offset;
+      const cells = Array.from({ length: 12 }, (_, monthIndex) => {
+        const key = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+        const bar = monthly.get(key);
+        if (!bar?.knownDurationWatchSeconds) return '<span class="yt-short-heat-empty"></span>';
+        const share = shareOf(bar);
+        const alpha = Math.min(.95, .12 + share / 100 * .83);
+        const tip = `${Math.round(share)}% · ${hours(bar.shortWatchSeconds)} / ${hours(bar.knownDurationWatchSeconds)}`;
+        return `<span class="yt-short-heat-cell" style="--heat:${alpha.toFixed(2)}" data-tip="${key}" data-tip-label="${html(tip)}"><strong>${Math.round(share)}</strong><small>%</small></span>`;
+      }).join('');
+      return `<strong class="yt-short-heat-year">${year}</strong>${cells}`;
+    }).join('');
+    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.heatmap}</span></div>
+      <div class="yt-short-heat-wrap"><div class="yt-short-heat-head"><span>${copy.months}</span>${monthHeads}</div><div class="yt-short-heat">${rows}</div></div>
+      <div class="yt-short-heat-scale"><span>0%</span><i></i><span>100%</span></div>${method}${details}</section>`;
+  }
+
+  const columns = bars.map((bar) => {
+    const share = shareOf(bar);
+    const tip = `${Math.round(share)}% · ${hours(bar.shortWatchSeconds)} / ${hours(bar.knownDurationWatchSeconds)}`;
+    return variant === 'stacked'
+      ? `<div class="yt-short-stack-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${share.toFixed(1)}%"></i></div>`
+      : `<div class="yt-short-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${share.toFixed(1)}%"></i></div>`;
+  }).join('');
+  if (variant === 'stacked') {
+    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.stacked}</span></div>
+      <div class="yt-short-stack" role="img" aria-label="${t.shortFormAria}">${columns}</div>
+      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span></div>${method}${details}</section>`;
+  }
   return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2>
-    <span>${t.shortFormSub(Math.round(recentShare), Math.round(recentShare - previousShare), Math.round(coverage))}</span></div>
+    <span>${t.shortFormSub(Math.round(recent.share), Math.round(delta), Math.round(coverage))}</span></div>
     <div class="yt-short-chart" role="img" aria-label="${t.shortFormAria}">${columns}</div>
     <div class="yt-short-legend"><span>100%</span><strong>${t.shortFormMethod}</strong><span>0%</span></div>
-    <details class="viz-table"><summary>${t.tableView}</summary><table>
-      <thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${t.colShare}</th><th>${t.colShortTime}</th><th>${t.colKnownTime}</th></tr></thead>
-      <tbody>${tableRows}</tbody></table></details>
-  </section>`;
+    ${details}</section>`;
 }
 
 // Row pitch of the race: 32px row + 9px gap. Rows are absolutely positioned
@@ -362,6 +444,22 @@ const dashboardStyles = `
   .yt-short-col{align-items:end;display:flex;flex:1 0 3px;height:100%;justify-content:center;min-width:0;padding:0 1px}
   .yt-short-col i{background:var(--accent);border-radius:3px 3px 0 0;display:block;max-width:22px;min-height:1px;width:100%}
   .yt-short-legend{color:var(--muted);display:flex;font-size:10px;justify-content:space-between;margin-top:6px}.yt-short-legend strong{font-weight:500}
+  .yt-short-method{border-top:1px solid var(--line);color:var(--muted);display:flex;font-size:10px;justify-content:space-between;margin-top:14px;padding-top:10px}
+
+  .yt-short-stack{align-items:stretch;display:flex;gap:2px;height:180px}
+  .yt-short-stack-col{background:var(--raised);border-radius:3px 3px 0 0;display:flex;flex:1 1 4px;justify-content:stretch;min-width:2px;overflow:hidden;position:relative}
+  .yt-short-stack-col i{align-self:end;background:var(--accent);display:block;min-height:1px;width:100%}
+  .yt-short-stack-legend{display:flex;gap:20px;justify-content:center;margin-top:12px}.yt-short-stack-legend span{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px}.yt-short-stack-legend i{background:var(--accent);border-radius:2px;height:10px;width:10px}.yt-short-stack-legend span+span i{background:var(--raised);border:1px solid var(--line-strong)}
+
+  .yt-short-compare-summary{align-items:baseline;display:flex;gap:10px;margin:-4px 0 18px}.yt-short-compare-summary>strong{color:var(--accent-text);font-size:34px;letter-spacing:-.04em}.yt-short-compare-summary small{font-size:14px;margin-left:2px}.yt-short-compare-summary>span{color:var(--muted);font-size:11px}
+  .yt-short-compare{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.yt-short-compare-card{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .yt-short-compare-head{align-items:start;display:flex;justify-content:space-between}.yt-short-compare-head span strong,.yt-short-compare-head span small{display:block}.yt-short-compare-head span strong{font-size:13px}.yt-short-compare-head span small{color:var(--muted);font-size:10px;margin-top:3px}.yt-short-compare-head>b{font-size:28px;letter-spacing:-.04em}
+  .yt-short-compare-track{background:var(--surface);border-radius:999px;height:12px;margin:16px 0 8px;overflow:hidden}.yt-short-compare-track i{background:var(--accent);border-radius:999px;display:block;height:100%}
+  .yt-short-compare-meta{color:var(--muted);display:flex;font-size:10px;justify-content:space-between}
+
+  .yt-short-heat-wrap{overflow-x:auto;padding-bottom:5px}.yt-short-heat-head,.yt-short-heat{display:grid;gap:5px;grid-template-columns:52px repeat(12,minmax(42px,1fr));min-width:680px}.yt-short-heat-head{color:var(--muted);font-size:9px;margin-bottom:5px;text-align:center}.yt-short-heat-head>span:first-child{text-align:left}
+  .yt-short-heat-year{align-self:center;color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums}.yt-short-heat-cell,.yt-short-heat-empty{align-items:baseline;aspect-ratio:1.45;border-radius:6px;display:flex;justify-content:center;place-self:stretch}.yt-short-heat-cell{background:rgba(230,103,103,var(--heat));color:#fff;padding-top:9px;text-shadow:0 1px 2px rgba(0,0,0,.35)}.yt-short-heat-cell strong{font-size:12px}.yt-short-heat-cell small{font-size:8px}.yt-short-heat-empty{background:var(--raised);opacity:.35}
+  .yt-short-heat-scale{align-items:center;color:var(--muted);display:flex;font-size:9px;gap:8px;justify-content:flex-end;margin-top:8px}.yt-short-heat-scale i{background:linear-gradient(90deg,rgba(230,103,103,.12),rgba(230,103,103,.95));border-radius:999px;height:7px;width:110px}
 
   .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px 92px minmax(0,1fr);margin-bottom:18px}
   .yt-chase-controls button{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:50%;color:var(--ink);cursor:pointer;display:flex;font-size:11px;height:34px;justify-content:center;padding:0;width:34px}
@@ -399,7 +497,7 @@ const dashboardStyles = `
   .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0}
   .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
-  @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy,.yt-top-videos{grid-template-columns:1fr}}
+  @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy,.yt-top-videos,.yt-short-compare{grid-template-columns:1fr}}
   @media(max-width:560px){.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
 `;
 
@@ -423,6 +521,8 @@ export interface YoutubeDashboardOptions {
   lang?: Lang;
   // Individual watch rows are private detail, not aggregate dashboard data.
   showRecent?: boolean;
+  // Local design-review variants for the short-form visualization.
+  shortFormVariant?: ShortFormVariant;
 }
 
 export function youtubeDashboardPage(
@@ -525,6 +625,6 @@ export function youtubeDashboardPage(
   return shell(`${ownerName} · YouTube · ${scope}`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
     + rhythmSection(data, t)
     + `<div class="yt-columns">${channelList}${distribution}</div>`
-    + topVideos + shortFormSection(data, t)
+    + topVideos + shortFormSection(data, t, options.shortFormVariant)
     + channelChase(data, t) + taxonomy + recent, options.nav ?? [], '', lang, basePath);
 }

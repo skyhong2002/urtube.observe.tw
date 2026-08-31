@@ -190,6 +190,11 @@ export function createApp(registry: UserRegistry): Hono {
     const counts = repository.youtubeCounts();
     const validity = validityFor(counts);
     const range = requestedRange(c.req.query('range'));
+    const requestedShortForm = c.req.query('shorts');
+    const shortFormVariant = requestedShortForm === 'stacked'
+      || requestedShortForm === 'compare'
+      || requestedShortForm === 'heatmap'
+      ? requestedShortForm : undefined;
     const data = cachedDashboardFor(registry, user, range, repository, validity);
     const hasData = counts.watches > 0;
     const viewerOwns = sessionUser(c)?.id === user.id;
@@ -218,6 +223,7 @@ export function createApp(registry: UserRegistry): Hono {
       ],
       setupHtml: (showSetup ? dashboardSetupSection(user, hasData, lang) : '') + crystalHtml,
       showRecent,
+      shortFormVariant,
     }));
   }
 
