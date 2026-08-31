@@ -476,6 +476,7 @@ const dashboardStyles = `
   .yt-channel-nums span{color:var(--muted);font-size:10px;font-variant-numeric:tabular-nums}
   .yt-sort a{color:var(--muted);text-decoration:none}.yt-sort a:hover{color:var(--ink-2)}
   .yt-sort a[aria-current=page]{color:var(--accent-text);font-weight:700}
+  .yt-channel-row[hidden],.yt-top-video[hidden]{display:none}
 
   .yt-mix{display:grid;gap:11px}
   .yt-mix-row{align-items:center;display:grid;gap:10px;grid-template-columns:76px minmax(0,1fr) 44px}
@@ -624,15 +625,16 @@ export function youtubeDashboardPage(
   </section>`;
   const channels = [...data.topChannels].sort((a, b) =>
     sort === 'duration'
-      ? b.estimatedWatchSeconds - a.estimatedWatchSeconds
-      : b.watches - a.watches
-  ).slice(0, 12);
-  const maxChannel = Math.max(1, ...channels.map((channel) =>
+      ? b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches
+      : b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds
+  );
+  const maxChannel = Math.max(1, ...channels.slice(0, 12).map((channel) =>
     sort === 'duration' ? channel.estimatedWatchSeconds : channel.watches));
-  const channelList = `<section><div class="section-head"><h2>${t.topChannels}</h2><span class="yt-sort"><a href="${basePath}?range=${data.range}&sort=watches"${sort === 'watches' ? ' aria-current="page"' : ''}>${t.sortPlays}</a> · <a href="${basePath}?range=${data.range}&sort=duration"${sort === 'duration' ? ' aria-current="page"' : ''}>${t.sortTime}</a></span></div>
-    <div class="yt-channels">${channels.map((channel, index) => {
+  const sortLinks = `<span class="yt-sort"><a data-youtube-sort="watches" href="${basePath}?range=${data.range}&sort=watches"${sort === 'watches' ? ' aria-current="page"' : ''}>${t.sortPlays}</a> · <a data-youtube-sort="duration" href="${basePath}?range=${data.range}&sort=duration"${sort === 'duration' ? ' aria-current="page"' : ''}>${t.sortTime}</a></span>`;
+  const channelList = `<section><div class="section-head"><h2>${t.topChannels}</h2>${sortLinks}</div>
+    <div class="yt-channels" data-youtube-sort-list="channels">${channels.map((channel, index) => {
       const metric = sort === 'duration' ? channel.estimatedWatchSeconds : channel.watches;
-      return `<div class="yt-channel-row">
+      return `<div class="yt-channel-row" data-watches="${channel.watches}" data-duration="${channel.estimatedWatchSeconds}"${index >= 12 ? ' hidden' : ''}>
         <span class="yt-channel-rank">${index + 1}</span>
         ${channelAvatar(channel)}
         <div class="yt-channel-main">
@@ -646,9 +648,9 @@ export function youtubeDashboardPage(
     sort === 'duration'
       ? b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches
       : b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds
-  ).slice(0, 12);
-  const topVideos = videos.length ? `<section class="section"><div class="section-head"><h2>${t.topVideos}</h2><span class="yt-sort"><a href="${basePath}?range=${data.range}&sort=watches"${sort === 'watches' ? ' aria-current="page"' : ''}>${t.sortPlays}</a> · <a href="${basePath}?range=${data.range}&sort=duration"${sort === 'duration' ? ' aria-current="page"' : ''}>${t.sortTime}</a></span></div>
-    <div class="yt-top-videos">${videos.map((video, index) => `<a class="yt-top-video" href="${html(video.url)}">
+  );
+  const topVideos = videos.length ? `<section class="section"><div class="section-head"><h2>${t.topVideos}</h2>${sortLinks}</div>
+    <div class="yt-top-videos" data-youtube-sort-list="videos">${videos.map((video, index) => `<a class="yt-top-video" href="${html(video.url)}" data-watches="${video.watches}" data-duration="${video.estimatedWatchSeconds}"${index >= 12 ? ' hidden' : ''}>
       <span class="yt-channel-rank">${index + 1}</span>
       <span class="yt-top-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-top-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span>
       <span class="yt-top-video-main"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
@@ -680,14 +682,25 @@ export function youtubeDashboardPage(
   // The range and sort ride along in the title and h1 so every ?range/?sort
   // variant of the page is uniquely named.
   const scope = `${t.ranges[data.range]} · ${t.sortedBy(sort === 'watches' ? t.sortPlays : t.sortTime)}`;
+  const sortState = JSON.stringify({
+    watches: {
+      scope: `${t.ranges[data.range]} · ${t.sortedBy(t.sortPlays)}`,
+      title: `${ownerName} · YouTube · ${t.ranges[data.range]} · ${t.sortedBy(t.sortPlays)} · urtube`,
+    },
+    duration: {
+      scope: `${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)}`,
+      title: `${ownerName} · YouTube · ${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)} · urtube`,
+    },
+  }).replace(/</g, '\\u003c');
+  const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url)}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('popstate',()=>apply(new URL(location.href).searchParams.get('sort')==='watches'?'watches':'duration',false));})();</script>`;
   const intro = `<style>${dashboardStyles}</style><section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
-    <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
+    <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
     <div class="yt-profile-meta"><a href="/">${t.home}</a></div></div></section>`;
   return shell(`${ownerName} · YouTube · ${scope}`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
     + rhythmSection(data, t)
     + `<div class="yt-columns">${channelList}${distribution}</div>`
     + topVideos + shortFormSection(data, t, options.shortFormVariant)
-    + channelChase(data, t) + taxonomy + recent, options.nav ?? [], '', lang, basePath);
+    + channelChase(data, t) + taxonomy + recent + sortScript, options.nav ?? [], '', lang, basePath);
 }
