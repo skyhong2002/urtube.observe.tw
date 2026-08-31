@@ -194,6 +194,9 @@ export function createApp(registry: UserRegistry): Hono {
     const shortFormVariant = requestedShortForm === 'stacked'
       || requestedShortForm === 'compare'
       || requestedShortForm === 'heatmap'
+      || requestedShortForm === 'absolute'
+      || requestedShortForm === 'dual'
+      || requestedShortForm === 'line'
       ? requestedShortForm : undefined;
     const data = cachedDashboardFor(registry, user, range, repository, validity);
     const hasData = counts.watches > 0;

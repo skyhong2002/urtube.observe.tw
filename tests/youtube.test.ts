@@ -314,6 +314,15 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', shortFormVariant: 'heatmap',
     }), /方案 C · 年月熱圖/);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', shortFormVariant: 'absolute',
+    }), /方案 A1 · 時間堆疊柱/);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', shortFormVariant: 'dual',
+    }), /方案 A2 · 組成＋總時數/);
+    assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', shortFormVariant: 'line',
+    }), /方案 A3 · 組成＋時數趨勢線/);
   } finally {
     repository.close();
   }

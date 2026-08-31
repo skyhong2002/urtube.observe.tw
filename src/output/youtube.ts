@@ -101,7 +101,9 @@ interface ShortFormBar {
   knownDurationWatchSeconds: number;
 }
 
-export type ShortFormVariant = 'current' | 'stacked' | 'compare' | 'heatmap';
+export type ShortFormVariant =
+  | 'current' | 'stacked' | 'compare' | 'heatmap'
+  | 'absolute' | 'dual' | 'line';
 
 function shortFormBars(data: YoutubeDashboardData, t: Messages): {
   bars: ShortFormBar[];
@@ -147,16 +149,22 @@ function shortFormSection(
   const isZh = t.htmlLang === 'zh-Hant';
   const copy = isZh ? {
     stacked: '方案 A · 100% 組成趨勢',
+    absolute: '方案 A1 · 時間堆疊柱',
+    dual: '方案 A2 · 組成＋總時數',
+    line: '方案 A3 · 組成＋時數趨勢線',
     compare: '方案 B · 前後期比較',
     heatmap: '方案 C · 年月熱圖',
     short: '短影音', other: '其他已知片長', previous: '前半段', recent: '近期半段',
-    delta: '占比變化', coverage: '片長涵蓋率', months: '月份',
+    delta: '占比變化', coverage: '片長涵蓋率', months: '月份', total: '總觀看時間',
   } : {
     stacked: 'Option A · 100% composition trend',
+    absolute: 'Option A1 · absolute stacked time',
+    dual: 'Option A2 · composition + total time',
+    line: 'Option A3 · composition + time trend',
     compare: 'Option B · period comparison',
     heatmap: 'Option C · year/month heatmap',
     short: 'Short-form', other: 'Other known duration', previous: 'Earlier half', recent: 'Recent half',
-    delta: 'Share change', coverage: 'Duration coverage', months: 'Months',
+    delta: 'Share change', coverage: 'Duration coverage', months: 'Months', total: 'Total watch time',
   };
   const shareOf = (bar: ShortFormBar) => bar.knownDurationWatchSeconds
     ? bar.shortWatchSeconds / bar.knownDurationWatchSeconds * 100
@@ -219,6 +227,52 @@ function shortFormSection(
     return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.heatmap}</span></div>
       <div class="yt-short-heat-wrap"><div class="yt-short-heat-head"><span>${copy.months}</span>${monthHeads}</div><div class="yt-short-heat">${rows}</div></div>
       <div class="yt-short-heat-scale"><span>0%</span><i></i><span>100%</span></div>${method}${details}</section>`;
+  }
+
+  const maxKnown = Math.max(1, ...bars.map((bar) => bar.knownDurationWatchSeconds));
+  const stackColumns = bars.map((bar) => {
+    const share = shareOf(bar);
+    const tip = `${Math.round(share)}% · ${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
+    return `<div class="yt-short-stack-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${share.toFixed(1)}%"></i></div>`;
+  }).join('');
+  const volumeColumns = bars.map((bar) => {
+    const tip = `${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
+    return `<div class="yt-short-volume-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${(bar.knownDurationWatchSeconds / maxKnown * 100).toFixed(1)}%"></i></div>`;
+  }).join('');
+
+  if (variant === 'absolute') {
+    const columns = bars.map((bar) => {
+      const share = shareOf(bar);
+      const totalHeight = bar.knownDurationWatchSeconds / maxKnown * 100;
+      const tip = `${Math.round(share)}% · ${copy.short} ${hours(bar.shortWatchSeconds)} · ${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
+      return `<div class="yt-short-absolute-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${totalHeight.toFixed(1)}%"><i style="height:${share.toFixed(1)}%"></i></span></div>`;
+    }).join('');
+    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.absolute}</span></div>
+      <div class="yt-short-absolute-axis"><span>${hours(maxKnown)}</span><span>0h</span></div>
+      <div class="yt-short-absolute" role="img" aria-label="${t.shortFormAria}">${columns}</div>
+      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span></div>${method}${details}</section>`;
+  }
+
+  if (variant === 'dual') {
+    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.dual}</span></div>
+      <div class="yt-short-dual-label"><strong>${t.colShare}</strong><span>100%</span></div>
+      <div class="yt-short-stack yt-short-stack-compact" role="img" aria-label="${t.shortFormAria}">${stackColumns}</div>
+      <div class="yt-short-dual-label"><strong>${copy.total}</strong><span>max ${hours(maxKnown)}</span></div>
+      <div class="yt-short-volume">${volumeColumns}</div>
+      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span><span class="yt-short-total-key"><i></i>${copy.total}</span></div>${method}${details}</section>`;
+  }
+
+  if (variant === 'line') {
+    const points = bars.map((bar, index) => {
+      const x = (index + .5) / bars.length * 1000;
+      const y = 176 - bar.knownDurationWatchSeconds / maxKnown * 150;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.line}</span></div>
+      <div class="yt-short-line-chart"><div class="yt-short-stack" role="img" aria-label="${t.shortFormAria}">${stackColumns}</div>
+        <svg viewBox="0 0 1000 180" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points}"></polyline></svg>
+        <div class="yt-short-line-axis"><span>${hours(maxKnown)}</span><span>0h</span></div></div>
+      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span><span class="yt-short-line-key"><i></i>${copy.total}</span></div>${method}${details}</section>`;
   }
 
   const columns = bars.map((bar) => {
@@ -447,9 +501,18 @@ const dashboardStyles = `
   .yt-short-method{border-top:1px solid var(--line);color:var(--muted);display:flex;font-size:10px;justify-content:space-between;margin-top:14px;padding-top:10px}
 
   .yt-short-stack{align-items:stretch;display:flex;gap:2px;height:180px}
+  .yt-short-stack-compact{height:112px}
   .yt-short-stack-col{background:var(--raised);border-radius:3px 3px 0 0;display:flex;flex:1 1 4px;justify-content:stretch;min-width:2px;overflow:hidden;position:relative}
   .yt-short-stack-col i{align-self:end;background:var(--accent);display:block;min-height:1px;width:100%}
   .yt-short-stack-legend{display:flex;gap:20px;justify-content:center;margin-top:12px}.yt-short-stack-legend span{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px}.yt-short-stack-legend i{background:var(--accent);border-radius:2px;height:10px;width:10px}.yt-short-stack-legend span+span i{background:var(--raised);border:1px solid var(--line-strong)}
+  .yt-short-stack-legend .yt-short-total-key i{background:var(--ink-2);border:0}.yt-short-stack-legend .yt-short-line-key i{background:transparent;border:0;border-top:2px solid var(--ink);border-radius:0;height:0;width:14px}
+
+  .yt-short-absolute{align-items:end;background:linear-gradient(to bottom,var(--line) 1px,transparent 1px);display:flex;gap:2px;height:190px}.yt-short-absolute-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-absolute-col>span{background:var(--raised);border-radius:3px 3px 0 0;display:flex;overflow:hidden;width:100%}.yt-short-absolute-col i{align-self:end;background:var(--accent);display:block;width:100%}.yt-short-absolute-axis{color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin-bottom:4px}
+
+  .yt-short-dual-label{align-items:center;color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin:12px 0 5px}.yt-short-dual-label strong{color:var(--ink-2);font-size:10px;font-weight:650;text-transform:uppercase}
+  .yt-short-volume{align-items:end;display:flex;gap:2px;height:64px}.yt-short-volume-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-volume-col i{background:var(--ink-2);border-radius:2px 2px 0 0;display:block;opacity:.72;width:100%}
+
+  .yt-short-line-chart{height:180px;position:relative}.yt-short-line-chart .yt-short-stack{height:180px}.yt-short-line-chart svg{height:100%;inset:0;overflow:visible;pointer-events:none;position:absolute;width:100%}.yt-short-line-chart polyline{fill:none;stroke:var(--ink);stroke-linecap:round;stroke-linejoin:round;stroke-width:2;vector-effect:non-scaling-stroke}.yt-short-line-axis{color:var(--ink);display:flex;flex-direction:column;font-size:9px;font-weight:650;inset:4px 4px 4px auto;justify-content:space-between;position:absolute;text-shadow:0 1px 2px var(--surface)}
 
   .yt-short-compare-summary{align-items:baseline;display:flex;gap:10px;margin:-4px 0 18px}.yt-short-compare-summary>strong{color:var(--accent-text);font-size:34px;letter-spacing:-.04em}.yt-short-compare-summary small{font-size:14px;margin-left:2px}.yt-short-compare-summary>span{color:var(--muted);font-size:11px}
   .yt-short-compare{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.yt-short-compare-card{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px}
