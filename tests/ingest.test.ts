@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { zipSync, strToU8 } from 'fflate';
+import { config } from '../src/config.js';
 import { createIngestApp } from '../src/ingest.js';
 import { UserRegistry } from '../src/users.js';
 
@@ -304,5 +308,44 @@ test('per-user capture tokens isolate data and admin token maps to the owner', a
     assert.equal(fresh.status, 200);
   } finally {
     registry.close();
+  }
+});
+
+test('ingest enforces per-user request and database-size limits', async () => {
+  const requestRegistry = new UserRegistry(':memory:');
+  const requestApp = createIngestApp(requestRegistry);
+  const previousRequests = config.ingestRequestsPerMinute;
+  const headers = { authorization: `Bearer ${CAPTURE_TOKEN}`, 'content-type': 'application/json' };
+  try {
+    config.ingestRequestsPerMinute = 1;
+    assert.equal((await requestApp.request('/api/ingest/youtube/capture', {
+      method: 'POST', headers, body: capturePayload(),
+    })).status, 201);
+    assert.equal((await requestApp.request('/api/ingest/youtube/capture', {
+      method: 'POST', headers,
+      body: capturePayload({ sessionId: '22345678-1234-4123-8123-123456789abc' }),
+    })).status, 429);
+  } finally {
+    config.ingestRequestsPerMinute = previousRequests;
+    requestRegistry.close();
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), 'urtube-ingest-quota-'));
+  const storageRegistry = new UserRegistry(join(dir, 'users.sqlite'));
+  const previousBytes = config.maxUserDatabaseBytes;
+  try {
+    const user = storageRegistry.createUser('storage-user', 'Storage User');
+    storageRegistry.repositoryFor(user).youtubeCounts();
+    config.maxUserDatabaseBytes = 1;
+    const response = await createIngestApp(storageRegistry).request('/api/ingest/youtube/capture', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${user.captureToken}`, 'content-type': 'application/json' },
+      body: capturePayload(),
+    });
+    assert.equal(response.status, 507);
+  } finally {
+    config.maxUserDatabaseBytes = previousBytes;
+    storageRegistry.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { zipSync, strToU8 } from 'fflate';
-import { Repository } from '../src/data/database.js';
+import { buildChannelRace, Repository } from '../src/data/database.js';
 import {
   classifyYoutubeVideosWithClient,
   ensureYoutubeTaxonomyWithClient,
@@ -228,9 +228,82 @@ test('YouTube imports are idempotent, aggregate-only, and preserve duration sema
     assert.equal(dashboard.topChannels[0].name, 'Channel One');
     assert.equal(dashboard.topChannels[0].thumbnailUrl, 'https://yt3.ggpht.com/channel-one');
     assert.ok(dashboard.topChannels.every((channel) => channel.name !== 'Unknown channel'));
-    assert.equal(dashboard.channelTrend.at(-1)?.channels[0].name, 'Channel One');
+    const lastFrame = dashboard.channelRace.frames.at(-1);
+    assert.ok(lastFrame);
+    assert.equal(dashboard.channelRace.channels[lastFrame.entries[0][0]].name, 'Channel One');
     assert.equal(dashboard.recent.length, 2);
     assert.ok(dashboard.keywords.some((keyword) => keyword.term === 'typescript'));
+  } finally {
+    repository.close();
+  }
+});
+
+test('Channel race decays by the half-life, densifies quiet weeks, and prunes faded channels', () => {
+  const row = (week: string, name: string, seconds: number) => ({
+    week, channelId: name.toLowerCase(), name, thumbnailUrl: '', estimatedWatchSeconds: seconds,
+  });
+  const race = buildChannelRace([
+    row('2026-01-05', 'Alpha', 3600),
+    row('2026-01-12', 'Beta', 3600),
+  ], 7);
+  assert.equal(race.channels[0].name, 'Alpha');
+  assert.equal(race.channels[1].name, 'Beta');
+  assert.deepEqual(race.frames.map((frame) => frame.period), ['2026-01-05', '2026-01-12']);
+  // Eventual contenders are visible at zero before their first scored frame,
+  // so early race frames do not collapse to only the channels active then.
+  assert.deepEqual(race.frames[0].entries, [[0, 3600], [1, 0]]);
+  // One week at a 7-day half-life halves Alpha; fresh Beta overtakes it.
+  assert.deepEqual(race.frames[1].entries, [[1, 3600], [0, 1800]]);
+
+  const sparse = buildChannelRace([
+    row('2026-01-05', 'Alpha', 3600),
+    row('2026-03-02', 'Beta', 3600),
+  ], 7);
+  // Quiet weeks still produce frames while Alpha fades; once it decays below
+  // the 60s floor the empty weeks drop out, then Beta re-opens the race.
+  assert.deepEqual(sparse.frames.map((frame) => frame.period), [
+    '2026-01-05', '2026-01-12', '2026-01-19', '2026-01-26',
+    '2026-02-02', '2026-02-09', '2026-03-02',
+  ]);
+  assert.deepEqual(sparse.frames[4].entries, [[0, 225], [1, 0]]);
+  assert.deepEqual(sparse.frames.at(-1)?.entries, [[1, 3600]]);
+});
+
+test('dashboard ranks individual videos and tracks short-form time using known durations', () => {
+  const repository = new Repository(':memory:');
+  const now = new Date('2026-07-29T12:00:00Z');
+  const capture = (
+    sessionId: string,
+    videoId: string,
+    title: string,
+    watchedAt: string,
+    actualWatchedSeconds: number,
+    durationSeconds: number,
+  ) => repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+    sessionId, videoId, title,
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    channelTitle: 'Fixture Channel', watchedAt, actualWatchedSeconds, durationSeconds,
+  }, now));
+  try {
+    capture('short-session-0001', 'SHORTFORM01', 'Short fixture', '2026-07-28T12:00:00Z', 60, 90);
+    capture('short-session-0002', 'SHORTFORM01', 'Short fixture', '2026-07-29T10:00:00Z', 30, 90);
+    capture('long-session-00001', 'LONGFORM001', 'Long fixture', '2026-07-29T11:00:00Z', 120, 600);
+
+    const dashboard = repository.youtubeDashboard('all', now);
+    const short = dashboard.topVideos.find((video) => video.videoId === 'SHORTFORM01');
+    const long = dashboard.topVideos.find((video) => video.videoId === 'LONGFORM001');
+    assert.deepEqual(
+      { watches: short?.watches, seconds: short?.estimatedWatchSeconds },
+      { watches: 2, seconds: 90 },
+    );
+    assert.deepEqual(
+      { watches: long?.watches, seconds: long?.estimatedWatchSeconds },
+      { watches: 1, seconds: 120 },
+    );
+    assert.deepEqual(dashboard.shortFormDaily, [
+      { day: '2026-07-28', shortWatchSeconds: 60, knownDurationWatchSeconds: 60 },
+      { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
+    ]);
   } finally {
     repository.close();
   }

@@ -94,80 +94,184 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
   </section>`;
 }
 
+interface ShortFormBar {
+  key: string;
+  label: string;
+  shortWatchSeconds: number;
+  knownDurationWatchSeconds: number;
+}
+
+function shortFormBars(data: YoutubeDashboardData, t: Messages): {
+  bars: ShortFormBar[];
+  unit: 'day' | 'month';
+} {
+  const rhythm = rhythmBars(data.daily, t);
+  const bars = rhythm.bars.map((bar) => ({
+    key: bar.key,
+    label: bar.label,
+    shortWatchSeconds: 0,
+    knownDurationWatchSeconds: 0,
+  }));
+  const byKey = new Map(bars.map((bar) => [bar.key, bar]));
+  for (const entry of data.shortFormDaily) {
+    const bar = byKey.get(rhythm.unit === 'month' ? entry.day.slice(0, 7) : entry.day);
+    if (!bar) continue;
+    bar.shortWatchSeconds += entry.shortWatchSeconds;
+    bar.knownDurationWatchSeconds += entry.knownDurationWatchSeconds;
+  }
+  return { bars, unit: rhythm.unit };
+}
+
+function shortFormSection(data: YoutubeDashboardData, t: Messages): string {
+  const { bars, unit } = shortFormBars(data, t);
+  if (!bars.length) return '';
+  const midpoint = bars.length > 1 ? Math.floor(bars.length / 2) : 0;
+  const shareFor = (slice: ShortFormBar[]) => {
+    const short = slice.reduce((sum, bar) => sum + bar.shortWatchSeconds, 0);
+    const known = slice.reduce((sum, bar) => sum + bar.knownDurationWatchSeconds, 0);
+    return known ? short / known * 100 : 0;
+  };
+  const recentShare = shareFor(midpoint ? bars.slice(midpoint) : bars);
+  const previousShare = midpoint ? shareFor(bars.slice(0, midpoint)) : recentShare;
+  const known = bars.reduce((sum, bar) => sum + bar.knownDurationWatchSeconds, 0);
+  if (!known) return '';
+  const total = data.daily.reduce((sum, day) => sum + day.estimatedWatchSeconds, 0);
+  const coverage = total ? known / total * 100 : 0;
+  const columns = bars.map((bar) => {
+    const share = bar.knownDurationWatchSeconds
+      ? bar.shortWatchSeconds / bar.knownDurationWatchSeconds * 100
+      : 0;
+    const tip = `${Math.round(share)}% · ${hours(bar.shortWatchSeconds)} / ${hours(bar.knownDurationWatchSeconds)}`;
+    return `<div class="yt-short-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${share.toFixed(1)}%"></i></div>`;
+  }).join('');
+  const tableRows = bars.filter((bar) => bar.knownDurationWatchSeconds > 0).map((bar) => {
+    const share = bar.shortWatchSeconds / bar.knownDurationWatchSeconds * 100;
+    return `<tr><td>${html(bar.label)}</td><td>${Math.round(share)}%</td><td>${hours(bar.shortWatchSeconds)}</td><td>${hours(bar.knownDurationWatchSeconds)}</td></tr>`;
+  }).join('');
+  return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2>
+    <span>${t.shortFormSub(Math.round(recentShare), Math.round(recentShare - previousShare), Math.round(coverage))}</span></div>
+    <div class="yt-short-chart" role="img" aria-label="${t.shortFormAria}">${columns}</div>
+    <div class="yt-short-legend"><span>100%</span><strong>${t.shortFormMethod}</strong><span>0%</span></div>
+    <details class="viz-table"><summary>${t.tableView}</summary><table>
+      <thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${t.colShare}</th><th>${t.colShortTime}</th><th>${t.colKnownTime}</th></tr></thead>
+      <tbody>${tableRows}</tbody></table></details>
+  </section>`;
+}
+
+// Row pitch of the race: 32px row + 9px gap. Rows are absolutely positioned
+// and moved with translateY so rank changes slide instead of snapping.
+const RACE_ROW_PITCH = 41;
+
 function channelChase(data: YoutubeDashboardData, t: Messages): string {
-  if (!data.channelTrend.length) return '';
-  const frames = JSON.stringify(data.channelTrend).replace(/</g, '\\u003c');
-  const latest = data.channelTrend.at(-1)!;
-  const max = Math.max(1, ...latest.channels.map((channel) => channel.estimatedWatchSeconds));
-  const rows = latest.channels.map((channel) => `<div class="yt-chase-row">
+  const race = data.channelRace;
+  if (!race.frames.length) return '';
+  const payload = JSON.stringify({ channels: race.channels, frames: race.frames })
+    .replace(/</g, '\\u003c');
+  const latest = race.frames.at(-1)!;
+  const maxRows = Math.max(...race.frames.map((frame) => frame.entries.length));
+  const trackHeight = maxRows * RACE_ROW_PITCH - 9;
+  const max = Math.max(1, latest.entries[0]?.[1] ?? 1);
+  const initialRows = latest.entries.map(([index, score], rank) => {
+    const channel = race.channels[index];
+    return `<div class="yt-chase-row" data-chase-index="${index}" style="transform:translateY(${rank * RACE_ROW_PITCH}px)">
     ${channelAvatar(channel)}
     <div class="yt-chase-copy"><div class="yt-chase-label"><strong>${html(channel.name)}</strong></div>
-      <div class="yt-chase-track"><i style="--share:${Math.round(channel.estimatedWatchSeconds / max * 100)}%"></i></div></div>
-    <span class="yt-chase-value">${hours(channel.estimatedWatchSeconds)}</span>
-  </div>`).join('');
-  return `<section class="section"><div class="section-head"><h2>${t.momentum}</h2><span>${t.momentumSub}</span></div>
+      <div class="yt-chase-track"><i style="--share:${Math.round(score / max * 100)}%"></i></div></div>
+    <span class="yt-chase-value">${hours(score)}</span>
+  </div>`;
+  }).join('');
+  return `<section class="section"><div class="section-head"><h2>${t.momentum}</h2><span>${t.momentumSub(race.halfLifeDays)}</span></div>
     <div class="yt-chase">
       <div class="yt-chase-controls">
         <button type="button" data-chase-play data-label-play="${t.playHistory}" data-label-pause="${t.pauseHistory}" aria-label="${t.playHistory}" title="${t.playHistory}">▶</button>
         <strong class="yt-chase-period" data-chase-period>${html(latest.period)}</strong>
-        <input type="range" min="0" max="${data.channelTrend.length - 1}" value="${data.channelTrend.length - 1}" aria-label="${t.momentum}" data-chase-range>
+        <input type="range" min="0" max="${race.frames.length - 1}" value="${race.frames.length - 1}" aria-label="${t.momentum}" data-chase-range>
       </div>
-      <div class="yt-chase-rows" data-chase-rows>${rows}</div>
+      <div class="yt-chase-rows" data-chase-rows style="height:${trackHeight}px">${initialRows}</div>
     </div>
-    <script type="application/json" data-chase-data>${frames}</script>
+    <script type="application/json" data-chase-data>${payload}</script>
     <script>
       (() => {
         const root = document.currentScript?.closest('section');
         if (!root) return;
-        const frames = JSON.parse(root.querySelector('[data-chase-data]').textContent || '[]');
+        const race = JSON.parse(root.querySelector('[data-chase-data]').textContent || '{}');
+        const frames = race.frames || [];
         const rows = root.querySelector('[data-chase-rows]');
         const range = root.querySelector('[data-chase-range]');
         const period = root.querySelector('[data-chase-period]');
         const play = root.querySelector('[data-chase-play]');
+        const pitch = ${RACE_ROW_PITCH};
+        const hiddenY = ${trackHeight + RACE_ROW_PITCH};
+        const stepMs = Math.max(120, Math.min(650, Math.round(15000 / frames.length)));
         let timer = null;
         const formatHours = (seconds) => (Math.round(seconds / 360) / 10) + 'h';
-        const avatar = (channel) => {
+        const rowCache = new Map();
+        rows.querySelectorAll('[data-chase-index]').forEach((row) => {
+          rowCache.set(Number(row.dataset.chaseIndex), {
+            row,
+            bar: row.querySelector('.yt-chase-track i'),
+            value: row.querySelector('.yt-chase-value'),
+          });
+        });
+        const makeRow = (index) => {
+          const channel = race.channels[index];
+          const row = document.createElement('div');
+          row.className = 'yt-chase-row';
           if (channel.thumbnailUrl) {
             const image = document.createElement('img');
             image.src = channel.thumbnailUrl;
             image.alt = '';
-            return image;
+            row.append(image);
+          } else {
+            const fallback = document.createElement('span');
+            fallback.className = 'yt-channel-avatar';
+            fallback.setAttribute('aria-hidden', 'true');
+            fallback.textContent = Array.from(channel.name)[0] || '?';
+            row.append(fallback);
           }
-          const fallback = document.createElement('span');
-          fallback.className = 'yt-channel-avatar';
-          fallback.setAttribute('aria-hidden', 'true');
-          fallback.textContent = Array.from(channel.name)[0] || '?';
-          return fallback;
+          const copy = document.createElement('div');
+          copy.className = 'yt-chase-copy';
+          const label = document.createElement('div');
+          label.className = 'yt-chase-label';
+          const name = document.createElement('strong');
+          name.textContent = channel.name;
+          label.append(name);
+          const track = document.createElement('div');
+          track.className = 'yt-chase-track';
+          const bar = document.createElement('i');
+          track.append(bar);
+          copy.append(label, track);
+          const value = document.createElement('span');
+          value.className = 'yt-chase-value';
+          row.append(copy, value);
+          row.style.transform = 'translateY(' + hiddenY + 'px)';
+          row.style.opacity = '0';
+          rows.append(row);
+          void row.offsetHeight; // commit the off-screen start so entering rows slide in
+          const cached = { row, bar, value };
+          rowCache.set(index, cached);
+          return cached;
         };
-        const render = (index) => {
-          const frame = frames[index];
+        const render = (frameIndex) => {
+          const frame = frames[frameIndex];
           if (!frame) return;
-          const max = Math.max(1, ...frame.channels.map((channel) => channel.estimatedWatchSeconds));
-          rows.replaceChildren(...frame.channels.map((channel) => {
-            const row = document.createElement('div');
-            row.className = 'yt-chase-row';
-            row.append(avatar(channel));
-            const copy = document.createElement('div');
-            copy.className = 'yt-chase-copy';
-            const label = document.createElement('div');
-            label.className = 'yt-chase-label';
-            const name = document.createElement('strong');
-            name.textContent = channel.name;
-            label.append(name);
-            const track = document.createElement('div');
-            track.className = 'yt-chase-track';
-            const bar = document.createElement('i');
-            bar.style.setProperty('--share', Math.round(channel.estimatedWatchSeconds / max * 100) + '%');
-            track.append(bar);
-            copy.append(label, track);
-            const value = document.createElement('span');
-            value.className = 'yt-chase-value';
-            value.textContent = formatHours(channel.estimatedWatchSeconds);
-            row.append(copy, value);
-            return row;
-          }));
+          const max = Math.max(1, frame.entries[0] ? frame.entries[0][1] : 1);
+          const seen = new Set();
+          frame.entries.forEach((pair, rank) => {
+            const cached = rowCache.get(pair[0]) || makeRow(pair[0]);
+            seen.add(pair[0]);
+            cached.row.style.transform = 'translateY(' + (rank * pitch) + 'px)';
+            cached.row.style.opacity = '1';
+            cached.bar.style.setProperty('--share', Math.round(pair[1] / max * 100) + '%');
+            cached.value.textContent = formatHours(pair[1]);
+          });
+          for (const [index, cached] of rowCache) {
+            if (seen.has(index)) continue;
+            cached.row.style.opacity = '0';
+            cached.row.style.transform = 'translateY(' + hiddenY + 'px)';
+          }
           period.textContent = frame.period;
-          range.value = String(index);
+          range.value = String(frameIndex);
         };
         const stop = () => {
           if (timer !== null) window.clearInterval(timer);
@@ -176,6 +280,7 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
           play.setAttribute('aria-label', play.dataset.labelPlay);
           play.title = play.dataset.labelPlay;
         };
+        render(frames.length - 1);
         range.addEventListener('input', () => {
           stop();
           render(Number(range.value));
@@ -190,7 +295,7 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
             const next = Number(range.value) + 1;
             if (next >= frames.length) return stop();
             render(next);
-          }, 650);
+          }, stepMs);
         });
       })();
     </script>
@@ -243,13 +348,28 @@ const dashboardStyles = `
   .yt-mix-track{background:var(--raised);border-radius:999px;height:8px}
   .yt-mix-track i{border-radius:999px 4px 4px 999px;display:block;height:100%;min-width:2px}
 
+  .yt-top-videos{display:grid;gap:8px 18px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .yt-top-video{align-items:center;border-radius:10px;color:inherit;display:grid;gap:10px;grid-template-columns:18px 80px minmax(0,1fr) 72px;padding:6px 8px 6px 2px;text-decoration:none}
+  .yt-top-video:hover{background:var(--raised)}
+  .yt-top-video-media{aspect-ratio:16/9;background:var(--raised);border-radius:7px;display:block;overflow:hidden;position:relative}
+  .yt-top-video-media img,.yt-top-video-placeholder{display:block;height:100%;object-fit:cover;width:100%}
+  .yt-top-video-media .yt-video-length{bottom:3px;right:3px}
+  .yt-top-video-main{min-width:0}.yt-top-video-main strong{display:block;font-size:12px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yt-top-video-main span{color:var(--muted);display:block;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yt-top-video-nums{text-align:right}.yt-top-video-nums strong{display:block;font-size:12px;font-variant-numeric:tabular-nums}.yt-top-video-nums span{color:var(--muted);font-size:10px;white-space:nowrap}
+
+  .yt-short-chart{align-items:end;background:linear-gradient(to bottom,var(--line) 1px,transparent 1px,transparent 50%,var(--line) 50%,transparent calc(50% + 1px));display:flex;height:150px}
+  .yt-short-col{align-items:end;display:flex;flex:1 0 3px;height:100%;justify-content:center;min-width:0;padding:0 1px}
+  .yt-short-col i{background:var(--accent);border-radius:3px 3px 0 0;display:block;max-width:22px;min-height:1px;width:100%}
+  .yt-short-legend{color:var(--muted);display:flex;font-size:10px;justify-content:space-between;margin-top:6px}.yt-short-legend strong{font-weight:500}
+
   .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px 92px minmax(0,1fr);margin-bottom:18px}
   .yt-chase-controls button{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:50%;color:var(--ink);cursor:pointer;display:flex;font-size:11px;height:34px;justify-content:center;padding:0;width:34px}
   .yt-chase-controls button:hover{border-color:var(--muted)}
   .yt-chase-controls input{accent-color:var(--accent);width:100%}
   .yt-chase-period{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .yt-chase-rows{display:grid;gap:9px;min-height:280px}
-  .yt-chase-row{align-items:center;display:grid;gap:10px;grid-template-columns:32px minmax(0,1fr) 62px}
+  .yt-chase-rows{overflow:hidden;position:relative}
+  .yt-chase-row{align-items:center;display:grid;gap:10px;grid-template-columns:32px minmax(0,1fr) 62px;left:0;position:absolute;right:0;top:0;transition:opacity .45s ease,transform .45s ease}
   .yt-chase-row img,.yt-chase-row .yt-channel-avatar{flex-basis:32px;height:32px;width:32px}
   .yt-chase-copy{min-width:0}
   .yt-chase-label{display:flex;font-size:12px;justify-content:space-between;margin-bottom:4px}
@@ -279,7 +399,7 @@ const dashboardStyles = `
   .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0}
   .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
-  @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy{grid-template-columns:1fr}}
+  @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy,.yt-top-videos{grid-template-columns:1fr}}
   @media(max-width:560px){.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
 `;
 
@@ -301,6 +421,8 @@ export interface YoutubeDashboardOptions {
   // Extra HTML (e.g. onboarding instructions) rendered above the dashboard.
   setupHtml?: string;
   lang?: Lang;
+  // Individual watch rows are private detail, not aggregate dashboard data.
+  showRecent?: boolean;
 }
 
 export function youtubeDashboardPage(
@@ -357,6 +479,18 @@ export function youtubeDashboardPage(
         <div class="yt-channel-nums"><strong>${hours(channel.estimatedWatchSeconds)}</strong><span>${t.plays(channel.watches)}</span></div>
       </div>`;
     }).join('')}</div></section>`;
+  const videos = [...data.topVideos].sort((a, b) =>
+    sort === 'duration'
+      ? b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches
+      : b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds
+  ).slice(0, 12);
+  const topVideos = videos.length ? `<section class="section"><div class="section-head"><h2>${t.topVideos}</h2><span class="yt-sort"><a href="${basePath}?range=${data.range}&sort=watches"${sort === 'watches' ? ' aria-current="page"' : ''}>${t.sortPlays}</a> · <a href="${basePath}?range=${data.range}&sort=duration"${sort === 'duration' ? ' aria-current="page"' : ''}>${t.sortTime}</a></span></div>
+    <div class="yt-top-videos">${videos.map((video, index) => `<a class="yt-top-video" href="${html(video.url)}">
+      <span class="yt-channel-rank">${index + 1}</span>
+      <span class="yt-top-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-top-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span>
+      <span class="yt-top-video-main"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
+      <span class="yt-top-video-nums"><strong>${hours(video.estimatedWatchSeconds)}</strong><span>${t.plays(video.watches)}</span></span>
+    </a>`).join('')}</div></section>` : '';
   const bucketOrder = ['< 1 min', '1-5 min', '5-20 min', '20-60 min', '60+ min', 'Unknown'];
   const orderedBuckets = [...data.lengthBuckets]
     .sort((a, b) => bucketOrder.indexOf(a.label) - bucketOrder.indexOf(b.label));
@@ -377,7 +511,7 @@ export function youtubeDashboardPage(
       const query = encodeURIComponent(keyword.term);
       return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(keyword.term)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
     }).join('')}</div></div></div>`;
-  const recent = `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${data.recent.map((video) =>
+  const recent = options.showRecent === false ? '' : `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${data.recent.map((video) =>
     `<a class="yt-video" href="${html(video.url)}"><span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p><p class="yt-video-when">${timeAgo(video.watchedAt, lang)}</p></a>`
   ).join('')}</div></section>`;
   // The range and sort ride along in the title and h1 so every ?range/?sort
@@ -391,5 +525,6 @@ export function youtubeDashboardPage(
   return shell(`${ownerName} · YouTube · ${scope}`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
     + rhythmSection(data, t)
     + `<div class="yt-columns">${channelList}${distribution}</div>`
+    + topVideos + shortFormSection(data, t)
     + channelChase(data, t) + taxonomy + recent, options.nav ?? [], '', lang, basePath);
 }

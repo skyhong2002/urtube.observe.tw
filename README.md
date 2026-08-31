@@ -28,8 +28,10 @@ npm run ingest         # ingest API (separate process, same DB)
 npm run worker         # hourly metadata/topics/portability worker
 ```
 
-Production: `docker compose up -d --build` (binds 127.0.0.1:18080/18081;
-front with Caddy — see CUTOVER_RUNBOOK.md).
+Production: `docker compose up -d --build` starts app, ingest, worker, and
+daily multi-user backup services (binds 127.0.0.1:18080/18081; front with
+Caddy — see CUTOVER_RUNBOOK.md). Probe `/healthz` for liveness and `/readyz`
+for worker/backup/config/all-user readiness.
 
 ## Users
 
@@ -67,6 +69,7 @@ with your capture token (kept for old Takeout exports). Owner CLI:
 
 ```sh
 npm run youtube:import -- /path/to/takeout.zip     # owner CLI import
-npm run db:backup                                  # consistent online backup
+npm run db:backup -- /path/to/backup-bundle       # all users, hashes + manifest
+npm run db:restore -- /path/to/bundle /path/to/data  # while services are stopped
 npm run db:migrate-from-infovore -- <backup> <target>  # YouTube-only migration
 ```

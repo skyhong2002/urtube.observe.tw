@@ -141,11 +141,41 @@ export interface YoutubeChannelSummary {
   estimatedWatchSeconds: number;
 }
 
-export type YoutubeChannelTrendEntry = YoutubeChannelSummary;
+export interface YoutubeVideoSummary {
+  videoId: string | null;
+  title: string;
+  url: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  durationSeconds: number | null;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
 
-export interface YoutubeChannelTrendFrame {
+export interface YoutubeShortFormDailySummary {
+  day: string;
+  shortWatchSeconds: number;
+  knownDurationWatchSeconds: number;
+}
+
+export interface YoutubeChannelRaceChannel {
+  channelId: string | null;
+  name: string;
+  thumbnailUrl: string;
+}
+
+// One race frame per calendar week; entries are [channel index, decayed
+// estimated seconds] pairs sorted by score so the payload stays compact when
+// the full history is inlined into the dashboard HTML.
+export interface YoutubeChannelRaceFrame {
   period: string;
-  channels: YoutubeChannelTrendEntry[];
+  entries: Array<[number, number]>;
+}
+
+export interface YoutubeChannelRace {
+  halfLifeDays: number;
+  channels: YoutubeChannelRaceChannel[];
+  frames: YoutubeChannelRaceFrame[];
 }
 
 export interface YoutubeTopicSummary {
@@ -190,9 +220,11 @@ export interface YoutubeDashboardData {
     topicCoverage: number;
   };
   daily: YoutubeDailySummary[];
+  shortFormDaily: YoutubeShortFormDailySummary[];
   lengthBuckets: YoutubeLengthBucket[];
   topChannels: YoutubeChannelSummary[];
-  channelTrend: YoutubeChannelTrendFrame[];
+  topVideos: YoutubeVideoSummary[];
+  channelRace: YoutubeChannelRace;
   topics: YoutubeTopicSummary[];
   keywords: YoutubeKeyword[];
   recent: YoutubeRecentVideo[];

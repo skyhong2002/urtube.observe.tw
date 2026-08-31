@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { config } from '../src/config.js';
 import { createApp } from '../src/index.js';
 import { createIngestApp } from '../src/ingest.js';
+import { writeOpsStatus } from '../src/ops-status.js';
 import { UserRegistry } from '../src/users.js';
 
 // Form posts as the browser would send them after the Google step: the
@@ -315,6 +320,57 @@ test('signups are rate-limited per IP', async () => {
     assert.ok(limited >= 3, `expected later signups to be limited, got ${limited}`);
   } finally {
     registry.close();
+  }
+});
+
+test('new signups stop at the configured instance capacity', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  const previous = config.maxUsers;
+  try {
+    registry.ensureDefaultUser();
+    config.maxUsers = 1;
+    const pending = registry.createPendingSignup('capacity-sub', 'full@gmail.com');
+    const response = await app.request('/signup', signupBody(
+      pending,
+      { handle: 'one-too-many', displayName: 'Full' },
+      '10.8.8.8',
+    ));
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /account capacity/);
+    assert.equal(registry.userByHandle('one-too-many'), null);
+  } finally {
+    config.maxUsers = previous;
+    registry.close();
+  }
+});
+
+test('readyz requires fresh successful worker and backup cycles', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  const dir = mkdtempSync(join(tmpdir(), 'urtube-ready-'));
+  const previousDirectory = config.opsStatusDirectory;
+  const previousSignup = config.signupEnabled;
+  try {
+    registry.ensureDefaultUser();
+    config.opsStatusDirectory = dir;
+    config.signupEnabled = false;
+    assert.equal((await app.request('/readyz')).status, 503);
+
+    const now = new Date().toISOString();
+    writeOpsStatus('worker', { lastCompletedAt: now, failedUsers: 0, lastError: '' });
+    writeOpsStatus('backup', { lastCompletedAt: now, lastError: '' });
+    const ready = await app.request('/readyz');
+    assert.equal(ready.status, 200);
+    assert.equal((await ready.json() as Record<string, unknown>).status, 'ready');
+
+    writeOpsStatus('worker', { lastCompletedAt: now, failedUsers: 1, lastError: '' });
+    assert.equal((await app.request('/readyz')).status, 503);
+  } finally {
+    config.opsStatusDirectory = previousDirectory;
+    config.signupEnabled = previousSignup;
+    registry.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

@@ -6,8 +6,8 @@ import { taipeiDay } from '../youtube/history-sync.js';
 import type { Activity, SourceSnapshot } from './types.js';
 import type {
   YoutubeChannelMetadata,
+  YoutubeChannelRace,
   YoutubeChannelSummary,
-  YoutubeChannelTrendFrame,
   YoutubeDashboardData,
   YoutubeHistoryStatus,
   YoutubeCapturedWatch,
@@ -104,6 +104,117 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
 const YOUTUBE_ESTIMATED_EVENTS_VIEW = `
       WITH estimated_events AS (SELECT * FROM temp.youtube_estimated_events)
     `;
+
+export interface ChannelRaceWeekRow {
+  week: string;
+  channelId: string | null;
+  name: string;
+  thumbnailUrl: string;
+  estimatedWatchSeconds: number;
+}
+
+export const CHANNEL_RACE_HALF_LIFE_DAYS = 90;
+const CHANNEL_RACE_TOP = 8;
+const CHANNEL_RACE_MIN_SECONDS = 60;
+
+// Full-history race frames: each calendar week every channel's score first
+// decays by the half-life, then that week's watch seconds are added. Ranks
+// therefore track recent heat instead of freezing on all-time totals, and
+// quiet weeks (densified here, so playback speed matches real time) let a
+// channel fade out on its own. Rows must be grouped by (week, channel) and
+// ordered by week, with weeks aligned to the same weekday.
+export function buildChannelRace(
+  rows: ChannelRaceWeekRow[],
+  halfLifeDays = CHANNEL_RACE_HALF_LIFE_DAYS,
+): YoutubeChannelRace {
+  const race: YoutubeChannelRace = { halfLifeDays, channels: [], frames: [] };
+  if (!rows.length) return race;
+  const weekly = new Map<string, ChannelRaceWeekRow[]>();
+  for (const row of rows) {
+    const bucket = weekly.get(row.week);
+    if (bucket) bucket.push(row);
+    else weekly.set(row.week, [row]);
+  }
+  const decay = 0.5 ** (7 / halfLifeDays);
+  const scores = new Map<string, {
+    channelId: string | null; name: string; thumbnailUrl: string; score: number;
+  }>();
+  const indexByKey = new Map<string, number>();
+  const last = new Date(`${rows[rows.length - 1].week}T00:00:00Z`);
+  for (
+    let cursor = new Date(`${rows[0].week}T00:00:00Z`);
+    cursor <= last;
+    cursor.setUTCDate(cursor.getUTCDate() + 7)
+  ) {
+    const week = cursor.toISOString().slice(0, 10);
+    for (const entry of scores.values()) entry.score *= decay;
+    for (const row of weekly.get(week) ?? []) {
+      const key = row.channelId ?? row.name;
+      const entry = scores.get(key);
+      if (entry) {
+        entry.score += row.estimatedWatchSeconds;
+        entry.name = row.name;
+        if (row.thumbnailUrl) entry.thumbnailUrl = row.thumbnailUrl;
+      } else {
+        scores.set(key, {
+          channelId: row.channelId,
+          name: row.name,
+          thumbnailUrl: row.thumbnailUrl,
+          score: row.estimatedWatchSeconds,
+        });
+      }
+    }
+    for (const [key, entry] of scores) {
+      if (entry.score < CHANNEL_RACE_MIN_SECONDS) scores.delete(key);
+    }
+    const top = [...scores.entries()]
+      .sort((a, b) => b[1].score - a[1].score || a[1].name.localeCompare(b[1].name))
+      .slice(0, CHANNEL_RACE_TOP);
+    if (!top.length) continue;
+    race.frames.push({
+      period: week,
+      entries: top.map(([key, entry]) => {
+        let index = indexByKey.get(key);
+        if (index === undefined) {
+          index = race.channels.length;
+          indexByKey.set(key, index);
+          race.channels.push({
+            channelId: entry.channelId, name: entry.name, thumbnailUrl: entry.thumbnailUrl,
+          });
+        } else {
+          race.channels[index].name = entry.name;
+          if (entry.thumbnailUrl) race.channels[index].thumbnailUrl = entry.thumbnailUrl;
+        }
+        return [index, Math.round(entry.score)];
+      }),
+    });
+  }
+  // Keep the race field populated before every eventual contender has earned
+  // a score. Without this, the first historical frames can show only a few
+  // rows even though many channels join the race later. A future contender is
+  // present at 0h until its first top-eight frame; its score is never
+  // backfilled into the past.
+  const firstFrameByChannel = new Map<number, number>();
+  race.frames.forEach((frame, frameIndex) => {
+    for (const [channelIndex] of frame.entries) {
+      if (!firstFrameByChannel.has(channelIndex)) {
+        firstFrameByChannel.set(channelIndex, frameIndex);
+      }
+    }
+  });
+  race.frames.forEach((frame, frameIndex) => {
+    if (frame.entries.length >= CHANNEL_RACE_TOP) return;
+    const present = new Set(frame.entries.map(([channelIndex]) => channelIndex));
+    const upcoming = [...firstFrameByChannel.entries()]
+      .filter(([channelIndex, firstFrame]) => firstFrame > frameIndex && !present.has(channelIndex))
+      .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    for (const [channelIndex] of upcoming) {
+      frame.entries.push([channelIndex, 0]);
+      if (frame.entries.length >= CHANNEL_RACE_TOP) break;
+    }
+  });
+  return race;
+}
 
 export class Repository {
   private readonly db: DatabaseSync;
@@ -1063,6 +1174,22 @@ export class Repository {
       ${estimatedWhere}
       GROUP BY day ORDER BY day
     `).all(...params) as Array<Record<string, string | number>>;
+    // YouTube does not expose a definitive Shorts flag through the metadata
+    // API. Use duration <= 3 minutes as an explicit short-form proxy and keep
+    // unknown-duration time out of the denominator so missing metadata cannot
+    // silently look like long-form viewing.
+    const shortFormDaily = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT strftime('%Y-%m-%d', e.watched_at, '+8 hours') day,
+        COALESCE(SUM(CASE WHEN v.duration_seconds<=180
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) short_watch_seconds,
+        COALESCE(SUM(CASE WHEN v.duration_seconds IS NOT NULL
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) known_duration_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      ${estimatedWhere}
+      GROUP BY day ORDER BY day
+    `).all(...params) as Array<Record<string, string | number>>;
     const channelId = 'COALESCE(e.channel_id, v.channel_id)';
     const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
     const channelKey = `COALESCE(${channelId}, ${channelName})`;
@@ -1097,59 +1224,57 @@ export class Repository {
       watches: Number(row.watches),
       estimatedWatchSeconds: Number(row.estimated_watch_seconds),
     }));
-    const trendChannels = [...topChannels]
-      .sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches)
-      .slice(0, 8);
-    const trendKeys = trendChannels.map((channel) => channel.channelId ?? channel.name);
-    let channelTrend: YoutubeChannelTrendFrame[] = [];
-    if (trendKeys.length) {
-      const period = range === 'all' || range === '365d'
-        ? "strftime('%Y-%m', e.watched_at, '+8 hours')"
-        : range === '90d'
-          ? "strftime('%Y-%W', e.watched_at, '+8 hours')"
-          : "strftime('%Y-%m-%d', e.watched_at, '+8 hours')";
-      const trendRows = this.db.prepare(`
-        ${estimatedEvents}
-        SELECT ${period} period, ${channelId} channel_id, ${channelName} name,
-          COALESCE(c.thumbnail_url, '') thumbnail_url,
-          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+    const topVideoRows = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT e.video_id,
+          COALESCE(NULLIF(v.title, ''), e.raw_title) title,
+          CASE WHEN e.video_id IS NULL THEN e.raw_url
+            ELSE 'https://www.youtube.com/watch?v=' || e.video_id END url,
+          COALESCE(NULLIF(v.channel_title, ''), NULLIF(e.channel_title, ''), 'Unknown channel') channel_title,
+          COALESCE(v.thumbnail_url, '') thumbnail_url, v.duration_seconds,
+          COUNT(*) watches,
+          COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
         FROM estimated_events e
         LEFT JOIN youtube_videos v ON v.video_id=e.video_id
-        LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
         ${estimatedWhere}
-          AND ${channelKey} IN (${trendKeys.map(() => '?').join(',')})
-        GROUP BY period, ${channelKey}
-        ORDER BY period, estimated_watch_seconds DESC
-      `).all(...params, ...trendKeys) as Array<Record<string, string | number | null>>;
-      const cumulative = new Map<string, YoutubeChannelSummary>();
-      const frames = new Map<string, YoutubeChannelSummary[]>();
-      for (let index = 0; index < trendRows.length; index++) {
-        const row = trendRows[index];
-        const key = row.channel_id === null ? String(row.name) : String(row.channel_id);
-        const previous = cumulative.get(key);
-        cumulative.set(key, {
-          channelId: row.channel_id === null ? null : String(row.channel_id),
-          name: String(row.name),
-          thumbnailUrl: String(row.thumbnail_url),
-          watches: (previous?.watches ?? 0) + Number(row.watches),
-          estimatedWatchSeconds: (previous?.estimatedWatchSeconds ?? 0)
-            + Number(row.estimated_watch_seconds),
-        });
-        const periodKey = String(row.period);
-        frames.set(periodKey, []);
-        const nextPeriod = trendRows[index + 1]?.period;
-        if (nextPeriod !== row.period) {
-          frames.set(periodKey, [...cumulative.values()]
-            .sort((a, b) =>
-              b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches
-            )
-            .slice(0, 8));
-        }
-      }
-      channelTrend = [...frames.entries()]
-        .filter(([, channels]) => channels.length)
-        .map(([periodKey, channels]) => ({ period: periodKey, channels }));
-    }
+        GROUP BY COALESCE(e.video_id, e.raw_url)
+      ), ranked AS (
+        SELECT *,
+          ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, title) watch_rank,
+          ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, title) time_rank
+        FROM aggregated
+      )
+      SELECT video_id, title, url, channel_title, thumbnail_url, duration_seconds,
+        watches, estimated_watch_seconds
+      FROM ranked
+      WHERE watch_rank<=12 OR time_rank<=12
+      ORDER BY estimated_watch_seconds DESC, watches DESC, title
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    // The race always covers the full history (no range cutoff): a half-life
+    // decay only means something when the whole timeline feeds it. Weeks are
+    // keyed by their Monday so frames map to real dates.
+    const raceRows = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT date(e.watched_at, '+8 hours', '-6 days', 'weekday 1') week,
+        ${channelId} channel_id, ${channelName} name,
+        COALESCE(c.thumbnail_url, '') thumbnail_url,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
+      WHERE ${channelName} IS NOT NULL
+        AND LOWER(TRIM(${channelName}))<>'unknown channel'
+      GROUP BY week, ${channelKey}
+      ORDER BY week
+    `).all() as Array<Record<string, string | number | null>>;
+    const channelRace = buildChannelRace(raceRows.map((row) => ({
+      week: String(row.week),
+      channelId: row.channel_id === null ? null : String(row.channel_id),
+      name: String(row.name),
+      thumbnailUrl: String(row.thumbnail_url),
+      estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+    })));
     const topics = this.db.prepare(`
       ${estimatedEvents}
       SELECT t.slug, t.name, COUNT(*) watches,
@@ -1237,9 +1362,21 @@ export class Repository {
         day: String(row.day), watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
+      shortFormDaily: shortFormDaily.map((row) => ({
+        day: String(row.day),
+        shortWatchSeconds: Number(row.short_watch_seconds),
+        knownDurationWatchSeconds: Number(row.known_duration_watch_seconds),
+      })),
       lengthBuckets: lengthBuckets.map((row) => ({ label: String(row.label), videos: Number(row.videos) })),
       topChannels,
-      channelTrend,
+      topVideos: topVideoRows.map((row) => ({
+        videoId: row.video_id === null ? null : String(row.video_id),
+        title: String(row.title), url: String(row.url), channelTitle: String(row.channel_title),
+        thumbnailUrl: String(row.thumbnail_url),
+        durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+        watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      channelRace,
       topics: topics.map((row) => ({
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),

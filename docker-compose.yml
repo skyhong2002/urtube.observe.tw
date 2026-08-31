@@ -45,6 +45,23 @@ services:
       - USERS_DATABASE_PATH=/data/users.sqlite
     volumes:
       - urtube-data:/data
+  backup:
+    build: .
+    image: urtube
+    container_name: urtube-backup
+    command: ["npx", "tsx", "scripts/backup-worker.ts"]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - DATABASE_PATH=/data/urtube.sqlite
+      - USERS_DATABASE_PATH=/data/users.sqlite
+      - URTUBE_BACKUP_DIRECTORY=/backups
+    volumes:
+      - urtube-data:/data
+      - ${URTUBE_BACKUP_HOST_DIRECTORY:-./backups}:/backups
 
 volumes:
   urtube-data:

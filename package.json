@@ -12,6 +12,7 @@
     "youtube:topics:rebuild": "tsx src/youtube-topics.ts",
     "user:create": "tsx scripts/create-user.ts",
     "db:backup": "tsx scripts/backup.ts",
+    "db:restore": "tsx scripts/restore-backup.ts",
     "db:migrate-from-infovore": "tsx scripts/migrate-from-infovore.ts",
     "typecheck": "tsc --noEmit",
     "test": "NODE_ENV=test DATABASE_PATH=:memory: USERS_DATABASE_PATH=:memory: INGEST_TOKEN=test-token-with-at-least-32-characters YOUTUBE_PRIVATE_DATA_KEY=test-private-data-key-with-at-least-32-characters YOUTUBE_CAPTURE_TOKEN=test-youtube-capture-token-with-at-least-32-characters PUBLIC_BASE_URL=http://localhost:3000 node --import tsx --test tests/**/*.test.*",

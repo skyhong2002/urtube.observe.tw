@@ -5,7 +5,7 @@ import { serve } from '@hono/node-server';
 import { zipSync } from 'fflate';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { completeGoogleLogin, googleLoginUrl, suggestedHandle } from './auth.js';
+import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { config } from './config.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
@@ -16,6 +16,8 @@ import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './you
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage } from './output/youtube.js';
 import { tagLeanPage } from './output/taglean.js';
+import { readOpsStatus } from './ops-status.js';
+import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
@@ -123,6 +125,7 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 
 export function createApp(registry: UserRegistry): Hono {
   const app = new Hono();
+  app.use('*', securityHeaders(true));
 
   // Requested language: explicit ?lang= wins (and persists via cookie),
   // then the cookie, then the browser's Accept-Language.
@@ -160,9 +163,7 @@ export function createApp(registry: UserRegistry): Hono {
   // A dashboard is viewable when it is public, when the viewer is signed in
   // as its owner, or when the request carries the user's dashboard token
   // (?key=... on first visit, then a cookie).
-  function dashboardAccess(c: Context, user: User): boolean {
-    if (user.dashboardPublic) return true;
-    if (sessionUser(c)?.id === user.id) return true;
+  function dashboardKeyAccess(c: Context, user: User): boolean {
     const cookieName = `urtube_dash_${user.handle}`;
     const key = c.req.query('key') ?? getCookie(c, cookieName) ?? '';
     if (!registry.userByDashboardToken(user.handle, key)) return false;
@@ -177,6 +178,12 @@ export function createApp(registry: UserRegistry): Hono {
     return true;
   }
 
+  function dashboardAccess(c: Context, user: User): boolean {
+    if (user.dashboardPublic) return true;
+    if (sessionUser(c)?.id === user.id) return true;
+    return dashboardKeyAccess(c, user);
+  }
+
   function dashboardResponse(c: Context, user: User, basePath: string) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
@@ -186,6 +193,9 @@ export function createApp(registry: UserRegistry): Hono {
     const data = cachedDashboardFor(registry, user, range, repository, validity);
     const hasData = counts.watches > 0;
     const viewerOwns = sessionUser(c)?.id === user.id;
+    // Public visitors see only aggregates. A signed-in owner or someone with
+    // the dashboard key may also see individual recent watches.
+    const showRecent = viewerOwns || dashboardKeyAccess(c, user);
     const crystalHtml = hasData ? shiftsSection(cachedCrystalFor(registry, user, repository, validity), lang) : '';
     warmedHandles.add(user.handle);
     c.header('Cache-Control', 'no-cache');
@@ -207,6 +217,7 @@ export function createApp(registry: UserRegistry): Hono {
         langToggle(c, lang),
       ],
       setupHtml: (showSetup ? dashboardSetupSection(user, hasData, lang) : '') + crystalHtml,
+      showRecent,
     }));
   }
 
@@ -356,6 +367,9 @@ export function createApp(registry: UserRegistry): Hono {
     }
 
     if (!config.signupEnabled) return c.html(signupStartPage(t.errSignupsDisabled, lang), 403);
+    if (registry.listUsers().length >= config.maxUsers) {
+      return c.html(signupCompletePage(pageInput, t.errSignupCapacity, lang), 503);
+    }
     if (!signupAllowed(clientIp(c))) {
       return c.html(signupCompletePage(pageInput, t.errTooManySignups, lang), 429);
     }
@@ -597,12 +611,14 @@ export function createApp(registry: UserRegistry): Hono {
 
   app.get('/api/youtube/summary.json', (c) => {
     const user = registry.ensureDefaultUser();
+    if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
     const data = registry.repositoryFor(user).youtubeDashboard(requestedRange(c.req.query('range')));
     return c.json({ ...data, recent: undefined });
   });
 
   app.get('/api/youtube/recent.json', (c) => {
     const user = registry.ensureDefaultUser();
+    if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
     const data = registry.repositoryFor(user).youtubeDashboard('28d');
     return c.json({
       range: data.range,
@@ -655,6 +671,42 @@ export function createApp(registry: UserRegistry): Hono {
         error: error instanceof Error ? error.message : String(error),
       }, 503);
     }
+  });
+
+  // Production readiness is stricter than liveness: every user database must
+  // open, required signup config must exist, and both scheduled jobs must have
+  // completed recently. External monitoring should probe this endpoint.
+  app.get('/readyz', (c) => {
+    const now = Date.now();
+    const worker = readOpsStatus<{ lastCompletedAt?: string; failedUsers?: number; lastError?: string }>('worker');
+    const backup = readOpsStatus<{ lastCompletedAt?: string; lastError?: string }>('backup');
+    const fresh = (iso: string | undefined, maxAgeMs: number) =>
+      Boolean(iso && Number.isFinite(Date.parse(iso)) && now - Date.parse(iso) <= maxAgeMs);
+    let databaseFailures = 0;
+    const users = registry.listUsers();
+    for (const user of users) {
+      try {
+        registry.repositoryFor(user).youtubeCounts();
+      } catch {
+        databaseFailures++;
+      }
+    }
+    const checks = {
+      config: Boolean(config.youtube.privateDataKey && (!config.signupEnabled || googleLoginConfigured())),
+      databases: databaseFailures === 0,
+      worker: fresh(worker?.lastCompletedAt, 3 * 3600_000)
+        && !worker?.lastError && (worker?.failedUsers ?? 0) === 0,
+      backup: fresh(backup?.lastCompletedAt, (config.backup.intervalHours + 2) * 3600_000)
+        && !backup?.lastError,
+    };
+    const ready = Object.values(checks).every(Boolean);
+    return c.json({
+      status: ready ? 'ready' : 'not_ready',
+      checks,
+      users: { total: users.length, databaseFailures },
+      worker: { lastCompletedAt: worker?.lastCompletedAt ?? null, failedUsers: worker?.failedUsers ?? null },
+      backup: { lastCompletedAt: backup?.lastCompletedAt ?? null },
+    }, ready ? 200 : 503);
   });
 
   function notFoundPage(c: Context) {

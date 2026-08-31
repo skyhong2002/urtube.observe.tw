@@ -140,3 +140,56 @@ test('private dashboards need their dashboard token; users cannot see each other
     registry.close();
   }
 });
+
+test('public dashboards expose aggregates but keep individual recent watches private', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const publicUser = registry.createUser('public-view', 'Public View', { dashboardPublic: true });
+    registry.repositoryFor(publicUser).ingestYoutubeArchive(parseYoutubeArchive(fixtureZip(), SECRET));
+
+    const anonymous = await app.request('/public-view?range=all');
+    assert.equal(anonymous.status, 200);
+    const anonymousHtml = await anonymous.text();
+    assert.ok(!anonymousHtml.includes('<h2>Recently watched</h2>'));
+
+    const keyed = await app.request(`/public-view?range=all&key=${publicUser.dashboardToken}`);
+    assert.equal(keyed.status, 200);
+    const keyedHtml = await keyed.text();
+    assert.ok(keyedHtml.includes('<h2>Recently watched</h2>'));
+    assert.ok(keyedHtml.includes('<h3>Privacy Fixture Video</h3>'));
+  } finally {
+    registry.close();
+  }
+});
+
+test('legacy owner JSON APIs honor owner dashboard visibility', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const owner = registry.ensureDefaultUser();
+    registry.setDashboardPublic(owner.handle, false);
+    const ownerSession = `urtube_session=${registry.createSession(owner)}`;
+
+    assert.equal((await app.request('/api/youtube/summary.json')).status, 404);
+    assert.equal((await app.request('/api/youtube/recent.json')).status, 404);
+    assert.equal((await app.request('/api/youtube/summary.json', { headers: { cookie: ownerSession } })).status, 200);
+    assert.equal((await app.request('/api/youtube/recent.json', { headers: { cookie: ownerSession } })).status, 200);
+  } finally {
+    registry.close();
+  }
+});
+
+test('browser responses carry launch security headers', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const response = await app.request('/');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('x-frame-options'), 'DENY');
+    assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.match(response.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
+  } finally {
+    registry.close();
+  }
+});

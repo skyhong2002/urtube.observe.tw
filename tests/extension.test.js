@@ -12,7 +12,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.6.0');
+  assert.equal(manifest.version, '1.6.1');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -71,6 +71,23 @@ test('daily lifelog sync has startup catch-up, overlap, and an hourly due check'
   assert.match(background, /void maybeStartLifelogSync\(\)/);
   assert.match(background, /mode: 'incremental'/);
   assert.match(background, /active: false/);
+});
+
+test('successful provisioning clears the install-time missing-token error immediately', () => {
+  const background = readFileSync(
+    new URL('../chrome-extension/background.js', import.meta.url),
+    'utf8',
+  );
+  const popup = readFileSync(
+    new URL('../chrome-extension/popup.js', import.meta.url),
+    'utf8',
+  );
+  const settingsHandler = background.slice(
+    background.indexOf("message?.type === 'settings-updated'"),
+    background.indexOf("message?.type === 'history-import-start'"),
+  );
+  assert.match(settingsHandler, /\.then\(\(\) => flushQueue\(\)\)/);
+  assert.match(popup, /configured && status\.lastError === 'Capture token is not configured'/);
 });
 
 test('My Activity helper parses cross-device watches, searches, and local timestamps', () => {
