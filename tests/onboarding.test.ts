@@ -181,6 +181,14 @@ test('account Takeout import is progressively disclosed, session-only, and idemp
     assert.match(account, /<details class="ob-advanced">/);
     assert.match(account, /action="\/account\/takeout"/);
     assert.match(account, /takeout\.google\.com/);
+    assert.match(account, /set History to <strong>HTML<\/strong>, not JSON/);
+    assert.match(account, /does not need your music, library, or uploaded videos/);
+
+    const chineseAccount = await (await app.request('/account?lang=zh', {
+      headers: { cookie: session },
+    })).text();
+    assert.match(chineseAccount, /將歷史記錄設為 <strong>HTML<\/strong>，不要選 JSON/);
+    assert.match(chineseAccount, /不需要你的音樂、媒體庫或上傳影片/);
 
     const unauthenticated = await app.request('/account/takeout', { method: 'POST' });
     assert.equal(unauthenticated.status, 302);

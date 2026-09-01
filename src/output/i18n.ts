@@ -233,8 +233,9 @@ const en = {
   accountTakeoutTitle: 'Optional · Import Google Takeout',
   accountTakeoutPara: 'The extension is enough for everyday use. A Takeout archive adds exact historical timestamps that the date-only history backfill cannot recover, improving Rhythm and other time-based insights. Do this only when you want the extra detail.',
   accountTakeoutSteps: [
-    'Open <a href="https://takeout.google.com/" target="_blank" rel="noreferrer"><strong>Google Takeout</strong></a>, deselect everything, then select <strong>YouTube and YouTube Music</strong>. <a href="https://support.google.com/accounts/answer/3024190?hl=en" target="_blank" rel="noreferrer">Google’s official instructions</a>.',
-    'Under “All YouTube data included,” keep <strong>history</strong> only when that option is available. Choose a one-time export and <strong>.zip</strong> format.',
+    'Open <a href="https://takeout.google.com/" target="_blank" rel="noreferrer"><strong>Google Takeout</strong></a>, deselect everything, then select <strong>YouTube and YouTube Music</strong>. Google groups YouTube under this combined product name; UrTube does not need your music, library, or uploaded videos. <a href="https://support.google.com/accounts/answer/3024190?hl=en" target="_blank" rel="noreferrer">Google’s official instructions</a>.',
+    'Open “All YouTube data included” and keep <strong>history</strong> only. Then open “Multiple formats” and set History to <strong>HTML</strong>, not JSON; Google’s JSON export can sometimes omit older watch history.',
+    'Choose a one-time export and <strong>.zip</strong> format.',
     'Download the finished archive and upload the original ZIP below—do not unzip it. Importing the same archive again is safe; existing records are skipped.',
   ],
   accountTakeoutFile: 'Google Takeout ZIP',
@@ -532,8 +533,9 @@ const zh: typeof en = {
   accountTakeoutTitle: '選用 · 匯入 Google Takeout',
   accountTakeoutPara: '日常使用只裝外掛就夠了。Takeout 可以補回外掛日期回填無法取得的歷史精確時間，讓觀看節奏與其他時間洞察更可靠；只有想看更多細節時才需要做。',
   accountTakeoutSteps: [
-    '開啟 <a href="https://takeout.google.com/" target="_blank" rel="noreferrer"><strong>Google Takeout</strong></a>，先取消全選，再選擇<strong>YouTube 和 YouTube Music</strong>。也可查看 <a href="https://support.google.com/accounts/answer/3024190?hl=zh-Hant" target="_blank" rel="noreferrer">Google 官方說明</a>。',
-    '在「已包含所有 YouTube 資料」中，如果可以選擇，僅保留<strong>歷史記錄</strong>；選擇匯出一次與 <strong>.zip</strong> 格式。',
+    '開啟 <a href="https://takeout.google.com/" target="_blank" rel="noreferrer"><strong>Google Takeout</strong></a>，先取消全選，再勾選<strong>YouTube 和 YouTube Music</strong>。這是 Google 合併顯示 YouTube 資料的產品名稱；UrTube 不需要你的音樂、媒體庫或上傳影片。也可查看 <a href="https://support.google.com/accounts/answer/3024190?hl=zh-Hant" target="_blank" rel="noreferrer">Google 官方說明</a>。',
+    '開啟「已包含所有 YouTube 資料」，只保留<strong>歷史記錄</strong>；接著開啟「多種格式」，將歷史記錄設為 <strong>HTML</strong>，不要選 JSON，因為 Google 的 JSON 匯出偶爾會漏掉較舊的觀看記錄。',
+    '選擇匯出一次與 <strong>.zip</strong> 格式。',
     '匯出完成後下載檔案，直接上傳原始 ZIP，不要先解壓縮。重複上傳同一份也沒關係，既有紀錄會自動略過。',
   ],
   accountTakeoutFile: 'Google Takeout ZIP',
