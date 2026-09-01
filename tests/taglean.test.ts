@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Repository } from '../src/data/database.js';
-import { tagLeanPage } from '../src/output/taglean.js';
+import { tagLeanPage, tagLeanSection } from '../src/output/taglean.js';
 import { normalizeYoutubeCapture } from '../src/youtube/capture.js';
 import { computeTagLean, type TagLists } from '../src/youtube/taglists.js';
 import type { YoutubeChannelSummary } from '../src/youtube/types.js';
@@ -116,6 +116,10 @@ test('tagLeanPage renders shares, camps, and the table view in both languages', 
   assert.match(zh, /政治光譜/);
   assert.match(zh, /67%/); // 3600 of 5400 politically tagged seconds
   assert.match(zh, /綠媒新聞/);
+  const embedded = tagLeanSection(data, 'zh');
+  assert.match(embedded, /政治光譜/);
+  assert.match(embedded, /\.tl-groups\{display:grid;gap:20px;grid-template-columns:1fr/);
+  assert.doesNotMatch(embedded, /repeat\(auto-fit,minmax\(190px,1fr\)\)/);
   const en = tagLeanPage('Sky', data, { basePath: '/sky/tags', dashboardPath: '/sky', lang: 'en' });
   assert.match(en, /Pan-Green/);
   assert.match(en, /Political spectrum/);
