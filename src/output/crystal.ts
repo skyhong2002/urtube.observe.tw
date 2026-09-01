@@ -25,6 +25,7 @@ const crystalStyles = `
   .cx-intro{margin:14px 0 24px}
   .cx-intro h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.08;margin:7px 0 10px}
   .cx-intro p{color:var(--ink-2);margin:0;max-width:640px}
+  @media(min-width:900px){.cx-shifts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;
 
 function sharePct(value: number): string {

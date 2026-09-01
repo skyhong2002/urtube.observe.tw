@@ -319,6 +319,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(overviewPage, /data-youtube-sort="watches"/);
     assert.match(overviewPage, /data-youtube-sort-list="channels"/);
     assert.match(overviewPage, /history\.pushState/);
+    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos,\.yt-recent\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
     assert.doesNotMatch(overviewPage, /data-rhythm-panel=/);
     const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'insights',
@@ -326,10 +327,17 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(insightsPage, /data-rhythm-panel="watches"/);
     assert.match(insightsPage, /data-rhythm-panel="estimatedWatchSeconds"/);
     assert.match(insightsPage, /data-rhythm-metric="watches"/);
+    assert.match(insightsPage, /\.yt-rhythm-clocks\{display:grid;gap:34px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);max-width:none\}/);
+    assert.match(insightsPage, /toggle\.hidden=wide\.matches/);
     assert.match(insightsPage, /Shorts 與一般影片時間/);
     assert.match(insightsPage, /yt-short-segment/);
     assert.match(insightsPage, /yt-regular-segment/);
     assert.doesNotMatch(insightsPage, /yt-short-line-chart/);
+    const recapPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', profilePath: '/fixture', page: 'recap',
+    });
+    assert.match(recapPage, /class="yt-recap-figure"/);
+    assert.match(recapPage, /\.yt-recap-chapter\{align-items:center;display:grid/);
     for (const script of insightsPage.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
       assert.doesNotThrow(() => Function(script[1]));
     }
