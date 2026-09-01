@@ -26,6 +26,13 @@
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
   }
 
+  // Chrome signed into several Google accounts pins a non-default account
+  // onto an account-indexed path, so My Activity serves the same YouTube
+  // page at both /product/youtube and /u/1/product/youtube.
+  function isActivityPath(pathname) {
+    return /^(?:\/u\/\d+)?\/product\/youtube\/?$/.test(String(pathname ?? ''));
+  }
+
   function youtubeUrl(raw) {
     try {
       const url = new URL(raw);
@@ -92,6 +99,7 @@
   globalThis.urtubeYoutubeActivity = {
     activityFromCard,
     activityFromParts,
+    isActivityPath,
     parseDurationText,
     timestampFromParts,
   };
@@ -113,7 +121,7 @@
   }
 
   async function runSync(syncId, observedAt, since) {
-    if (location.pathname !== '/product/youtube') {
+    if (!isActivityPath(location.pathname)) {
       throw new Error('Activity sync must run on Google My Activity YouTube History');
     }
     cancelled = false;
