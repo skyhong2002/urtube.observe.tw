@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import type { CreatedUser, User } from '../users.js';
+import type { YoutubeImportResult } from '../youtube/types.js';
 import { messages, type Lang } from './i18n.js';
 import { html, shell } from './pages.js';
 
@@ -28,6 +29,8 @@ const formStyles = `
   .ob-steps strong{color:var(--ink)}
   .ob-google{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);display:inline-flex;font-size:14px;font-weight:700;gap:10px;padding:11px 20px;text-decoration:none}
   .ob-google:hover{border-color:var(--muted)}
+  .ob-advanced{border-top:1px solid var(--line);padding-top:22px}.ob-advanced>summary{color:var(--accent-text);cursor:pointer;font-size:14px;font-weight:750;list-style-position:outside;margin-left:16px;padding-left:3px}.ob-advanced>summary:hover{color:var(--ink)}
+  .ob-advanced-body{padding-top:18px}.ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
 `;
 
 function signupNav(lang: Lang) {
@@ -108,6 +111,8 @@ export interface AccountPageState {
   rotated?: { captureToken: string; dashboardToken: string };
   error?: string;
   extensionVersion?: string;
+  takeoutResult?: YoutubeImportResult;
+  takeoutError?: string;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -119,6 +124,29 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <code class="ob-token">${html(state.rotated.captureToken)}</code>
       <p style="margin-bottom:2px">${t.accountDashboardKey}</p>
       <code class="ob-token">${html(state.rotated.dashboardToken)}</code>` : '';
+  const takeoutFeedback = state.takeoutResult
+    ? `<div class="ob-success" role="status">${t.accountTakeoutSuccess(
+      state.takeoutResult.watchesSeen, state.takeoutResult.watchesInserted,
+      state.takeoutResult.searchesSeen, state.takeoutResult.searchesInserted,
+    )}</div>`
+    : state.takeoutError
+      ? `<div class="ob-error" role="alert">${t.accountTakeoutFailed(html(state.takeoutError))}</div>`
+      : '';
+  const takeout = `<details class="ob-advanced"${takeoutFeedback ? ' open' : ''}>
+      <summary>${t.accountTakeoutSummary}</summary>
+      <div class="ob-advanced-body">
+        <h2>${t.accountTakeoutTitle}</h2>
+        <p>${t.accountTakeoutPara}</p>
+        <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+        ${takeoutFeedback}
+        <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
+          <label for="takeout">${t.accountTakeoutFile}</label>
+          <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required>
+          <p class="ob-help">${t.accountTakeoutLimit}</p>
+          <button type="submit">${t.accountTakeoutSubmit}</button>
+        </form>
+      </div>
+    </details>`;
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
     <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></section>
     <div class="ob-card">
@@ -135,6 +163,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <ol class="ob-steps">
         ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
       </ol>
+      ${takeout}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
       <form method="post" action="/account/visibility" class="ob-form">
