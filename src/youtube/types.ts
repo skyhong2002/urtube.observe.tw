@@ -197,6 +197,13 @@ export interface YoutubeHourlySummary {
   estimatedWatchSeconds: number;
 }
 
+export interface YoutubeRhythmCoverage {
+  // Only exact timestamps are safe to place on a 24-hour clock. Extension
+  // history backfills can know the calendar day without knowing the time.
+  exactWatches: number;
+  dateOnlyWatches: number;
+}
+
 export interface YoutubeLengthBucket {
   label: string;
   videos: number;
@@ -227,6 +234,7 @@ export interface YoutubeDashboardData {
   };
   daily: YoutubeDailySummary[];
   hourly: YoutubeHourlySummary[];
+  rhythmCoverage: YoutubeRhythmCoverage;
   shortFormDaily: YoutubeShortFormDailySummary[];
   lengthBuckets: YoutubeLengthBucket[];
   topChannels: YoutubeChannelSummary[];

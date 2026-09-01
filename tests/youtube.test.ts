@@ -233,6 +233,7 @@ test('YouTube imports are idempotent, aggregate-only, and preserve duration sema
       { hour: 10, watches: 1 },
       { hour: 11, watches: 1 },
     ]);
+    assert.deepEqual(dashboard.rhythmCoverage, { exactWatches: 3, dateOnlyWatches: 0 });
     assert.equal(dashboard.topChannels[0].name, 'Channel One');
     assert.equal(dashboard.topChannels[0].thumbnailUrl, 'https://yt3.ggpht.com/channel-one');
     assert.ok(dashboard.topChannels.every((channel) => channel.name !== 'Unknown channel'));
@@ -333,6 +334,16 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(insightsPage, /yt-short-segment/);
     assert.match(insightsPage, /yt-regular-segment/);
     assert.doesNotMatch(insightsPage, /yt-short-line-chart/);
+    const partialRhythmPage = youtubeDashboardPage('Fixture', {
+      ...dashboard, rhythmCoverage: { exactWatches: 2, dateOnlyWatches: 1 },
+    }, 'duration', { lang: 'zh', profilePath: '/fixture', page: 'insights' });
+    assert.match(partialRhythmPage, /已排除只有日期的紀錄/);
+    assert.match(partialRhythmPage, /data-rhythm-panel="watches"/);
+    const blockedRhythmPage = youtubeDashboardPage('Fixture', {
+      ...dashboard, rhythmCoverage: { exactWatches: 1, dateOnlyWatches: 2 },
+    }, 'duration', { lang: 'zh', profilePath: '/fixture', page: 'insights' });
+    assert.match(blockedRhythmPage, /12:00 是佔位值，不是真實習慣/);
+    assert.doesNotMatch(blockedRhythmPage, /data-rhythm-panel=/);
     const recapPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'recap',
     });
@@ -733,7 +744,12 @@ test('extension-only data combines measured captures with bounded day-history pr
 
     // A user does not need Takeout: precise live captures retain their
     // measured seconds, while older day-history rows use bounded estimates.
-    assert.equal(repository.youtubeDashboard('all', now).stats.estimatedWatchSeconds, 1020);
+    const extensionOnly = repository.youtubeDashboard('all', now);
+    assert.equal(extensionOnly.stats.estimatedWatchSeconds, 1020);
+    assert.deepEqual(extensionOnly.rhythmCoverage, { exactWatches: 1, dateOnlyWatches: 2 });
+    assert.deepEqual(extensionOnly.hourly.map(({ hour, watches }) => ({ hour, watches })), [
+      { hour: 19, watches: 1 },
+    ]);
     repository.ingestYoutubeProgress({
       scanId: 'day-progress-scan-123456',
       observedAt: '2026-07-29T11:00:00.000Z',

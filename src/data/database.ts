@@ -1215,12 +1215,21 @@ export class Repository {
       ${estimatedWhere}
       GROUP BY day ORDER BY day
     `).all(...params) as Array<Record<string, string | number>>;
+    const rhythmCoverage = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN a.occurred_precision='exact' THEN 1 ELSE 0 END), 0) exact_watches,
+        COALESCE(SUM(CASE WHEN a.occurred_precision<>'exact' THEN 1 ELSE 0 END), 0) date_only_watches
+      FROM youtube_watch_events w
+      JOIN activities a ON a.id=w.activity_id
+      ${where}
+    `).get(...params) as Record<string, number>;
     const hourly = this.db.prepare(`
       ${estimatedEvents}
       SELECT CAST(strftime('%H', e.watched_at, '+8 hours') AS INTEGER) hour,
         COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
-      ${estimatedWhere}
+      JOIN activities a ON a.id=e.activity_id
+      ${estimatedWhere} AND a.occurred_precision='exact'
       GROUP BY hour ORDER BY hour
     `).all(...params) as Array<Record<string, string | number>>;
     // YouTube does not expose a definitive Shorts flag through the metadata
@@ -1415,6 +1424,10 @@ export class Repository {
         hour: Number(row.hour), watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
+      rhythmCoverage: {
+        exactWatches: Number(rhythmCoverage.exact_watches),
+        dateOnlyWatches: Number(rhythmCoverage.date_only_watches),
+      },
       shortFormDaily: shortFormDaily.map((row) => ({
         day: String(row.day),
         shortWatchSeconds: Number(row.short_watch_seconds),

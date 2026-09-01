@@ -64,6 +64,12 @@ const en = {
   rhythmAria: (metric: string) => `${metric} by hour of day`,
   rhythmWatches: 'watches',
   rhythmTime: 'watch time',
+  rhythmUnavailableTitle: 'Time-of-day unavailable',
+  rhythmUnavailable: (exact: number, dateOnly: number) =>
+    `${dateOnly} records in this range came from date-only extension history. Their 12:00 timestamp is a placeholder, not the real viewing time. Because they outnumber the ${exact} exact-time records, urtube has hidden this chart instead of presenting invented habits.`,
+  rhythmPartialTitle: 'Date-only records excluded',
+  rhythmPartial: (exact: number, dateOnly: number) =>
+    `This chart uses ${exact} exact-time records and excludes ${dateOnly} date-only records whose time of day is unknown.`,
   hourRange: (hour: number) => `${String(hour).padStart(2, '0')}:00–${String((hour + 1) % 24).padStart(2, '0')}:00`,
   tableView: 'Table view',
   colHour: 'Hour',
@@ -339,6 +345,12 @@ const zh: typeof en = {
   rhythmAria: (metric: string) => `一天各時段的${metric}`,
   rhythmWatches: '觀看次數',
   rhythmTime: '觀看時間',
+  rhythmUnavailableTitle: '無法可靠判斷觀看時段',
+  rhythmUnavailable: (exact: number, dateOnly: number) =>
+    `這個範圍有 ${dateOnly} 筆紀錄來自外掛的日期回填，只知道哪一天、不知道實際觀看時間；其中顯示的 12:00 是佔位值，不是真實習慣。因為這類資料多於 ${exact} 筆精確時間紀錄，觀看節奏已隱藏，避免呈現假的結果。`,
+  rhythmPartialTitle: '已排除只有日期的紀錄',
+  rhythmPartial: (exact: number, dateOnly: number) =>
+    `以下只使用 ${exact} 筆具有精確時間的紀錄，另有 ${dateOnly} 筆只有日期、無法判斷時段的資料未納入圖表。`,
   hourRange: (hour: number) => `${String(hour).padStart(2, '0')}:00–${String((hour + 1) % 24).padStart(2, '0')}:00`,
   tableView: '表格檢視',
   colHour: '時段',
