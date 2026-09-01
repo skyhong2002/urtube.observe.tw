@@ -49,6 +49,13 @@ const tagLeanStyles = `
   .tl-empty{color:var(--muted);font-size:12px}
   .tl-coverage{color:var(--ink-2);font-size:14px;line-height:1.6;margin:16px 2px 0}
   .tl-foot{color:var(--muted);font-size:11px;margin-top:16px}
+  @media(min-width:900px){
+    .tl-hero{align-items:center;display:grid;gap:22px 42px;grid-template-columns:minmax(270px,.78fr) minmax(0,1.22fr)}
+    .tl-hero-lead{min-width:0}.tl-hero-title{margin-bottom:18px}
+    .tl-hero-stats{border-left:1px solid var(--line);border-top:0;margin-top:0;padding:4px 0 4px 34px}
+    .tl-rows{column-gap:36px;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .tl-groups{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  }
   @media(max-width:820px){.tl-row{grid-template-columns:88px minmax(0,1fr) 118px}}
 `;
 
@@ -125,8 +132,8 @@ export function tagLeanSection(data: TagLeanData, lang: Lang = 'en'): string {
       <span>${t.tagLeanHeroSub(t.ranges[data.range])}</span>`
     : `<strong>—</strong><span>${t.tagLeanHeroNone}</span>`;
   const matchedShare = pct(data.matched.estimatedWatchSeconds, data.totals.estimatedWatchSeconds);
-  const hero = `<section class="card tl-hero"><div class="eyebrow">${t.tagLeanEyebrow}</div><h2 class="tl-hero-title">${t.tagLeanTitle}</h2>
-    <div class="tl-hero-figure">${heroFigure}</div>
+  const hero = `<section class="card tl-hero"><div class="tl-hero-lead"><div class="eyebrow">${t.tagLeanEyebrow}</div><h2 class="tl-hero-title">${t.tagLeanTitle}</h2>
+    <div class="tl-hero-figure">${heroFigure}</div></div>
     <div class="tl-hero-stats">
       <div class="yt-stat"><strong>${hours(data.matched.estimatedWatchSeconds)}</strong><span>${t.tagLeanStatTaggedTime}</span></div>
       <div class="yt-stat"><strong>${pctLabel(matchedShare)}</strong><span>${t.tagLeanStatTaggedShare}</span></div>

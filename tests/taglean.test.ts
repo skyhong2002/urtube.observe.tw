@@ -119,6 +119,7 @@ test('tagLeanPage renders shares, camps, and the table view in both languages', 
   const embedded = tagLeanSection(data, 'zh');
   assert.match(embedded, /政治光譜/);
   assert.match(embedded, /\.tl-groups\{display:grid;gap:20px;grid-template-columns:1fr/);
+  assert.match(embedded, /\.tl-groups\{grid-template-columns:repeat\(auto-fit,minmax\(210px,1fr\)\)\}/);
   assert.doesNotMatch(embedded, /repeat\(auto-fit,minmax\(190px,1fr\)\)/);
   const en = tagLeanPage('Sky', data, { basePath: '/sky/tags', dashboardPath: '/sky', lang: 'en' });
   assert.match(en, /Pan-Green/);

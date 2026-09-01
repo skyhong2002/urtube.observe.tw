@@ -125,7 +125,7 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
     <details class="viz-table"><summary>${t.tableView}</summary><table>
       <thead><tr><th>${t.colHour}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
       <tbody>${tableRows}</tbody></table></details>
-    <script>(()=>{const root=document.currentScript?.closest('section');if(!root)return;const buttons=[...root.querySelectorAll('[data-rhythm-metric]')];const panels=[...root.querySelectorAll('[data-rhythm-panel]')];const apply=(metric)=>{for(const panel of panels)panel.hidden=panel.dataset.rhythmPanel!==metric;for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.rhythmMetric===metric))};for(const button of buttons)button.addEventListener('click',()=>apply(button.dataset.rhythmMetric));apply('watches')})();</script>
+    <script>(()=>{const root=document.currentScript?.closest('section');if(!root)return;const toggle=root.querySelector('.yt-metric-toggle');const buttons=[...root.querySelectorAll('[data-rhythm-metric]')];const panels=[...root.querySelectorAll('[data-rhythm-panel]')];const wide=matchMedia('(min-width:900px)');let metric='watches';const apply=(next)=>{metric=next;toggle.hidden=wide.matches;for(const panel of panels)panel.hidden=!wide.matches&&panel.dataset.rhythmPanel!==metric;for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.rhythmMetric===metric))};for(const button of buttons)button.addEventListener('click',()=>apply(button.dataset.rhythmMetric));wide.addEventListener('change',()=>apply(metric));apply(metric)})();</script>
   </section>`;
 }
 
@@ -583,11 +583,25 @@ const dashboardStyles = `
   .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0}
   .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
-  .yt-history-day{border-top:1px solid var(--line);padding-top:16px}.yt-history-day:first-child{border-top:0;padding-top:0}.yt-history-day>h2{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.04em;margin:0 0 6px}
+  .yt-history-day{border-top:1px solid var(--line);padding-top:16px}.yt-history-day:first-child{border-top:0;padding-top:0}.yt-history-day>h2{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.04em;margin:0 0 6px}.yt-history-day-rows{display:grid;gap:0;grid-template-columns:1fr}
   .yt-history-row{align-items:center;border-bottom:1px solid var(--line);color:inherit;display:grid;gap:14px;grid-template-columns:90px minmax(0,1fr) auto;padding:10px 0;text-decoration:none}.yt-history-row:last-child{border-bottom:0}.yt-history-row img,.yt-history-placeholder{aspect-ratio:16/9;background:var(--raised);border-radius:7px;height:auto;object-fit:cover;width:90px}.yt-history-copy{min-width:0}.yt-history-copy strong,.yt-history-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yt-history-copy strong{font-size:12px}.yt-history-copy span,.yt-history-when{color:var(--muted);font-size:10px}.yt-history-when{font-variant-numeric:tabular-nums;white-space:nowrap}
   .yt-private-note{text-align:center}.yt-private-note p{color:var(--ink-2);margin:0 auto;max-width:560px}
   .yt-recap-intro{padding:34px 28px}.yt-recap-intro h2{font-size:clamp(30px,5vw,54px);letter-spacing:-.045em;line-height:1.02;margin:5px 0 10px}.yt-recap-intro p{color:var(--ink-2);margin:0}
-  .yt-recap-chapter{padding:30px 28px}.yt-recap-chapter>strong{display:block;font-size:clamp(30px,5vw,58px);letter-spacing:-.04em;line-height:1;margin:8px 0 12px}.yt-recap-chapter h2{font-size:17px;margin:0 0 7px}.yt-recap-chapter p{color:var(--ink-2);font-size:14px;margin:0;max-width:720px}.yt-recap-chapter a{color:inherit;text-decoration:none}.yt-recap-chapter a:hover{color:var(--accent-text)}
+  .yt-recap-chapter{padding:30px 28px}.yt-recap-figure>strong{display:block;font-size:clamp(30px,5vw,58px);letter-spacing:-.04em;line-height:1;margin:8px 0 12px}.yt-recap-copy{align-self:center}.yt-recap-chapter h2{font-size:17px;margin:0 0 7px}.yt-recap-chapter p{color:var(--ink-2);font-size:14px;margin:0;max-width:720px}.yt-recap-chapter a{color:inherit;text-decoration:none}.yt-recap-chapter a:hover{color:var(--accent-text)}
+  @media(min-width:900px){
+    .yt-hero{align-items:center;display:grid;gap:22px 42px;grid-template-columns:minmax(250px,.72fr) minmax(0,1.28fr)}
+    .yt-hero-stats{border-left:1px solid var(--line);border-top:0;margin-top:0;padding:4px 0 4px 34px}
+    .yt-hero-foot{grid-column:1/-1;margin-top:0}
+    .yt-rhythm-clocks{display:grid;gap:34px;grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}
+    .yt-rhythm-clock svg{max-width:430px}
+    .yt-channels,.yt-top-videos,.yt-recent{column-gap:28px;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .yt-short-compare{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .yt-mix{column-gap:36px;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .yt-history-day-rows{column-gap:28px;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .yt-recap-intro{align-items:end;display:grid;gap:8px 42px;grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr)}
+    .yt-recap-intro .eyebrow{grid-column:1/-1}.yt-recap-intro h2{margin:0}.yt-recap-intro p{padding-bottom:5px}
+    .yt-recap-chapter{align-items:center;display:grid;gap:28px 48px;grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr)}
+  }
   @media(max-width:560px){.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}.yt-video{grid-template-columns:110px minmax(0,1fr)}.yt-history-row{grid-template-columns:72px minmax(0,1fr)}.yt-history-row img,.yt-history-placeholder{width:72px}.yt-history-when{display:none}}
 `;
 
@@ -642,11 +656,11 @@ function historySection(
     entries.push(row);
     groups.set(day, entries);
   }
-  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day"><h2>${html(day)}</h2>${entries.map((video) => `<a class="yt-history-row" href="${html(video.url)}">
+  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day"><h2>${html(day)}</h2><div class="yt-history-day-rows">${entries.map((video) => `<a class="yt-history-row" href="${html(video.url)}">
     ${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-history-placeholder"></span>'}
     <span class="yt-history-copy"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
     <time class="yt-history-when" datetime="${html(video.watchedAt)}">${html(taipeiTimeLabel(video.watchedAt, lang))}</time>
-  </a>`).join('')}</div>`).join('');
+  </a>`).join('')}</div></div>`).join('');
   return `<section class="section"><div class="section-head"><h2>${t.historyTitle}</h2><span>${t.historySub(history.length, t.ranges[data.range])}</span></div>${days}</section>`;
 }
 
@@ -659,7 +673,7 @@ function recapSection(data: YoutubeDashboardData, t: Messages): string {
   const peakHour = [...data.hourly].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
   const shortSeconds = data.shortFormDaily.reduce((sum, day) => sum + day.shortWatchSeconds, 0);
   const knownSeconds = data.shortFormDaily.reduce((sum, day) => sum + day.knownDurationWatchSeconds, 0);
-  const chapter = (eyebrow: string, figure: string, title: string, copy: string) => `<section class="section yt-recap-chapter"><div class="eyebrow">${html(eyebrow)}</div><strong>${html(figure)}</strong><h2>${html(title)}</h2><p>${html(copy)}</p></section>`;
+  const chapter = (eyebrow: string, figure: string, title: string, copy: string) => `<section class="section yt-recap-chapter"><div class="yt-recap-figure"><div class="eyebrow">${html(eyebrow)}</div><strong>${html(figure)}</strong></div><div class="yt-recap-copy"><h2>${html(title)}</h2><p>${html(copy)}</p></div></section>`;
   const chapters = [
     chapter(t.heroHoursUnit, hours(data.stats.estimatedWatchSeconds), t.recapTotalTitle,
       t.recapTotalCopy(hours(data.stats.estimatedWatchSeconds), data.stats.watchEvents, activeDays.length)),
