@@ -18,6 +18,7 @@ import type {
   YoutubeProgressBatchInput,
   YoutubeProgressImportResult,
   YoutubeRange,
+  YoutubeRecentVideo,
   YoutubeTopic,
   YoutubeVideoMetadata,
 } from '../youtube/types.js';
@@ -1045,6 +1046,46 @@ export class Repository {
       watches: Number(watch.count),
       searches: Number(search.count),
     };
+  }
+
+  // Private, chronological event rows for the owner's History page. Unlike
+  // dashboard.recent this deliberately keeps repeat watches as separate
+  // events; callers must enforce dashboard-key/session access before using it.
+  youtubeWatchHistory(
+    range: YoutubeRange = '28d',
+    limit = 100,
+    now = new Date(),
+  ): YoutubeRecentVideo[] {
+    const cutoff = youtubeCutoff(range, now);
+    const where = cutoff
+      ? "WHERE w.activity_type='video' AND w.watched_at>=?"
+      : "WHERE w.activity_type='video'";
+    const rows = this.db.prepare(`
+      SELECT w.video_id, COALESCE(NULLIF(v.title, ''), w.raw_title) title,
+        CASE WHEN w.video_id IS NULL THEN w.raw_url
+          ELSE 'https://www.youtube.com/watch?v=' || w.video_id END url,
+        COALESCE(w.channel_id, v.channel_id) channel_id,
+        COALESCE(NULLIF(w.channel_title, ''), NULLIF(v.channel_title, ''), 'Unknown channel') channel_title,
+        COALESCE(v.thumbnail_url, '') thumbnail_url, v.duration_seconds,
+        w.actual_watched_seconds, w.watched_at
+      FROM youtube_watch_events w
+      LEFT JOIN youtube_videos v ON v.video_id=w.video_id
+      ${where}
+      ORDER BY w.watched_at DESC, w.event_id DESC
+      LIMIT ?
+    `).all(...(cutoff ? [cutoff] : []), Math.max(1, Math.min(500, limit))) as Array<Record<string, string | number | null>>;
+    return rows.map((row) => ({
+      videoId: row.video_id === null ? null : String(row.video_id),
+      title: String(row.title),
+      url: String(row.url),
+      channelId: row.channel_id === null ? null : String(row.channel_id),
+      channelTitle: String(row.channel_title),
+      thumbnailUrl: String(row.thumbnail_url),
+      durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+      actualWatchedSeconds: row.actual_watched_seconds === null ? null : Number(row.actual_watched_seconds),
+      watchedAt: String(row.watched_at),
+      watchCount: 1,
+    }));
   }
 
   // Materialize the estimated-events CTE into a per-connection temp table so

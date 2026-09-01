@@ -14,7 +14,7 @@ import {
 } from './output/onboarding.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
-import { youtubeDashboardPage } from './output/youtube.js';
+import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
 import { tagLeanPage } from './output/taglean.js';
 import { readOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
@@ -184,7 +184,12 @@ export function createApp(registry: UserRegistry): Hono {
     return dashboardKeyAccess(c, user);
   }
 
-  function dashboardResponse(c: Context, user: User, basePath: string) {
+  function dashboardResponse(
+    c: Context,
+    user: User,
+    profilePath: string,
+    page: YoutubeDashboardPageKind = 'overview',
+  ) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
     const counts = repository.youtubeCounts();
@@ -203,7 +208,10 @@ export function createApp(registry: UserRegistry): Hono {
     // Public visitors see only aggregates. A signed-in owner or someone with
     // the dashboard key may also see individual recent watches.
     const showRecent = viewerOwns || dashboardKeyAccess(c, user);
-    const crystalHtml = hasData ? shiftsSection(cachedCrystalFor(registry, user, repository, validity), lang) : '';
+    const crystalHtml = page === 'insights' && hasData
+      ? shiftsSection(cachedCrystalFor(registry, user, repository, validity), lang) : '';
+    const history = page === 'history' && showRecent
+      ? repository.youtubeWatchHistory(range, 100) : undefined;
     warmedHandles.add(user.handle);
     c.header('Cache-Control', 'no-cache');
     // Private dashboards reached via key/session must not end up in search
@@ -214,16 +222,22 @@ export function createApp(registry: UserRegistry): Hono {
     // which is otherwise a blank page (and how a CLI-created owner with no
     // session learns the setup steps).
     const showSetup = viewerOwns || !user.dashboardPublic || !hasData;
+    const suffix: Record<YoutubeDashboardPageKind, string> = {
+      overview: '', insights: '/insights', history: '/history', recap: '/recap',
+    };
+    const pagePath = `${profilePath}${suffix[page]}`;
     return c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
-      basePath,
+      basePath: pagePath,
+      profilePath,
+      page,
       lang,
       nav: [
-        { label: messages(lang).navDashboard, href: basePath, active: true },
-        { label: messages(lang).navTagLean, href: `${basePath}/tags` },
         ...(viewerOwns ? [{ label: messages(lang).navAccount, href: '/account' }] : []),
         langToggle(c, lang),
       ],
-      setupHtml: (showSetup ? dashboardSetupSection(user, hasData, lang) : '') + crystalHtml,
+      setupHtml: showSetup ? dashboardSetupSection(user, hasData, lang) : '',
+      insightsHtml: crystalHtml,
+      history,
       showRecent,
       shortFormVariant,
     }));
@@ -530,7 +544,9 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/sitemap.xml', (c) => {
     const paths = ['/', '/privacy'];
     for (const user of registry.listUsers()) {
-      if (user.dashboardPublic) paths.push(`/${user.handle}`, `/${user.handle}/tags`);
+      if (!user.dashboardPublic) continue;
+      const root = `/${user.handle}`;
+      paths.push(root, `${root}/insights`, `${root}/history`, `${root}/recap`);
     }
     const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${paths.map((path) => `  <url><loc>${html(config.publicBaseUrl + path)}</loc></url>`).join('\n')}\n</urlset>\n`;
     c.header('Content-Type', 'application/xml');
@@ -727,6 +743,18 @@ export function createApp(registry: UserRegistry): Hono {
     </section>`;
     return c.html(shell(t.notFoundTitle, body, [{ label: t.navHome, href: '/' }], '', lang), 404);
   }
+
+  const profilePage = (page: YoutubeDashboardPageKind) => (c: Context) => {
+    const user = registry.userByHandle(c.req.param('handle') ?? '');
+    if (!user || !dashboardAccess(c, user)) return notFoundPage(c);
+    return dashboardResponse(c, user, `/${user.handle}`, page);
+  };
+
+  // Four primary profile pages. Each is a single full-width vertical story;
+  // the /tags route below remains an auxiliary drill-down from Insights.
+  app.get('/:handle/insights', profilePage('insights'));
+  app.get('/:handle/history', profilePage('history'));
+  app.get('/:handle/recap', profilePage('recap'));
 
   // Channel-leanings subpage: watch time joined against the shared
   // channels_list tag lists (news/editorial + political camps). Same access

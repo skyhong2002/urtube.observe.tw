@@ -122,7 +122,9 @@ test('private-value encryption is randomized and authenticated', () => {
   const second = encryptPrivateValue('sensitive', SECRET);
   assert.notEqual(first, second);
   assert.equal(decryptPrivateValue(first, SECRET), 'sensitive');
-  assert.throws(() => decryptPrivateValue(`${first.slice(0, -1)}x`, SECRET));
+  const tampered = first.split('.');
+  tampered[2] = `${tampered[2][0] === 'A' ? 'B' : 'A'}${tampered[2].slice(1)}`;
+  assert.throws(() => decryptPrivateValue(tampered.join('.'), SECRET));
 });
 
 test('Takeout parser normalizes watch/search records and rejects unsafe archives', () => {
@@ -310,35 +312,41 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { day: '2026-07-28', shortWatchSeconds: 60, knownDurationWatchSeconds: 60 },
       { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
     ]);
-    const defaultPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh',
+    const overviewPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', profilePath: '/fixture', page: 'overview',
     });
-    assert.match(defaultPage, /yt-rhythm-clocks/);
-    assert.match(defaultPage, /yt-rhythm-sector/);
-    assert.match(defaultPage, /Shorts 與一般影片時間/);
-    assert.match(defaultPage, /yt-short-segment/);
-    assert.match(defaultPage, /yt-regular-segment/);
-    assert.doesNotMatch(defaultPage, /yt-short-line-chart/);
-    assert.match(defaultPage, /data-youtube-sort="watches"/);
-    assert.match(defaultPage, /data-youtube-sort-list="channels"/);
-    assert.match(defaultPage, /history\.pushState/);
-    for (const script of defaultPage.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    assert.match(overviewPage, /href="\/fixture\/insights\?range=all&sort=duration"/);
+    assert.match(overviewPage, /data-youtube-sort="watches"/);
+    assert.match(overviewPage, /data-youtube-sort-list="channels"/);
+    assert.match(overviewPage, /history\.pushState/);
+    assert.doesNotMatch(overviewPage, /data-rhythm-panel=/);
+    const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', profilePath: '/fixture', page: 'insights',
+    });
+    assert.match(insightsPage, /data-rhythm-panel="watches"/);
+    assert.match(insightsPage, /data-rhythm-panel="estimatedWatchSeconds"/);
+    assert.match(insightsPage, /data-rhythm-metric="watches"/);
+    assert.match(insightsPage, /Shorts 與一般影片時間/);
+    assert.match(insightsPage, /yt-short-segment/);
+    assert.match(insightsPage, /yt-regular-segment/);
+    assert.doesNotMatch(insightsPage, /yt-short-line-chart/);
+    for (const script of insightsPage.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
       assert.doesNotThrow(() => Function(script[1]));
     }
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', shortFormVariant: 'stacked',
+      lang: 'zh', page: 'insights', shortFormVariant: 'stacked',
     }), /方案 A · 100% 組成趨勢/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', shortFormVariant: 'compare',
+      lang: 'zh', page: 'insights', shortFormVariant: 'compare',
     }), /方案 B · 前後期比較/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', shortFormVariant: 'heatmap',
+      lang: 'zh', page: 'insights', shortFormVariant: 'heatmap',
     }), /方案 C · 年月熱圖/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', shortFormVariant: 'absolute',
+      lang: 'zh', page: 'insights', shortFormVariant: 'absolute',
     }), /Shorts 與一般影片時間/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', shortFormVariant: 'dual',
+      lang: 'zh', page: 'insights', shortFormVariant: 'dual',
     }), /方案 A2 · 組成＋總時數/);
   } finally {
     repository.close();

@@ -5,7 +5,7 @@ import { html, shell } from './pages.js';
 // Shifts are polarity, so they wear the diverging pair: warm red up, cool
 // blue down (never good/bad status colors — more attention isn't "good").
 const crystalStyles = `
-  .cx-shifts{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .cx-shifts{display:grid;gap:8px;grid-template-columns:1fr}
   .cx-shift{align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:11px;display:flex;gap:12px;padding:10px 12px}
   .cx-shift-delta{font-size:13px;font-variant-numeric:tabular-nums;font-weight:700;min-width:62px}
   .cx-up{color:var(--accent-text)}.cx-down{color:var(--blue-text)}
