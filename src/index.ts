@@ -19,6 +19,7 @@ import { tagLeanSection } from './output/taglean.js';
 import { readOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
+import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
 
@@ -500,7 +501,58 @@ export function createApp(registry: UserRegistry): Hono {
   });
 
   // Browser-friendly Takeout import: same parser and idempotent ingest as
-  // the API endpoint, but authenticated by the login session.
+  // the API endpoint, but authenticated by the login session. It lives behind
+  // a progressive-disclosure panel on /account so the extension remains the
+  // uncomplicated default path.
+  app.post('/account/takeout', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const lang = langOf(c);
+    const t = messages(lang);
+    const renderError = (error: string, status: 400 | 413 | 507 = 400) => {
+      c.header('Cache-Control', 'no-store');
+      return c.html(accountPage(me, {
+        takeoutError: error,
+        extensionVersion: extensionVersion(),
+      }, lang), status);
+    };
+    if (registry.databaseBytesFor(me) >= config.maxUserDatabaseBytes) {
+      return renderError(t.accountTakeoutStorageLimit, 507);
+    }
+    const contentLength = Number(c.req.header('content-length') ?? 0);
+    // Multipart framing adds a little overhead around the ZIP itself. Reject
+    // obviously oversized bodies before asking the runtime to buffer them.
+    if (contentLength > MAX_YOUTUBE_ARCHIVE_BYTES + 1024 * 1024) {
+      return renderError(t.accountTakeoutTooLarge, 413);
+    }
+    if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data')) {
+      return renderError(t.accountTakeoutChooseZip);
+    }
+    try {
+      const form = await c.req.formData();
+      const upload = form.get('takeout');
+      if (!upload || typeof upload === 'string' || !upload.name.toLowerCase().endsWith('.zip')) {
+        return renderError(t.accountTakeoutChooseZip);
+      }
+      if (upload.size > MAX_YOUTUBE_ARCHIVE_BYTES) {
+        return renderError(t.accountTakeoutTooLarge, 413);
+      }
+      const dataKey = registry.dataKeyFor(me);
+      if (!dataKey) return renderError(t.accountTakeoutUnavailable);
+      const archive = new Uint8Array(await upload.arrayBuffer());
+      const parsed = parseYoutubeArchive(archive, dataKey, 'takeout');
+      const result = registry.repositoryFor(me).ingestYoutubeArchive(parsed);
+      evictUserCaches(me.handle);
+      c.header('Cache-Control', 'no-store');
+      return c.html(accountPage(me, {
+        takeoutResult: result,
+        extensionVersion: extensionVersion(),
+      }, lang));
+    } catch (error) {
+      return renderError(error instanceof Error ? error.message : String(error));
+    }
+  });
+
   // Self-serve deletion: session plus retyping the handle. deleteUser refuses
   // the instance owner, which we surface as a friendly error.
   app.post('/account/delete', async (c) => {

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { strToU8, zipSync } from 'fflate';
 import { config } from '../src/config.js';
 import { createApp } from '../src/index.js';
 import { createIngestApp } from '../src/ingest.js';
@@ -25,6 +26,20 @@ function signupBody(
     },
     body: new URLSearchParams(fields).toString(),
   };
+}
+
+function accountTakeoutZip(): Uint8Array {
+  return zipSync({
+    'Takeout/YouTube and YouTube Music/history/watch-history.json': strToU8(JSON.stringify([{
+      header: 'YouTube',
+      title: 'Watched Account import fixture',
+      titleUrl: 'https://www.youtube.com/watch?v=ACCOUNT0001',
+      subtitles: [{ name: 'Account Channel', url: 'https://www.youtube.com/channel/UCaccount' }],
+      time: '2026-07-28T01:00:00.000Z',
+      products: ['YouTube'],
+      activityControls: ['YouTube watch history'],
+    }])),
+  });
 }
 
 test('Google-gated signup creates a working account and shows tokens exactly once', async () => {
@@ -148,6 +163,50 @@ test('account page rotates tokens behind a session and logout ends it', async ()
     const out = await app.request('/logout', { method: 'POST', headers: { cookie: session } });
     assert.equal(out.status, 302);
     assert.equal((await app.request('/account', { headers: { cookie: session } })).status, 302);
+  } finally {
+    registry.close();
+  }
+});
+
+test('account Takeout import is progressively disclosed, session-only, and idempotent', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const pending = registry.createPendingSignup('google-sub-takeout', 'takeout@gmail.com');
+    const created = await app.request('/signup', signupBody(pending, {
+      handle: 'takeout-user', displayName: 'Takeout User',
+    }, '10.1.9.1'));
+    const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
+    const account = await (await app.request('/account', { headers: { cookie: session } })).text();
+    assert.match(account, /<details class="ob-advanced">/);
+    assert.match(account, /action="\/account\/takeout"/);
+    assert.match(account, /takeout\.google\.com/);
+
+    const unauthenticated = await app.request('/account/takeout', { method: 'POST' });
+    assert.equal(unauthenticated.status, 302);
+
+    const wrongType = await app.request('/account/takeout', {
+      method: 'POST', headers: { cookie: session, 'content-type': 'text/plain' }, body: 'not a zip',
+    });
+    assert.equal(wrongType.status, 400);
+    assert.match(await wrongType.text(), /Choose the original Google Takeout \.zip file/);
+
+    const upload = () => {
+      const form = new FormData();
+      const bytes = accountTakeoutZip();
+      form.set('takeout', new File([bytes.slice().buffer as ArrayBuffer], 'takeout.zip', { type: 'application/zip' }));
+      return app.request('/account/takeout', { method: 'POST', headers: { cookie: session }, body: form });
+    };
+    const first = await upload();
+    assert.equal(first.status, 200);
+    const firstHtml = await first.text();
+    assert.match(firstHtml, /<details class="ob-advanced" open>/);
+    assert.match(firstHtml, /Import complete: 1 of 1 watch records/);
+    assert.equal(registry.repositoryFor(registry.userByHandle('takeout-user')!).youtubeCounts().videoWatches, 1);
+
+    const repeated = await upload();
+    assert.equal(repeated.status, 200);
+    assert.match(await repeated.text(), /Import complete: 0 of 1 watch records/);
   } finally {
     registry.close();
   }

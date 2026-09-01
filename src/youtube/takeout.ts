@@ -4,7 +4,7 @@ import { unzipSync, type UnzipFileInfo } from 'fflate';
 import { encryptPrivateValue } from './crypto.js';
 import type { YoutubeParsedArchive, YoutubeSearchInput, YoutubeWatchInput } from './types.js';
 
-const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
+export const MAX_YOUTUBE_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
 const WATCH_JSON_SUFFIX = '/history/watch-history.json';
 const SEARCH_JSON_SUFFIX = '/history/search-history.json';
@@ -245,7 +245,7 @@ export function parseYoutubeArchive(
   limits: YoutubeArchiveLimits = {},
 ): YoutubeParsedArchive {
   if (secret.length < 32) throw new Error('YOUTUBE_PRIVATE_DATA_KEY must contain at least 32 characters');
-  const maxArchiveBytes = limits.maxArchiveBytes ?? MAX_ARCHIVE_BYTES;
+  const maxArchiveBytes = limits.maxArchiveBytes ?? MAX_YOUTUBE_ARCHIVE_BYTES;
   const maxUncompressedBytes = limits.maxUncompressedBytes ?? MAX_UNCOMPRESSED_BYTES;
   if (archive.byteLength > maxArchiveBytes) throw new Error('YouTube archive exceeds compressed size limit');
   let declaredBytes = 0;
