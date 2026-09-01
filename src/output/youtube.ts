@@ -3,6 +3,7 @@ import {
   type YoutubeDailySummary,
   type YoutubeDashboardData,
   type YoutubeHourlySummary,
+  type YoutubeRecentVideo,
 } from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
@@ -100,7 +101,7 @@ function rhythmClock(
   const sectors = values.map((value, hour) => value > 0
     ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${t.hourRange(hour)}" data-tip-label="${metric === 'watches' ? t.tipVideos(value) : hours(value)}"></path>`
     : '').join('');
-  return `<figure class="yt-rhythm-clock"><svg viewBox="0 0 300 300" role="img" aria-label="${t.rhythmAria(label)}">
+  return `<figure class="yt-rhythm-clock" data-rhythm-panel="${metric}"><svg viewBox="0 0 300 300" role="img" aria-label="${t.rhythmAria(label)}">
     <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
     <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
     </svg><figcaption>${label}</figcaption></figure>`;
@@ -114,12 +115,17 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
       ? `<tr><td>${t.hourRange(hour)}</td><td>${entry.watches}</td><td>${hours(entry.estimatedWatchSeconds)}</td></tr>`
       : '';
   }).join('');
-  return `<section class="section"><div class="section-head"><h2>${t.rhythm}</h2>
+  return `<section class="section"><div class="section-head"><div><h2>${t.rhythm}</h2>
     <span>${t.rhythmSub(t.ranges[data.range])}</span></div>
+    <div class="yt-metric-toggle" role="group" aria-label="${t.rhythm}">
+      <button type="button" data-rhythm-metric="watches" aria-pressed="true">${t.rhythmWatches}</button>
+      <button type="button" data-rhythm-metric="estimatedWatchSeconds" aria-pressed="false">${t.rhythmTime}</button>
+    </div></div>
     <div class="yt-rhythm-clocks">${rhythmClock(data.hourly, 'watches', t.rhythmWatches, t)}${rhythmClock(data.hourly, 'estimatedWatchSeconds', t.rhythmTime, t)}</div>
     <details class="viz-table"><summary>${t.tableView}</summary><table>
       <thead><tr><th>${t.colHour}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
       <tbody>${tableRows}</tbody></table></details>
+    <script>(()=>{const root=document.currentScript?.closest('section');if(!root)return;const buttons=[...root.querySelectorAll('[data-rhythm-metric]')];const panels=[...root.querySelectorAll('[data-rhythm-panel]')];const apply=(metric)=>{for(const panel of panels)panel.hidden=panel.dataset.rhythmPanel!==metric;for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.rhythmMetric===metric))};for(const button of buttons)button.addEventListener('click',()=>apply(button.dataset.rhythmMetric));apply('watches')})();</script>
   </section>`;
 }
 
@@ -458,22 +464,27 @@ const dashboardStyles = `
   .yt-import-control button:hover{border-color:var(--muted)}.yt-import-control button:disabled{cursor:wait;opacity:.6}
   .yt-import-control span{color:var(--muted);font-size:11px}
 
-  .yt-hero{align-items:end;display:grid;gap:26px;grid-template-columns:minmax(0,auto) minmax(0,1fr);padding:26px 28px}
+  .yt-page-nav{display:flex;gap:6px;margin:-4px 0 18px;overflow-x:auto;padding:2px 0 8px}
+  .yt-page-nav a{border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:700;padding:7px 10px;text-decoration:none;white-space:nowrap}
+  .yt-page-nav a:hover{color:var(--ink)}.yt-page-nav a[aria-current=page]{border-color:var(--accent);color:var(--ink)}
+
+  .yt-hero{display:block;padding:26px 28px}
   .yt-hero-figure strong{display:block;font-size:clamp(52px,7.5vw,84px);font-weight:750;letter-spacing:-.045em;line-height:.95}
   .yt-hero-figure strong em{color:var(--accent-text);font-size:.42em;font-style:normal;font-weight:700;letter-spacing:-.01em;margin-left:4px;vertical-align:.12em}
   .yt-hero-figure span{color:var(--ink-2);display:block;font-size:13px;margin-top:10px}
-  .yt-hero-stats{display:grid;gap:10px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
-  .yt-hero-foot{border-top:1px solid var(--line);color:var(--muted);font-size:11px;grid-column:1/-1;margin-top:6px;padding-top:12px}
+  .yt-hero-stats{border-top:1px solid var(--line);display:grid;gap:16px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));margin-top:24px;padding-top:20px}
+  .yt-hero-foot{border-top:1px solid var(--line);color:var(--muted);font-size:11px;margin-top:18px;padding-top:12px}
 
-  .yt-rhythm-clocks{display:grid;gap:clamp(16px,5vw,64px);grid-template-columns:repeat(2,minmax(0,1fr));margin:4px auto 8px;max-width:820px}
-  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock svg{display:block;margin:auto;max-width:340px;overflow:visible;width:100%}
+  .yt-rhythm-clocks{margin:4px auto 8px;max-width:460px}
+  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock[hidden]{display:none}.yt-rhythm-clock svg{display:block;margin:auto;max-width:420px;overflow:visible;width:100%}
   .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
   .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
   .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
   .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
 
-  .yt-columns{display:grid;gap:18px;grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr);margin-top:18px}
-  .yt-columns>section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px}
+  .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
+  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:6px 11px}
+  .yt-metric-toggle button[aria-pressed=true]{background:var(--ink);color:#111}
 
   .yt-channels{display:grid;gap:4px}
   .yt-channel-row{align-items:center;border-radius:10px;display:grid;gap:12px;grid-template-columns:18px 36px minmax(0,1fr) 92px;padding:6px 8px 6px 2px}
@@ -499,7 +510,7 @@ const dashboardStyles = `
   .yt-mix-track{background:var(--raised);border-radius:999px;height:8px}
   .yt-mix-track i{border-radius:999px 4px 4px 999px;display:block;height:100%;min-width:2px}
 
-  .yt-top-videos{display:grid;gap:8px 18px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .yt-top-videos{display:grid;gap:8px;grid-template-columns:1fr}
   .yt-top-video{align-items:center;border-radius:10px;color:inherit;display:grid;gap:10px;grid-template-columns:18px 80px minmax(0,1fr) 72px;padding:6px 8px 6px 2px;text-decoration:none}
   .yt-top-video:hover{background:var(--raised)}
   .yt-top-video-media{aspect-ratio:16/9;background:var(--raised);border-radius:7px;display:block;overflow:hidden;position:relative}
@@ -528,7 +539,7 @@ const dashboardStyles = `
   .yt-short-volume{align-items:end;display:flex;gap:2px;height:64px}.yt-short-volume-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-volume-col i{background:var(--ink-2);border-radius:2px 2px 0 0;display:block;opacity:.72;width:100%}
 
   .yt-short-compare-summary{align-items:baseline;display:flex;gap:10px;margin:-4px 0 18px}.yt-short-compare-summary>strong{color:var(--accent-text);font-size:34px;letter-spacing:-.04em}.yt-short-compare-summary small{font-size:14px;margin-left:2px}.yt-short-compare-summary>span{color:var(--muted);font-size:11px}
-  .yt-short-compare{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.yt-short-compare-card{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .yt-short-compare{display:grid;gap:14px;grid-template-columns:1fr}.yt-short-compare-card{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px}
   .yt-short-compare-head{align-items:start;display:flex;justify-content:space-between}.yt-short-compare-head span strong,.yt-short-compare-head span small{display:block}.yt-short-compare-head span strong{font-size:13px}.yt-short-compare-head span small{color:var(--muted);font-size:10px;margin-top:3px}.yt-short-compare-head>b{font-size:28px;letter-spacing:-.04em}
   .yt-short-compare-track{background:var(--surface);border-radius:999px;height:12px;margin:16px 0 8px;overflow:hidden}.yt-short-compare-track i{background:var(--accent);border-radius:999px;display:block;height:100%}
   .yt-short-compare-meta{color:var(--muted);display:flex;font-size:10px;justify-content:space-between}
@@ -552,8 +563,7 @@ const dashboardStyles = `
   .yt-chase-track i{background:var(--accent);border-radius:999px;display:block;height:100%;transition:width .4s ease;width:var(--share)}
   .yt-chase-value{color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 
-  .yt-taxonomy{display:grid;gap:18px;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);margin-top:18px}
-  .yt-taxonomy>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px}
+  .yt-taxonomy{display:block}.yt-taxonomy>section{margin-top:18px}
   .yt-topic-list{display:flex;flex-wrap:wrap;gap:8px}
   .yt-topic{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
   .yt-topic strong{display:block;font-size:12px}
@@ -562,19 +572,25 @@ const dashboardStyles = `
   .yt-keywords a{color:var(--cloud-color);font-size:var(--cloud-size);font-weight:650;line-height:1;text-decoration:none}
   .yt-keywords a:hover{color:var(--accent-text)}
 
-  .yt-recent{display:grid;gap:22px 16px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
-  .yt-video{color:inherit;display:block;min-width:0;text-decoration:none}
+  .yt-recent{display:grid;gap:0;grid-template-columns:1fr}
+  .yt-video{border-bottom:1px solid var(--line);color:inherit;display:grid;gap:14px;grid-template-columns:minmax(120px,190px) minmax(0,1fr);min-width:0;padding:12px 0;text-decoration:none}.yt-video:last-child{border-bottom:0}
   .yt-video-media{aspect-ratio:16/9;background:var(--raised);border-radius:10px;display:block;overflow:hidden;position:relative;width:100%}
   .yt-video img,.yt-video-placeholder{display:block;height:100%;object-fit:cover;transition:transform .25s ease;width:100%}
   .yt-video:hover img{transform:scale(1.045)}
   .yt-video-length{background:rgba(0,0,0,.78);border-radius:5px;bottom:6px;color:#fff;font-size:10px;font-variant-numeric:tabular-nums;font-weight:600;padding:2px 5px;position:absolute;right:6px}
-  .yt-video h3{font-size:13px;line-height:1.35;margin:9px 0 4px}
+  .yt-video-copy{align-self:center;min-width:0}.yt-video h3{font-size:13px;line-height:1.35;margin:0 0 4px}
   .yt-video:hover h3{color:var(--accent-text)}
   .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0}
   .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
 
-  @media(max-width:820px){.yt-hero{grid-template-columns:1fr}.yt-columns,.yt-taxonomy,.yt-top-videos,.yt-short-compare{grid-template-columns:1fr}}
-  @media(max-width:560px){.yt-rhythm-clocks{grid-template-columns:1fr;max-width:300px}.yt-recent{grid-template-columns:repeat(2,minmax(0,1fr))}.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}}
+  .yt-history-day{border-top:1px solid var(--line);padding-top:16px}.yt-history-day:first-child{border-top:0;padding-top:0}.yt-history-day>h2{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.04em;margin:0 0 6px}
+  .yt-history-row{align-items:center;border-bottom:1px solid var(--line);color:inherit;display:grid;gap:14px;grid-template-columns:90px minmax(0,1fr) auto;padding:10px 0;text-decoration:none}.yt-history-row:last-child{border-bottom:0}.yt-history-row img,.yt-history-placeholder{aspect-ratio:16/9;background:var(--raised);border-radius:7px;height:auto;object-fit:cover;width:90px}.yt-history-copy{min-width:0}.yt-history-copy strong,.yt-history-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yt-history-copy strong{font-size:12px}.yt-history-copy span,.yt-history-when{color:var(--muted);font-size:10px}.yt-history-when{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .yt-private-note{text-align:center}.yt-private-note p{color:var(--ink-2);margin:0 auto;max-width:560px}
+  .yt-recap-intro{padding:34px 28px}.yt-recap-intro h2{font-size:clamp(30px,5vw,54px);letter-spacing:-.045em;line-height:1.02;margin:5px 0 10px}.yt-recap-intro p{color:var(--ink-2);margin:0}
+  .yt-recap-chapter{padding:30px 28px}.yt-recap-chapter>strong{display:block;font-size:clamp(30px,5vw,58px);letter-spacing:-.04em;line-height:1;margin:8px 0 12px}.yt-recap-chapter h2{font-size:17px;margin:0 0 7px}.yt-recap-chapter p{color:var(--ink-2);font-size:14px;margin:0;max-width:720px}.yt-recap-chapter a{color:inherit;text-decoration:none}.yt-recap-chapter a:hover{color:var(--accent-text)}
+  .yt-insights-link{display:block;text-decoration:none}.yt-insights-link p{color:var(--ink-2);margin:0}.yt-insights-link strong{color:var(--accent-text)}
+
+  @media(max-width:560px){.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}.yt-video{grid-template-columns:110px minmax(0,1fr)}.yt-history-row{grid-template-columns:72px minmax(0,1fr)}.yt-history-row img,.yt-history-placeholder{width:72px}.yt-history-when{display:none}}
 `;
 
 // Ordinal ramp for the length buckets (short → long, light → dark), validated
@@ -588,6 +604,82 @@ const LENGTH_RAMP: Record<string, string> = {
   Unknown: '#55534e',
 };
 
+function taipeiDateLabel(iso: string, lang: Lang): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat(lang === 'zh' ? 'zh-TW' : 'en-US', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
+  }).format(date);
+}
+
+function taipeiTimeLabel(iso: string, lang: Lang): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(lang === 'zh' ? 'zh-TW' : 'en-US', {
+    timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(date);
+}
+
+function recentSection(data: YoutubeDashboardData, t: Messages, lang: Lang, showRecent: boolean): string {
+  if (!showRecent || !data.recent.length) return '';
+  const rows = data.recent.map((video) => `<a class="yt-video" href="${html(video.url)}">
+    <span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span>
+    <span class="yt-video-copy"><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p><p class="yt-video-when">${timeAgo(video.watchedAt, lang)}</p></span></a>`).join('');
+  return `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${rows}</div></section>`;
+}
+
+function historySection(
+  history: YoutubeRecentVideo[] | undefined,
+  data: YoutubeDashboardData,
+  t: Messages,
+  lang: Lang,
+  showRecent: boolean,
+): string {
+  if (!showRecent) return `<section class="section yt-private-note"><div class="section-head"><h2>${t.historyTitle}</h2></div><p>${t.historyPrivate}</p></section>`;
+  if (!history?.length) return `<section class="section yt-private-note"><div class="section-head"><h2>${t.historyTitle}</h2></div><p>${t.historyEmpty}</p></section>`;
+  const groups = new Map<string, YoutubeRecentVideo[]>();
+  for (const row of history) {
+    const day = taipeiDateLabel(row.watchedAt, lang);
+    const entries = groups.get(day) ?? [];
+    entries.push(row);
+    groups.set(day, entries);
+  }
+  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day"><h2>${html(day)}</h2>${entries.map((video) => `<a class="yt-history-row" href="${html(video.url)}">
+    ${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-history-placeholder"></span>'}
+    <span class="yt-history-copy"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
+    <time class="yt-history-when" datetime="${html(video.watchedAt)}">${html(taipeiTimeLabel(video.watchedAt, lang))}</time>
+  </a>`).join('')}</div>`).join('');
+  return `<section class="section"><div class="section-head"><h2>${t.historyTitle}</h2><span>${t.historySub(history.length, t.ranges[data.range])}</span></div>${days}</section>`;
+}
+
+function recapSection(data: YoutubeDashboardData, t: Messages): string {
+  if (!data.stats.watchEvents) return `<section class="section yt-private-note"><div class="section-head"><h2>${t.recapTitle}</h2></div><p>${t.recapEmpty}</p></section>`;
+  const activeDays = data.daily.filter((day) => day.watches > 0);
+  const peakDay = [...activeDays].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
+  const topChannel = [...data.topChannels].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
+  const topVideo = [...data.topVideos].sort((a, b) => b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
+  const peakHour = [...data.hourly].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
+  const shortSeconds = data.shortFormDaily.reduce((sum, day) => sum + day.shortWatchSeconds, 0);
+  const knownSeconds = data.shortFormDaily.reduce((sum, day) => sum + day.knownDurationWatchSeconds, 0);
+  const chapter = (eyebrow: string, figure: string, title: string, copy: string) => `<section class="section yt-recap-chapter"><div class="eyebrow">${html(eyebrow)}</div><strong>${html(figure)}</strong><h2>${html(title)}</h2><p>${html(copy)}</p></section>`;
+  const chapters = [
+    chapter(t.heroHoursUnit, hours(data.stats.estimatedWatchSeconds), t.recapTotalTitle,
+      t.recapTotalCopy(hours(data.stats.estimatedWatchSeconds), data.stats.watchEvents, activeDays.length)),
+    peakDay ? chapter(t.colDay, peakDay.day, t.recapPeakTitle, t.recapPeakCopy(peakDay.day, hours(peakDay.estimatedWatchSeconds))) : '',
+    topChannel ? chapter(t.topChannels, topChannel.name, t.recapChannelTitle,
+      t.recapChannelCopy(topChannel.name, hours(topChannel.estimatedWatchSeconds), topChannel.watches)) : '',
+    topVideo ? chapter(t.topVideos, `${topVideo.watches}×`, t.recapVideoTitle,
+      t.recapVideoCopy(topVideo.title, hours(topVideo.estimatedWatchSeconds), topVideo.watches)) : '',
+    peakHour ? chapter(t.rhythm, t.hourRange(peakHour.hour), t.recapRhythmTitle,
+      t.recapRhythmCopy(t.hourRange(peakHour.hour), hours(peakHour.estimatedWatchSeconds))) : '',
+    knownSeconds ? chapter(t.shortForm, `${Math.round(shortSeconds / knownSeconds * 100)}%`, t.recapShortTitle,
+      t.recapShortCopy(Math.round(shortSeconds / knownSeconds * 100), hours(shortSeconds), hours(knownSeconds))) : '',
+  ].join('');
+  return `<section class="card yt-recap-intro"><div class="eyebrow">${t.navRecap}</div><h2>${t.recapTitle}</h2><p>${t.recapSub(t.ranges[data.range])}</p></section>${chapters}`;
+}
+
+export type YoutubeDashboardPageKind = 'overview' | 'insights' | 'history' | 'recap';
+
 export interface YoutubeDashboardOptions {
   // Path the dashboard is served under; range/sort links stay on it.
   basePath?: string;
@@ -599,6 +691,13 @@ export interface YoutubeDashboardOptions {
   showRecent?: boolean;
   // Local design-review variants for the short-form visualization.
   shortFormVariant?: ShortFormVariant;
+  page?: YoutubeDashboardPageKind;
+  // Stable root for switching between the four profile pages.
+  profilePath?: string;
+  // Private raw watch events, provided only to authorized History viewers.
+  history?: YoutubeRecentVideo[];
+  // Insight-only content computed outside the dashboard aggregate cache.
+  insightsHtml?: string;
 }
 
 export function youtubeDashboardPage(
@@ -610,6 +709,8 @@ export function youtubeDashboardPage(
   const lang = options.lang ?? 'en';
   const t = messages(lang);
   const basePath = options.basePath ?? '/youtube';
+  const profilePath = options.profilePath ?? basePath;
+  const page = options.page ?? 'overview';
   const rangeNav = `<nav class="yt-range" aria-label="Time range">${YOUTUBE_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}&sort=${sort}"${range === data.range ? ' aria-current="page"' : ''}>${t.ranges[range]}</a>`
   ).join('')}</nav>`;
@@ -643,7 +744,7 @@ export function youtubeDashboardPage(
   const maxChannel = Math.max(1, ...channels.slice(0, 12).map((channel) =>
     sort === 'duration' ? channel.estimatedWatchSeconds : channel.watches));
   const sortLinks = `<span class="yt-sort"><a data-youtube-sort="watches" href="${basePath}?range=${data.range}&sort=watches"${sort === 'watches' ? ' aria-current="page"' : ''}>${t.sortPlays}</a> · <a data-youtube-sort="duration" href="${basePath}?range=${data.range}&sort=duration"${sort === 'duration' ? ' aria-current="page"' : ''}>${t.sortTime}</a></span>`;
-  const channelList = `<section><div class="section-head"><h2>${t.topChannels}</h2>${sortLinks}</div>
+  const channelList = `<section class="section"><div class="section-head"><h2>${t.topChannels}</h2>${sortLinks}</div>
     <div class="yt-channels" data-youtube-sort-list="channels">${channels.map((channel, index) => {
       const metric = sort === 'duration' ? channel.estimatedWatchSeconds : channel.watches;
       return `<div class="yt-channel-row" data-watches="${channel.watches}" data-duration="${channel.estimatedWatchSeconds}"${index >= 12 ? ' hidden' : ''}>
@@ -672,36 +773,46 @@ export function youtubeDashboardPage(
   const orderedBuckets = [...data.lengthBuckets]
     .sort((a, b) => bucketOrder.indexOf(a.label) - bucketOrder.indexOf(b.label));
   const maxLength = Math.max(1, ...data.lengthBuckets.map((bucket) => bucket.videos));
-  const distribution = `<section><div class="section-head"><h2>${t.lengthMix}</h2><span>${t.uniqueVideos}</span></div><div class="yt-mix">${orderedBuckets.map((bucket) =>
+  const distribution = `<section class="section"><div class="section-head"><h2>${t.lengthMix}</h2><span>${t.uniqueVideos}</span></div><div class="yt-mix">${orderedBuckets.map((bucket) =>
     `<div class="yt-mix-row"><span>${html(t.buckets[bucket.label] ?? bucket.label)}</span><div class="yt-mix-track"><i style="background:${LENGTH_RAMP[bucket.label] ?? '#55534e'};width:${Math.round(bucket.videos / maxLength * 100)}%"></i></div><span>${bucket.videos}</span></div>`
   ).join('')}</div></section>`;
   const maxKeywordVideos = Math.max(1, ...data.keywords.map((item) => item.videos));
-  const taxonomy = `<div class="yt-taxonomy"><div><div class="section-head"><h2>${t.topics}</h2><span>${t.topicsSub(Math.round(data.stats.topicCoverage * 100))}</span></div>
+  const taxonomy = `<div class="yt-taxonomy"><section class="section"><div class="section-head"><h2>${t.topics}</h2><span>${t.topicsSub(Math.round(data.stats.topicCoverage * 100))}</span></div>
     <div class="yt-topic-list">${data.topics.length ? data.topics.map((topic) =>
       `<div class="yt-topic"><strong>${html(topic.name)}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
-    ).join('') : `<span class="muted">${t.topicsPending}</span>`}</div></div>
-    <div><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub}</span></div>
+    ).join('') : `<span class="muted">${t.topicsPending}</span>`}</div></section>
+    <section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub}</span></div>
     <div class="yt-keywords">${data.keywords.map((keyword, index) => {
       const size = 12 + Math.round(Math.sqrt(keyword.videos / maxKeywordVideos) * 18);
       // Keywords are text, so they wear ink tokens; size carries the weight.
       const colors = ['#f4f2ee', '#b8b5ad', '#8a877f'];
       const query = encodeURIComponent(keyword.term);
       return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(keyword.term)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
-    }).join('')}</div></div></div>`;
-  const recent = options.showRecent === false ? '' : `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${data.recent.map((video) =>
-    `<a class="yt-video" href="${html(video.url)}"><span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p><p class="yt-video-when">${timeAgo(video.watchedAt, lang)}</p></a>`
-  ).join('')}</div></section>`;
-  // The range and sort ride along in the title and h1 so every ?range/?sort
-  // variant of the page is uniquely named.
-  const scope = `${t.ranges[data.range]} · ${t.sortedBy(sort === 'watches' ? t.sortPlays : t.sortTime)}`;
+    }).join('')}</div></section></div>`;
+  const pageLabels: Record<YoutubeDashboardPageKind, string> = {
+    overview: t.navOverview, insights: t.navInsights, history: t.navHistory, recap: t.navRecap,
+  };
+  const pagePaths: Record<YoutubeDashboardPageKind, string> = {
+    overview: profilePath,
+    insights: `${profilePath}/insights`,
+    history: `${profilePath}/history`,
+    recap: `${profilePath}/recap`,
+  };
+  const pageNav = `<nav class="yt-page-nav" aria-label="YouTube profile">${(Object.keys(pagePaths) as YoutubeDashboardPageKind[]).map((key) =>
+    `<a href="${html(pagePaths[key])}?range=${data.range}&sort=${sort}"${key === page ? ' aria-current="page"' : ''}>${html(pageLabels[key])}</a>`
+  ).join('')}</nav>`;
+  // Range and sort ride along in the title so every view is clearly named.
+  const scope = page === 'overview'
+    ? `${pageLabels[page]} · ${t.ranges[data.range]} · ${t.sortedBy(sort === 'watches' ? t.sortPlays : t.sortTime)}`
+    : `${pageLabels[page]} · ${t.ranges[data.range]}`;
   const sortState = JSON.stringify({
     watches: {
-      scope: `${t.ranges[data.range]} · ${t.sortedBy(t.sortPlays)}`,
-      title: `${ownerName} · YouTube · ${t.ranges[data.range]} · ${t.sortedBy(t.sortPlays)} · urtube`,
+      scope: `${pageLabels.overview} · ${t.ranges[data.range]} · ${t.sortedBy(t.sortPlays)}`,
+      title: `${ownerName} · YouTube · ${pageLabels.overview} · ${t.ranges[data.range]} · ${t.sortedBy(t.sortPlays)} · urtube`,
     },
     duration: {
-      scope: `${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)}`,
-      title: `${ownerName} · YouTube · ${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)} · urtube`,
+      scope: `${pageLabels.overview} · ${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)}`,
+      title: `${ownerName} · YouTube · ${pageLabels.overview} · ${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)} · urtube`,
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url)}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('popstate',()=>apply(new URL(location.href).searchParams.get('sort')==='watches'?'watches':'duration',false));})();</script>`;
@@ -710,9 +821,17 @@ export function youtubeDashboardPage(
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
     <div class="yt-profile-meta"><a href="/">${t.home}</a></div></div></section>`;
-  return shell(`${ownerName} · YouTube · ${scope}`, intro + rangeNav + importControl + hero + (options.setupHtml ?? '')
-    + rhythmSection(data, t)
-    + `<div class="yt-columns">${channelList}${distribution}</div>`
-    + topVideos + shortFormSection(data, t, options.shortFormVariant)
-    + channelChase(data, t) + taxonomy + recent + sortScript, options.nav ?? [], '', lang, basePath);
+  const showRecent = options.showRecent !== false;
+  const overview = hero + (options.setupHtml ?? '') + recentSection(data, t, lang, showRecent)
+    + channelList + topVideos + sortScript;
+  const leanings = `<section class="section"><a class="yt-insights-link" href="${html(profilePath)}/tags?range=${data.range}"><div class="section-head"><h2>${t.navTagLean}</h2><strong>→</strong></div><p>${t.tagLeanContentSub}</p></a></section>`;
+  const insights = rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
+    + channelChase(data, t) + (options.insightsHtml ?? '') + distribution + taxonomy + leanings;
+  const history = historySection(options.history, data, t, lang, showRecent);
+  const recap = recapSection(data, t);
+  const content = page === 'overview' ? importControl + overview
+    : page === 'insights' ? insights
+      : page === 'history' ? history : recap;
+  return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + content,
+    options.nav ?? [], '', lang, basePath);
 }

@@ -119,6 +119,9 @@ test('private dashboards need their dashboard token; users cannot see each other
     assert.equal((await app.request('/dad?key=wrong-key')).status, 404);
     assert.equal((await app.request('/nobody')).status, 404);
     assert.equal((await app.request(`/dad?key=${dad.dashboardToken}`)).status, 200);
+    assert.equal((await app.request(`/dad/insights?key=${dad.dashboardToken}`)).status, 200);
+    assert.equal((await app.request(`/dad/history?key=${dad.dashboardToken}`)).status, 200);
+    assert.equal((await app.request(`/dad/recap?key=${dad.dashboardToken}`)).status, 200);
     assert.equal((await app.request(`/u/dad/summary.json?key=${dad.dashboardToken}`)).status, 200);
 
     // Legacy paths redirect to the top-level handle, keeping the query string.
@@ -152,12 +155,19 @@ test('public dashboards expose aggregates but keep individual recent watches pri
     assert.equal(anonymous.status, 200);
     const anonymousHtml = await anonymous.text();
     assert.ok(!anonymousHtml.includes('<h2>Recently watched</h2>'));
+    const publicHistory = await app.request('/public-view/history?range=all');
+    assert.equal(publicHistory.status, 200);
+    assert.ok((await publicHistory.text()).includes('Detailed watch history is private'));
 
     const keyed = await app.request(`/public-view?range=all&key=${publicUser.dashboardToken}`);
     assert.equal(keyed.status, 200);
     const keyedHtml = await keyed.text();
     assert.ok(keyedHtml.includes('<h2>Recently watched</h2>'));
     assert.ok(keyedHtml.includes('<h3>Privacy Fixture Video</h3>'));
+    const keyedHistory = await app.request(`/public-view/history?range=all&key=${publicUser.dashboardToken}`);
+    const keyedHistoryHtml = await keyedHistory.text();
+    assert.ok(keyedHistoryHtml.includes('<h2>Watch history</h2>'));
+    assert.ok(keyedHistoryHtml.includes('Privacy Fixture Video'));
   } finally {
     registry.close();
   }
