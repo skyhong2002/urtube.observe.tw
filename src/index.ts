@@ -15,7 +15,7 @@ import {
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
-import { tagLeanPage } from './output/taglean.js';
+import { tagLeanSection } from './output/taglean.js';
 import { readOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
@@ -184,7 +184,7 @@ export function createApp(registry: UserRegistry): Hono {
     return dashboardKeyAccess(c, user);
   }
 
-  function dashboardResponse(
+  async function dashboardResponse(
     c: Context,
     user: User,
     profilePath: string,
@@ -210,6 +210,18 @@ export function createApp(registry: UserRegistry): Hono {
     const showRecent = viewerOwns || dashboardKeyAccess(c, user);
     const crystalHtml = page === 'insights' && hasData
       ? shiftsSection(cachedCrystalFor(registry, user, repository, validity), lang) : '';
+    let leaningsHtml = '';
+    if (page === 'insights' && hasData) {
+      try {
+        const lists = await fetchTagLists();
+        leaningsHtml = tagLeanSection(
+          computeTagLean(range, repository.youtubeChannelTotals(range), lists),
+          lang,
+        );
+      } catch {
+        leaningsHtml = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
+      }
+    }
     const history = page === 'history' && showRecent
       ? repository.youtubeWatchHistory(range, 100) : undefined;
     warmedHandles.add(user.handle);
@@ -236,7 +248,7 @@ export function createApp(registry: UserRegistry): Hono {
         langToggle(c, lang),
       ],
       setupHtml: showSetup ? dashboardSetupSection(user, hasData, lang) : '',
-      insightsHtml: crystalHtml,
+      insightsHtml: crystalHtml + leaningsHtml,
       history,
       showRecent,
       shortFormVariant,
@@ -750,46 +762,20 @@ export function createApp(registry: UserRegistry): Hono {
     return dashboardResponse(c, user, `/${user.handle}`, page);
   };
 
-  // Four primary profile pages. Each is a single full-width vertical story;
-  // the /tags route below remains an auxiliary drill-down from Insights.
+  // Four primary profile pages. Each is a single full-width vertical story.
   app.get('/:handle/insights', profilePage('insights'));
   app.get('/:handle/history', profilePage('history'));
   app.get('/:handle/recap', profilePage('recap'));
 
-  // Channel-leanings subpage: watch time joined against the shared
-  // channels_list tag lists (news/editorial + political camps). Same access
-  // rule as the dashboard it belongs to.
-  app.get('/:handle/tags', async (c) => {
+  // Former fifth page: tags now render inside Insights. Keep old bookmarks
+  // working, and drop a one-time dashboard key from the redirected URL after
+  // dashboardAccess has persisted it in the HttpOnly cookie.
+  app.get('/:handle/tags', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
     if (!user || !dashboardAccess(c, user)) return notFoundPage(c);
-    const lang = langOf(c);
-    const t = messages(lang);
-    const range = requestedRange(c.req.query('range'));
-    let lists;
-    try {
-      lists = await fetchTagLists();
-    } catch {
-      return c.html(shell(t.tagLeanTitle, `<section style="margin:16vh auto 10vh;max-width:560px;text-align:center">
-        <h1 style="letter-spacing:-.03em;margin:0 0 10px">${t.tagLeanTitle}</h1>
-        <p style="color:var(--ink-2)">${t.tagLeanUnavailable}</p>
-      </section>`, [{ label: t.navDashboard, href: `/${user.handle}` }], '', lang), 503);
-    }
-    const channels = registry.repositoryFor(user).youtubeChannelTotals(range);
-    const data = computeTagLean(range, channels, lists);
-    const viewerOwns = sessionUser(c)?.id === user.id;
-    c.header('Cache-Control', 'no-cache');
-    if (!user.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
-    return c.html(tagLeanPage(user.displayName, data, {
-      basePath: `/${user.handle}/tags`,
-      dashboardPath: `/${user.handle}`,
-      lang,
-      nav: [
-        { label: t.navDashboard, href: `/${user.handle}` },
-        { label: t.navTagLean, href: `/${user.handle}/tags`, active: true },
-        ...(viewerOwns ? [{ label: t.navAccount, href: '/account' }] : []),
-        langToggle(c, lang),
-      ],
-    }));
+    const url = new URL(c.req.url);
+    url.searchParams.delete('key');
+    return c.redirect(`/${user.handle}/insights${url.search}`, 301);
   });
 
   // Registered last so every fixed route above wins: /<handle> is the

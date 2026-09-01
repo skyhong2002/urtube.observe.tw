@@ -588,8 +588,6 @@ const dashboardStyles = `
   .yt-private-note{text-align:center}.yt-private-note p{color:var(--ink-2);margin:0 auto;max-width:560px}
   .yt-recap-intro{padding:34px 28px}.yt-recap-intro h2{font-size:clamp(30px,5vw,54px);letter-spacing:-.045em;line-height:1.02;margin:5px 0 10px}.yt-recap-intro p{color:var(--ink-2);margin:0}
   .yt-recap-chapter{padding:30px 28px}.yt-recap-chapter>strong{display:block;font-size:clamp(30px,5vw,58px);letter-spacing:-.04em;line-height:1;margin:8px 0 12px}.yt-recap-chapter h2{font-size:17px;margin:0 0 7px}.yt-recap-chapter p{color:var(--ink-2);font-size:14px;margin:0;max-width:720px}.yt-recap-chapter a{color:inherit;text-decoration:none}.yt-recap-chapter a:hover{color:var(--accent-text)}
-  .yt-insights-link{display:block;text-decoration:none}.yt-insights-link p{color:var(--ink-2);margin:0}.yt-insights-link strong{color:var(--accent-text)}
-
   @media(max-width:560px){.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}.yt-video{grid-template-columns:110px minmax(0,1fr)}.yt-history-row{grid-template-columns:72px minmax(0,1fr)}.yt-history-row img,.yt-history-placeholder{width:72px}.yt-history-when{display:none}}
 `;
 
@@ -824,9 +822,8 @@ export function youtubeDashboardPage(
   const showRecent = options.showRecent !== false;
   const overview = hero + (options.setupHtml ?? '') + recentSection(data, t, lang, showRecent)
     + channelList + topVideos + sortScript;
-  const leanings = `<section class="section"><a class="yt-insights-link" href="${html(profilePath)}/tags?range=${data.range}"><div class="section-head"><h2>${t.navTagLean}</h2><strong>→</strong></div><p>${t.tagLeanContentSub}</p></a></section>`;
   const insights = rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
-    + channelChase(data, t) + (options.insightsHtml ?? '') + distribution + taxonomy + leanings;
+    + channelChase(data, t) + (options.insightsHtml ?? '') + distribution + taxonomy;
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   const content = page === 'overview' ? importControl + overview

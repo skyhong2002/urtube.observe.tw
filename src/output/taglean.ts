@@ -18,11 +18,12 @@ const CAMP_COLORS: Record<string, string> = {
 const CONTENT_COLOR = '#d03b3b';
 
 const tagLeanStyles = `
-  .tl-hero{align-items:end;display:grid;gap:26px;grid-template-columns:minmax(0,auto) minmax(0,1fr);padding:26px 28px}
+  .tl-hero{display:block;margin-top:18px;padding:26px 28px}
+  .tl-hero-title{font-size:17px;margin:5px 0 22px}
   .tl-hero-figure strong{align-items:baseline;display:flex;flex-wrap:wrap;gap:14px;font-size:clamp(40px,6vw,64px);font-weight:750;letter-spacing:-.045em;line-height:.95}
   .tl-hero-figure strong em{font-size:.52em;font-style:normal;font-weight:700;letter-spacing:-.01em}
   .tl-hero-figure span{color:var(--ink-2);display:block;font-size:13px;margin-top:10px}
-  .tl-hero-stats{display:grid;gap:10px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
+  .tl-hero-stats{border-top:1px solid var(--line);display:grid;gap:16px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));margin-top:24px;padding-top:20px}
 
   .tl-dot{border-radius:50%;display:inline-block;flex:none;height:10px;width:10px}
   .tl-stack{display:flex;gap:2px;height:26px;margin:4px 0 14px}
@@ -37,7 +38,7 @@ const tagLeanStyles = `
   .tl-row-value{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
   .tl-row-value strong{color:var(--ink);font-weight:650}
 
-  .tl-groups{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-top:20px}
+  .tl-groups{display:grid;gap:20px;grid-template-columns:1fr;margin-top:20px}
   .tl-group h3{align-items:center;display:flex;font-size:12px;gap:7px;letter-spacing:.02em;margin:0 0 9px}
   .tl-group h3 .tl-group-meta{color:var(--muted);font-size:10px;font-weight:600;margin-left:auto;text-align:right}
   .tl-channel{align-items:center;border-radius:8px;display:grid;gap:8px;grid-template-columns:24px minmax(0,1fr) 46px;padding:4px 4px 4px 0}
@@ -48,7 +49,7 @@ const tagLeanStyles = `
   .tl-empty{color:var(--muted);font-size:12px}
   .tl-coverage{color:var(--ink-2);font-size:14px;line-height:1.6;margin:16px 2px 0}
   .tl-foot{color:var(--muted);font-size:11px;margin-top:16px}
-  @media(max-width:820px){.tl-hero{grid-template-columns:1fr}.tl-row{grid-template-columns:88px minmax(0,1fr) 118px}}
+  @media(max-width:820px){.tl-row{grid-template-columns:88px minmax(0,1fr) 118px}}
 `;
 
 function channelAvatar(channel: { name: string; thumbnailUrl: string }): string {
@@ -113,13 +114,8 @@ export interface TagLeanPageOptions {
   lang?: Lang;
 }
 
-export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLeanPageOptions): string {
-  const lang = options.lang ?? 'en';
+export function tagLeanSection(data: TagLeanData, lang: Lang = 'en'): string {
   const t = messages(lang);
-  const rangeNav = `<nav class="yt-range" aria-label="Time range">${YOUTUBE_RANGES.map((range) =>
-    `<a href="${options.basePath}?range=${range}"${range === data.range ? ' aria-current="page"' : ''}>${t.ranges[range]}</a>`
-  ).join('')}</nav>`;
-
   const politicalSeconds = data.political.reduce((sum, group) => sum + group.estimatedWatchSeconds, 0);
   const dominant = [...data.political].sort((a, b) =>
     b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches)[0];
@@ -129,7 +125,7 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
       <span>${t.tagLeanHeroSub(t.ranges[data.range])}</span>`
     : `<strong>—</strong><span>${t.tagLeanHeroNone}</span>`;
   const matchedShare = pct(data.matched.estimatedWatchSeconds, data.totals.estimatedWatchSeconds);
-  const hero = `<section class="card tl-hero">
+  const hero = `<section class="card tl-hero"><div class="eyebrow">${t.tagLeanEyebrow}</div><h2 class="tl-hero-title">${t.tagLeanTitle}</h2>
     <div class="tl-hero-figure">${heroFigure}</div>
     <div class="tl-hero-stats">
       <div class="yt-stat"><strong>${hours(data.matched.estimatedWatchSeconds)}</strong><span>${t.tagLeanStatTaggedTime}</span></div>
@@ -165,14 +161,23 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
   // under the hero at reading size; only the source note stays in the footer.
   const coverage = `<p class="tl-coverage">${t.tagLeanCoverage(Math.round(matchedShare))}</p>`;
   const foot = `<p class="tl-foot">${t.tagLeanSource(html(config.tagListsUrl.replace(/^https?:\/\//, '').split('/')[0]))}</p>`;
+  return `<style>${tagLeanStyles}</style>${hero}${coverage}${politics}${content}${foot}`;
+}
+
+export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLeanPageOptions): string {
+  const lang = options.lang ?? 'en';
+  const t = messages(lang);
+  const rangeNav = `<nav class="yt-range" aria-label="Time range">${YOUTUBE_RANGES.map((range) =>
+    `<a href="${options.basePath}?range=${range}"${range === data.range ? ' aria-current="page"' : ''}>${t.ranges[range]}</a>`
+  ).join('')}</nav>`;
   // Page name + range in the title and h1: distinct from the dashboard's h1
   // for the same owner, and distinct across every ?range variant.
   const scope = `${t.tagLeanTitle} · ${t.ranges[data.range]}`;
-  const intro = `<style>${tagLeanStyles}</style><section class="yt-profile">
+  const intro = `<section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
     <div class="yt-profile-copy"><div class="eyebrow">${t.tagLeanEyebrow}</div>
     <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
     <div class="yt-profile-meta"><a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;
-  return shell(`${ownerName} · ${scope}`, intro + rangeNav + hero + coverage + politics + content + foot,
+  return shell(`${ownerName} · ${scope}`, intro + rangeNav + tagLeanSection(data, lang),
     options.nav ?? [], '', lang, options.basePath);
 }
