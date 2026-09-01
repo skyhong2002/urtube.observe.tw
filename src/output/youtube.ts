@@ -108,7 +108,24 @@ function rhythmClock(
 }
 
 function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
-  if (!data.hourly.length) return '';
+  const { exactWatches, dateOnlyWatches } = data.rhythmCoverage;
+  if (!exactWatches && !dateOnlyWatches) return '';
+  // A date-only history row is stored at local noon solely so it has a stable
+  // calendar date. It must never become a fake 12:00 viewing habit. When such
+  // rows dominate the selected range, suppress the visualization entirely;
+  // otherwise chart only the exact subset and disclose what was excluded.
+  const unreliable = dateOnlyWatches > 0 && dateOnlyWatches >= exactWatches;
+  if (unreliable) {
+    return `<section class="section"><div class="section-head"><div><h2>${t.rhythm}</h2>
+      <span>${t.rhythmSub(t.ranges[data.range])}</span></div></div>
+      <div class="yt-rhythm-quality yt-rhythm-quality-blocking" role="note">
+        <span class="yt-rhythm-quality-mark" aria-hidden="true">!</span><div><strong>${t.rhythmUnavailableTitle}</strong>
+        <p>${t.rhythmUnavailable(exactWatches, dateOnlyWatches)}</p></div>
+      </div></section>`;
+  }
+  const quality = dateOnlyWatches > 0
+    ? `<div class="yt-rhythm-quality" role="note"><span class="yt-rhythm-quality-mark" aria-hidden="true">!</span><div><strong>${t.rhythmPartialTitle}</strong><p>${t.rhythmPartial(exactWatches, dateOnlyWatches)}</p></div></div>`
+    : '';
   const tableRows = Array.from({ length: 24 }, (_, hour) => {
     const entry = data.hourly.find((item) => item.hour === hour);
     return entry?.watches
@@ -121,6 +138,7 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
       <button type="button" data-rhythm-metric="watches" aria-pressed="true">${t.rhythmWatches}</button>
       <button type="button" data-rhythm-metric="estimatedWatchSeconds" aria-pressed="false">${t.rhythmTime}</button>
     </div></div>
+    ${quality}
     <div class="yt-rhythm-clocks">${rhythmClock(data.hourly, 'watches', t.rhythmWatches, t)}${rhythmClock(data.hourly, 'estimatedWatchSeconds', t.rhythmTime, t)}</div>
     <details class="viz-table"><summary>${t.tableView}</summary><table>
       <thead><tr><th>${t.colHour}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
@@ -481,6 +499,10 @@ const dashboardStyles = `
   .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
   .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
   .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
+  .yt-rhythm-quality{align-items:flex-start;background:rgba(208,59,59,.08);border:1px solid rgba(230,103,103,.28);border-radius:12px;display:flex;gap:12px;margin:0 0 20px;padding:14px 16px}
+  .yt-rhythm-quality-mark{align-items:center;background:var(--accent);border-radius:50%;color:#fff;display:flex;flex:0 0 24px;font-size:13px;font-weight:800;height:24px;justify-content:center}
+  .yt-rhythm-quality strong{display:block;font-size:13px;margin-bottom:3px}.yt-rhythm-quality p{color:var(--ink-2);font-size:12px;line-height:1.6;margin:0;max-width:820px}
+  .yt-rhythm-quality-blocking{align-items:center;justify-content:center;margin-bottom:0;min-height:260px;padding:32px}.yt-rhythm-quality-blocking>div{max-width:680px}.yt-rhythm-quality-blocking strong{font-size:17px}.yt-rhythm-quality-blocking p{font-size:13px;margin-top:7px}
 
   .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
   .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:6px 11px}
@@ -670,7 +692,11 @@ function recapSection(data: YoutubeDashboardData, t: Messages): string {
   const peakDay = [...activeDays].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
   const topChannel = [...data.topChannels].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
   const topVideo = [...data.topVideos].sort((a, b) => b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
-  const peakHour = [...data.hourly].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0];
+  const rhythmReliable = data.rhythmCoverage.dateOnlyWatches === 0
+    || data.rhythmCoverage.exactWatches > data.rhythmCoverage.dateOnlyWatches;
+  const peakHour = rhythmReliable
+    ? [...data.hourly].sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)[0]
+    : undefined;
   const shortSeconds = data.shortFormDaily.reduce((sum, day) => sum + day.shortWatchSeconds, 0);
   const knownSeconds = data.shortFormDaily.reduce((sum, day) => sum + day.knownDurationWatchSeconds, 0);
   const chapter = (eyebrow: string, figure: string, title: string, copy: string) => `<section class="section yt-recap-chapter"><div class="yt-recap-figure"><div class="eyebrow">${html(eyebrow)}</div><strong>${html(figure)}</strong></div><div class="yt-recap-copy"><h2>${html(title)}</h2><p>${html(copy)}</p></div></section>`;
