@@ -1,12 +1,12 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
-import { zipSync } from 'fflate';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { config } from './config.js';
+import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import {
@@ -31,34 +31,6 @@ function requestedSort(value: string | undefined): 'watches' | 'duration' {
   return value === 'watches' ? 'watches' : 'duration';
 }
 
-// The unpacked extension, zipped once on first request so new users can
-// download exactly what this instance expects (endpoint already pinned).
-let extensionZip: Uint8Array | null = null;
-function buildExtensionZip(): Uint8Array {
-  if (!extensionZip) {
-    const dir = join(fileURLToPath(new URL('..', import.meta.url)), 'chrome-extension');
-    const files: Record<string, Uint8Array> = {};
-    for (const name of readdirSync(dir)) {
-      files[`urtube-extension/${name}`] = readFileSync(join(dir, name));
-    }
-    extensionZip = zipSync(files, { level: 9 });
-  }
-  return extensionZip;
-}
-
-let cachedExtensionVersion = '';
-function extensionVersion(): string {
-  if (!cachedExtensionVersion) {
-    try {
-      const manifest = JSON.parse(readFileSync(
-        join(fileURLToPath(new URL('..', import.meta.url)), 'chrome-extension', 'manifest.json'), 'utf8'));
-      cachedExtensionVersion = String(manifest.version ?? '');
-    } catch {
-      cachedExtensionVersion = '';
-    }
-  }
-  return cachedExtensionVersion;
-}
 
 // Minimal in-memory signup throttle; behind Caddy the client lands in the
 // first X-Forwarded-For entry.
@@ -627,7 +599,7 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/extension.zip', (c) => {
     const zip = buildExtensionZip();
     c.header('Content-Type', 'application/zip');
-    c.header('Content-Disposition', 'attachment; filename="urtube-extension.zip"');
+    c.header('Content-Disposition', `attachment; filename="${extensionDownloadName()}"`);
     c.header('Cache-Control', 'public, max-age=300');
     return c.body(zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer);
   });

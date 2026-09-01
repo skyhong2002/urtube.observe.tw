@@ -10,6 +10,7 @@
     "worker": "tsx src/youtube-worker.ts",
     "youtube:import": "tsx src/import-youtube.ts",
     "youtube:topics:rebuild": "tsx src/youtube-topics.ts",
+    "extension:release": "tsx scripts/build-extension-release.ts",
     "user:create": "tsx scripts/create-user.ts",
     "db:backup": "tsx scripts/backup.ts",
     "db:restore": "tsx scripts/restore-backup.ts",

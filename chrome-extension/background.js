@@ -10,6 +10,9 @@ const DAILY_SYNC_ALARM = 'sync-youtube-lifelog';
 const FLUSH_ALARM = 'flush-captures';
 const DAILY_SYNC_DUE_MS = 20 * 60 * 60_000;
 const DAILY_SYNC_OVERLAP_MS = 2 * 60 * 60_000;
+const DAILY_SYNC_RETRY_MS = 4 * 60 * 60_000;
+const TAB_MESSAGE_RETRY_MS = 10_000;
+const TAB_MESSAGE_POLL_MS = 500;
 let queueMutation = Promise.resolve();
 let flushPromise = null;
 
@@ -312,6 +315,44 @@ async function waitForTab(tabId) {
   });
 }
 
+// A tab reports "complete" before its content script has registered a
+// listener, and Google's account redirects can park it on a page no content
+// script matches at all. Retry that one failure briefly, then say which page
+// the tab actually stopped on instead of Chrome's opaque wording.
+function isMissingReceiver(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Receiving end does not exist|Could not establish connection/i.test(message);
+}
+
+async function missingReceiverError(tabId, page) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  let landed = null;
+  try {
+    if (tab?.url) {
+      const url = new URL(tab.url);
+      landed = `${url.origin}${url.pathname}`;
+    }
+  } catch {
+    landed = null;
+  }
+  return new Error(landed
+    ? `${page} did not load — the sync tab stopped at ${landed}`
+    : `${page} did not load in the sync tab`);
+}
+
+async function sendToTab(tabId, message, page) {
+  const deadline = Date.now() + TAB_MESSAGE_RETRY_MS;
+  for (;;) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (error) {
+      if (!isMissingReceiver(error)) throw error;
+      if (Date.now() >= deadline) throw await missingReceiverError(tabId, page);
+      await new Promise((resolve) => setTimeout(resolve, TAB_MESSAGE_POLL_MS));
+    }
+  }
+}
+
 async function closeHistoryImportTab(tabId) {
   if (!Number.isInteger(tabId)) return;
   await chrome.tabs.remove(tabId).catch(() => {});
@@ -349,12 +390,12 @@ async function startHistoryImport({
   void (async () => {
     try {
       await waitForTab(tab.id);
-      const result = await chrome.tabs.sendMessage(tab.id, {
+      const result = await sendToTab(tab.id, {
         type: 'start-history-import',
         scanId,
         observedAt,
         mode,
-      });
+      }, 'YouTube History');
       if (!result?.ok) throw new Error(result?.error || 'YouTube History import failed');
     } catch (error) {
       const storedStatus = await chrome.storage.local.get(HISTORY_STATUS_KEY);
@@ -461,12 +502,12 @@ async function startActivitySync(syncId, observedAt, since) {
   await lifelogStatus({ activityTabId: tab.id });
   try {
     await waitForTab(tab.id);
-    const result = await chrome.tabs.sendMessage(tab.id, {
+    const result = await sendToTab(tab.id, {
       type: 'start-activity-sync',
       syncId,
       observedAt,
       since,
-    });
+    }, 'Google My Activity');
     if (!result?.ok) throw new Error(result?.error || 'Google My Activity sync failed');
   } catch (error) {
     await closeActivitySyncTab(tab.id);
@@ -590,6 +631,15 @@ async function maybeStartLifelogSync() {
   if (status.state === 'running') return;
   const lastSuccess = Date.parse(status.lastSuccessAt ?? '');
   if (Number.isFinite(lastSuccess) && Date.now() - lastSuccess < DAILY_SYNC_DUE_MS) return;
+  // A sync that fails for a standing reason fails again every hour and keeps
+  // rewriting the same popup error. Back the automatic retry off; "Sync now"
+  // stays immediate.
+  const lastFailure = Date.parse(status.completedAt ?? '');
+  if (
+    status.state === 'error'
+    && Number.isFinite(lastFailure)
+    && Date.now() - lastFailure < DAILY_SYNC_RETRY_MS
+  ) return;
   await startLifelogSync({ automatic: true }).catch(() => {});
 }
 
@@ -638,6 +688,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then(() => maybeStartLifelogSync())
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+  if (message?.type === 'extension-update-check') {
+    checkExtensionUpdate()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (message?.type === 'history-import-start') {
@@ -825,6 +881,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await ensureAlarms();
   void flushQueue();
   void maybeStartLifelogSync();
+  void checkExtensionUpdate();
 });
 
 chrome.runtime.onStartup.addListener(async () => {

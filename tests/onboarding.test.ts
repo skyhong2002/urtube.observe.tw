@@ -448,6 +448,15 @@ test('extension download serves a zip of the pinned extension', async () => {
     const response = await app.request('/extension.zip');
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'application/zip');
+    // The saved file names the build it contains; the folder inside stays
+    // urtube-extension/ because an unpacked ID is derived from its path.
+    const { readFileSync } = await import('node:fs');
+    const bundled = JSON.parse(readFileSync(
+      new URL('../chrome-extension/manifest.json', import.meta.url), 'utf8')).version;
+    assert.equal(
+      response.headers.get('content-disposition'),
+      `attachment; filename="urtube-youtube-capture-${bundled}.zip"`,
+    );
     const bytes = new Uint8Array(await response.arrayBuffer());
     assert.equal(String.fromCharCode(bytes[0], bytes[1]), 'PK');
     assert.ok(bytes.length > 10_000);

@@ -8,6 +8,8 @@ const autoSync = document.querySelector('#auto-sync');
 const googleAccount = document.querySelector('#google-account');
 const result = document.querySelector('#result');
 
+document.querySelector('#version').textContent = `v${chrome.runtime.getManifest().version}`;
+
 async function load() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const settings = stored[SETTINGS_KEY] ?? {};

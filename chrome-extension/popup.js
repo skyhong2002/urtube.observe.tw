@@ -39,7 +39,13 @@ async function render() {
     : status.lastError ?? '';
   document.querySelector('#error').textContent = captureError;
   const latest = stored.latestExtensionVersion ?? '';
-  const updateDue = isNewerVersion(latest, chrome.runtime.getManifest().version);
+  const installed = chrome.runtime.getManifest().version;
+  const updateDue = isNewerVersion(latest, installed);
+  // Always name the build that is actually running: "which version am I on"
+  // was previously only answerable from chrome://extensions.
+  const versionTag = document.querySelector('#version');
+  versionTag.textContent = updateDue ? `v${installed} \u2192 v${latest}` : `v${installed}`;
+  versionTag.classList.toggle('outdated', updateDue);
   const updateBox = document.querySelector('#update');
   updateBox.hidden = !updateDue;
   if (updateDue) {
@@ -97,5 +103,11 @@ document.querySelector('#options').addEventListener('click', () => {
   void chrome.runtime.openOptionsPage();
 });
 
+// Opening the popup is the moment the answer matters, so re-check instead of
+// waiting for the hourly alarm. Web Store installs update themselves; unpacked
+// ones cannot, so the best Chrome allows is telling you promptly.
+void chrome.runtime.sendMessage({ type: 'extension-update-check' })
+  .then(render)
+  .catch(() => {});
 void render();
 window.setInterval(render, 1000);

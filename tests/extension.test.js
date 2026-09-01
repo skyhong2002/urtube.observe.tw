@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { mergeQueue, retryDelayMs } from '../chrome-extension/queue.js';
+import { extensionDownloadName } from '../src/extension-bundle.ts';
 
 await import('../chrome-extension/history.js');
 await import('../chrome-extension/myactivity.js');
@@ -12,7 +13,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.6.1');
+  assert.equal(manifest.version, '1.6.2');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -38,8 +39,12 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'https://urtube.observe.tw/extension-setup*',
   ]);
   assert.deepEqual(manifest.content_scripts[1].js, ['provision.js']);
+  // Chrome signed into several accounts serves My Activity from an
+  // account-indexed path, so both shapes must be matched or the sync tab
+  // loads without a content script to talk to.
   assert.deepEqual(manifest.content_scripts[2].matches, [
     'https://myactivity.google.com/product/youtube*',
+    'https://myactivity.google.com/u/*/product/youtube*',
   ]);
   assert.deepEqual(manifest.content_scripts[2].js, ['myactivity.js']);
   assert.deepEqual(manifest.content_scripts[3].matches, ['https://www.youtube.com/*']);
@@ -88,6 +93,58 @@ test('successful provisioning clears the install-time missing-token error immedi
   );
   assert.match(settingsHandler, /\.then\(\(\) => flushQueue\(\)\)/);
   assert.match(popup, /configured && status\.lastError === 'Capture token is not configured'/);
+});
+
+test('popup and options name the running build and re-check for updates on open', () => {
+  const read = (name) => readFileSync(
+    new URL(`../chrome-extension/${name}`, import.meta.url),
+    'utf8',
+  );
+  const manifest = JSON.parse(read('manifest.json'));
+  for (const page of ['popup.html', 'options.html']) {
+    assert.match(read(page), /<span id="version" class="version"><\/span>/);
+  }
+  // Both pages read the version from the manifest, so it can never drift from
+  // the build that is actually loaded.
+  assert.match(read('popup.js'), /chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(read('options.js'), /chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(read('popup.js'), /extension-update-check/);
+  assert.match(read('background.js'), /message\?\.type === 'extension-update-check'/);
+  assert.match(read('styles.css'), /\.version\.outdated \{/);
+  // The downloadable artifact is named after that same manifest version.
+  assert.equal(extensionDownloadName(), `urtube-youtube-capture-${manifest.version}.zip`);
+});
+
+test('My Activity sync accepts the account-indexed path a pinned account lands on', () => {
+  const { isActivityPath } = globalThis.urtubeYoutubeActivity;
+  assert.equal(isActivityPath('/product/youtube'), true);
+  assert.equal(isActivityPath('/product/youtube/'), true);
+  // authuser=<email> for a non-default account redirects here; before 1.6.2
+  // the content script never matched it and the sync tab had no receiver.
+  assert.equal(isActivityPath('/u/1/product/youtube'), true);
+  assert.equal(isActivityPath('/u/23/product/youtube'), true);
+  assert.equal(isActivityPath('/product/search'), false);
+  assert.equal(isActivityPath('/u/1/product/search'), false);
+  assert.equal(isActivityPath('/product/youtube/extra'), false);
+  assert.equal(isActivityPath(''), false);
+});
+
+test('sync tabs retry the no-receiver failure and back off after a failed auto sync', () => {
+  const background = readFileSync(
+    new URL('../chrome-extension/background.js', import.meta.url),
+    'utf8',
+  );
+  // Both sync tabs go through sendToTab, so a content script that is not
+  // listening yet is retried instead of failing the whole sync.
+  assert.doesNotMatch(background, /chrome\.tabs\.sendMessage\(tab\.id/);
+  assert.match(background, /sendToTab\(tab\.id, \{\s*type: 'start-activity-sync'/);
+  assert.match(background, /sendToTab\(tab\.id, \{\s*type: 'start-history-import'/);
+  assert.match(background, /Receiving end does not exist\|Could not establish connection/);
+  assert.match(background, /the sync tab stopped at/);
+  // An hourly alarm must not re-run a sync that just failed for a standing
+  // reason; that rewrote the same popup error every hour.
+  assert.match(background, /status\.state === 'error'\s*&& Number\.isFinite\(lastFailure\)/);
+  assert.match(background, /const DAILY_SYNC_RETRY_MS = 4 \* 60 \* 60_000;/);
 });
 
 test('My Activity helper parses cross-device watches, searches, and local timestamps', () => {
