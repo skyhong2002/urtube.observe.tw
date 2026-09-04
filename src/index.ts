@@ -219,12 +219,14 @@ export function createApp(registry: UserRegistry): Hono {
     let leaningsHtml = '';
     if (page === 'insights' && hasData) {
       try {
-        const lists = await fetchTagLists();
+        const snapshot = await fetchTagLists();
         leaningsHtml = tagLeanSection(
-          computeTagLean(range, repository.youtubeChannelTotals(range), lists),
+          computeTagLean(range, repository.youtubeChannelTotals(range), snapshot),
           lang,
         );
-      } catch {
+      } catch (error) {
+        console.warn('channel classifications unavailable:',
+          error instanceof Error ? error.message : 'unknown error');
         leaningsHtml = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
       }
     }

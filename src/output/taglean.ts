@@ -1,6 +1,5 @@
 import type { TagLeanData, TagLeanGroup } from '../youtube/taglists.js';
 import { YOUTUBE_RANGES } from '../youtube/types.js';
-import { config } from '../config.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { hours, html, shell, type ShellNavItem } from './pages.js';
 
@@ -21,7 +20,6 @@ const tagLeanStyles = `
   .tl-hero{display:block;margin-top:18px;padding:26px 28px}
   .tl-hero-title{font-size:17px;margin:5px 0 22px}
   .tl-hero-figure strong{align-items:baseline;display:flex;flex-wrap:wrap;gap:14px;font-size:clamp(40px,6vw,64px);font-weight:750;letter-spacing:-.045em;line-height:.95}
-  .tl-hero-figure strong em{font-size:.52em;font-style:normal;font-weight:700;letter-spacing:-.01em}
   .tl-hero-figure span{color:var(--ink-2);display:block;font-size:13px;margin-top:10px}
   .tl-hero-stats{border-top:1px solid var(--line);display:grid;gap:16px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));margin-top:24px;padding-top:20px}
 
@@ -124,11 +122,8 @@ export interface TagLeanPageOptions {
 export function tagLeanSection(data: TagLeanData, lang: Lang = 'en'): string {
   const t = messages(lang);
   const politicalSeconds = data.political.reduce((sum, group) => sum + group.estimatedWatchSeconds, 0);
-  const dominant = [...data.political].sort((a, b) =>
-    b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches)[0];
-  const dominantShare = dominant ? pct(dominant.estimatedWatchSeconds, politicalSeconds) : 0;
-  const heroFigure = politicalSeconds > 0 && dominant
-    ? `<strong><span style="align-items:center;display:inline-flex;gap:12px"><span class="tl-dot" style="background:${CAMP_COLORS[dominant.key]};height:.35em;width:.35em"></span>${html(t.tagGroups[dominant.key])}</span><em>${pctLabel(dominantShare)}</em></strong>
+  const heroFigure = politicalSeconds > 0
+    ? `<strong>${hours(politicalSeconds)}</strong>
       <span>${t.tagLeanHeroSub(t.ranges[data.range])}</span>`
     : `<strong>—</strong><span>${t.tagLeanHeroNone}</span>`;
   const matchedShare = pct(data.matched.estimatedWatchSeconds, data.totals.estimatedWatchSeconds);
@@ -164,10 +159,17 @@ export function tagLeanSection(data: TagLeanData, lang: Lang = 'en'): string {
     () => CONTENT_COLOR, t,
   );
 
-  // The coverage sentence scopes every number below it, so it sits right
-  // under the hero at reading size; only the source note stays in the footer.
   const coverage = `<p class="tl-coverage">${t.tagLeanCoverage(Math.round(matchedShare))}</p>`;
-  const foot = `<p class="tl-foot">${t.tagLeanSource(html(config.tagListsUrl.replace(/^https?:\/\//, '').split('/')[0]))}</p>`;
+  const provenance = data.provenance;
+  const sourceHost = provenance.sourceUrl.replace(/^https?:\/\//, '').split('/')[0];
+  const foot = `<p class="tl-foot">${t.tagLeanSource(
+    html(sourceHost),
+    html(provenance.policyVersion),
+    html(provenance.membershipVersion),
+    html(provenance.sourceUpdatedAt),
+    html(provenance.fetchedAt),
+  )} · <a href="${html(provenance.policyUrl)}">${t.tagLeanPolicyLink}</a> · <a href="${html(provenance.reportUrl)}">${t.tagLeanReportLink}</a></p>
+    <p class="tl-foot">${t.tagLeanCaveat}</p>`;
   return `<style>${tagLeanStyles}</style>${hero}${coverage}${politics}${content}${foot}`;
 }
 
