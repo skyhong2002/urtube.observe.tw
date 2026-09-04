@@ -1123,6 +1123,8 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     assert.match(html, /最近 12 個完整月份/);
     assert.match(html, /已分類 50% · 暫定/);
     assert.match(html, /只納入精確時間紀錄/);
+    assert.match(html, /\.yt-short-absolute\{[^}]*overflow:hidden/,
+      'dense history columns stay contained instead of widening the mobile page');
   } finally {
     repository.close();
   }
