@@ -17,7 +17,7 @@ credentials cross over, and which stay behind.
 
 | Infovore | urtube | Notes |
 |---|---|---|
-| `src/youtube/*` (takeout, capture, history-sync, progress, metadata, keywords, ai, portability, crypto, types) | `src/youtube/*` | Verbatim semantics. |
+| `src/youtube/*` (takeout, capture, history-sync, progress, metadata, keywords, ai, portability, crypto, types) | `src/youtube/*` | Verbatim semantics, except `keywords.ts`, which moved to the versioned v2 pipeline (`docs/keyword-pipeline.md`, #23) with a separate `keyword-lexicon.ts`. |
 | `src/data/database.ts` | `src/data/database.ts` | Same SQLite schema and migration chain (`user_version` 1–8) so a restored Infovore database opens unchanged. Non-YouTube repository methods (source sync, time ledger, stats.fm, backloggd) are dropped; their tables remain in the schema for restore compatibility. |
 | `src/data/activity.ts`, `src/data/time.ts`, `src/data/types.ts` | same | Needed by the YouTube ingestion path (`activities` rows with `visibility='summary'`). |
 | `src/ingest.ts` | `src/ingest.ts` | YouTube endpoints only. The generic `/api/ingest/events` endpoint **stays in Infovore** — it is not YouTube data. |

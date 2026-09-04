@@ -288,9 +288,27 @@ export interface YoutubeLengthBucket {
 }
 
 export interface YoutubeKeyword {
+  // Display label (most common spelling) and the canonical key that merged
+  // safe format variants (`foo bar` / `foo-bar` / `#foobar`).
   term: string;
+  key: string;
+  // Distinct sampled videos and distinct known channels the term appears in.
   videos: number;
+  channels: number;
+  // Source-weighted support × channel-diversity factor, normalized by the
+  // sampled video count. A "commonness" measure, not a trend.
   score: number;
+  sources: { title: number; tag: number; description: number };
+  aliases: string[];
+}
+
+export interface YoutubeKeywordCoverage {
+  // Large archives are sampled evenly across the range; both numbers are
+  // shown so the keyword list never poses as the whole period.
+  sampledVideos: number;
+  eligibleVideos: number;
+  algorithmVersion: number;
+  lexiconVersion: number;
 }
 
 export interface YoutubeDashboardData {
@@ -321,6 +339,7 @@ export interface YoutubeDashboardData {
   topics: YoutubeTopicSummary[];
   topicTrend: YoutubeTopicTrendMonth[];
   keywords: YoutubeKeyword[];
+  keywordCoverage: YoutubeKeywordCoverage;
   recent: YoutubeRecentVideo[];
 }
 

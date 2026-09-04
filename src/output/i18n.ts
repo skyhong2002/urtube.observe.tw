@@ -124,8 +124,13 @@ const en = {
   processingError: 'The last processing run hit an error. It retries automatically.',
   processingOpenDashboard: 'Open the dashboard →',
   provisional: 'provisional',
-  keywords: 'Trending keywords',
-  keywordsSub: 'public metadata only',
+  keywords: 'Common keywords',
+  keywordsSub: (sampled: number, eligible: number) => sampled < eligible
+    ? `public metadata · sampled ${sampled} of ${eligible} videos`
+    : `public metadata · ${eligible} video${eligible === 1 ? '' : 's'}`,
+  keywordTip: (channels: number, title: number, tags: number, description: number) =>
+    `${channels} channel${channels === 1 ? '' : 's'} · title ${title} · tags ${tags} · description ${description}`,
+  keywordsEmpty: 'Not enough distinctive keywords yet.',
   recent: 'Recently watched',
   recentSub: (n: number) => `${n} different videos`,
   historyTitle: 'Watch history',
@@ -495,8 +500,13 @@ const zh: typeof en = {
   processingError: '上一輪處理發生錯誤，系統會自動重試。',
   processingOpenDashboard: '前往儀表板 →',
   provisional: '暫定',
-  keywords: '熱門關鍵字',
-  keywordsSub: '僅使用公開中繼資料',
+  keywords: '常見關鍵字',
+  keywordsSub: (sampled: number, eligible: number) => sampled < eligible
+    ? `僅使用公開中繼資料 · 取樣 ${sampled}／${eligible} 部影片`
+    : `僅使用公開中繼資料 · 共 ${eligible} 部影片`,
+  keywordTip: (channels: number, title: number, tags: number, description: number) =>
+    `${channels} 個頻道 · 標題 ${title} · 標籤 ${tags} · 說明 ${description}`,
+  keywordsEmpty: '還沒有足夠有辨識度的關鍵字。',
   recent: '最近觀看',
   recentSub: (n: number) => `${n} 部不同影片`,
   historyTitle: '觀看歷史',
