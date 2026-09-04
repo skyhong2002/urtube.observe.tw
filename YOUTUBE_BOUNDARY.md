@@ -56,6 +56,12 @@ After migration, urtube creates `youtube_video_matching_topics` additively and
 the worker rebuilds it from public video metadata; Infovore has no source table
 for these versioned canonical classifications.
 
+The multi-user registry has a separate `crystals` table containing only the
+bounded matching projection, plus `crystal_refresh_queue` and an opt-in flag.
+Identity is joined by `user_id`; it is not copied into crystal JSON. Foreign
+keys cascade these shared rows on account deletion. These registry tables are
+included automatically in full backup bundles.
+
 The script prints per-table source vs. target row counts; migration is only
 considered successful when they match.
 

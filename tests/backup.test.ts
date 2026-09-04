@@ -9,6 +9,8 @@ import { restoreFullBackup } from '../scripts/restore-backup.js';
 import { Repository } from '../src/data/database.js';
 import { UserRegistry } from '../src/users.js';
 import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
+import { buildYoutubeCrystal } from '../src/youtube/crystal.js';
+import { registryMatchingCrystal } from '../src/youtube/registry-crystal.js';
 
 const SECRET = process.env.YOUTUBE_PRIVATE_DATA_KEY!;
 
@@ -41,6 +43,11 @@ test('full backup and restore cover registry, owner, and every materialized user
       publishedAt: null, categoryId: '27', availability: 'available', metadataHash: 'v1',
     }]);
     assert.equal(classifyYoutubeVideosForMatching(aliceRepository), 1);
+    registry.setMatchingOptIn(alice.handle, true);
+    registry.upsertMatchingCrystal(
+      alice,
+      registryMatchingCrystal(buildYoutubeCrystal(aliceRepository, alice)),
+    );
     new Repository(ownerPath).close();
   } finally {
     registry.close();
@@ -72,6 +79,8 @@ test('full backup and restore cover registry, owner, and every materialized user
     assert.ok(existsSync(join(restoreTarget, 'urtube.sqlite')));
     assert.ok(existsSync(join(restoreTarget, 'users', 'alice.sqlite')));
     assert.equal(rowCount(join(restoreTarget, 'users.sqlite'), 'users'), 2);
+    assert.equal(rowCount(join(restoreTarget, 'users.sqlite'), 'matching_profiles'), 1);
+    assert.equal(rowCount(join(restoreTarget, 'users.sqlite'), 'crystals'), 1);
     assert.equal(rowCount(join(restoreTarget, 'users', 'alice.sqlite'), 'youtube_sync_state'), 1);
     assert.equal(rowCount(join(restoreTarget, 'users', 'alice.sqlite'), 'youtube_video_matching_topics'), 1);
   } finally {

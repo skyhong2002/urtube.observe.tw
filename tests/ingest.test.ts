@@ -93,6 +93,7 @@ test('Takeout upload works with the admin token and is idempotent', async () => 
     const firstBody = await first.json() as Record<string, unknown>;
     assert.equal(firstBody.watchesInserted, 1);
     assert.equal(firstBody.searchesInserted, 1);
+    assert.equal(registry.crystalRefreshPending(), true);
 
     const again = await app.request('/api/ingest/youtube/takeout', {
       method: 'POST', headers, body: fixtureZip() as unknown as RequestInit['body'],

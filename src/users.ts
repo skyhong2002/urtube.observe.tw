@@ -4,6 +4,13 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { Repository } from './data/database.js';
+import { MATCHING_TAXONOMY } from './youtube/matching.js';
+import {
+  parseRegistryMatchingCrystal,
+  REGISTRY_CRYSTAL_VERSION,
+  registryCrystalEligible,
+  type RegistryMatchingCrystal,
+} from './youtube/registry-crystal.js';
 
 // Multi-tenant MVP: one small registry database maps hashed per-user tokens
 // to a user, and each user owns a separate SQLite data file that reuses the
@@ -36,6 +43,13 @@ export interface PendingSignup {
 export interface CreatedUser extends User {
   captureToken: string;
   dashboardToken: string;
+}
+
+export interface MatchableCrystal {
+  userId: number;
+  handle: string;
+  displayName: string;
+  crystal: RegistryMatchingCrystal;
 }
 
 function tokenHash(token: string): string {
@@ -75,7 +89,7 @@ export class UserRegistry {
     if (registryPath !== ':memory:') mkdirSync(dirname(registryPath), { recursive: true });
     this.dataDir = dataDir ?? (registryPath === ':memory:' ? ':memory:' : join(dirname(registryPath), 'users'));
     this.db = new DatabaseSync(registryPath);
-    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
+    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,6 +134,27 @@ export class UserRegistry {
         kind TEXT NOT NULL CHECK (kind IN ('oauth', 'pending')),
         payload TEXT NOT NULL DEFAULT '',
         expires_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS matching_profiles (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        opted_in INTEGER NOT NULL DEFAULT 0 CHECK (opted_in IN (0, 1)),
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS crystals (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('matching')),
+        version INTEGER NOT NULL,
+        taxonomy_version INTEGER NOT NULL,
+        generated_at TEXT NOT NULL,
+        eligible INTEGER NOT NULL CHECK (eligible IN (0, 1)),
+        json TEXT NOT NULL,
+        PRIMARY KEY(user_id, kind)
+      );
+      CREATE INDEX IF NOT EXISTS crystals_matchable_idx
+        ON crystals(kind, eligible, taxonomy_version, generated_at DESC);
+      CREATE TABLE IF NOT EXISTS crystal_refresh_queue (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        requested_at TEXT NOT NULL
       );
     `);
   }
@@ -210,6 +245,102 @@ export class UserRegistry {
   listUsers(): User[] {
     const rows = this.db.prepare('SELECT * FROM users ORDER BY id').all() as Array<Record<string, unknown>>;
     return rows.map(rowToUser);
+  }
+
+  setMatchingOptIn(handle: string, optedIn: boolean): void {
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    this.db.prepare(`
+      INSERT INTO matching_profiles(user_id, opted_in, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        opted_in=excluded.opted_in, updated_at=excluded.updated_at
+    `).run(user.id, optedIn ? 1 : 0, new Date().toISOString());
+  }
+
+  markCrystalDirty(user: User, requestedAt = new Date().toISOString()): void {
+    this.db.prepare(`
+      INSERT INTO crystal_refresh_queue(user_id, requested_at) VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET requested_at=excluded.requested_at
+    `).run(user.id, requestedAt);
+  }
+
+  crystalRefreshPending(): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM crystal_refresh_queue LIMIT 1').get());
+  }
+
+  upsertMatchingCrystal(user: User, crystal: RegistryMatchingCrystal): void {
+    if (crystal.kind !== 'matching' || crystal.taxonomyVersion !== MATCHING_TAXONOMY.version) {
+      throw new Error('Matching crystal uses an unsupported taxonomy version');
+    }
+    const json = JSON.stringify(crystal);
+    if (!parseRegistryMatchingCrystal(json)) throw new Error('Matching crystal is invalid');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(`
+        INSERT INTO crystals(
+          user_id, kind, version, taxonomy_version, generated_at, eligible, json
+        ) VALUES (?, 'matching', ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, kind) DO UPDATE SET
+          version=excluded.version,
+          taxonomy_version=excluded.taxonomy_version,
+          generated_at=excluded.generated_at,
+          eligible=excluded.eligible,
+          json=excluded.json
+      `).run(
+        user.id,
+        crystal.version,
+        crystal.taxonomyVersion,
+        crystal.generatedAt,
+        registryCrystalEligible(crystal) ? 1 : 0,
+        json,
+      );
+      // Keep a refresh request that arrived while this projection was being
+      // built. Equal timestamps err toward one harmless extra cycle.
+      this.db.prepare(`
+        DELETE FROM crystal_refresh_queue WHERE user_id=? AND requested_at<?
+      `).run(user.id, crystal.generatedAt);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  matchingCrystalFor(handle: string): RegistryMatchingCrystal | null {
+    const row = this.db.prepare(`
+      SELECT c.json FROM crystals c JOIN users u ON u.id=c.user_id
+      WHERE u.handle=? AND c.kind='matching'
+        AND c.version=? AND c.taxonomy_version=?
+    `).get(
+      handle,
+      REGISTRY_CRYSTAL_VERSION,
+      MATCHING_TAXONOMY.version,
+    ) as { json: string } | undefined;
+    return row ? parseRegistryMatchingCrystal(row.json) : null;
+  }
+
+  listMatchableCrystals(): MatchableCrystal[] {
+    const rows = this.db.prepare(`
+      SELECT u.id user_id, u.handle, u.display_name, c.json
+      FROM crystals c
+      JOIN users u ON u.id=c.user_id
+      JOIN matching_profiles p ON p.user_id=u.id AND p.opted_in=1
+      WHERE c.kind='matching' AND c.version=? AND c.eligible=1
+        AND c.taxonomy_version=?
+      ORDER BY u.id
+    `).all(
+      REGISTRY_CRYSTAL_VERSION,
+      MATCHING_TAXONOMY.version,
+    ) as Array<Record<string, unknown>>;
+    return rows.flatMap((row) => {
+      const crystal = parseRegistryMatchingCrystal(String(row.json));
+      return crystal ? [{
+        userId: Number(row.user_id),
+        handle: String(row.handle),
+        displayName: String(row.display_name),
+        crystal,
+      }] : [];
+    });
   }
 
   deleteUser(handle: string): void {
