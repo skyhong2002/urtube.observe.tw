@@ -76,11 +76,65 @@ export interface YoutubeProgressInput {
   durationSeconds: number | null;
 }
 
+// How a history-page scan ended. 'end-of-history' and 'covered' mean the page
+// was read down to the end or down into already-covered dates; 'time-limit'
+// still covers everything above where it stopped. The rest cover nothing.
+export type YoutubeScanEndReason =
+  | 'end-of-history'
+  | 'covered'
+  | 'time-limit'
+  | 'no-content'
+  | 'cancelled'
+  | 'error'
+  | 'no-receiver';
+
+export const YOUTUBE_SCAN_COVERING_REASONS: ReadonlySet<YoutubeScanEndReason> = new Set([
+  'end-of-history', 'covered', 'time-limit',
+]);
+
+export interface YoutubeScanSummary {
+  mode: 'full' | 'incremental';
+  videos: number;
+  passes: number;
+  endReason: YoutubeScanEndReason;
+  oldestWatchedAt: string | null;
+  newestWatchedAt: string | null;
+  error: string | null;
+  landedUrl: string | null;
+}
+
 export interface YoutubeProgressBatchInput {
   scanId: string;
   observedAt: string;
   complete: boolean;
   items: YoutubeProgressInput[];
+  summary?: YoutubeScanSummary;
+}
+
+// What the extension needs to decide how deep the next scan must go: the
+// observation time of the latest covering scan (everything watched before it
+// is already known) and the oldest day any covering scan reached.
+export interface YoutubeHistoryCoverage {
+  scanId: string;
+  coveredSince: string;
+  oldestWatchedAt: string | null;
+  endReason: YoutubeScanEndReason;
+  completedAt: string;
+}
+
+export interface YoutubeProgressImportRow {
+  scanId: string;
+  observedAt: string;
+  startedAt: string;
+  completedAt: string | null;
+  mode: 'full' | 'incremental' | null;
+  videos: number | null;
+  passes: number | null;
+  endReason: YoutubeScanEndReason | null;
+  oldestWatchedAt: string | null;
+  newestWatchedAt: string | null;
+  error: string | null;
+  landedUrl: string | null;
 }
 
 export interface YoutubeProgressImportResult {
@@ -97,6 +151,7 @@ export interface YoutubeHistoryStatus {
   latestSearchAt: string | null;
   watches: number;
   searches: number;
+  coverage: YoutubeHistoryCoverage | null;
 }
 
 export interface YoutubeVideoMetadata {

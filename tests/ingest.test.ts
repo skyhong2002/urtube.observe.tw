@@ -196,7 +196,30 @@ test('history batches dedupe overlapping checkpoint windows across syncs', async
   try {
     const status = await app.request('/api/ingest/youtube/history/status', { headers });
     assert.equal(status.status, 200);
-    assert.equal(((await status.json()) as Record<string, unknown>).latestEventAt, null);
+    const statusBody = (await status.json()) as Record<string, unknown>;
+    assert.equal(statusBody.latestEventAt, null);
+    assert.equal(statusBody.coverage, null);
+
+    // The extension reports how a scan ended even when it never sent a
+    // single progress row; a full read that reached the end becomes the
+    // coverage the next sync stops at.
+    const summary = (patch: Record<string, unknown>) => JSON.stringify({
+      scanId: 'scan-coverage-000000001', observedAt: new Date().toISOString(),
+      complete: true, items: [],
+      summary: {
+        mode: 'full', videos: 3, passes: 2, endReason: 'end-of-history',
+        oldestWatchedAt: '2026-07-17T04:00:00.000Z', newestWatchedAt: occurredAt,
+        error: null, landedUrl: null, ...patch,
+      },
+    });
+    const reported = await app.request('/api/ingest/youtube/progress', { method: 'POST', headers, body: summary({}) });
+    assert.equal(reported.status, 200);
+    const covered = await app.request('/api/ingest/youtube/history/status', { headers });
+    const coverage = ((await covered.json()) as Record<string, any>).coverage;
+    assert.equal(coverage.scanId, 'scan-coverage-000000001');
+    assert.equal(coverage.oldestWatchedAt, '2026-07-17T04:00:00.000Z');
+    const rejected = await app.request('/api/ingest/youtube/progress', { method: 'POST', headers, body: summary({ endReason: 'whatever' }) });
+    assert.equal(rejected.status, 400);
 
     const first = await app.request('/api/ingest/youtube/history', { method: 'POST', headers, body: payload('history-sync-aaaaaaaaaa') });
     assert.equal(first.status, 200);

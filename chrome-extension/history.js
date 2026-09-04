@@ -154,8 +154,46 @@
     return expired.length;
   }
 
+  // A daily sync may stop once the page reaches date groups the server has
+  // already covered. The cutoff is the local day two days before the covering
+  // scan ran: the day it ran is partial, and the overlap re-sends harmless
+  // duplicates rather than risking a gap.
+  const COVERAGE_OVERLAP_DAYS = 2;
+  function coverageCutoffDay(coveredSince) {
+    const at = Date.parse(coveredSince ?? '');
+    if (!Number.isFinite(at)) return null;
+    const date = new Date(at - COVERAGE_OVERLAP_DAYS * 86_400_000);
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0'),
+    ].join('-');
+  }
+
+  // Oldest and newest date groups seen so far; the page is newest-first, so
+  // the oldest is what a coverage decision needs.
+  function trackDateBounds(bounds, items) {
+    for (const item of items) {
+      if (!item.watchedDate) continue;
+      if (!bounds.oldest || item.watchedDate < bounds.oldest) bounds.oldest = item.watchedDate;
+      if (!bounds.newest || item.watchedDate > bounds.newest) bounds.newest = item.watchedDate;
+    }
+    return bounds;
+  }
+
+  // Local noon of a YYYY-MM-DD day as an ISO timestamp, matching the backfill
+  // events' stand-in time-of-day.
+  function dayTimestamp(day) {
+    if (!day) return null;
+    const [year, month, date] = day.split('-').map(Number);
+    return new Date(year, month - 1, date, 12).toISOString();
+  }
+
   globalThis.urtubeYoutubeHistory = {
     compactHistorySections,
+    coverageCutoffDay,
+    dayTimestamp,
+    trackDateBounds,
     collectProgress,
     collectProgressFromRoots,
     mergeProgress,

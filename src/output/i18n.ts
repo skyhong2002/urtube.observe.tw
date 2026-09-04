@@ -182,7 +182,7 @@ const en = {
   welcomeTokenLabel: 'Capture token',
   welcomeDash: '3 · Open your dashboard',
   welcomeDashPara: (isPublic: boolean) => `Bookmark this exact link${isPublic ? '' : ' — the key in it opens the dashboard even when you are signed out'}:`,
-  welcomeAfterPara: 'Watch any YouTube video for ≥30 seconds and it appears there as measured time. Optional: press <strong>Sync now</strong> in the extension popup to pull your recent account history and saved progress.',
+  welcomeAfterPara: 'Watch any YouTube video for ≥30 seconds and it appears there as measured time. The first <strong>Sync now</strong> opens your YouTube History page in a tab and reads all of it (minutes for a long history — leave that tab alone until it closes); later syncs stop as soon as they reach what is already archived.',
   welcomeLost: 'Lost your tokens? Sign in with Google again and rotate them from your <a href="/account">account page</a>.',
 
   signinGoogle: 'Sign in with Google',
@@ -482,7 +482,7 @@ const zh: typeof en = {
   welcomeTokenLabel: '擷取 token（capture token）',
   welcomeDash: '3 · 打開你的儀表板',
   welcomeDashPara: (isPublic: boolean) => `把這個連結加入書籤${isPublic ? '' : '——連結中的 key 在未登入時也能打開儀表板'}：`,
-  welcomeAfterPara: '看任何 YouTube 影片 30 秒以上，它就會以實測時間出現在儀表板。選用：在擴充功能 popup 按<strong>立即同步</strong>拉取近期帳號紀錄與儲存進度。',
+  welcomeAfterPara: '看任何 YouTube 影片 30 秒以上，它就會以實測時間出現在儀表板。第一次<strong>立即同步</strong>會開一個分頁讀完整個 YouTube 觀看紀錄頁（紀錄長的話要幾分鐘，分頁關掉前先別動它）；之後的同步一碰到已經存檔的日期就會停。',
   welcomeLost: '弄丟 token？用 Google 重新登入，到<a href="/account">帳號頁</a>重新產生即可。',
 
   signinGoogle: '使用 Google 登入',

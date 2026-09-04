@@ -172,7 +172,7 @@
     ].join(':');
   }
 
-  async function sendProgressBatch(scanId, observedAt, items, complete = false) {
+  async function sendProgressBatch(scanId, observedAt, items, complete = false, summary = null) {
     const payloadItems = items
       .filter((item) => item.progressPercent !== null || item.resumeSeconds !== null)
       .map((item) => ({
@@ -184,7 +184,10 @@
     if (!payloadItems.length && !complete) return { ok: true };
     const response = await chrome.runtime.sendMessage({
       type: 'history-progress-batch',
-      payload: { scanId, observedAt, items: payloadItems, complete },
+      payload: {
+        scanId, observedAt, items: payloadItems, complete,
+        ...(summary ? { summary } : {}),
+      },
     });
     if (!response?.ok) throw new Error(response?.error || 'Progress batch was rejected');
     return response;
@@ -223,13 +226,28 @@
     }
   }
 
-  async function runHistoryImport(scanId, observedAt, mode = 'full') {
+  // The history page renders its list well after the tab reports "complete",
+  // so nothing is judged until the first lockup appears (or the wait runs
+  // out). After that a scan ends only on a signal: no new lockups for a full
+  // idle window (the page really ended), a date group older than what the
+  // server already covers (a daily sync caught up), or the time limit.
+  const HISTORY_CONTENT_WAIT_MS = 60_000;
+  const HISTORY_IDLE_MS = 30_000;
+  const HISTORY_PASS_MS = 700;
+  const HISTORY_TIME_LIMIT_MS = { full: 60 * 60_000, incremental: 15 * 60_000 };
+
+  async function runHistoryImport(scanId, observedAt, options = {}) {
     if (location.pathname !== '/feed/history') {
       throw new Error('History import must run on the YouTube History page');
     }
+    const mode = options.mode === 'incremental' ? 'incremental' : 'full';
+    const coverageCutoff = mode === 'incremental'
+      ? globalThis.urtubeYoutubeHistory.coverageCutoffDay(options.coveredSince)
+      : null;
     historyImportCancelled = false;
     const sent = new Map();
     const pendingRoots = new Set();
+    const bounds = { oldest: null, newest: null };
     const historyObserver = new MutationObserver((records) => {
       for (const record of records) {
         for (const node of record.addedNodes) queueHistoryLockups(node, pendingRoots);
@@ -239,16 +257,31 @@
     for (const root of document.querySelectorAll('yt-lockup-view-model')) {
       pendingRoots.add(root);
     }
-    let idlePasses = 0;
-    const passLimit = mode === 'incremental' ? 120 : 900;
-    const videoLimit = mode === 'incremental' ? 1_200 : Number.POSITIVE_INFINITY;
-    const idleLimit = mode === 'incremental' ? 10 : 20;
+    const startedAt = Date.now();
+    let lastContentAt = null;
+    let passes = 0;
+    let endReason = null;
+    const summary = () => ({
+      mode,
+      videos: sent.size,
+      passes,
+      endReason,
+      oldestWatchedAt: globalThis.urtubeYoutubeHistory.dayTimestamp(bounds.oldest),
+      newestWatchedAt: globalThis.urtubeYoutubeHistory.dayTimestamp(bounds.newest),
+      error: null,
+      landedUrl: null,
+    });
     try {
-      for (let pass = 0; pass < passLimit; pass++) {
-        if (historyImportCancelled) throw new Error('History import cancelled');
+      for (;;) {
+        if (historyImportCancelled) {
+          endReason = 'cancelled';
+          throw new Error('History import cancelled');
+        }
+        passes++;
         const roots = [...pendingRoots];
         pendingRoots.clear();
         const items = globalThis.urtubeYoutubeHistory.collectProgressFromRoots(roots);
+        globalThis.urtubeYoutubeHistory.trackDateBounds(bounds, items);
         const changed = items.filter((item) => {
           const key = `${item.videoId}|${item.watchedDate ?? ''}`;
           const fingerprint = progressFingerprint(item);
@@ -265,21 +298,45 @@
           type: 'history-import-progress',
           scanId,
           videos: sent.size,
-          pass,
+          pass: passes,
         });
         globalThis.urtubeYoutubeHistory.compactHistorySections(document);
-        idlePasses = roots.length === 0 && changed.length === 0
-          ? idlePasses + 1
-          : 0;
-        if (idlePasses >= idleLimit || sent.size >= videoLimit) break;
+        const now = Date.now();
+        if (roots.length || changed.length) lastContentAt = now;
+        if (lastContentAt === null) {
+          if (now - startedAt >= HISTORY_CONTENT_WAIT_MS) {
+            endReason = 'no-content';
+            break;
+          }
+        } else if (coverageCutoff && bounds.oldest && bounds.oldest < coverageCutoff) {
+          endReason = 'covered';
+          break;
+        } else if (now - lastContentAt >= HISTORY_IDLE_MS) {
+          endReason = 'end-of-history';
+          break;
+        }
+        if (now - startedAt >= HISTORY_TIME_LIMIT_MS[mode]) {
+          endReason = 'time-limit';
+          break;
+        }
         window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
-        await wait(700);
+        await wait(HISTORY_PASS_MS);
       }
+    } catch (error) {
+      historyObserver.disconnect();
+      // Best effort: the server keeps how the scan died so failures can be
+      // diagnosed from the archive instead of from a screenshot of the popup.
+      if (endReason !== 'cancelled') endReason = 'error';
+      await sendProgressBatch(scanId, observedAt, [], true, {
+        ...summary(),
+        error: String(error instanceof Error ? error.message : error).slice(0, 500),
+      }).catch(() => {});
+      throw error;
     } finally {
       historyObserver.disconnect();
     }
-    await sendProgressBatch(scanId, observedAt, [], true);
-    return sent.size;
+    await sendProgressBatch(scanId, observedAt, [], true, summary());
+    return { videos: sent.size, endReason };
   }
 
   function handleNavigation() {
@@ -300,11 +357,15 @@
   window.addEventListener('pagehide', () => flush(true));
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'start-history-import') {
-      runHistoryImport(message.scanId, message.observedAt, message.mode)
-        .then((videos) => chrome.runtime.sendMessage({
+      runHistoryImport(message.scanId, message.observedAt, {
+        mode: message.mode,
+        coveredSince: message.coveredSince ?? null,
+      })
+        .then((result) => chrome.runtime.sendMessage({
           type: 'history-import-complete',
           scanId: message.scanId,
-          videos,
+          videos: result.videos,
+          endReason: result.endReason,
         }))
         .catch((error) => chrome.runtime.sendMessage({
           type: 'history-import-error',
