@@ -15,11 +15,27 @@ const itemSchema = z.object({
   'A progress percentage or resume position is required',
 );
 
+const summarySchema = z.object({
+  mode: z.enum(['full', 'incremental']),
+  videos: z.number().int().min(0).max(10_000_000),
+  passes: z.number().int().min(0).max(10_000_000),
+  endReason: z.enum([
+    'end-of-history', 'covered', 'time-limit', 'no-content', 'cancelled', 'error', 'no-receiver',
+  ]),
+  oldestWatchedAt: z.string().datetime({ offset: true }).nullable(),
+  newestWatchedAt: z.string().datetime({ offset: true }).nullable(),
+  error: z.string().max(500).nullable(),
+  landedUrl: z.string().max(500).nullable(),
+}).strict();
+
 const batchSchema = z.object({
   scanId: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
   observedAt: z.string().datetime({ offset: true }),
   complete: z.boolean(),
   items: z.array(itemSchema).max(250),
+  // Only the completing batch carries how the scan ended; it is what turns a
+  // scan into history coverage the next sync can stop at.
+  summary: summarySchema.optional(),
 }).strict();
 
 export function normalizeYoutubeProgressBatch(
@@ -27,6 +43,9 @@ export function normalizeYoutubeProgressBatch(
   now = new Date(),
 ): YoutubeProgressBatchInput {
   const parsed = batchSchema.parse(value);
+  if (parsed.summary && !parsed.complete) {
+    throw new Error('A scan summary is only accepted on the completing batch');
+  }
   const observedAt = new Date(parsed.observedAt);
   if (observedAt.getTime() > now.getTime() + 5 * 60_000) {
     throw new Error('Progress observation time is too far in the future');
@@ -46,6 +65,15 @@ export function normalizeYoutubeProgressBatch(
     observedAt: observedAt.toISOString(),
     complete: parsed.complete,
     items,
+    ...(parsed.summary ? {
+      summary: {
+        ...parsed.summary,
+        oldestWatchedAt: parsed.summary.oldestWatchedAt === null
+          ? null : new Date(parsed.summary.oldestWatchedAt).toISOString(),
+        newestWatchedAt: parsed.summary.newestWatchedAt === null
+          ? null : new Date(parsed.summary.newestWatchedAt).toISOString(),
+      },
+    } : {}),
   };
 }
 

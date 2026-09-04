@@ -358,10 +358,49 @@ async function closeHistoryImportTab(tabId) {
   await chrome.tabs.remove(tabId).catch(() => {});
 }
 
+// Tells the server how a scan ended when the content script could not (it
+// never ran, or it was cancelled from here). Best effort; the diagnosis lives
+// in the archive so a failing account can be read without its popup.
+async function reportScanEnd(status, endReason, { error = null, landedUrl = null } = {}) {
+  if (!status?.scanId || !status?.observedAt) return;
+  await sendProgressBatch({
+    scanId: status.scanId,
+    observedAt: status.observedAt,
+    items: [],
+    complete: true,
+    summary: {
+      mode: status.mode === 'incremental' ? 'incremental' : 'full',
+      videos: Number(status.videos ?? 0),
+      passes: Number(status.pass ?? 0),
+      endReason,
+      oldestWatchedAt: null,
+      newestWatchedAt: null,
+      error: error ? String(error).slice(0, 500) : null,
+      landedUrl: landedUrl ? String(landedUrl).slice(0, 500) : null,
+    },
+  }).catch(() => {});
+}
+
+async function landedUrlOf(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  try {
+    if (!tab?.url) return null;
+    const url = new URL(tab.url);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
+// mode 'full' reads the whole page; 'incremental' stops at date groups the
+// server already covers (coveredSince). A full read of a long history takes
+// many minutes, and Chrome throttles timers in hidden tabs after five, so
+// user-initiated full reads open in the foreground.
 async function startHistoryImport({
   active = true,
   mode = 'full',
   parentSyncId = null,
+  coveredSince = null,
 } = {}) {
   const config = await settings();
   if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
@@ -376,7 +415,7 @@ async function startHistoryImport({
     url: withAuthuser('https://www.youtube.com/feed/history', config.googleAccount),
   });
   if (!tab.id) throw new Error('Could not open YouTube History');
-  await historyStatus({
+  const status = {
     state: 'running',
     scanId,
     observedAt,
@@ -384,9 +423,13 @@ async function startHistoryImport({
     videos: 0,
     pass: 0,
     mode,
+    active,
+    coveredSince,
     parentSyncId,
+    endReason: null,
     lastError: '',
-  });
+  };
+  await historyStatus(status);
   void (async () => {
     try {
       await waitForTab(tab.id);
@@ -395,16 +438,20 @@ async function startHistoryImport({
         scanId,
         observedAt,
         mode,
+        coveredSince,
       }, 'YouTube History');
       if (!result?.ok) throw new Error(result?.error || 'YouTube History import failed');
     } catch (error) {
       const storedStatus = await chrome.storage.local.get(HISTORY_STATUS_KEY);
       if (storedStatus[HISTORY_STATUS_KEY]?.state === 'cancelled') return;
+      const landedUrl = await landedUrlOf(tab.id);
       await historyStatus({
         state: 'error',
+        endReason: 'no-receiver',
         completedAt: new Date().toISOString(),
         lastError: error instanceof Error ? error.message : String(error),
       });
+      await reportScanEnd(status, 'no-receiver', { error, landedUrl });
       await closeHistoryImportTab(tab.id);
       if (parentSyncId) await failLifelogSync(parentSyncId, error);
     }
@@ -419,8 +466,10 @@ async function cancelHistoryImport() {
     await chrome.tabs.sendMessage(status.tabId, { type: 'cancel-history-import' }).catch(() => {});
   }
   await closeHistoryImportTab(status.tabId);
+  if (status.state === 'running') await reportScanEnd(status, 'cancelled');
   await historyStatus({
     state: 'cancelled',
+    endReason: 'cancelled',
     completedAt: new Date().toISOString(),
     lastError: '',
   });
@@ -430,7 +479,7 @@ async function finishHistoryImport(scanId, patch) {
   const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
   const status = stored[HISTORY_STATUS_KEY] ?? {};
   if (status.scanId !== scanId || status.state !== 'running') {
-    return { updated: false, tabId: null, parentSyncId: null };
+    return { updated: false, tabId: null, parentSyncId: null, active: false };
   }
   await historyStatus({
     ...patch,
@@ -440,6 +489,7 @@ async function finishHistoryImport(scanId, patch) {
     updated: true,
     tabId: status.tabId ?? null,
     parentSyncId: status.parentSyncId ?? null,
+    active: Boolean(status.active),
   };
 }
 
@@ -532,6 +582,7 @@ async function startLifelogSync({ automatic = false } = {}) {
     remote.latestEventAt,
   ].filter(Boolean).sort();
   const latestEventAt = candidates.at(-1) ?? null;
+  const historyCoverage = remote.coverage ?? null;
   const since = latestEventAt
     ? new Date(Date.parse(latestEventAt) - DAILY_SYNC_OVERLAP_MS).toISOString()
     : new Date(Date.now() - 7 * 86_400_000).toISOString();
@@ -549,6 +600,7 @@ async function startLifelogSync({ automatic = false } = {}) {
     videos: 0,
     pass: 0,
     latestEventAt,
+    historyCoverage,
     activityTabId: null,
     historyTabId: null,
     lastError: '',
@@ -583,11 +635,22 @@ async function completeActivitySync(syncId, patch) {
     activityTabId: null,
   });
   try {
-    const history = await startHistoryImport({
-      active: false,
-      mode: 'incremental',
-      parentSyncId: syncId,
-    });
+    // No covering scan yet (new account, or every scan so far failed): read
+    // the whole page once. Only a sync the user asked for may take the
+    // foreground; the hourly automatic one stays hidden even if slower.
+    const coverage = status.historyCoverage ?? null;
+    const history = await startHistoryImport(coverage
+      ? {
+        active: false,
+        mode: 'incremental',
+        coveredSince: coverage.coveredSince,
+        parentSyncId: syncId,
+      }
+      : {
+        active: !status.automatic,
+        mode: 'full',
+        parentSyncId: syncId,
+      });
     await lifelogStatus({ historyTabId: history.tabId });
     return { updated: true };
   } catch (error) {
@@ -807,11 +870,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     finishHistoryImport(message.scanId, {
       state: 'complete',
       videos: message.videos,
+      endReason: message.endReason ?? null,
       lastError: '',
     })
-      .then(({ updated, tabId, parentSyncId }) => {
+      .then(({ updated, tabId, parentSyncId, active }) => {
         sendResponse({ ok: true, updated });
-        void closeHistoryImportTab(tabId);
+        // A foreground read that never saw a single video stays open: the
+        // page itself is the explanation (signed-out, history off, ...).
+        if (!(active && message.endReason === 'no-content')) void closeHistoryImportTab(tabId);
         if (updated && parentSyncId) void finishLifelogSync(parentSyncId, message.videos);
       })
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
@@ -820,6 +886,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'history-import-error') {
     finishHistoryImport(message.scanId, {
       state: 'error',
+      endReason: 'error',
       lastError: String(message.error || 'YouTube History import failed'),
     })
       .then(({ updated, tabId, parentSyncId }) => {

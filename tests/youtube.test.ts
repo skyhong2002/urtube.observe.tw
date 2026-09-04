@@ -680,6 +680,87 @@ test('YouTube watch estimates, measured sessions, and content progress remain se
   }
 });
 
+test('history coverage comes from covering scans only and advances with each caught-up sync', () => {
+  const repository = new Repository(':memory:');
+  const scan = (scanId: string, observedAt: string, summary: Record<string, unknown>) =>
+    repository.ingestYoutubeProgress({
+      scanId, observedAt, complete: true, items: [],
+      summary: {
+        mode: 'full', videos: 0, passes: 1, endReason: 'end-of-history',
+        oldestWatchedAt: null, newestWatchedAt: null, error: null, landedUrl: null,
+        ...summary,
+      } as never,
+    });
+  try {
+    assert.equal(repository.youtubeHistoryStatus().coverage, null);
+
+    // A background tab that never rendered the list covers nothing, and
+    // neither does a read the account could not even start.
+    scan('scan-no-content-000001', '2026-09-04T12:35:54.000Z', { mode: 'incremental', endReason: 'no-content' });
+    scan('scan-no-receiver-00001', '2026-09-04T12:38:18.000Z', {
+      endReason: 'no-receiver', error: 'YouTube History did not load — the sync tab stopped at https://accounts.google.com/',
+      landedUrl: 'https://accounts.google.com/',
+    });
+    assert.equal(repository.youtubeHistoryStatus().coverage, null);
+
+    scan('scan-full-0000000000001', '2026-09-04T12:52:30.000Z', {
+      videos: 51005, passes: 1500, endReason: 'end-of-history',
+      oldestWatchedAt: '2018-11-25T04:00:00.000Z', newestWatchedAt: '2026-09-04T04:00:00.000Z',
+    });
+    let coverage = repository.youtubeHistoryStatus().coverage;
+    assert.equal(coverage?.scanId, 'scan-full-0000000000001');
+    assert.equal(coverage?.coveredSince, '2026-09-04T12:52:30.000Z');
+    assert.equal(coverage?.oldestWatchedAt, '2018-11-25T04:00:00.000Z');
+    assert.equal(coverage?.endReason, 'end-of-history');
+
+    // A later sync that stopped at already-covered dates moves the frontier
+    // forward while the deepest day stays the full read's.
+    scan('scan-incremental-000001', '2026-09-05T13:00:00.000Z', {
+      mode: 'incremental', videos: 40, passes: 3, endReason: 'covered',
+      oldestWatchedAt: '2026-09-02T04:00:00.000Z', newestWatchedAt: '2026-09-05T04:00:00.000Z',
+    });
+    coverage = repository.youtubeHistoryStatus().coverage;
+    assert.equal(coverage?.scanId, 'scan-incremental-000001');
+    assert.equal(coverage?.coveredSince, '2026-09-05T13:00:00.000Z');
+    assert.equal(coverage?.oldestWatchedAt, '2018-11-25T04:00:00.000Z');
+
+    // A cancelled read after that does not roll the frontier back or forward.
+    scan('scan-cancelled-0000001', '2026-09-06T13:00:00.000Z', { endReason: 'cancelled' });
+    assert.equal(repository.youtubeHistoryStatus().coverage?.scanId, 'scan-incremental-000001');
+
+    // The scan row keeps the diagnosis.
+    const rows = repository.youtubeProgressImports();
+    const failed = rows.find((row) => row.scanId === 'scan-no-receiver-00001');
+    assert.equal(failed?.endReason, 'no-receiver');
+    assert.equal(failed?.landedUrl, 'https://accounts.google.com/');
+    assert.match(failed?.error ?? '', /did not load/);
+  } finally {
+    repository.close();
+  }
+});
+
+test('a scan summary is only accepted on the completing batch', () => {
+  assert.throws(() => normalizeYoutubeProgressBatch({
+    scanId: 'scan-summary-0000000001', observedAt: new Date().toISOString(), complete: false, items: [],
+    summary: {
+      mode: 'full', videos: 0, passes: 0, endReason: 'end-of-history',
+      oldestWatchedAt: null, newestWatchedAt: null, error: null, landedUrl: null,
+    },
+  }), /only accepted on the completing batch/);
+  const batch = normalizeYoutubeProgressBatch({
+    scanId: 'scan-summary-0000000001', observedAt: new Date().toISOString(), complete: true, items: [],
+    summary: {
+      mode: 'incremental', videos: 12, passes: 4, endReason: 'covered',
+      oldestWatchedAt: '2026-09-02T04:00:00+08:00', newestWatchedAt: null, error: null, landedUrl: null,
+    },
+  });
+  assert.equal(batch.summary?.oldestWatchedAt, '2026-09-01T20:00:00.000Z');
+  assert.throws(() => normalizeYoutubeProgressBatch({
+    scanId: 'scan-summary-0000000001', observedAt: new Date().toISOString(), complete: true, items: [],
+    summary: { mode: 'full', videos: 0, passes: 0, endReason: 'gave-up' },
+  }));
+});
+
 test('saved progress bounds a full-length estimate across a long inactive gap', () => {
   const repository = new Repository(':memory:');
   const now = new Date('2026-08-17T12:00:00Z');

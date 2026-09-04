@@ -9,7 +9,9 @@ import type {
   YoutubeChannelRace,
   YoutubeChannelSummary,
   YoutubeDashboardData,
+  YoutubeHistoryCoverage,
   YoutubeHistoryStatus,
+  YoutubeScanEndReason,
   YoutubeCapturedWatch,
   YoutubeCaptureResult,
   YoutubeImportResult,
@@ -17,11 +19,13 @@ import type {
   YoutubeParsedArchive,
   YoutubeProgressBatchInput,
   YoutubeProgressImportResult,
+  YoutubeProgressImportRow,
   YoutubeRange,
   YoutubeRecentVideo,
   YoutubeTopic,
   YoutubeVideoMetadata,
 } from '../youtube/types.js';
+import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
 import { extractYoutubeKeywords } from '../youtube/keywords.js';
 import { progressSeconds } from '../youtube/progress.js';
 
@@ -306,6 +310,8 @@ export class Repository {
     if (afterExtensionImports.user_version < 7) this.migrateTimeLedger();
     const afterTimeLedger = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     if (afterTimeLedger.user_version < 8) this.migrateBackloggdDailyLedger();
+    const afterBackloggd = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterBackloggd.user_version < 9) this.migrateYoutubeScanSummaries();
   }
 
   private migrateYoutube(): void {
@@ -543,6 +549,28 @@ export class Repository {
       DELETE FROM time_ledger WHERE source = 'backloggd';
       DELETE FROM time_ledger_state WHERE source = 'backloggd';
       PRAGMA user_version = 8;
+      COMMIT;
+    `);
+  }
+
+  // How each history-page scan ended, reported by the extension with its
+  // completing batch. Covering scans define how far back the archive is
+  // known, which is what lets a daily sync stop early instead of re-reading
+  // the whole page or guessing with a fixed video cap.
+  private migrateYoutubeScanSummaries(): void {
+    this.db.exec(`
+      BEGIN;
+      ALTER TABLE youtube_progress_imports ADD COLUMN mode TEXT;
+      ALTER TABLE youtube_progress_imports ADD COLUMN videos INTEGER;
+      ALTER TABLE youtube_progress_imports ADD COLUMN passes INTEGER;
+      ALTER TABLE youtube_progress_imports ADD COLUMN end_reason TEXT;
+      ALTER TABLE youtube_progress_imports ADD COLUMN oldest_watched_at TEXT;
+      ALTER TABLE youtube_progress_imports ADD COLUMN newest_watched_at TEXT;
+      ALTER TABLE youtube_progress_imports ADD COLUMN error TEXT;
+      ALTER TABLE youtube_progress_imports ADD COLUMN landed_url TEXT;
+      CREATE INDEX IF NOT EXISTS youtube_progress_imports_coverage_idx
+        ON youtube_progress_imports(end_reason, observed_at DESC);
+      PRAGMA user_version = 9;
       COMMIT;
     `);
   }
@@ -990,6 +1018,19 @@ export class Repository {
           WHERE scan_id=?
         `).run(importedAt, batch.scanId);
       }
+      if (batch.summary) {
+        const summary = batch.summary;
+        this.db.prepare(`
+          UPDATE youtube_progress_imports
+          SET mode=?, videos=?, passes=?, end_reason=?, oldest_watched_at=?,
+            newest_watched_at=?, error=?, landed_url=?
+          WHERE scan_id=?
+        `).run(
+          summary.mode, summary.videos, summary.passes, summary.endReason,
+          summary.oldestWatchedAt, summary.newestWatchedAt, summary.error,
+          summary.landedUrl, batch.scanId,
+        );
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -1053,6 +1094,61 @@ export class Repository {
       latestSearchAt: search.latest_at,
       watches: Number(watch.count),
       searches: Number(search.count),
+      coverage: this.youtubeHistoryCoverage(),
+    };
+  }
+
+  // The latest completed scan that read the page to its end, into dates a
+  // previous covering scan already held, or up to its time limit. Everything
+  // watched before that scan ran is known; the oldest day is the deepest any
+  // covering scan reached. Scans that never saw content, failed, or were
+  // cancelled cover nothing.
+  // Recent scans with how they ended: the operator's view of an account whose
+  // syncs keep coming back empty.
+  youtubeProgressImports(limit = 50): YoutubeProgressImportRow[] {
+    const rows = this.db.prepare(`
+      SELECT scan_id, observed_at, started_at, completed_at, mode, videos, passes,
+        end_reason, oldest_watched_at, newest_watched_at, error, landed_url
+      FROM youtube_progress_imports
+      ORDER BY observed_at DESC LIMIT ?
+    `).all(Math.max(1, Math.min(500, Math.floor(limit)))) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      scanId: String(row.scan_id),
+      observedAt: String(row.observed_at),
+      startedAt: String(row.started_at),
+      completedAt: row.completed_at === null ? null : String(row.completed_at),
+      mode: row.mode === null ? null : row.mode as 'full' | 'incremental',
+      videos: row.videos === null ? null : Number(row.videos),
+      passes: row.passes === null ? null : Number(row.passes),
+      endReason: row.end_reason === null ? null : row.end_reason as YoutubeScanEndReason,
+      oldestWatchedAt: row.oldest_watched_at === null ? null : String(row.oldest_watched_at),
+      newestWatchedAt: row.newest_watched_at === null ? null : String(row.newest_watched_at),
+      error: row.error === null ? null : String(row.error),
+      landedUrl: row.landed_url === null ? null : String(row.landed_url),
+    }));
+  }
+
+  youtubeHistoryCoverage(): YoutubeHistoryCoverage | null {
+    const reasons = [...YOUTUBE_SCAN_COVERING_REASONS];
+    const placeholders = reasons.map(() => '?').join(',');
+    const row = this.db.prepare(`
+      SELECT scan_id, observed_at, end_reason, completed_at,
+        (SELECT MIN(oldest_watched_at) FROM youtube_progress_imports
+          WHERE completed_at IS NOT NULL AND end_reason IN (${placeholders})) oldest_watched_at
+      FROM youtube_progress_imports
+      WHERE completed_at IS NOT NULL AND end_reason IN (${placeholders})
+      ORDER BY observed_at DESC LIMIT 1
+    `).get(...reasons, ...reasons) as {
+      scan_id: string; observed_at: string; end_reason: string;
+      completed_at: string; oldest_watched_at: string | null;
+    } | undefined;
+    if (!row) return null;
+    return {
+      scanId: row.scan_id,
+      coveredSince: row.observed_at,
+      oldestWatchedAt: row.oldest_watched_at,
+      endReason: row.end_reason as YoutubeScanEndReason,
+      completedAt: row.completed_at,
     };
   }
 

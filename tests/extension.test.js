@@ -13,7 +13,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.6.2');
+  assert.equal(manifest.version, '1.7.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -338,7 +338,7 @@ test('history helper parses duration and merges duplicate resume progress', () =
   assert.equal(helper.parseHistoryDateLabel('random text', now), null);
 });
 
-test('history import processes only newly added lockups and stops after an idle window', () => {
+test('history import waits for content, ends on a real signal, and reports how it ended', () => {
   const source = readFileSync(
     new URL('../chrome-extension/content.js', import.meta.url),
     'utf8',
@@ -347,9 +347,64 @@ test('history import processes only newly added lockups and stops after an idle 
   assert.match(source, /collectProgressFromRoots\(roots\)/);
   assert.match(source, /pendingRoots\.clear\(\)/);
   assert.match(source, /compactHistorySections\(document\)/);
-  assert.match(source, /idlePasses >= idleLimit \|\| sent\.size >= videoLimit/);
-  assert.match(source, /mode === 'incremental' \? 1_200/);
+  // The list renders after the tab reports complete: nothing is judged until
+  // the first lockup shows up, and a page that never shows one is reported
+  // as such instead of as an empty success.
+  assert.match(source, /HISTORY_CONTENT_WAIT_MS = 60_000/);
+  assert.match(source, /endReason = 'no-content'/);
+  // The end of the page is a time window without new lockups, not a fixed
+  // handful of 700 ms passes that a slow continuation would trip.
+  assert.match(source, /HISTORY_IDLE_MS = 30_000/);
+  assert.match(source, /now - lastContentAt >= HISTORY_IDLE_MS/);
+  assert.match(source, /endReason = 'end-of-history'/);
+  // Daily syncs stop at dates the server already covers; there is no fixed
+  // video cap standing in for that knowledge any more.
+  assert.match(source, /coverageCutoffDay\(options\.coveredSince\)/);
+  assert.match(source, /bounds\.oldest < coverageCutoff/);
+  assert.match(source, /endReason = 'covered'/);
+  assert.doesNotMatch(source, /1_200/);
+  assert.doesNotMatch(source, /idlePasses/);
+  // Every exit, including failures, tells the server how the scan ended.
+  assert.match(source, /sendProgressBatch\(scanId, observedAt, \[\], true, summary\(\)\)/);
+  assert.match(source, /endReason = 'error'/);
+  assert.match(source, /endReason: result\.endReason/);
   assert.doesNotMatch(source, /urtubeYoutubeHistory\.collectProgress\(\)/);
+});
+
+test('history helper derives the coverage cutoff day and tracks date bounds', () => {
+  const helper = globalThis.urtubeYoutubeHistory;
+  // Two days of overlap before the covering scan's local day.
+  const coveredSince = new Date(2026, 8, 4, 21, 30).toISOString();
+  assert.equal(helper.coverageCutoffDay(coveredSince), '2026-09-02');
+  assert.equal(helper.coverageCutoffDay(null), null);
+  assert.equal(helper.coverageCutoffDay('not a date'), null);
+  const bounds = helper.trackDateBounds({ oldest: null, newest: null }, [
+    { watchedDate: '2026-08-30' },
+    { watchedDate: null },
+    { watchedDate: '2026-09-03' },
+    { watchedDate: '2026-07-17' },
+  ]);
+  assert.deepEqual(bounds, { oldest: '2026-07-17', newest: '2026-09-03' });
+  assert.equal(helper.dayTimestamp('2026-07-17'), new Date(2026, 6, 17, 12).toISOString());
+  assert.equal(helper.dayTimestamp(null), null);
+});
+
+test('first sync reads the whole history page; later syncs stop at server coverage', () => {
+  const background = readFileSync(
+    new URL('../chrome-extension/background.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(background, /const historyCoverage = remote\.coverage \?\? null/);
+  assert.match(background, /coveredSince: coverage\.coveredSince/);
+  assert.match(background, /mode: 'incremental'/);
+  // A user-initiated first read takes the foreground (hidden tabs get their
+  // timers throttled after five minutes); the automatic hourly one does not.
+  assert.match(background, /active: !status\.automatic,\s+mode: 'full'/);
+  // Failures the content script cannot report are reported from here.
+  assert.match(background, /reportScanEnd\(status, 'no-receiver', \{ error, landedUrl \}\)/);
+  assert.match(background, /reportScanEnd\(status, 'cancelled'\)/);
+  // A foreground read that saw no video keeps its tab open as the diagnosis.
+  assert.match(background, /if \(!\(active && message\.endReason === 'no-content'\)\) void closeHistoryImportTab\(tabId\)/);
 });
 
 test('history import compacts old sections without collapsing scroll geometry', () => {

@@ -59,7 +59,7 @@ async function render() {
   }
   const historyButton = document.querySelector('#history');
   const running = history.state === 'running';
-  historyButton.textContent = running ? urtubeT.cancelScan : urtubeT.fullScan;
+  historyButton.textContent = running ? urtubeT.cancelScan : urtubeT.rescanAll;
   historyButton.classList.toggle('danger', running);
   document.querySelector('#history-state').textContent = running
     ? urtubeT.videos(history.videos ?? 0)
