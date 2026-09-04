@@ -28,6 +28,12 @@ projection: data-volume/coverage counters plus capped topic and channel
 shares. Raw events, video lists, keywords, searches, and playback timestamps
 remain in each user's SQLite file. Imports enqueue a projection refresh, and
 the worker atomically publishes it without dropping a newer queued refresh.
+Both channel and canonical-topic comparisons use that 90-day window, so old
+history cannot dominate a current match. Pool eligibility is controlled by
+the constants in `src/youtube/matching.ts` (initially 200 recent watch events
+across 14 active days); incomplete topic coverage falls back to channels.
+User-facing comparisons show qualitative bands and a sync/processing next
+step instead of exposing exact scores or the activity cutoff.
 
 ## Run
 

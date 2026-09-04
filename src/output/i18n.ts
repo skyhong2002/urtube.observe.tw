@@ -162,6 +162,10 @@ const en = {
   channelSimilarity: 'channel similarity',
   topicSimilarity: 'topic similarity',
   topicSimilarityFallback: 'pending · using channels only',
+  matchStrength: (band: string) => ({
+    strong: 'Strong fit', aligned: 'Aligned', some: 'Some overlap', different: 'Different',
+  } as Record<string, string>)[band] ?? band,
+  matchingNeedsMoreData: (names: string) => `More recent history is needed for ${names} before joining the matching pool. Keep the extension syncing and wait for archive processing to finish.`,
   sharedChannels: 'Shared ground',
   sharedTopics: 'Shared topics',
   onlyList: (a: string, b: string) => `Only ${a} — ${b} is missing these`,
@@ -476,6 +480,10 @@ const zh: typeof en = {
   channelSimilarity: '頻道相似度',
   topicSimilarity: '主題相似度',
   topicSimilarityFallback: '待重算 · 目前僅使用頻道',
+  matchStrength: (band: string) => ({
+    strong: '非常合拍', aligned: '頗為合拍', some: '有些交集', different: '差異較大',
+  } as Record<string, string>)[band] ?? band,
+  matchingNeedsMoreData: (names: string) => `${names} 的近期紀錄還不足以加入配對池。請讓擴充功能繼續同步，並等待檔案處理完成。`,
   sharedChannels: '共同頻道',
   sharedTopics: '共同主題',
   onlyList: (a: string, b: string) => `只有 ${a} 在看——${b} 還沒看過這些`,

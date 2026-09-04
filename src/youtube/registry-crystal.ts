@@ -1,6 +1,9 @@
 import type { CrystalItem, YoutubeCrystal } from './crystal.js';
+import { MATCHING_TOPIC_MIN_COVERAGE, matchingDataEligible } from './matching.js';
 
-export const REGISTRY_CRYSTAL_VERSION = 1;
+// v2 changes pool eligibility from "non-empty" to the #9 activity policy.
+// Older rows stay stored but cannot enter a current-version candidate query.
+export const REGISTRY_CRYSTAL_VERSION = 2;
 
 export interface RegistryMatchingCrystal {
   kind: 'matching';
@@ -47,13 +50,10 @@ export function registryMatchingCrystal(crystal: YoutubeCrystal): RegistryMatchi
   };
 }
 
-// #9 tightens these thresholds. Here, "eligible" only prevents empty or
-// completely unclassified archives from entering the internal pool.
 export function registryCrystalEligible(crystal: RegistryMatchingCrystal): boolean {
-  return crystal.data.watchEvents > 0
-    && crystal.data.activeDays > 0
+  return matchingDataEligible(crystal.data)
     && (crystal.channels.length > 0
-      || (crystal.data.topicCoverage >= 0.8 && crystal.topics.length > 0));
+      || (crystal.data.topicCoverage >= MATCHING_TOPIC_MIN_COVERAGE && crystal.topics.length > 0));
 }
 
 function validItem(value: unknown): value is RegistryMatchingCrystal['topics'][number] {
