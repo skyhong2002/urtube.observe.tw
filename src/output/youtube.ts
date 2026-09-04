@@ -148,6 +148,99 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
   </section>`;
 }
 
+const TOPIC_COLORS = [
+  '#e66767', '#6f9fd8', '#70b28d', '#d29a55', '#9a7bd1', '#4fb6b2',
+  '#d6759a', '#9da45b', '#7f8fa6', '#c77b55', '#6696a8', '#a98568',
+];
+
+function topicColor(slug: string): string {
+  let hash = 0;
+  for (const char of slug) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
+  return TOPIC_COLORS[hash % TOPIC_COLORS.length];
+}
+
+function topicTrendSection(data: YoutubeDashboardData, t: Messages): string {
+  const months = data.topicTrend;
+  const topicTotals = new Map<string, number>();
+  for (const month of months) {
+    for (const topic of month.topics) {
+      topicTotals.set(topic.slug, (topicTotals.get(topic.slug) ?? 0) + topic.estimatedWatchSeconds);
+    }
+  }
+  const topics = (months[0]?.topics ?? [])
+    .filter((topic) => (topicTotals.get(topic.slug) ?? 0) > 0)
+    .sort((a, b) => (topicTotals.get(b.slug) ?? 0) - (topicTotals.get(a.slug) ?? 0)
+      || a.name.localeCompare(b.name));
+  if (!topics.length || !months.some((month) => month.classifiedWatchSeconds > 0)) {
+    return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div><p class="muted">${t.topicTrendEmpty}</p><p class="yt-topic-trend-method">${t.topicTrendMethod}</p></section>`;
+  }
+
+  const width = 720;
+  const height = 250;
+  const left = 38;
+  const right = 12;
+  const top = 12;
+  const bottom = 34;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const maxShare = Math.max(0.05, ...months.flatMap((month) =>
+    month.topics.map((topic) => topic.movingAverageShare)));
+  const x = (index: number) => left + (months.length === 1 ? plotWidth / 2 : index / (months.length - 1) * plotWidth);
+  const y = (share: number) => top + plotHeight - share / maxShare * plotHeight;
+  const grid = [0, 0.5, 1].map((ratio) => {
+    const gridY = top + plotHeight * (1 - ratio);
+    return `<line x1="${left}" y1="${gridY.toFixed(1)}" x2="${width - right}" y2="${gridY.toFixed(1)}"></line><text x="${left - 6}" y="${(gridY + 3).toFixed(1)}">${Math.round(maxShare * ratio * 100)}%</text>`;
+  }).join('');
+  const pendingWidth = plotWidth / Math.max(1, months.length - 1);
+  const pending = months.map((month, index) =>
+    month.classifiableWatchEvents > 0 && month.classificationCoverage < 0.999
+      ? `<rect class="yt-topic-trend-pending" x="${Math.max(left, x(index) - pendingWidth / 2).toFixed(1)}" y="${top}" width="${Math.min(pendingWidth, width - right - Math.max(left, x(index) - pendingWidth / 2)).toFixed(1)}" height="${plotHeight}"><title>${html(t.topicTrendCoverage(Math.round(month.classificationCoverage * 100)))} · ${t.topicTrendProcessing}</title></rect>`
+      : '').join('');
+  const lines = topics.map((topic) => {
+    let path = '';
+    let open = false;
+    let points = '';
+    for (let index = 0; index < months.length; index += 1) {
+      const month = months[index];
+      const value = month.topics.find((item) => item.slug === topic.slug);
+      if (!value || month.classifiedWatchSeconds === 0) {
+        open = false;
+        continue;
+      }
+      const pointX = x(index);
+      const pointY = y(value.movingAverageShare);
+      path += `${open ? 'L' : 'M'}${pointX.toFixed(1)},${pointY.toFixed(1)}`;
+      open = true;
+      points += `<circle cx="${pointX.toFixed(1)}" cy="${pointY.toFixed(1)}" r="2.6"><title>${html(topic.name)} · ${html(month.month)} · ${Math.round(value.movingAverageShare * 100)}%</title></circle>`;
+    }
+    const color = topicColor(topic.slug);
+    return `<g style="--topic-color:${color}"><path d="${path}"></path>${points}</g>`;
+  }).join('');
+  const labels = months.map((month, index) => {
+    const [year, monthNumber] = month.month.split('-').map(Number);
+    return `<text x="${x(index).toFixed(1)}" y="${height - 11}">${html(t.monthYear(year, monthNumber))}</text>`;
+  }).join('');
+  const legend = topics.map((topic) =>
+    `<span><i style="--topic-color:${topicColor(topic.slug)}"></i>${html(topic.name)}</span>`).join('');
+  const tableRows = months.map((month) => {
+    const [year, monthNumber] = month.month.split('-').map(Number);
+    const values = month.topics.filter((topic) => topic.estimatedWatchSeconds > 0)
+      .sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)
+      .map((topic) => `${html(topic.name)} · ${hours(topic.estimatedWatchSeconds)} (${Math.round(topic.share * 100)}%)`)
+      .join('<br>') || '—';
+    const coverage = month.classifiableWatchEvents
+      ? `${t.topicTrendCoverage(Math.round(month.classificationCoverage * 100))}${month.classificationCoverage < 0.999 ? ` · ${t.topicTrendProcessing}` : ''}`
+      : '—';
+    return `<tr><td>${html(t.monthYear(year, monthNumber))}</td><td>${coverage}</td><td>${values}</td></tr>`;
+  }).join('');
+  return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div>
+    <div class="yt-topic-trend-wrap"><svg class="yt-topic-trend" viewBox="0 0 ${width} ${height}" role="img" aria-label="${html(t.topicTrendAria)}">
+      <g class="yt-topic-trend-grid">${grid}</g>${pending}<g class="yt-topic-trend-lines">${lines}</g><g class="yt-topic-trend-labels">${labels}</g>
+    </svg></div><div class="yt-topic-trend-legend">${legend}</div><p class="yt-topic-trend-method">${t.topicTrendMethod}</p>
+    <details class="viz-table"><summary>${t.tableView}</summary><table><thead><tr><th>${t.colMonth}</th><th>${t.colCoverage}</th><th>${t.colTopicShares}</th></tr></thead><tbody>${tableRows}</tbody></table></details>
+  </section>`;
+}
+
 interface ShortFormBar {
   key: string;
   label: string;
@@ -587,6 +680,13 @@ const dashboardStyles = `
   .yt-chase-value{color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 
   .yt-taxonomy{display:block}.yt-taxonomy>section{margin-top:18px}
+  .yt-topic-trend-wrap{overflow-x:auto}.yt-topic-trend{display:block;min-width:620px;width:100%}
+  .yt-topic-trend-grid line{stroke:var(--line);stroke-width:1}.yt-topic-trend-grid text{fill:var(--muted);font-size:8px;text-anchor:end}
+  .yt-topic-trend-pending{fill:var(--accent);opacity:.055}
+  .yt-topic-trend-lines path{fill:none;stroke:var(--topic-color);stroke-linecap:round;stroke-linejoin:round;stroke-width:2.2}.yt-topic-trend-lines circle{fill:var(--surface);stroke:var(--topic-color);stroke-width:1.8}
+  .yt-topic-trend-labels text{fill:var(--muted);font-size:8px;text-anchor:middle}
+  .yt-topic-trend-legend{display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:12px}.yt-topic-trend-legend span{align-items:center;color:var(--ink-2);display:flex;font-size:10px;gap:5px}.yt-topic-trend-legend i{background:var(--topic-color);border-radius:50%;height:8px;width:8px}
+  .yt-topic-trend-method{color:var(--muted);font-size:10px;line-height:1.5;margin:12px 0 0}
   .yt-topic-list{display:flex;flex-wrap:wrap;gap:8px}
   .yt-topic{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
   .yt-topic strong{display:block;font-size:12px}
@@ -868,7 +968,8 @@ export function youtubeDashboardPage(
   const overview = hero + (options.setupHtml ?? '') + recentSection(data, t, lang, showRecent)
     + channelList + topVideos + sortScript;
   const insights = rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
-    + channelChase(data, t) + (options.insightsHtml ?? '') + distribution + taxonomy;
+    + topicTrendSection(data, t) + channelChase(data, t) + (options.insightsHtml ?? '')
+    + distribution + taxonomy;
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview

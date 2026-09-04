@@ -23,6 +23,7 @@ import type {
   YoutubeRange,
   YoutubeRecentVideo,
   YoutubeTopic,
+  YoutubeTopicTrendMonth,
   YoutubeVideoMetadata,
 } from '../youtube/types.js';
 import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
@@ -54,6 +55,21 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
   if (range === 'all') return null;
   const days = Number.parseInt(range, 10);
   return new Date(now.getTime() - days * 86_400_000).toISOString();
+}
+
+function completeMonthWindow(now: Date, count = 12): { start: string; end: string; months: string[] } {
+  const taipeiNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const year = taipeiNow.getUTCFullYear();
+  const month = taipeiNow.getUTCMonth();
+  const boundary = (monthOffset: number) =>
+    new Date(Date.UTC(year, month + monthOffset, 1) - 8 * 60 * 60 * 1000);
+  const start = boundary(-count);
+  const end = boundary(0);
+  const months = Array.from({ length: count }, (_, index) => {
+    const cursor = new Date(Date.UTC(year, month - count + index, 1));
+    return cursor.toISOString().slice(0, 7);
+  });
+  return { start: start.toISOString(), end: end.toISOString(), months };
 }
 
 // Shared by youtubeDashboard(). Per-event watch seconds: the measured value
@@ -1319,6 +1335,87 @@ export class Repository {
     }));
   }
 
+  youtubeTopicTrend(now = new Date()): YoutubeTopicTrendMonth[] {
+    this.ensureEstimatedEvents();
+    const window = completeMonthWindow(now);
+    const monthlyRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT strftime('%Y-%m', e.watched_at, '+8 hours') month,
+        COUNT(CASE WHEN e.video_id IS NOT NULL THEN 1 END) classifiable_watch_events,
+        COUNT(CASE WHEN t.id IS NOT NULL THEN 1 END) classified_watch_events,
+        COALESCE(SUM(CASE WHEN t.id IS NOT NULL THEN e.estimated_watch_seconds ELSE 0 END), 0)
+          classified_watch_seconds
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_video_topics vt
+        ON vt.video_id=e.video_id AND vt.rank=1 AND vt.metadata_hash=v.metadata_hash
+      LEFT JOIN youtube_topics t ON t.id=vt.topic_id
+        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+      WHERE a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
+      GROUP BY month ORDER BY month
+    `).all(window.start, window.end) as Array<Record<string, string | number>>;
+    const topicRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT strftime('%Y-%m', e.watched_at, '+8 hours') month,
+        t.slug, t.name, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      JOIN youtube_videos v ON v.video_id=e.video_id
+      JOIN youtube_video_topics vt
+        ON vt.video_id=e.video_id AND vt.rank=1 AND vt.metadata_hash=v.metadata_hash
+      JOIN youtube_topics t ON t.id=vt.topic_id
+        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+      WHERE a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
+      GROUP BY month, t.id ORDER BY month, t.name
+    `).all(window.start, window.end) as Array<Record<string, string | number>>;
+    const monthly = new Map(monthlyRows.map((row) => [String(row.month), row]));
+    const topicNames = new Map(topicRows.map((row) => [String(row.slug), String(row.name)]));
+    const topicSeconds = new Map<string, Map<string, number>>();
+    for (const row of topicRows) {
+      const month = String(row.month);
+      const byTopic = topicSeconds.get(month) ?? new Map<string, number>();
+      byTopic.set(String(row.slug), Number(row.estimated_watch_seconds));
+      topicSeconds.set(month, byTopic);
+    }
+    const slugs = [...topicNames.keys()].sort((a, b) =>
+      (topicNames.get(a) ?? a).localeCompare(topicNames.get(b) ?? b));
+    const result: YoutubeTopicTrendMonth[] = window.months.map((month) => {
+      const row = monthly.get(month);
+      const classifiableWatchEvents = Number(row?.classifiable_watch_events ?? 0);
+      const classifiedWatchEvents = Number(row?.classified_watch_events ?? 0);
+      const classifiedWatchSeconds = Number(row?.classified_watch_seconds ?? 0);
+      return {
+        month,
+        classifiableWatchEvents,
+        classifiedWatchEvents,
+        classificationCoverage: classifiableWatchEvents
+          ? classifiedWatchEvents / classifiableWatchEvents : 1,
+        classifiedWatchSeconds,
+        topics: slugs.map((slug) => {
+          const estimatedWatchSeconds = topicSeconds.get(month)?.get(slug) ?? 0;
+          return {
+            slug,
+            name: topicNames.get(slug) ?? slug,
+            estimatedWatchSeconds,
+            share: classifiedWatchSeconds ? estimatedWatchSeconds / classifiedWatchSeconds : 0,
+            movingAverageShare: 0,
+          };
+        }),
+      };
+    });
+    for (let index = 0; index < result.length; index += 1) {
+      const trailing = result.slice(Math.max(0, index - 2), index + 1);
+      const denominator = trailing.reduce((sum, month) => sum + month.classifiedWatchSeconds, 0);
+      for (const topic of result[index].topics) {
+        const numerator = trailing.reduce((sum, month) =>
+          sum + (month.topics.find((item) => item.slug === topic.slug)?.estimatedWatchSeconds ?? 0), 0);
+        topic.movingAverageShare = denominator ? numerator / denominator : 0;
+      }
+    }
+    return result;
+  }
+
   youtubeDashboard(range: YoutubeRange = '28d', now = new Date()): YoutubeDashboardData {
     this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);
@@ -1612,6 +1709,7 @@ export class Repository {
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
+      topicTrend: this.youtubeTopicTrend(now),
       keywords: extractYoutubeKeywords(keywordRows, 40),
       recent: recent.map((row) => ({
         videoId: row.video_id === null ? null : String(row.video_id),

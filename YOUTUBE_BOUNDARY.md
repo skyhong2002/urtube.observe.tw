@@ -106,6 +106,12 @@ considered successful when they match.
 - `/api/youtube/recent.json` strips `watchedAt` and `actualWatchedSeconds`.
 - AI classification sends **only public video metadata** (title, channel,
   description, tags) — never timestamps, watch counts, searches, or progress.
+- Topic trends stay inside one archive and expose monthly aggregates only. They
+  cover the latest 12 complete Taipei calendar months, exclude date-only
+  history backfills, use the current taxonomy's fresh primary assignments, and
+  show per-month classification coverage. The displayed line is a trailing
+  three-month share of classified estimated watch time; incomplete months are
+  marked instead of presented as a drop in interest.
 - Cross-user topic vectors use one source-controlled taxonomy version and the
   dedicated `youtube_video_matching_topics` table. Personalized topic slugs
   never enter matching; sensitive YouTube categories are stored only as an

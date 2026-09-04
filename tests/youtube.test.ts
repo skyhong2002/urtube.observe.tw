@@ -1050,6 +1050,84 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
   }
 });
 
+test('topic trend uses exact-time events, current classifications, and weighted moving shares', () => {
+  const repository = new Repository(':memory:');
+  const now = new Date('2026-05-15T00:00:00Z');
+  const watch = (
+    eventId: string,
+    videoId: string,
+    watchedAt: string,
+    seconds: number,
+    precision: 'exact' | 'day' = 'exact',
+  ) => ({
+    eventId, videoId, title: videoId,
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    channelId: null, channelTitle: 'Fixture Channel', channelUrl: null,
+    watchedAt, actualWatchedSeconds: seconds, activityType: 'video' as const, precision,
+  });
+  try {
+    repository.ingestYoutubeArchive({
+      archiveHash: 'topic-trend-fixture', source: 'takeout', searches: [],
+      watches: [
+        watch('trend-jan', 'TRENDA00001', '2026-01-10T02:00:00Z', 100),
+        watch('trend-feb', 'TRENDA00002', '2026-02-10T02:00:00Z', 100),
+        watch('trend-mar', 'TRENDB00001', '2026-03-10T02:00:00Z', 300),
+        watch('trend-mar-pending', 'PENDING0001', '2026-03-11T02:00:00Z', 100),
+        watch('trend-apr', 'TRENDB00002', '2026-04-10T02:00:00Z', 100),
+        watch('trend-day-only', 'TRENDB00003', '2026-04-11T04:00:00Z', 900, 'day'),
+      ],
+    });
+    const metadata = (videoId: string): YoutubeVideoMetadata => ({
+      videoId, title: videoId, channelId: null, channelTitle: 'Fixture Channel',
+      description: '', tags: [], thumbnailUrl: '', durationSeconds: 1200,
+      publishedAt: null, categoryId: null, availability: 'available', metadataHash: `${videoId}-v1`,
+    });
+    repository.upsertYoutubeVideoMetadata([
+      'TRENDA00001', 'TRENDA00002', 'TRENDB00001', 'TRENDB00002', 'TRENDB00003', 'PENDING0001',
+    ].map(metadata));
+    const [alpha, beta] = repository.replaceYoutubeTaxonomy([
+      { version: 1, slug: 'alpha', name: 'Alpha', description: 'Alpha fixture' },
+      { version: 1, slug: 'beta', name: 'Beta', description: 'Beta fixture' },
+    ]);
+    for (const videoId of ['TRENDA00001', 'TRENDA00002']) {
+      repository.saveYoutubeVideoTopics(videoId, [{ topicId: alpha.id, rank: 1, confidence: 1 }],
+        'test-model', 'test-prompt', `${videoId}-v1`);
+    }
+    for (const videoId of ['TRENDB00001', 'TRENDB00002', 'TRENDB00003']) {
+      repository.saveYoutubeVideoTopics(videoId, [{ topicId: beta.id, rank: 1, confidence: 1 }],
+        'test-model', 'test-prompt', `${videoId}-v1`);
+    }
+
+    const trend = repository.youtubeTopicTrend(now);
+    assert.equal(trend.length, 12);
+    assert.equal(trend[0].month, '2025-05');
+    assert.equal(trend.at(-1)?.month, '2026-04');
+    const march = trend.find((month) => month.month === '2026-03')!;
+    assert.deepEqual(
+      { classifiable: march.classifiableWatchEvents, classified: march.classifiedWatchEvents,
+        coverage: march.classificationCoverage, seconds: march.classifiedWatchSeconds },
+      { classifiable: 2, classified: 1, coverage: 0.5, seconds: 300 },
+    );
+    assert.equal(march.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.4);
+    assert.equal(march.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.6);
+    const april = trend.find((month) => month.month === '2026-04')!;
+    assert.equal(april.classifiableWatchEvents, 1);
+    assert.equal(april.classifiedWatchSeconds, 100);
+    assert.equal(april.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.2);
+    assert.equal(april.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.8);
+
+    const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
+      lang: 'zh', page: 'insights',
+    });
+    assert.match(html, /主題如何改變/);
+    assert.match(html, /最近 12 個完整月份/);
+    assert.match(html, /已分類 50% · 分類中/);
+    assert.match(html, /只納入精確時間紀錄/);
+  } finally {
+    repository.close();
+  }
+});
+
 test('365-day dashboard range excludes older watches', () => {
   const repository = new Repository(':memory:');
   try {
