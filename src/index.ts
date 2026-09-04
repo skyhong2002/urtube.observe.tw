@@ -12,6 +12,7 @@ import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import {
   accountPage, dashboardSetupSection, extensionSetupPage, signupCompletePage, signupStartPage, welcomePage,
+  type AccountPageState,
 } from './output/onboarding.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
@@ -117,6 +118,12 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 export function createApp(registry: UserRegistry): Hono {
   const app = new Hono();
   app.use('*', securityHeaders(true));
+  const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
+    extensionVersion: extensionVersion(),
+    processing: processingFor(registry.repositoryFor(user)),
+    matchingDimensions: registry.matchingDimensionsFor(user),
+    ...state,
+  });
 
   // Requested language: explicit ?lang= wins (and persists via cookie),
   // then the cookie, then the browser's Accept-Language.
@@ -458,10 +465,7 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/account', (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
-    return c.html(accountPage(me, {
-      extensionVersion: extensionVersion(),
-      processing: processingFor(registry.repositoryFor(me)),
-    }, langOf(c)));
+    return c.html(accountPage(me, accountStateFor(me), langOf(c)));
   });
 
   // Token recovery: rotating invalidates both old tokens and shows the new
@@ -471,7 +475,7 @@ export function createApp(registry: UserRegistry): Hono {
     if (!me) return c.redirect('/signup');
     const rotated = registry.rotateTokens(me.handle);
     c.header('Cache-Control', 'no-store');
-    return c.html(accountPage(me, { rotated, extensionVersion: extensionVersion() }, langOf(c)));
+    return c.html(accountPage(me, accountStateFor(me, { rotated }), langOf(c)));
   });
 
   app.post('/account/profile', async (c) => {
@@ -485,7 +489,9 @@ export function createApp(registry: UserRegistry): Hono {
       evictUserCaches(me.handle);
       return c.redirect('/account');
     } catch (error) {
-      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error), extensionVersion: extensionVersion() }, langOf(c)), 400);
+      return c.html(accountPage(me, accountStateFor(me, {
+        error: error instanceof Error ? error.message : String(error),
+      }), langOf(c)), 400);
     }
   });
 
@@ -510,11 +516,35 @@ export function createApp(registry: UserRegistry): Hono {
       return c.redirect('/account');
     } catch (error) {
       const current = registry.userByHandle(me.handle) ?? me;
-      return c.html(accountPage(current, {
+      return c.html(accountPage(current, accountStateFor(current, {
         error: error instanceof Error ? error.message : String(error),
-        extensionVersion: extensionVersion(),
-        processing: processingFor(registry.repositoryFor(current)),
-      }, langOf(c)), 400);
+      }), langOf(c)), 400);
+    }
+  });
+
+  app.post('/account/matching-dimensions', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const current = registry.matchingDimensionsFor(me);
+    const values = (value: string | File | Array<string | File> | undefined): string[] =>
+      (Array.isArray(value) ? value : value == null ? [] : [value])
+        .filter((item): item is string => typeof item === 'string');
+    try {
+      if (current.status === 'pending') {
+        throw new Error('Matching interests are not ready; sync more history and wait for processing to finish');
+      }
+      const form = await c.req.parseBody({ all: true });
+      registry.setMatchingDimensions(
+        me.handle,
+        Number(form.taxonomyVersion),
+        values(form.selectedTopicKeys),
+        values(form.excludedTopicKeys),
+      );
+      return c.redirect('/account');
+    } catch (error) {
+      return c.html(accountPage(me, accountStateFor(me, {
+        error: error instanceof Error ? error.message : String(error),
+      }), langOf(c)), 400);
     }
   });
 
@@ -529,10 +559,7 @@ export function createApp(registry: UserRegistry): Hono {
     const t = messages(lang);
     const renderError = (error: string, status: 400 | 413 | 507 = 400) => {
       c.header('Cache-Control', 'no-store');
-      return c.html(accountPage(me, {
-        takeoutError: error,
-        extensionVersion: extensionVersion(),
-      }, lang), status);
+      return c.html(accountPage(me, accountStateFor(me, { takeoutError: error }), lang), status);
     };
     if (registry.databaseBytesFor(me) >= config.maxUserDatabaseBytes) {
       return renderError(t.accountTakeoutStorageLimit, 507);
@@ -564,11 +591,10 @@ export function createApp(registry: UserRegistry): Hono {
       registry.markCrystalDirty(me);
       evictUserCaches(me.handle);
       c.header('Cache-Control', 'no-store');
-      return c.html(accountPage(me, {
+      return c.html(accountPage(me, accountStateFor(me, {
         takeoutResult: result,
-        extensionVersion: extensionVersion(),
         processing: processingFor(repository),
-      }, lang));
+      }), lang));
     } catch (error) {
       return renderError(error instanceof Error ? error.message : String(error));
     }
@@ -583,15 +609,17 @@ export function createApp(registry: UserRegistry): Hono {
     const t = messages(lang);
     const form = await c.req.parseBody();
     if (String(form.confirmHandle ?? '').trim() !== me.handle) {
-      return c.html(accountPage(me, { error: t.errDeleteConfirm, extensionVersion: extensionVersion() }, lang), 400);
+      return c.html(accountPage(me, accountStateFor(me, { error: t.errDeleteConfirm }), lang), 400);
     }
     if (me.handle === DEFAULT_HANDLE) {
-      return c.html(accountPage(me, { error: t.errOwnerDelete, extensionVersion: extensionVersion() }, lang), 400);
+      return c.html(accountPage(me, accountStateFor(me, { error: t.errOwnerDelete }), lang), 400);
     }
     try {
       registry.deleteUser(me.handle);
     } catch (error) {
-      return c.html(accountPage(me, { error: error instanceof Error ? error.message : String(error), extensionVersion: extensionVersion() }, lang), 500);
+      return c.html(accountPage(me, accountStateFor(me, {
+        error: error instanceof Error ? error.message : String(error),
+      }), lang), 500);
     }
     evictUserCaches(me.handle);
     deleteCookie(c, 'urtube_session', { path: '/' });

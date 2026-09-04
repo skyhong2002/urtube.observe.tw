@@ -59,7 +59,10 @@ for these versioned canonical classifications.
 The multi-user registry has a separate `crystals` table containing only the
 bounded matching projection, plus `crystal_refresh_queue`. The authoritative
 opt-in and disclosure settings are separate `users` columns; the earlier
-`matching_profiles` opt-in row is mirrored only for rollback compatibility.
+`matching_profiles` opt-in row is mirrored for rollback compatibility, and
+that table stores the user's canonical selected/excluded topic keys with the
+taxonomy version and explicit-confirmation bit. Additive startup migration
+supplies safe empty, unconfirmed defaults for older registries.
 Identity is joined by `user_id`; it is not copied into crystal JSON. Foreign
 keys cascade these shared rows on account deletion. These registry tables are
 included automatically in full backup bundles.
@@ -71,6 +74,14 @@ current-taxonomy coverage on both sides. Low coverage or a version mismatch
 falls back to channels; old registry projection versions remain stored but are
 not queryable as current candidates. Exact cosine values remain server-side,
 while HTML uses qualitative bands and never prints the eligibility cutoff.
+The dimension policy is centralized in `src/youtube/dimensions.ts`: A's
+selected keys are intersected with B's non-excluded keys before topic cosine.
+No usable topic means bounded channel fallback (or no candidate when channel
+vectors are absent). Old/malformed choice versions have no effective topic
+keys until the user reconfirms, so a taxonomy change cannot silently give an
+old choice a new meaning. Disclosure settings affect only the eventual card,
+not this computation; future candidate, recommendation, and icebreaker code
+must consume the same allowed-key result.
 
 The script prints per-table source vs. target row counts; migration is only
 considered successful when they match.
@@ -96,7 +107,8 @@ considered successful when they match.
   opts an account in. Candidate presentation is a server-side allowlist of at
   most two shared canonical topics and, only with mutual permission, one
   shared channel. It carries no videos, searches, time, exact shares, or full
-  crystal fields; opt-out takes effect on the next registry query.
+  crystal fields. Per-user topic exclusions are removed before any downstream
+  matching output; opt-out takes effect on the next registry query.
 
 ## Secrets
 
