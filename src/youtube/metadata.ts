@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
+import { createAsyncLimiter } from './concurrency.js';
 import type { YoutubeChannelMetadata, YoutubeVideoMetadata } from './types.js';
+
+// Shared by every account in this worker process. Four concurrent requests
+// keeps fresh imports moving in parallel while staying gentle on the YouTube
+// Data API and the host's network connection.
+const youtubeApiRequest = createAsyncLimiter(4);
 
 interface YoutubeApiItem {
   id?: string;
@@ -93,9 +99,11 @@ export async function fetchYoutubeMetadata(
     url.searchParams.set('part', 'snippet,contentDetails,status');
     url.searchParams.set('id', batch.join(','));
     url.searchParams.set('key', apiKey);
-    const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`YouTube Data API: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
-    const body = await response.json() as { items?: YoutubeApiItem[] };
+    const body = await youtubeApiRequest(async () => {
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`YouTube Data API: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
+      return response.json() as Promise<{ items?: YoutubeApiItem[] }>;
+    });
     const normalized = (body.items ?? []).map(normalize).filter((item): item is YoutubeVideoMetadata => item !== null);
     const found = new Set(normalized.map((item) => item.videoId));
     output.push(...normalized, ...batch.filter((id) => !found.has(id)).map(unavailable));
@@ -124,11 +132,13 @@ export async function fetchYoutubeChannelMetadata(
     url.searchParams.set('part', 'snippet');
     url.searchParams.set('id', batch.join(','));
     url.searchParams.set('key', apiKey);
-    const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) {
-      throw new Error(`YouTube Channels API: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
-    }
-    const body = await response.json() as { items?: YoutubeChannelApiItem[] };
+    const body = await youtubeApiRequest(async () => {
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) {
+        throw new Error(`YouTube Channels API: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
+      }
+      return response.json() as Promise<{ items?: YoutubeChannelApiItem[] }>;
+    });
     const found = new Map((body.items ?? [])
       .filter((item): item is YoutubeChannelApiItem & { id: string } => Boolean(item.id))
       .map((item) => [item.id, {

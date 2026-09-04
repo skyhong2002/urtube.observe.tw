@@ -1,8 +1,13 @@
 import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
+import { createAsyncLimiter } from './concurrency.js';
 import type { YoutubeTopic, YoutubeVideoMetadata } from './types.js';
 
 const PROMPT_VERSION = 'youtube-topics-v1';
+// Accounts are processed concurrently, but the AI endpoint gets one bounded
+// global queue. FIFO ordering lets every archive advance instead of allowing
+// the oldest account to consume all classification calls first.
+const aiRequest = createAsyncLimiter(4);
 
 export interface YoutubeAiClient {
   baseUrl: string;
@@ -39,28 +44,30 @@ function parseJson(content: string): unknown {
 }
 
 async function chatJson(system: string, input: unknown, client: YoutubeAiClient): Promise<unknown> {
-  const response = await (client.fetchImpl ?? fetch)(`${client.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${client.apiKey}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: client.model,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify(input) },
-      ],
-    }),
-    signal: AbortSignal.timeout(60_000),
+  return aiRequest(async () => {
+    const response = await (client.fetchImpl ?? fetch)(`${client.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${client.apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: client.model,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: JSON.stringify(input) },
+        ],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) throw new Error(`AI topics: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
+    const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = body.choices?.[0]?.message?.content;
+    if (!content) throw new Error('AI topics: response did not contain message content');
+    return parseJson(content);
   });
-  if (!response.ok) throw new Error(`AI topics: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
-  const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content) throw new Error('AI topics: response did not contain message content');
-  return parseJson(content);
 }
 
 export function youtubePublicMetadata(video: YoutubeVideoMetadata) {

@@ -58,8 +58,10 @@ export async function runYoutubeWorkerCycle(
   steps: YoutubeWorkerSteps = defaultSteps,
   now = () => new Date(),
 ): Promise<YoutubeWorkerUserResult[]> {
-  const results: YoutubeWorkerUserResult[] = [];
-  for (const user of registry.listUsers()) {
+  // Repositories are independent SQLite files. Start every archive together;
+  // the external-service limiters provide bounded, FIFO backpressure. Promise
+  // ordering keeps logs and tests stable even though the work overlaps.
+  return Promise.all(registry.listUsers().map(async (user): Promise<YoutubeWorkerUserResult> => {
     const repository = registry.repositoryFor(user);
     // Stamped before the steps run so the processing notice can say when
     // this archive was last looked at, even when a step fails midway.
@@ -72,20 +74,24 @@ export async function runYoutubeWorkerCycle(
       const channelMetadata = await steps.channelMetadata(repository, user);
       const classified = await steps.classification(repository, user);
       repository.setYoutubeSyncState('last_error', '');
-      results.push({
+      return {
         user: user.handle,
         portability,
         metadata,
         channelMetadata,
         classified,
-      });
+      };
     } catch (error) {
       const message = errorMessage(error);
       repository.setYoutubeSyncState('last_error', message.slice(0, 2000));
-      results.push({ user: user.handle, error: message });
+      return { user: user.handle, error: message };
     }
-  }
-  return results;
+  }));
+}
+
+export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
+  return results.some((result) =>
+    (result.metadata ?? 0) + (result.channelMetadata ?? 0) + (result.classified ?? 0) > 0);
 }
 
 // Whether any archive has enrichment the configured stages can still do.
@@ -117,10 +123,12 @@ if (process.env.NODE_ENV !== 'test') {
   const FULL_CYCLE_MS = YOUTUBE_WORKER_FULL_CYCLE_MINUTES * 60_000;
   let lastCycleStartedAt = 0;
   let lastCycleFailed = false;
+  let stopping = false;
 
   const run = async (): Promise<void> => {
     if (running) return;
     running = true;
+    let continueImmediately = false;
     lastCycleStartedAt = Date.now();
     const lastStartedAt = new Date(lastCycleStartedAt).toISOString();
     recordStatus({ lastStartedAt });
@@ -139,6 +147,13 @@ if (process.env.NODE_ENV !== 'test') {
         failedUsers,
         lastError: '',
       });
+      // A batch limit protects memory and external services; it should not
+      // impose an additional five-minute sleep. Continue immediately while a
+      // successful cycle actually moved the backlog forward. The timer below
+      // remains the idle/no-progress safety poll.
+      continueImmediately = !lastCycleFailed
+        && youtubeWorkerMadeProgress(users)
+        && youtubeWorkPending(registry);
     } catch (error) {
       const lastError = errorMessage(error);
       lastCycleFailed = true;
@@ -146,6 +161,7 @@ if (process.env.NODE_ENV !== 'test') {
       recordStatus({ lastStartedAt, lastError });
     } finally {
       running = false;
+      if (continueImmediately && !stopping) setImmediate(() => { void run(); });
     }
   };
 
@@ -162,6 +178,7 @@ if (process.env.NODE_ENV !== 'test') {
   void run();
   const interval = setInterval(() => { void tick(); }, CATCHUP_MS);
   process.once('SIGTERM', () => {
+    stopping = true;
     clearInterval(interval);
     registry.close();
     process.exit(0);

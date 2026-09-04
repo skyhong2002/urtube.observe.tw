@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Repository } from '../src/data/database.js';
 import { UserRegistry, type User } from '../src/users.js';
-import { runYoutubeWorkerCycle, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
+import {
+  runYoutubeWorkerCycle, youtubeWorkerMadeProgress, type YoutubeWorkerSteps,
+} from '../src/youtube-worker.js';
 
 test('YouTube worker enriches every user while keeping portability owner-only', async () => {
   const registry = new UserRegistry(':memory:');
@@ -28,19 +30,48 @@ test('YouTube worker enriches every user while keeping portability owner-only', 
     const results = await runYoutubeWorkerCycle(registry, steps);
 
     assert.deepEqual(results.map((result) => result.user), [owner.handle, alice.handle, bob.handle]);
-    assert.deepEqual(calls, [
-      `portability:${owner.handle}`,
-      `metadata:${owner.handle}`,
-      `channels:${owner.handle}`,
-      `classification:${owner.handle}`,
-      'metadata:alice',
-      'channels:alice',
-      'classification:alice',
-      'metadata:bob',
-      'channels:bob',
-      'classification:bob',
-    ]);
+    assert.deepEqual(calls.filter((call) => call.startsWith('portability:')), [`portability:${owner.handle}`]);
+    for (const user of [owner.handle, alice.handle, bob.handle]) {
+      assert.deepEqual(calls.filter((call) => call.endsWith(`:${user}`)), [
+        ...(user === owner.handle ? [`portability:${user}`] : []),
+        `metadata:${user}`,
+        `channels:${user}`,
+        `classification:${user}`,
+      ]);
+    }
     assert.ok(results.every((result) => result.portability === (result.user === owner.handle ? 'idle' : 'not_applicable')));
+  } finally {
+    registry.close();
+  }
+});
+
+test('YouTube worker starts independent user archives concurrently', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    registry.ensureDefaultUser();
+    registry.createUser('alice', 'Alice');
+    registry.createUser('bob', 'Bob');
+    let active = 0;
+    let peak = 0;
+    const steps: YoutubeWorkerSteps = {
+      portability: async () => 'idle',
+      metadata: async () => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active--;
+        return 1;
+      },
+      channelMetadata: async () => 0,
+      classification: async () => 0,
+    };
+
+    const results = await runYoutubeWorkerCycle(registry, steps);
+
+    assert.equal(peak, 3);
+    assert.deepEqual(results.map((result) => result.user), ['sky', 'alice', 'bob']);
+    assert.equal(youtubeWorkerMadeProgress(results), true);
+    assert.equal(youtubeWorkerMadeProgress(results.map((result) => ({ ...result, metadata: 0 }))), false);
   } finally {
     registry.close();
   }
@@ -69,7 +100,7 @@ test('one user failure is recorded without preventing later users from running',
     const results = await runYoutubeWorkerCycle(registry, steps);
 
     assert.match(results.find((result) => result.user === alice.handle)?.error ?? '', /alice metadata failed/);
-    assert.deepEqual(classified.at(-1), bob.handle);
+    assert.ok(classified.includes(bob.handle));
     assert.match(registry.repositoryFor(alice).youtubeSyncState('last_error') ?? '', /alice metadata failed/);
     assert.equal(registry.repositoryFor(bob).youtubeSyncState('last_error'), '');
   } finally {
