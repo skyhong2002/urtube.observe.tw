@@ -10,6 +10,36 @@ progress, metadata, and AI topics — privately, per user.
   [YOUTUBE_BOUNDARY.md](YOUTUBE_BOUNDARY.md) ·
   [CUTOVER_RUNBOOK.md](CUTOVER_RUNBOOK.md)
 
+## Current product flow
+
+The deployed flow is usable end to end: sign in with Google, provision the
+Chrome extension or import an anonymous Takeout ZIP, follow persisted
+processing states, inspect private insights, confirm matching interests, opt
+in to matching, review bounded candidate cards, mutually consent to a
+connection, then disconnect, export, or delete the archive. Empty,
+insufficient-data, processing, failed, retry, and no-candidate states have
+explicit UI instead of falling through to a misleading result.
+
+```text
+Chrome extension / Takeout / Data Portability
+                    |
+                    v
+        authenticated ingest service
+                    |
+                    v
+          isolated SQLite per user <---- scheduled metadata/topic worker
+                    |                                |
+                    |                  YouTube Data API + AI endpoint
+                    v
+           private dashboard app
+                    |
+          bounded 90-day projection
+                    v
+     shared registry -> opt-in matching -> mutual connection
+
+     daily backup snapshots registry + every user database
+```
+
 ## Privacy model
 
 Search queries are AES-256-GCM-encrypted server-side before storage and never
@@ -181,3 +211,33 @@ date windows and restart the scan tab between windows; a window that reaches
 windows so the next rescan resumes safely. Re-running either path is
 idempotent. YouTube's history page progress scan has the same 2,000-row tab
 limit, while the bounded My Activity pass supplies the complete event archive.
+
+## External services and source material
+
+- Google OAuth provides account identity; Google My Activity, YouTube History,
+  Takeout, and Data Portability provide user-authorized history. Data
+  Portability is currently configured for the instance owner only.
+- YouTube Data API v3 supplies public video/channel metadata. An
+  OpenAI-compatible chat-completions endpoint classifies only that public
+  metadata for the private, governed personal taxonomy.
+- The matching taxonomy is not model-inferred: it is the source-controlled
+  YouTube category mapping in `src/youtube/matching.ts`.
+- News/editorial/political channel labels come from the versioned source and
+  policy in `docs/channel-tag-policy.md`; unavailable or stale governance data
+  fails closed.
+- Runtime and build packages are pinned by `package-lock.json`. The project
+  does not bundle third-party music, video, fonts, or participant watch data.
+
+## Known limitations
+
+- The bounded deep-history implementation has synthetic 50,000-event coverage,
+  but the explicit five-year/50,000-event acceptance run on a signed-in 16 GB
+  Mac is still awaiting an authorized Google test session (Issue #3).
+- The packaged extension intentionally accepts only `urtube.observe.tw`; a
+  different self-hosted origin requires rebuilding its host permissions and
+  endpoint allowlist.
+- Matching needs enough recent activity and consenting peers, so a valid
+  result may still be “not enough data” or “no candidates.” External metadata,
+  AI, and governance outages surface as retry/processing states or fail closed.
+- This public repository does not yet grant a reuse license. License selection
+  requires an explicit owner decision tracked in Issue #27.

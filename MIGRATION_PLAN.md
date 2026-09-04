@@ -6,6 +6,11 @@ with production Infovore, then cut over without losing data or privacy
 guarantees. See YOUTUBE_BOUNDARY.md for the exact code/data/secret boundary
 and CUTOVER_RUNBOOK.md for the operational steps.
 
+Operational status (2026-09-05): the public multi-user service is live over
+HTTPS, uses per-user schema `user_version` 11, and runs app, ingest, worker,
+and backup services. The phases below preserve the original cutover procedure;
+they are not a list of unfinished product features.
+
 ## Capabilities extracted
 
 1. **Takeout import** — ZIP upload (`POST /api/ingest/youtube/takeout`) and
@@ -29,11 +34,12 @@ and CUTOVER_RUNBOOK.md for the operational steps.
    plus a source-controlled 14-topic matching taxonomy derived from public
    YouTube category IDs; keyword extraction.
 8. **Idempotent SQLite storage** — Infovore-compatible base migrations plus
-   additive urtube migrations (`user_version` 1–10, `node:sqlite`, WAL).
+   additive urtube migrations (`user_version` 1–11, `node:sqlite`, WAL).
 9. **Private ingest APIs** — bearer-token endpoints, timing-safe comparison,
    size limits, strict zod validation.
-10. **YouTube dashboard** — `/youtube` HTML dashboard (ranges 7d/28d/90d/all,
-    channels, topics, keywords, daily volume, recent), plus
+10. **YouTube dashboard** — canonical `/<handle>` profile pages (overview,
+    insights, history, recap; ranges 7d/28d/90d/365d/all), with `/youtube` as
+    the legacy owner redirect, plus
     `/api/youtube/summary.json` and `/api/youtube/recent.json`.
 11. **Scheduled worker** — catch-up loop: portability step → video metadata →
     channel metadata → canonical matching classification → private AI topics.
@@ -45,11 +51,12 @@ generic `/api/ingest/events` (all remain Infovore features).
 
 - `PUBLIC_BASE_URL` is configurable; nothing hardcodes `infovore.skyhong.tw`.
   Default OAuth redirect derives from it.
-- Dashboard path is `/youtube` (extension + OAuth redirect updated to match).
+- Canonical dashboard paths are `/<handle>` and its insights/history/recap
+  subpages; `/youtube` remains a compatibility redirect for the owner.
 - App `/healthz` reports healthy whenever the database is reachable and
-  required config is present — an **empty** database is healthy (required so
-  the parallel deployment can pass health checks before any data migration).
-  Counts are included for observability. Ingest `/healthz` unchanged.
+  answers — an **empty** database is healthy. `/readyz` separately checks
+  required config, every user database, worker freshness, and backup freshness.
+  Counts are included for observability. Ingest `/healthz` is separate.
 - Docker: image/containers `urtube`, `urtube-app`, `urtube-ingest`,
   `urtube-worker`; volume `urtube-data`; ports published on
   `127.0.0.1:18080` / `127.0.0.1:18081` only (Caddy fronts them).
@@ -58,9 +65,9 @@ generic `/api/ingest/events` (all remain Infovore features).
 
 ## Phases
 
-### Phase 0 — hosting precondition (SkyLabMac)
-Caddy currently has no `urtube.observe.tw` site block; HTTPS answers with a
-TLS internal error. Before any cutover work:
+### Phase 0 — hosting precondition (completed)
+At the original cutover, Caddy had no `urtube.observe.tw` site block. The
+procedure was:
 1. Back up `/usr/local/etc/caddy/Caddyfile`.
 2. Add the site block (encode zstd/gzip; `/api/ingest/*` →
    `127.0.0.1:18081`; default → `127.0.0.1:18080`) and reload Caddy.
@@ -73,7 +80,8 @@ TLS internal error. Before any cutover work:
   capture idempotency, history checkpoint overlap, progress idempotency,
   Takeout import, privacy boundaries, migration row-count verification).
 - `npm run check` (typecheck + tests) and `docker build` must pass.
-- Publish to `github.com/skyhong2002/urtube.observe.tw` (private).
+- Publish to `github.com/skyhong2002/urtube.observe.tw`; it is now public for
+  hackathon review.
 
 ### Phase 2 — parallel deployment (SkyLabMac, empty database)
 - Clone to `/Users/skyhong/Projects/urtube`, create `.env` with **freshly
@@ -124,5 +132,7 @@ ingest-rate limits, aggregate-only public dashboards, all-tenant checksummed
 backup/restore bundles, a daily backup service, and `/readyz` coverage for
 configuration, every user database, worker completion, and backup freshness.
 
-Remaining post-launch product work: self-service data export before deletion,
-and finer per-user/day accounting for pooled YouTube API and AI costs.
+Self-service export before deletion is live. Remaining operational work is
+finer per-user/day accounting for pooled YouTube API and AI costs. The bounded
+deep-history code also still needs the explicit signed-in five-year/50,000-event
+16 GB Mac acceptance measurement tracked in Issue #3.
