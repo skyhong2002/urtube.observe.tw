@@ -244,10 +244,9 @@ export class Repository {
 
   close(): void { this.db.close(); }
 
-  // The migration chain is kept byte-compatible with Infovore (user_version
-  // 1–8) so a database restored from an Infovore production backup opens
-  // without any schema work. Tables urtube does not use (snapshots,
-  // sync_runs, time_ledger*) exist but stay empty.
+  // Versions 1–8 remain byte-compatible with Infovore, so an imported
+  // production database upgrades in place. Later urtube-only migrations are
+  // additive; snapshots, sync_runs, and time_ledger* remain unused.
   private migrate(): void {
     const version = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     if (version.user_version < 1) {
@@ -313,6 +312,8 @@ export class Repository {
     if (afterTimeLedger.user_version < 8) this.migrateBackloggdDailyLedger();
     const afterBackloggd = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     if (afterBackloggd.user_version < 9) this.migrateYoutubeScanSummaries();
+    const afterScanSummaries = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterScanSummaries.user_version < 10) this.migrateYoutubeMatchingTopics();
   }
 
   private migrateYoutube(): void {
@@ -572,6 +573,24 @@ export class Repository {
       CREATE INDEX IF NOT EXISTS youtube_progress_imports_coverage_idx
         ON youtube_progress_imports(end_reason, observed_at DESC);
       PRAGMA user_version = 9;
+      COMMIT;
+    `);
+  }
+
+  private migrateYoutubeMatchingTopics(): void {
+    this.db.exec(`
+      BEGIN;
+      CREATE TABLE IF NOT EXISTS youtube_video_matching_topics (
+        video_id TEXT NOT NULL REFERENCES youtube_videos(video_id) ON DELETE CASCADE,
+        taxonomy_version INTEGER NOT NULL,
+        topic_key TEXT,
+        metadata_hash TEXT NOT NULL,
+        classified_at TEXT NOT NULL,
+        PRIMARY KEY(video_id, taxonomy_version)
+      );
+      CREATE INDEX IF NOT EXISTS youtube_video_matching_topics_version_idx
+        ON youtube_video_matching_topics(taxonomy_version, topic_key);
+      PRAGMA user_version = 10;
       COMMIT;
     `);
   }
@@ -1801,6 +1820,113 @@ export class Repository {
       LIMIT ?
     `).all(Math.max(1, Math.min(1000, Math.floor(limit)))) as Array<Record<string, unknown>>;
     return this.youtubeMetadataRows(rows);
+  }
+
+  youtubeVideosForMatchingClassification(
+    taxonomyVersion: number,
+    limit = 1000,
+  ): Array<YoutubeVideoMetadata> {
+    const rows = this.db.prepare(`
+      SELECT v.* FROM youtube_videos v
+      LEFT JOIN (
+        SELECT video_id, MAX(watched_at) latest_watched_at
+        FROM youtube_watch_events WHERE activity_type='video'
+        GROUP BY video_id
+      ) watched ON watched.video_id=v.video_id
+      WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
+        AND NOT EXISTS (
+          SELECT 1 FROM youtube_video_matching_topics mt
+          WHERE mt.video_id=v.video_id AND mt.taxonomy_version=?
+            AND mt.metadata_hash=v.metadata_hash
+        )
+      ORDER BY watched.latest_watched_at IS NULL,
+        watched.latest_watched_at DESC, v.metadata_fetched_at DESC, v.video_id
+      LIMIT ?
+    `).all(
+      taxonomyVersion,
+      Math.max(1, Math.min(5000, Math.floor(limit))),
+    ) as Array<Record<string, unknown>>;
+    return this.youtubeMetadataRows(rows);
+  }
+
+  saveYoutubeVideoMatchingTopic(input: {
+    videoId: string;
+    taxonomyVersion: number;
+    topicKey: string | null;
+    metadataHash: string;
+  }, classifiedAt = new Date().toISOString()): void {
+    this.db.prepare(`
+      INSERT INTO youtube_video_matching_topics(
+        video_id, taxonomy_version, topic_key, metadata_hash, classified_at
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(video_id, taxonomy_version) DO UPDATE SET
+        topic_key=excluded.topic_key,
+        metadata_hash=excluded.metadata_hash,
+        classified_at=excluded.classified_at
+    `).run(
+      input.videoId,
+      input.taxonomyVersion,
+      input.topicKey,
+      input.metadataHash,
+      classifiedAt,
+    );
+  }
+
+  youtubeMatchingTopicWindow(
+    taxonomyVersion: number,
+    startIso: string | null,
+    endIso: string | null,
+  ): {
+    watchEvents: number;
+    estimatedWatchSeconds: number;
+    classifiedWatchSeconds: number;
+    topics: Array<{ key: string; watches: number; estimatedWatchSeconds: number }>;
+  } {
+    this.ensureEstimatedEvents();
+    const bounds = [
+      startIso ? 'e.watched_at>=?' : null,
+      endIso ? 'e.watched_at<?' : null,
+    ].filter(Boolean).join(' AND ');
+    const where = bounds ? `WHERE ${bounds}` : 'WHERE 1=1';
+    const params: Array<string | number> = [taxonomyVersion];
+    if (startIso) params.push(startIso);
+    if (endIso) params.push(endIso);
+    const totals = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT COUNT(*) watch_events,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
+        COALESCE(SUM(CASE WHEN mt.video_id IS NOT NULL
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) classified_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_video_matching_topics mt
+        ON mt.video_id=v.video_id AND mt.taxonomy_version=?
+        AND mt.metadata_hash=v.metadata_hash
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const topicRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT mt.topic_key, COUNT(*) watches,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      JOIN youtube_videos v ON v.video_id=e.video_id
+      JOIN youtube_video_matching_topics mt
+        ON mt.video_id=v.video_id AND mt.taxonomy_version=?
+        AND mt.metadata_hash=v.metadata_hash
+      ${where} AND mt.topic_key IS NOT NULL
+      GROUP BY mt.topic_key
+      ORDER BY estimated_watch_seconds DESC, watches DESC, mt.topic_key
+    `).all(...params) as Array<Record<string, string | number>>;
+    return {
+      watchEvents: Number(totals.watch_events ?? 0),
+      estimatedWatchSeconds: Number(totals.estimated_watch_seconds ?? 0),
+      classifiedWatchSeconds: Number(totals.classified_watch_seconds ?? 0),
+      topics: topicRows.map((row) => ({
+        key: String(row.topic_key),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+    };
   }
 
   youtubeVideosForTaxonomy(limit = 160): Array<YoutubeVideoMetadata> {

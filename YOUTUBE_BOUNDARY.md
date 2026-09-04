@@ -52,6 +52,10 @@ YouTube subset is migrated**; the full database is never exposed to urtube.
 Not copied: `snapshots`, `sync_runs`, `time_ledger*`, non-YouTube
 `activities`, `youtube_oauth_states` (transient CSRF states).
 
+After migration, urtube creates `youtube_video_matching_topics` additively and
+the worker rebuilds it from public video metadata; Infovore has no source table
+for these versioned canonical classifications.
+
 The script prints per-table source vs. target row counts; migration is only
 considered successful when they match.
 
@@ -68,6 +72,10 @@ considered successful when they match.
 - `/api/youtube/recent.json` strips `watchedAt` and `actualWatchedSeconds`.
 - AI classification sends **only public video metadata** (title, channel,
   description, tags) — never timestamps, watch counts, searches, or progress.
+- Cross-user topic vectors use one source-controlled taxonomy version and the
+  dedicated `youtube_video_matching_topics` table. Personalized topic slugs
+  never enter matching; sensitive YouTube categories are stored only as an
+  excluded classification with no public topic key.
 
 ## Secrets
 

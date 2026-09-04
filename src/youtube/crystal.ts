@@ -4,6 +4,7 @@
 // aggregates only — no timestamps, no searches, no per-event history — so it
 // is safe to exchange for cross-person comparison.
 import type { Repository } from '../data/database.js';
+import { matchingTopicProfile } from './matching.js';
 
 export interface CrystalItem {
   key: string;
@@ -37,7 +38,7 @@ export interface CrystalShift {
 }
 
 export interface YoutubeCrystal {
-  version: 1;
+  version: 2;
   generatedAt: string;
   handle: string;
   displayName: string;
@@ -45,6 +46,12 @@ export interface YoutubeCrystal {
   recent: CrystalWindow;
   prior: CrystalWindow;
   allTime: CrystalWindow;
+  matching: {
+    taxonomyVersion: number;
+    windowDays: number;
+    topicCoverage: number;
+    topics: CrystalItem[];
+  };
   shifts: CrystalShift[];
   volumeChange: number | null; // recent vs prior estimated seconds, e.g. +0.25
 }
@@ -128,6 +135,9 @@ export function buildYoutubeCrystal(
   const recent = crystalWindow(repository, mid, end);
   const prior = crystalWindow(repository, start, mid);
   const allTime = crystalWindow(repository, null, null);
+  const matchingWindowDays = 90;
+  const matchingStart = new Date(now.getTime() - matchingWindowDays * 86_400_000).toISOString();
+  const matchingProfile = matchingTopicProfile(repository, matchingStart, end);
   // Topic rows are filled asynchronously. Comparing a mostly classified
   // recent window with an unclassified prior window manufactures "new"
   // interests, so channel shifts remain live while topic shifts wait until
@@ -141,7 +151,7 @@ export function buildYoutubeCrystal(
     ...shiftsBetween(recent.channels, prior.channels, 'channel'),
   ].slice(0, 24);
   return {
-    version: 1,
+    version: 2,
     generatedAt: end,
     handle: identity.handle,
     displayName: identity.displayName,
@@ -149,6 +159,12 @@ export function buildYoutubeCrystal(
     recent,
     prior,
     allTime,
+    matching: {
+      taxonomyVersion: matchingProfile.taxonomyVersion,
+      windowDays: matchingWindowDays,
+      topicCoverage: matchingProfile.coverage,
+      topics: matchingProfile.topics,
+    },
     shifts,
     volumeChange: prior.estimatedWatchSeconds > 0
       ? (recent.estimatedWatchSeconds - prior.estimatedWatchSeconds) / prior.estimatedWatchSeconds
@@ -159,9 +175,11 @@ export function buildYoutubeCrystal(
 export interface CrystalComparison {
   a: { handle: string; displayName: string };
   b: { handle: string; displayName: string };
-  // Cosine similarity over all-time share vectors, 0..1.
+  // Channel cosine currently uses the all-time aggregate. Topic cosine uses
+  // the versioned 90-day matching profile and is unavailable while unsafe.
   channelSimilarity: number;
-  topicSimilarity: number;
+  topicSimilarity: number | null;
+  topicFallback: 'taxonomy-version-mismatch' | 'insufficient-coverage' | 'no-shareable-topics' | null;
   sharedChannels: Array<{ name: string; aShare: number; bShare: number }>;
   sharedTopics: Array<{ name: string; aShare: number; bShare: number }>;
   // Strong in A's diet, entirely absent from B's — and vice versa. The
@@ -200,19 +218,31 @@ export function compareCrystals(a: YoutubeCrystal, b: YoutubeCrystal): CrystalCo
       .sort((x, y) => Math.min(y.aShare, y.bShare) - Math.min(x.aShare, x.bShare))
       .slice(0, limit);
   };
+  const sameTaxonomy = a.matching.taxonomyVersion === b.matching.taxonomyVersion;
+  const enoughCoverage = a.matching.topicCoverage >= TOPIC_SHIFT_MIN_COVERAGE
+    && b.matching.topicCoverage >= TOPIC_SHIFT_MIN_COVERAGE;
+  const hasShareableTopics = a.matching.topics.length > 0 && b.matching.topics.length > 0;
+  const useTopics = sameTaxonomy && enoughCoverage && hasShareableTopics;
+  const aTopics = useTopics ? a.matching.topics : [];
+  const bTopics = useTopics ? b.matching.topics : [];
   return {
     a: { handle: a.handle, displayName: a.displayName },
     b: { handle: b.handle, displayName: b.displayName },
     channelSimilarity: cosine(a.allTime.channels, b.allTime.channels),
-    topicSimilarity: cosine(a.allTime.topics, b.allTime.topics),
+    topicSimilarity: useTopics ? cosine(aTopics, bTopics) : null,
+    topicFallback: !sameTaxonomy
+      ? 'taxonomy-version-mismatch'
+      : !enoughCoverage
+        ? 'insufficient-coverage'
+        : !hasShareableTopics ? 'no-shareable-topics' : null,
     sharedChannels: shared(a.allTime.channels, b.allTime.channels, 12),
-    sharedTopics: shared(a.allTime.topics, b.allTime.topics, 12),
+    sharedTopics: shared(aTopics, bTopics, 12),
     onlyA: [
-      ...onlyIn(a.allTime.topics, b.allTime.topics, 'topic', 6),
+      ...onlyIn(aTopics, bTopics, 'topic', 6),
       ...onlyIn(a.allTime.channels, b.allTime.channels, 'channel', 10),
     ],
     onlyB: [
-      ...onlyIn(b.allTime.topics, a.allTime.topics, 'topic', 6),
+      ...onlyIn(bTopics, aTopics, 'topic', 6),
       ...onlyIn(b.allTime.channels, a.allTime.channels, 'channel', 10),
     ],
   };

@@ -4,6 +4,7 @@ import { writeOpsStatus } from './ops-status.js';
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
 import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata } from './youtube/metadata.js';
+import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import {
   YOUTUBE_WORKER_CATCHUP_MINUTES,
@@ -21,6 +22,7 @@ export interface YoutubeWorkerSteps {
   portability(repository: Repository, user: User): Promise<YoutubePortabilityResult>;
   metadata(repository: Repository, user: User): Promise<number>;
   channelMetadata(repository: Repository, user: User): Promise<number>;
+  matchingClassification(repository: Repository, user: User): Promise<number>;
   classification(repository: Repository, user: User): Promise<number>;
 }
 
@@ -29,6 +31,7 @@ export interface YoutubeWorkerUserResult {
   portability?: YoutubePortabilityResult | 'not_applicable';
   metadata?: number;
   channelMetadata?: number;
+  matchingClassified?: number;
   classified?: number;
   error?: string;
 }
@@ -40,6 +43,8 @@ const defaultSteps: YoutubeWorkerSteps = {
   // API requests and prevents a new account from waiting days for enrichment.
   metadata: (repository) => enrichYoutubeMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   channelMetadata: (repository) => enrichYoutubeChannelMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
+  matchingClassification: async (repository) =>
+    classifyYoutubeVideosForMatching(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   // A deep extension backfill can also contain tens of thousands of videos.
   // Recency ordering makes the current dashboard useful first; a larger
   // cycle keeps new extension-only accounts from waiting days for analysis.
@@ -72,6 +77,7 @@ export async function runYoutubeWorkerCycle(
         : 'not_applicable';
       const metadata = await steps.metadata(repository, user);
       const channelMetadata = await steps.channelMetadata(repository, user);
+      const matchingClassified = await steps.matchingClassification(repository, user);
       const classified = await steps.classification(repository, user);
       repository.setYoutubeSyncState('last_error', '');
       return {
@@ -79,6 +85,7 @@ export async function runYoutubeWorkerCycle(
         portability,
         metadata,
         channelMetadata,
+        matchingClassified,
         classified,
       };
     } catch (error) {
@@ -91,7 +98,8 @@ export async function runYoutubeWorkerCycle(
 
 export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
   return results.some((result) =>
-    (result.metadata ?? 0) + (result.channelMetadata ?? 0) + (result.classified ?? 0) > 0);
+    (result.metadata ?? 0) + (result.channelMetadata ?? 0)
+      + (result.matchingClassified ?? 0) + (result.classified ?? 0) > 0);
 }
 
 export function youtubeWorkerShouldContinue(
@@ -111,9 +119,11 @@ export function youtubeWorkPending(
   registry: UserRegistry,
   capabilities: YoutubeProcessingCapabilities = youtubeProcessingCapabilities(),
 ): boolean {
-  if (!capabilities.metadata && !capabilities.topics) return false;
-  return registry.listUsers().some((user) =>
-    describeYoutubeProcessing(registry.repositoryFor(user).youtubeProcessingCounts(), capabilities).pending > 0);
+  return registry.listUsers().some((user) => {
+    const repository = registry.repositoryFor(user);
+    return youtubeMatchingWorkPending(repository)
+      || describeYoutubeProcessing(repository.youtubeProcessingCounts(), capabilities).pending > 0;
+  });
 }
 
 if (process.env.NODE_ENV !== 'test') {

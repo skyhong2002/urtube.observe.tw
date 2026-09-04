@@ -71,13 +71,16 @@ export function comparePage(comparison: CrystalComparison, requesterPath: string
     `<div class="cx-row"><span>${html(row.name)}</span><em>${sharePct(row.aShare)} · ${sharePct(row.bShare)}</em></div>`;
   const onlyRow = (row: { name: string; kind: string; share: number }) =>
     `<div class="cx-row"><span>${html(row.name)} <span class="cx-tag">${html(row.kind === 'topic' ? t.shiftTopic : t.shiftChannel)}</span></span><em>${sharePct(row.share)}</em></div>`;
+  const topicSimilarity = comparison.topicSimilarity === null
+    ? `<strong>—</strong><span>${t.topicSimilarityFallback}</span>`
+    : `<strong>${Math.round(comparison.topicSimilarity * 100)}%</strong><span>${t.topicSimilarity}</span>`;
   const body = `<style>${crystalStyles}</style>
     <section class="cx-intro"><div class="eyebrow">${t.crystalCompare}</div>
     <h1>${html(comparison.a.displayName)} × ${html(comparison.b.displayName)}<em class="h1-scope">${t.crystalCompare}</em></h1>
     <p>${t.comparePara}</p></section>
     <div class="cx-sim">
       <div><strong>${Math.round(comparison.channelSimilarity * 100)}%</strong><span>${t.channelSimilarity}</span></div>
-      <div><strong>${Math.round(comparison.topicSimilarity * 100)}%</strong><span>${t.topicSimilarity}</span></div>
+      <div>${topicSimilarity}</div>
     </div>
     <div class="cx-columns">
       ${list(t.sharedChannels, comparison.sharedChannels, sharedRow)}
