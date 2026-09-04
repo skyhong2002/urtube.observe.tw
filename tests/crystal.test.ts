@@ -129,6 +129,32 @@ test('crystal comparison finds shared ground and one-sided gaps', () => {
   }
 });
 
+test('crystal comparison ignores years-old channel history', () => {
+  const left = new Repository(':memory:');
+  const right = new Repository(':memory:');
+  try {
+    seed(left, [
+      watch('left-recent', 'RECENTLEFT1', 'shared', '2026-08-01T10:00:00Z', 3000),
+      watch('left-old', 'OLDLEFT0001', 'old-left', '2020-01-01T10:00:00Z', 300_000),
+    ]);
+    seed(right, [
+      watch('right-recent', 'RECENTRGHT1', 'shared', '2026-08-02T10:00:00Z', 3000),
+      watch('right-old', 'OLDRIGHT001', 'old-right', '2020-01-02T10:00:00Z', 300_000),
+    ]);
+    const comparison = compareCrystals(
+      buildYoutubeCrystal(left, { handle: 'left', displayName: 'Left' }, NOW),
+      buildYoutubeCrystal(right, { handle: 'right', displayName: 'Right' }, NOW),
+    );
+    assert.equal(comparison.channelSimilarity, 1);
+    assert.deepEqual(comparison.sharedChannels.map((channel) => channel.name), ['Channel SHARED']);
+    assert.ok(!comparison.onlyA.some((item) => item.name === 'Channel OLD-LEFT'));
+    assert.ok(!comparison.onlyB.some((item) => item.name === 'Channel OLD-RIGHT'));
+  } finally {
+    left.close();
+    right.close();
+  }
+});
+
 test('crystal.json and /compare enforce dashboard access', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
@@ -155,6 +181,8 @@ test('crystal.json and /compare enforce dashboard access', async () => {
     assert.match(compareHtml, /Alice × Bob/);
     assert.match(compareHtml, /channel similarity/);
     assert.match(compareHtml, /pending · using channels only/);
+    assert.match(compareHtml, /More recent history is needed/);
+    assert.doesNotMatch(compareHtml, /<strong>\d+%<\/strong>/);
     assert.equal((await app.request('/compare?a=alice&b=alice')).status, 400);
   } finally {
     registry.close();

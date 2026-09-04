@@ -4,7 +4,12 @@
 // aggregates only — no timestamps, no searches, no per-event history — so it
 // is safe to exchange for cross-person comparison.
 import type { Repository } from '../data/database.js';
-import { matchingTopicProfile } from './matching.js';
+import {
+  MATCHING_TOPIC_MIN_COVERAGE,
+  MATCHING_WINDOW_DAYS,
+  matchingDataEligible,
+  matchingTopicProfile,
+} from './matching.js';
 
 export interface CrystalItem {
   key: string;
@@ -140,7 +145,7 @@ export function buildYoutubeCrystal(
   const recent = crystalWindow(repository, mid, end);
   const prior = crystalWindow(repository, start, mid);
   const allTime = crystalWindow(repository, null, null);
-  const matchingWindowDays = 90;
+  const matchingWindowDays = MATCHING_WINDOW_DAYS;
   const matchingStart = new Date(now.getTime() - matchingWindowDays * 86_400_000).toISOString();
   const matchingSource = crystalWindow(repository, matchingStart, end);
   const matchingProfile = matchingTopicProfile(repository, matchingStart, end);
@@ -186,8 +191,9 @@ export function buildYoutubeCrystal(
 export interface CrystalComparison {
   a: { handle: string; displayName: string };
   b: { handle: string; displayName: string };
-  // Channel cosine currently uses the all-time aggregate. Topic cosine uses
-  // the versioned 90-day matching profile and is unavailable while unsafe.
+  matchingReady: { a: boolean; b: boolean };
+  // Both cosine values use the dedicated 90-day matching profile. Topic
+  // cosine is unavailable while classification is incomplete or incompatible.
   channelSimilarity: number;
   topicSimilarity: number | null;
   topicFallback: 'taxonomy-version-mismatch' | 'insufficient-coverage' | 'no-shareable-topics' | null;
@@ -230,8 +236,8 @@ export function compareCrystals(a: YoutubeCrystal, b: YoutubeCrystal): CrystalCo
       .slice(0, limit);
   };
   const sameTaxonomy = a.matching.taxonomyVersion === b.matching.taxonomyVersion;
-  const enoughCoverage = a.matching.topicCoverage >= TOPIC_SHIFT_MIN_COVERAGE
-    && b.matching.topicCoverage >= TOPIC_SHIFT_MIN_COVERAGE;
+  const enoughCoverage = a.matching.topicCoverage >= MATCHING_TOPIC_MIN_COVERAGE
+    && b.matching.topicCoverage >= MATCHING_TOPIC_MIN_COVERAGE;
   const hasShareableTopics = a.matching.topics.length > 0 && b.matching.topics.length > 0;
   const useTopics = sameTaxonomy && enoughCoverage && hasShareableTopics;
   const aTopics = useTopics ? a.matching.topics : [];
@@ -239,22 +245,26 @@ export function compareCrystals(a: YoutubeCrystal, b: YoutubeCrystal): CrystalCo
   return {
     a: { handle: a.handle, displayName: a.displayName },
     b: { handle: b.handle, displayName: b.displayName },
-    channelSimilarity: cosine(a.allTime.channels, b.allTime.channels),
+    matchingReady: {
+      a: matchingDataEligible(a.matching),
+      b: matchingDataEligible(b.matching),
+    },
+    channelSimilarity: cosine(a.matching.channels, b.matching.channels),
     topicSimilarity: useTopics ? cosine(aTopics, bTopics) : null,
     topicFallback: !sameTaxonomy
       ? 'taxonomy-version-mismatch'
       : !enoughCoverage
         ? 'insufficient-coverage'
         : !hasShareableTopics ? 'no-shareable-topics' : null,
-    sharedChannels: shared(a.allTime.channels, b.allTime.channels, 12),
+    sharedChannels: shared(a.matching.channels, b.matching.channels, 12),
     sharedTopics: shared(aTopics, bTopics, 12),
     onlyA: [
       ...onlyIn(aTopics, bTopics, 'topic', 6),
-      ...onlyIn(a.allTime.channels, b.allTime.channels, 'channel', 10),
+      ...onlyIn(a.matching.channels, b.matching.channels, 'channel', 10),
     ],
     onlyB: [
       ...onlyIn(bTopics, aTopics, 'topic', 6),
-      ...onlyIn(b.allTime.channels, a.allTime.channels, 'channel', 10),
+      ...onlyIn(b.matching.channels, a.matching.channels, 'channel', 10),
     ],
   };
 }

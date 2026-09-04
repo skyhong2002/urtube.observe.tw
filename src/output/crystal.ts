@@ -1,4 +1,5 @@
 import type { CrystalComparison, CrystalShift, YoutubeCrystal } from '../youtube/crystal.js';
+import { matchingSimilarityBand } from '../youtube/matching.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { html, shell } from './pages.js';
 
@@ -25,6 +26,7 @@ const crystalStyles = `
   .cx-intro{margin:14px 0 24px}
   .cx-intro h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.08;margin:7px 0 10px}
   .cx-intro p{color:var(--ink-2);margin:0;max-width:640px}
+  .cx-ready{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);color:var(--ink-2);margin:0 0 22px;padding:14px 16px}
   @media(min-width:900px){.cx-shifts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;
 
@@ -71,15 +73,24 @@ export function comparePage(comparison: CrystalComparison, requesterPath: string
     `<div class="cx-row"><span>${html(row.name)}</span><em>${sharePct(row.aShare)} · ${sharePct(row.bShare)}</em></div>`;
   const onlyRow = (row: { name: string; kind: string; share: number }) =>
     `<div class="cx-row"><span>${html(row.name)} <span class="cx-tag">${html(row.kind === 'topic' ? t.shiftTopic : t.shiftChannel)}</span></span><em>${sharePct(row.share)}</em></div>`;
+  const strength = (score: number) => html(t.matchStrength(matchingSimilarityBand(score)));
   const topicSimilarity = comparison.topicSimilarity === null
     ? `<strong>—</strong><span>${t.topicSimilarityFallback}</span>`
-    : `<strong>${Math.round(comparison.topicSimilarity * 100)}%</strong><span>${t.topicSimilarity}</span>`;
+    : `<strong>${strength(comparison.topicSimilarity)}</strong><span>${t.topicSimilarity}</span>`;
+  const notReady = [
+    comparison.matchingReady.a ? '' : comparison.a.displayName,
+    comparison.matchingReady.b ? '' : comparison.b.displayName,
+  ].filter(Boolean).join(' & ');
+  const readiness = notReady
+    ? `<div class="cx-ready">${html(t.matchingNeedsMoreData(notReady))}</div>`
+    : '';
   const body = `<style>${crystalStyles}</style>
     <section class="cx-intro"><div class="eyebrow">${t.crystalCompare}</div>
     <h1>${html(comparison.a.displayName)} × ${html(comparison.b.displayName)}<em class="h1-scope">${t.crystalCompare}</em></h1>
     <p>${t.comparePara}</p></section>
+    ${readiness}
     <div class="cx-sim">
-      <div><strong>${Math.round(comparison.channelSimilarity * 100)}%</strong><span>${t.channelSimilarity}</span></div>
+      <div><strong>${strength(comparison.channelSimilarity)}</strong><span>${t.channelSimilarity}</span></div>
       <div>${topicSimilarity}</div>
     </div>
     <div class="cx-columns">

@@ -1,5 +1,28 @@
 import type { Repository } from '../data/database.js';
 
+// One policy surface for worker projections, pool eligibility, comparison,
+// and (later) the candidate UI. Keeping these out of SQL and templates makes
+// threshold changes versionable and prevents the browser from advertising a
+// number users could game.
+export const MATCHING_WINDOW_DAYS = 90;
+export const MATCHING_MIN_WATCH_EVENTS = 200;
+export const MATCHING_MIN_ACTIVE_DAYS = 14;
+export const MATCHING_TOPIC_MIN_COVERAGE = 0.8;
+
+export function matchingDataEligible(data: { watchEvents: number; activeDays: number }): boolean {
+  return data.watchEvents >= MATCHING_MIN_WATCH_EVENTS
+    && data.activeDays >= MATCHING_MIN_ACTIVE_DAYS;
+}
+
+export type MatchingSimilarityBand = 'strong' | 'aligned' | 'some' | 'different';
+
+export function matchingSimilarityBand(score: number): MatchingSimilarityBand {
+  if (score >= 0.75) return 'strong';
+  if (score >= 0.4) return 'aligned';
+  if (score >= 0.15) return 'some';
+  return 'different';
+}
+
 export interface MatchingTaxonomyTopic {
   key: string;
   name: string;

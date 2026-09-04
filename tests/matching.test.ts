@@ -7,8 +7,14 @@ import test from 'node:test';
 import { Repository } from '../src/data/database.js';
 import { buildYoutubeCrystal, compareCrystals } from '../src/youtube/crystal.js';
 import {
+  MATCHING_MIN_ACTIVE_DAYS,
+  MATCHING_MIN_WATCH_EVENTS,
+  MATCHING_TOPIC_MIN_COVERAGE,
   MATCHING_TAXONOMY,
+  MATCHING_WINDOW_DAYS,
   classifyYoutubeVideosForMatching,
+  matchingDataEligible,
+  matchingSimilarityBand,
   matchingTopicForYoutubeCategory,
   matchingTopicProfile,
   youtubeMatchingWorkPending,
@@ -16,6 +22,20 @@ import {
 import type { YoutubeParsedArchive, YoutubeVideoMetadata } from '../src/youtube/types.js';
 
 const NOW = new Date('2026-09-05T12:00:00.000Z');
+
+test('matching policy centralizes activity, coverage, window, and display bands', () => {
+  assert.equal(MATCHING_WINDOW_DAYS, 90);
+  assert.equal(MATCHING_MIN_WATCH_EVENTS, 200);
+  assert.equal(MATCHING_MIN_ACTIVE_DAYS, 14);
+  assert.equal(MATCHING_TOPIC_MIN_COVERAGE, 0.8);
+  assert.equal(matchingDataEligible({ watchEvents: 200, activeDays: 14 }), true);
+  assert.equal(matchingDataEligible({ watchEvents: 199, activeDays: 14 }), false);
+  assert.equal(matchingDataEligible({ watchEvents: 200, activeDays: 13 }), false);
+  assert.equal(matchingSimilarityBand(0.75), 'strong');
+  assert.equal(matchingSimilarityBand(0.4), 'aligned');
+  assert.equal(matchingSimilarityBand(0.15), 'some');
+  assert.equal(matchingSimilarityBand(0.149), 'different');
+});
 
 function seedVideo(
   repository: Repository,

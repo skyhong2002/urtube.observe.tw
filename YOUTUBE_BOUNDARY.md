@@ -62,6 +62,14 @@ Identity is joined by `user_id`; it is not copied into crystal JSON. Foreign
 keys cascade these shared rows on account deletion. These registry tables are
 included automatically in full backup bundles.
 
+The matching policy is centralized in `src/youtube/matching.ts`: both channel
+and canonical-topic vectors cover the latest 90 days, candidate eligibility
+requires 200 events across 14 active days, and topic cosine requires 80%
+current-taxonomy coverage on both sides. Low coverage or a version mismatch
+falls back to channels; old registry projection versions remain stored but are
+not queryable as current candidates. Exact cosine values remain server-side,
+while HTML uses qualitative bands and never prints the eligibility cutoff.
+
 The script prints per-table source vs. target row counts; migration is only
 considered successful when they match.
 

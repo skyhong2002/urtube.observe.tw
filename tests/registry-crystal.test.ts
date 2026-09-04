@@ -5,8 +5,14 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { buildYoutubeCrystal } from '../src/youtube/crystal.js';
-import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
-import { parseRegistryMatchingCrystal, registryMatchingCrystal } from '../src/youtube/registry-crystal.js';
+import { MATCHING_TAXONOMY, classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
+import {
+  parseRegistryMatchingCrystal,
+  REGISTRY_CRYSTAL_VERSION,
+  registryCrystalEligible,
+  registryMatchingCrystal,
+  type RegistryMatchingCrystal,
+} from '../src/youtube/registry-crystal.js';
 import { runYoutubeWorkerCycle, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 import { UserRegistry, type User } from '../src/users.js';
 
@@ -39,24 +45,27 @@ test('opening an existing registry adds crystal tables without losing users', ()
 
 function seedReadyCrystal(registry: UserRegistry, user: User): void {
   const repository = registry.repositoryFor(user);
+  const videoId = `REGISTRY${String(user.id).padStart(3, '0')}`;
   repository.ingestYoutubeArchive({
     archiveHash: `registry-crystal-${user.id}`,
     source: 'takeout',
     searches: [],
-    watches: [{
-      eventId: `event-${user.id}`,
-      videoId: `REGISTRY${String(user.id).padStart(3, '0')}`,
+    watches: Array.from({ length: 200 }, (_, index) => ({
+      eventId: `event-${user.id}-${index}`,
+      videoId,
       title: 'Anonymous learning fixture',
-      url: `https://www.youtube.com/watch?v=REGISTRY${String(user.id).padStart(3, '0')}`,
+      url: `https://www.youtube.com/watch?v=${videoId}`,
       channelId: 'anonymous-learning-channel',
       channelTitle: 'Anonymous Learning Channel',
       channelUrl: 'https://www.youtube.com/channel/anonymous-learning-channel',
-      watchedAt: '2026-09-01T12:00:00.000Z',
+      watchedAt: new Date(Date.UTC(
+        2026, 7, 20 + (index % 14), 12, Math.floor(index / 14),
+      )).toISOString(),
       actualWatchedSeconds: 900,
       activityType: 'video',
-    }],
+    })),
   });
-  const [videoId] = repository.youtubeVideosNeedingMetadata(1);
+  assert.deepEqual(repository.youtubeVideosNeedingMetadata(1), [videoId]);
   repository.upsertYoutubeVideoMetadata([{
     videoId,
     title: 'Anonymous learning fixture',
@@ -108,7 +117,7 @@ test('registry stores only an opt-in matching projection and joins current ident
     assert.equal(matchable.handle, 'archive');
     assert.equal(matchable.displayName, 'Anonymous Archive');
     assert.equal(matchable.crystal.kind, 'matching');
-    assert.equal(matchable.crystal.data.watchEvents, 1);
+    assert.equal(matchable.crystal.data.watchEvents, 200);
     assert.deepEqual(matchable.crystal.topics.map((topic) => topic.key), ['learning']);
     const serialized = JSON.stringify(matchable.crystal);
     assert.doesNotMatch(
@@ -128,6 +137,33 @@ test('registry stores only an opt-in matching projection and joins current ident
   } finally {
     registry.close();
   }
+});
+
+test('registry eligibility enforces the centralized activity boundaries', () => {
+  const ready: RegistryMatchingCrystal = {
+    kind: 'matching',
+    version: REGISTRY_CRYSTAL_VERSION,
+    taxonomyVersion: MATCHING_TAXONOMY.version,
+    generatedAt: NOW.toISOString(),
+    windowDays: 90,
+    data: {
+      watchEvents: 200,
+      uniqueVideos: 1,
+      estimatedWatchSeconds: 60_000,
+      activeDays: 14,
+      topicCoverage: 0,
+    },
+    topics: [],
+    channels: [{ key: 'anonymous', name: 'Anonymous channel', share: 1 }],
+  };
+  assert.equal(registryCrystalEligible(ready), true);
+  assert.equal(registryCrystalEligible({
+    ...ready, data: { ...ready.data, watchEvents: 199 },
+  }), false);
+  assert.equal(registryCrystalEligible({
+    ...ready, data: { ...ready.data, activeDays: 13 },
+  }), false);
+  assert.equal(registryCrystalEligible({ ...ready, channels: [] }), false);
 });
 
 test('crystal refresh queue preserves an import that races a worker projection', () => {
