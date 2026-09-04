@@ -246,6 +246,23 @@ export interface YoutubeTopicSummary {
   estimatedWatchSeconds: number;
 }
 
+export interface YoutubeTopicTrendTopic {
+  slug: string;
+  name: string;
+  estimatedWatchSeconds: number;
+  share: number;
+  movingAverageShare: number;
+}
+
+export interface YoutubeTopicTrendMonth {
+  month: string;
+  classifiableWatchEvents: number;
+  classifiedWatchEvents: number;
+  classificationCoverage: number;
+  classifiedWatchSeconds: number;
+  topics: YoutubeTopicTrendTopic[];
+}
+
 export interface YoutubeDailySummary {
   day: string;
   watches: number;
@@ -302,6 +319,7 @@ export interface YoutubeDashboardData {
   topVideos: YoutubeVideoSummary[];
   channelRace: YoutubeChannelRace;
   topics: YoutubeTopicSummary[];
+  topicTrend: YoutubeTopicTrendMonth[];
   keywords: YoutubeKeyword[];
   recent: YoutubeRecentVideo[];
 }
