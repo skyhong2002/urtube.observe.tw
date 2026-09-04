@@ -919,19 +919,22 @@ export function youtubeDashboardPage(
   const distribution = `<section class="section"><div class="section-head"><h2>${t.lengthMix}</h2><span>${t.uniqueVideos}</span></div><div class="yt-mix">${orderedBuckets.map((bucket) =>
     `<div class="yt-mix-row"><span>${html(t.buckets[bucket.label] ?? bucket.label)}</span><div class="yt-mix-track"><i style="background:${LENGTH_RAMP[bucket.label] ?? '#55534e'};width:${Math.round(bucket.videos / maxLength * 100)}%"></i></div><span>${bucket.videos}</span></div>`
   ).join('')}</div></section>`;
-  const maxKeywordVideos = Math.max(1, ...data.keywords.map((item) => item.videos));
+  const maxKeywordScore = Math.max(0.001, ...data.keywords.map((item) => item.score));
   const taxonomy = `<div class="yt-taxonomy"><section class="section"><div class="section-head"><h2>${t.topics}</h2><span>${t.topicsSub(Math.round(data.stats.topicCoverage * 100))}</span></div>
     <div class="yt-topic-list">${data.topics.length ? data.topics.map((topic) =>
       `<div class="yt-topic"><strong>${html(topic.name)}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
     ).join('') : `<span class="muted">${t.topicsPending}</span>`}</div></section>
-    <section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub}</span></div>
-    <div class="yt-keywords">${data.keywords.map((keyword, index) => {
-      const size = 12 + Math.round(Math.sqrt(keyword.videos / maxKeywordVideos) * 18);
+    <section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub(data.keywordCoverage.sampledVideos, data.keywordCoverage.eligibleVideos)}</span></div>
+    <div class="yt-keywords">${data.keywords.length ? data.keywords.map((keyword, index) => {
+      // Size follows the commonness score; the tooltip states the distinct
+      // video count, channel spread and which metadata sources contributed.
+      const size = 12 + Math.round(Math.sqrt(keyword.score / maxKeywordScore) * 18);
       // Keywords are text, so they wear ink tokens; size carries the weight.
       const colors = ['#f4f2ee', '#b8b5ad', '#8a877f'];
       const query = encodeURIComponent(keyword.term);
-      return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(keyword.term)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
-    }).join('')}</div></section></div>`;
+      const tip = `${keyword.term} · ${t.keywordTip(keyword.channels, keyword.sources.title, keyword.sources.tag, keyword.sources.description)}`;
+      return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(tip)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
+    }).join('') : `<span class="muted">${t.keywordsEmpty}</span>`}</div></section></div>`;
   const pageLabels: Record<YoutubeDashboardPageKind, string> = {
     overview: t.navOverview, insights: t.navInsights, history: t.navHistory, recap: t.navRecap,
   };

@@ -1278,11 +1278,13 @@ test('YouTube keywords segment Unicode, ignore URLs, and count each video once',
       tags_json: '[]',
     },
   ], 30);
-  assert.ok(keywords.some((keyword) => keyword.term === 'typescript'));
+  // v2 phrase dominance: every "typescript" video also carries the phrase,
+  // so the phrase is kept and the bare unigram yields to it.
+  assert.ok(!keywords.some((keyword) => keyword.term === 'typescript'));
   assert.ok(keywords.some((keyword) => keyword.term === 'typescript patterns'));
   assert.ok(keywords.some((keyword) => keyword.term.includes('系統')));
   assert.ok(!keywords.some((keyword) => /https|youtube|watch|private/.test(keyword.term)));
-  assert.equal(keywords.find((keyword) => keyword.term === 'typescript')?.videos, 2);
+  assert.equal(keywords.find((keyword) => keyword.term === 'typescript patterns')?.videos, 2);
 
   const stopWords = extractYoutubeKeywords([
     { title: 'My full video', description: 'Get more of that here. Follow my Twitter and Discord link.', tags_json: '[]' },
