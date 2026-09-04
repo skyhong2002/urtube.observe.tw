@@ -63,7 +63,6 @@ const tagLeanStyles = `
     .tl-groups{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
   }
   @media(max-width:820px){.tl-row{grid-template-columns:88px minmax(0,1fr) 118px}}
-  @media(max-width:640px){.tl-reference-table{min-width:0}.tl-reference-detail{display:none}}
 `;
 
 function channelAvatar(channel: { name: string; thumbnailUrl: string }): string {
