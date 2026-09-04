@@ -147,6 +147,11 @@ npm run user:create -- dad --rotate     # rotate tokens
 npm run user:create -- dad --delete     # remove the user and their database
 ```
 
+Automatic app/ingest/worker bootstrap never prints owner credentials to
+service logs. The legacy `YOUTUBE_CAPTURE_TOKEN` remains valid for the owner;
+run the explicit `--rotate` command only when an operator needs new per-user
+tokens, and capture its one-time output in a secure terminal.
+
 Each user's dashboard is at **`/<handle>`** (`/u/<handle>` redirects; private
 dashboards append `?key=<dashboardToken>` for keyless browsers) and their
 data is its own SQLite file under `data/users/`, with a per-user derived
