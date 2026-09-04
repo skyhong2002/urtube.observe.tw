@@ -12,9 +12,11 @@ import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import { matchesPage } from './output/matches.js';
 import {
-  accountPage, dashboardSetupSection, extensionSetupPage, signupCompletePage, signupStartPage, welcomePage,
+  accountPage, dashboardSetupSection, extensionSetupPage, guidedOnboardingPage,
+  signupCompletePage, signupStartPage,
   type AccountPageState,
 } from './output/onboarding.js';
+import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
@@ -131,6 +133,19 @@ export function createApp(registry: UserRegistry): Hono {
     matchingDimensions: registry.matchingDimensionsFor(user),
     ...state,
   });
+  const onboardingStateFor = (user: User): GuidedOnboardingState => {
+    const repository = registry.repositoryFor(user);
+    return guidedOnboardingState({
+      user,
+      watchEvents: repository.youtubeCounts().watches,
+      processing: processingFor(repository),
+      dimensions: registry.matchingDimensionsFor(user),
+      matchingCrystal: registry.matchingCrystalFor(user.handle),
+      latestScan: repository.youtubeProgressImports(1)[0] ?? null,
+    });
+  };
+  const onboardingDestinationFor = (user: User): string =>
+    onboardingStateFor(user).step === 'complete' ? `/${user.handle}` : '/onboarding';
 
   // Requested language: explicit ?lang= wins (and persists via cookie),
   // then the cookie, then the browser's Accept-Language.
@@ -361,7 +376,7 @@ export function createApp(registry: UserRegistry): Hono {
       const existing = registry.userByGoogleSub(identity.sub);
       if (existing) {
         startSession(c, existing);
-        return c.redirect(identity.next || `/${existing.handle}`);
+        return c.redirect(identity.next || onboardingDestinationFor(existing));
       }
       // New Google account: park the verified identity and let them pick a
       // handle (or claim a pre-Google account).
@@ -377,7 +392,7 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/signup', (c) => {
     const lang = langOf(c);
     const me = sessionUser(c);
-    if (me) return c.redirect('/account');
+    if (me) return c.redirect(onboardingDestinationFor(me));
     const pending = registry.pendingSignup(getCookie(c, 'urtube_signup') ?? '');
     if (!pending) return c.html(signupStartPage('', lang));
     return c.html(signupCompletePage({ email: pending.email, suggestedHandle: suggestedHandle(pending.email) }, '', lang));
@@ -407,7 +422,7 @@ export function createApp(registry: UserRegistry): Hono {
       try {
         const linked = registry.linkGoogle(user.handle, pending.sub, pending.email);
         finish(linked);
-        return c.redirect(`/${linked.handle}`);
+        return c.redirect(onboardingDestinationFor(linked));
       } catch (error) {
         return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 409);
       }
@@ -422,7 +437,6 @@ export function createApp(registry: UserRegistry): Hono {
     }
     const handle = String(form.handle ?? '').trim().toLocaleLowerCase('en-US');
     const displayName = String(form.displayName ?? '').trim().slice(0, 80);
-    const dashboardPublic = form.dashboardPublic === '1';
     if (!displayName) return c.html(signupCompletePage(pageInput, t.errNameRequired, lang), 400);
     try {
       if (registry.userByGoogleSub(pending.sub)) {
@@ -432,13 +446,70 @@ export function createApp(registry: UserRegistry): Hono {
         return c.html(signupCompletePage(pageInput, t.errHandleTaken(handle), lang), 409);
       }
       const created = registry.createUser(handle, displayName, {
-        dashboardPublic, googleSub: pending.sub, googleEmail: pending.email,
+        googleSub: pending.sub, googleEmail: pending.email,
       });
       finish(created);
       c.header('Cache-Control', 'no-store');
-      return c.html(welcomePage(created, lang), 201);
+      return c.redirect('/onboarding');
     } catch (error) {
       return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 400);
+    }
+  });
+
+  app.get('/onboarding', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    return c.html(guidedOnboardingPage(me, onboardingStateFor(me), langOf(c)));
+  });
+
+  app.post('/onboarding/interests', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
+    const state = onboardingStateFor(me);
+    if (state.step !== 'interests') return c.text('Onboarding step is no longer available', 409);
+    const form = await c.req.parseBody({ all: true });
+    const values = (value: string | File | Array<string | File> | undefined): string[] =>
+      (Array.isArray(value) ? value : value == null ? [] : [value])
+        .filter((item): item is string => typeof item === 'string');
+    const selected = values(form.selectedTopicKeys);
+    const suggested = state.dimensions.suggestedTopicKeys;
+    const allowed = new Set(suggested);
+    if (new Set(selected).size !== selected.length || selected.some((key) => !allowed.has(key))) {
+      return c.text('Matching interests are invalid', 400);
+    }
+    try {
+      registry.setMatchingDimensions(
+        me.handle,
+        Number(form.taxonomyVersion),
+        selected,
+        suggested.filter((key) => !selected.includes(key)),
+      );
+      return c.redirect('/onboarding');
+    } catch {
+      return c.text('Matching interests changed. Reload onboarding and try again.', 409);
+    }
+  });
+
+  app.post('/onboarding/finish', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
+    if (onboardingStateFor(me).step !== 'consent') {
+      return c.text('Onboarding step is no longer available', 409);
+    }
+    const form = await c.req.parseBody();
+    const choice = String(form.choice ?? '');
+    if (choice !== 'join' && choice !== 'private') return c.text('Choose a matching option', 400);
+    try {
+      const updated = registry.completeOnboarding(
+        me.handle,
+        choice === 'join',
+        String(form.matchingDisclosure ?? '') as MatchingDisclosureLevel,
+      );
+      return c.redirect(choice === 'join' ? '/matches' : `/${updated.handle}`);
+    } catch {
+      return c.text('Matching choice is invalid', 400);
     }
   });
 
@@ -484,10 +555,11 @@ export function createApp(registry: UserRegistry): Hono {
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
     const inbox = registry.matchingInboxFor(me);
+    const provisional = processingFor(registry.repositoryFor(me)).pending > 0;
     const respond = (state: Parameters<typeof matchesPage>[2], status: 200 | 403 = 200) => {
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
-      return c.html(matchesPage(me.displayName, `/${me.handle}`, state, lang, inbox), status);
+      return c.html(matchesPage(me.displayName, `/${me.handle}`, state, lang, inbox, provisional), status);
     };
     if (!me.matchingOptIn) return respond({ kind: 'opt_in_required' }, 403);
     const crystal = registry.matchingCrystalFor(me.handle);

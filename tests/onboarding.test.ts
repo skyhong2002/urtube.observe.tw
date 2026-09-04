@@ -47,10 +47,9 @@ function accountTakeoutZip(): Uint8Array {
   });
 }
 
-test('Google-gated signup creates a working account and shows tokens exactly once', async () => {
+test('Google-gated signup starts private guided setup without exposing tokens', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
-  const ingest = createIngestApp(registry);
   try {
     // Without a verified Google identity, /signup only offers the Google
     // button and the form post is rejected.
@@ -64,16 +63,18 @@ test('Google-gated signup creates a working account and shows tokens exactly onc
 
     const pending = registry.createPendingSignup('google-sub-1', 'newbie@gmail.com');
     const form = await app.request('/signup', { headers: { cookie: `urtube_signup=${pending}` } });
-    assert.match(await form.text(), /newbie@gmail\.com/);
+    const formHtml = await form.text();
+    assert.match(formHtml, /newbie@gmail\.com/);
+    assert.doesNotMatch(formHtml, /name="dashboardPublic"/);
 
-    const created = await app.request('/signup', signupBody(pending, { handle: 'newbie', displayName: 'New User' }));
-    assert.equal(created.status, 201);
-    const pageHtml = await created.text();
-    const captureToken = pageHtml.match(/<code class="ob-token">([A-Za-z0-9_-]{40,})<\/code>/)?.[1];
-    assert.ok(captureToken, 'welcome page shows the capture token');
-    const dashboardKey = pageHtml.match(/\/newbie\?key=([A-Za-z0-9_-]+)/)?.[1];
-    assert.ok(dashboardKey, 'welcome page links the private dashboard with its key');
+    const created = await app.request('/signup', signupBody(pending, {
+      handle: 'newbie', displayName: 'New User', dashboardPublic: '1',
+    }));
+    assert.equal(created.status, 302);
+    assert.equal(created.headers.get('location'), '/onboarding');
     assert.equal(registry.userByGoogleSub('google-sub-1')?.handle, 'newbie');
+    assert.equal(registry.userByGoogleSub('google-sub-1')?.dashboardPublic, false,
+      'crafted signup input cannot publish the dashboard');
 
     // Signup started a session: the cookie opens the private dashboard and
     // the account page without any ?key=.
@@ -83,6 +84,10 @@ test('Google-gated signup creates a working account and shows tokens exactly onc
     assert.equal((await app.request('/newbie', { headers: { cookie: session } })).status, 200);
     assert.equal((await app.request('/account', { headers: { cookie: session } })).status, 200);
     assert.equal((await app.request('/newbie')).status, 404);
+    const guided = await (await app.request('/onboarding', { headers: { cookie: session } })).text();
+    assert.match(guided, /first scan needs desktop Chrome/);
+    assert.match(guided, /href="\/extension-setup"/);
+    assert.doesNotMatch(guided, /captureToken|dashboardToken|\?key=/);
 
     // The pending token is single-use.
     const replay = await app.request('/signup', signupBody(pending, { handle: 'other', displayName: 'Other' }, '10.1.0.2'));
@@ -98,17 +103,6 @@ test('Google-gated signup creates a working account and shows tokens exactly onc
     assert.equal((await app.request('/signup', signupBody(p2, { handle: 'newbie', displayName: 'Dup' }, '10.1.0.4'))).status, 409);
     assert.equal((await app.request('/signup', signupBody(p2, { handle: 'Bad Handle!', displayName: 'Bad' }, '10.1.0.5'))).status, 400);
 
-    // The shown capture token authenticates ingest for this user only.
-    const status = await ingest.request('/api/ingest/youtube/capture/status', {
-      headers: { authorization: `Bearer ${captureToken}` },
-    });
-    assert.equal(status.status, 200);
-    assert.equal(((await status.json()) as Record<string, unknown>).user, 'newbie');
-
-    // The dashboard key still works standalone (extension-era links).
-    const dashboard = await app.request(`/newbie?key=${dashboardKey}`);
-    assert.equal(dashboard.status, 200);
-    assert.match(await dashboard.text(), /finish your setup/);
   } finally {
     registry.close();
   }
@@ -126,7 +120,7 @@ test('claiming links a Google account to a pre-Google user via its dashboard key
 
     const claimed = await app.request('/signup', signupBody(pending, { claimHandle: 'oldtimer', claimKey: legacy.dashboardToken }));
     assert.equal(claimed.status, 302);
-    assert.equal(claimed.headers.get('location'), '/oldtimer');
+    assert.equal(claimed.headers.get('location'), '/onboarding');
     assert.equal(registry.userByGoogleSub('google-sub-9')?.handle, 'oldtimer');
 
     // The session from the claim opens the private dashboard.
@@ -345,10 +339,11 @@ test('extension-setup provisions a fresh capture token without breaking the dash
     assert.match(anon.headers.get('location') ?? '', /auth\/google\?next=/);
     assert.equal((await app.request('/extension-setup/token', { method: 'POST' })).status, 401);
 
-    const pending = registry.createPendingSignup('google-sub-50', 'prov@gmail.com');
-    const created = await app.request('/signup', signupBody(pending, { handle: 'prov', displayName: 'Prov' }));
-    const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
-    const dashboardKey = (await created.text()).match(/\/prov\?key=([A-Za-z0-9_-]+)/)![1];
+    const created = registry.createUser('prov', 'Prov', {
+      googleSub: 'google-sub-50', googleEmail: 'prov@gmail.com',
+    });
+    const session = `urtube_session=${registry.createSession(created)}`;
+    const dashboardKey = created.dashboardToken;
 
     const page = await app.request('/extension-setup', { headers: { cookie: session } });
     assert.equal(page.status, 200);

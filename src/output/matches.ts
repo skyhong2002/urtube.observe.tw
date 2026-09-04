@@ -20,6 +20,7 @@ export interface ActionableMatchingCandidateBatch extends Omit<MatchingCandidate
 const matchesStyles = `
   .mt-intro{margin:14px 0 26px;max-width:700px}.mt-intro h1{font-size:clamp(30px,4.5vw,46px);letter-spacing:-.04em;line-height:1.05;margin:7px 0 10px}.mt-intro p{color:var(--ink-2);margin:0}
   .mt-privacy{background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:12px;margin:0 0 20px;padding:11px 13px}
+  .mt-provisional{background:rgba(250,178,25,.1);border:1px solid rgba(250,178,25,.35);border-radius:10px;color:#f5c95e;font-size:12px;margin:0 0 20px;padding:11px 13px}
   .mt-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
   .mt-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:290px;padding:20px}
   .mt-person{align-items:center;display:flex;gap:12px}.mt-avatar{align-items:center;background:linear-gradient(140deg,#e66767,#9b2b2b);border-radius:50%;color:#fff;display:flex;flex:0 0 44px;font-size:19px;font-weight:800;height:44px;justify-content:center;width:44px}.mt-person h2{font-size:17px;margin:0}.mt-strength{color:var(--accent-text);font-size:11px;font-weight:750;margin-top:2px}
@@ -72,6 +73,7 @@ export function matchesPage(
   state: MatchesPageState,
   lang: Lang = 'en',
   inbox: MatchingInbox = { incoming: [], sent: [], connections: [] },
+  provisional = false,
 ): string {
   const t = messages(lang);
   let content: string;
@@ -92,7 +94,7 @@ export function matchesPage(
       </nav>
       <script>(()=>{const cards=[...document.querySelectorAll('.mt-card')];for(const card of cards){card.querySelector('.mt-skip')?.addEventListener('click',()=>{card.remove();if(!document.querySelector('.mt-card'))document.getElementById('mt-batch-empty').hidden=false})}})();</script>`;
   }
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${inboxSection(inbox, lang)}${content}`;
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${inboxSection(inbox, lang)}${content}`;
   return shell(t.matchesTitle, body, [
     { label: t.navDashboard, href: dashboardHref },
     { label: t.navMatches, href: '/matches', active: true },

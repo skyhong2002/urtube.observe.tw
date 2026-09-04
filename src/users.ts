@@ -43,6 +43,7 @@ export interface User {
   matchingDisclosure: MatchingDisclosureLevel;
   matchingIntroduction: string;
   matchingContact: string;
+  onboardingCompletedAt: string | null;
   dataKeyMode: 'legacy-env' | 'derived';
   keySeed: string;
   createdAt: string;
@@ -137,6 +138,8 @@ function rowToUser(row: Record<string, unknown>): User {
     matchingDisclosure: row.matching_disclosure as MatchingDisclosureLevel,
     matchingIntroduction: String(row.matching_introduction ?? ''),
     matchingContact: String(row.matching_contact ?? ''),
+    onboardingCompletedAt: row.onboarding_completed_at == null
+      ? null : String(row.onboarding_completed_at),
     dataKeyMode: row.data_key_mode as User['dataKeyMode'],
     keySeed: String(row.key_seed ?? row.handle),
     createdAt: String(row.created_at),
@@ -169,6 +172,7 @@ export class UserRegistry {
           CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel')),
         matching_introduction TEXT NOT NULL DEFAULT '',
         matching_contact TEXT NOT NULL DEFAULT '',
+        onboarding_completed_at TEXT,
         data_key_mode TEXT NOT NULL DEFAULT 'derived'
           CHECK (data_key_mode IN ('legacy-env', 'derived')),
         created_at TEXT NOT NULL
@@ -199,6 +203,7 @@ export class UserRegistry {
     for (const [name, definition] of [
       ['matching_introduction', "TEXT NOT NULL DEFAULT ''"],
       ['matching_contact', "TEXT NOT NULL DEFAULT ''"],
+      ['onboarding_completed_at', 'TEXT'],
     ] as const) {
       if (!columns.some((column) => column.name === name)) {
         this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
@@ -397,6 +402,23 @@ export class UserRegistry {
     optedIn: boolean,
     disclosureLevel: MatchingDisclosureLevel,
   ): User {
+    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, false);
+  }
+
+  completeOnboarding(
+    handle: string,
+    optedIn: boolean,
+    disclosureLevel: MatchingDisclosureLevel,
+  ): User {
+    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, true);
+  }
+
+  private writeMatchingPreferences(
+    handle: string,
+    optedIn: boolean,
+    disclosureLevel: MatchingDisclosureLevel,
+    completeOnboarding: boolean,
+  ): User {
     if (!MATCHING_DISCLOSURE_LEVELS.includes(disclosureLevel)) {
       throw new Error('Unknown matching disclosure level');
     }
@@ -404,16 +426,24 @@ export class UserRegistry {
     if (!user) throw new Error(`Unknown user: ${handle}`);
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      const now = new Date().toISOString();
       this.db.prepare(`
-        UPDATE users SET matching_opt_in=?, matching_disclosure=? WHERE id=?
-      `).run(optedIn ? 1 : 0, disclosureLevel, user.id);
+        UPDATE users SET matching_opt_in=?, matching_disclosure=?,
+          onboarding_completed_at=CASE WHEN ?=1 THEN ? ELSE onboarding_completed_at END
+        WHERE id=?
+      `).run(
+        optedIn ? 1 : 0,
+        disclosureLevel,
+        completeOnboarding ? 1 : 0,
+        now,
+        user.id,
+      );
       this.db.prepare(`
         INSERT INTO matching_profiles(user_id, opted_in, updated_at) VALUES (?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           opted_in=excluded.opted_in, updated_at=excluded.updated_at
-      `).run(user.id, optedIn ? 1 : 0, new Date().toISOString());
+      `).run(user.id, optedIn ? 1 : 0, now);
       if (!optedIn) {
-        const now = new Date().toISOString();
         this.db.prepare(`
           UPDATE match_requests SET status='withdrawn', updated_at=?
           WHERE status IN ('pending', 'accepted')

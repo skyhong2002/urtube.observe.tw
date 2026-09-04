@@ -1,5 +1,6 @@
 import { config } from '../config.js';
-import type { CreatedUser, User } from '../users.js';
+import type { GuidedOnboardingState, GuidedScanStatus } from '../onboarding-flow.js';
+import type { User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
 import type { YoutubeProcessingStatus } from '../youtube/processing.js';
 import type { MatchingDimensions } from '../youtube/dimensions.js';
@@ -76,7 +77,6 @@ export function signupCompletePage(
       <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="dad" autocomplete="off">
       <label for="displayName">${t.signupName}</label>
       <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(pending.email.split('@')[0] ?? '')}" placeholder="Sky's Dad">
-      <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"> ${t.signupPublic}</label>
       <button type="submit">${t.signupSubmit}</button>
     </form>
     <details style="margin-top:18px"><summary style="cursor:pointer;color:var(--ink-2);font-size:13px">${t.signupClaimSummary}</summary>
@@ -237,7 +237,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
       <form method="post" action="/account/visibility" class="ob-form">
-        <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}> ${t.signupPublic}</label>
+        <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}> ${t.accountVisibilityToggle}</label>
         <button type="submit">${t.accountVisibilitySave}</button>
       </form>
       ${rotatedHtml}
@@ -254,49 +254,95 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     </div>`;
   return shell(t.accountTitle, body, [
     { label: t.navHome, href: '/' },
+    { label: t.navOnboarding, href: '/onboarding' },
     { label: t.navDashboard, href: dashboardHref },
     { label: t.navMatches, href: '/matches' },
     { label: t.navAccount, href: '/account', active: true },
   ], '', lang, '/account');
 }
 
-export function welcomePage(user: CreatedUser, lang: Lang = 'en'): string {
+const guidedStyles = `
+  .go-progress{display:grid;gap:7px;grid-template-columns:repeat(6,minmax(0,1fr));margin:0 0 24px;padding:0}.go-progress li{border-top:3px solid var(--line);color:var(--muted);font-size:10px;list-style:none;padding-top:8px}.go-progress li.done{border-color:#5eb67d;color:var(--ink-2)}.go-progress li.current{border-color:var(--accent);color:var(--ink);font-weight:750}
+  .go-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);max-width:680px;padding:28px}.go-card h2{font-size:20px;margin:0 0 9px}.go-card p{color:var(--ink-2);font-size:14px;line-height:1.65}.go-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px}.go-actions a,.go-actions button{border-radius:999px;font:inherit;font-size:13px;font-weight:750;padding:10px 16px;text-decoration:none}.go-primary{background:var(--accent);border:1px solid var(--accent);color:#fff}.go-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink)}
+  .go-note{background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--ink-2);font-size:13px;margin:16px 0;padding:12px 14px}.go-note.warn{border-color:rgba(250,178,25,.35);color:#f5c95e}.go-topics{display:grid;gap:8px;margin:18px 0}.go-topic{align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:9px;display:flex;font-size:13px;font-weight:700;gap:9px;padding:11px 12px}.go-topic input{accent-color:var(--accent)}.go-choice{align-items:flex-start;background:var(--raised);border:1px solid var(--line);border-radius:10px;display:flex;gap:9px;padding:12px}.go-choice input{accent-color:var(--accent);margin-top:3px}
+  @media(max-width:640px){.go-progress{grid-template-columns:repeat(3,minmax(0,1fr))}.go-card{padding:21px}}
+`;
+
+function guidedScanMessage(status: GuidedScanStatus, lang: Lang): string {
   const t = messages(lang);
-  const endpoint = `${config.publicBaseUrl}/api/ingest/youtube/capture`;
-  const dashboardUrl = user.dashboardPublic
-    ? `${config.publicBaseUrl}/${user.handle}`
-    : `${config.publicBaseUrl}/${user.handle}?key=${user.dashboardToken}`;
-  const installSteps = t.welcomeInstallSteps.map((step) => `<li>${step}</li>`).join('\n        ');
-  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.welcomeEyebrow(html(user.displayName))}</div><h1>${t.welcomeTitle}</h1>
-    <p>${t.welcomePara}</p></section>
-    <div class="ob-card">
-      <div class="ob-warn">${t.welcomeWarn}</div>
-      <h2>${t.welcomeInstall}</h2>
-      <ol class="ob-steps">
-        ${installSteps}
-      </ol>
-      <h2>${t.welcomeConfigure}</h2>
-      <p>${t.welcomeConfigurePara}</p>
-      <details style="margin:0 0 18px"><summary style="color:var(--muted);cursor:pointer;font-size:13px">${t.welcomeManualSummary}</summary>
-      <div style="margin-top:10px">
-        <p>${t.welcomeManualPara}</p>
-        <p style="margin-bottom:2px">${t.welcomeEndpointLabel}</p>
-        <code class="ob-token">${html(endpoint)}</code>
-        <p style="margin-bottom:2px">${t.welcomeTokenLabel}</p>
-        <code class="ob-token">${html(user.captureToken)}</code>
-        <p>${t.welcomeManualAccount}</p>
-      </div></details>
-      <h2>${t.welcomeDash}</h2>
-      <p>${t.welcomeDashPara(user.dashboardPublic)}</p>
-      <code class="ob-token"><a href="${html(dashboardUrl)}">${html(dashboardUrl)}</a></code>
-      <p>${t.welcomeAfterPara}</p>
-      <p style="margin-top:16px">${t.welcomeLost}</p>
-    </div>`;
-  return shell(t.welcomeTitle, body, signupNav(lang), '', lang, '/signup');
+  if (status === 'running') return t.onboardingScanRunning;
+  if (status === 'history-paused') return t.onboardingScanPaused;
+  if (status === 'signed-out') return t.onboardingScanSignedOut;
+  if (status === 'empty') return t.onboardingScanEmpty;
+  if (status === 'retry') return t.onboardingScanRetry;
+  return '';
+}
+
+export function guidedOnboardingPage(
+  user: User,
+  state: GuidedOnboardingState,
+  lang: Lang = 'en',
+): string {
+  const t = messages(lang);
+  const dashboardHref = `/${user.handle}`;
+  const progress = `<ol class="go-progress">${t.onboardingSteps.map((label, index) => {
+    const step = index + 1;
+    const status = state.activeStep > step ? 'done' : state.activeStep === step ? 'current' : '';
+    return `<li class="${status}"${status === 'current' ? ' aria-current="step"' : ''}>${html(label)}</li>`;
+  }).join('')}</ol>`;
+  const provisional = state.provisional
+    ? `<div class="go-note warn">${t.onboardingProvisional}</div>` : '';
+  let content: string;
+  if (state.step === 'setup') {
+    const scan = guidedScanMessage(state.scanStatus, lang);
+    content = `<h2>${t.onboardingSetupTitle}</h2><p>${t.onboardingSetupPara}</p>
+      <div class="go-note">${t.onboardingDesktopOnly}</div>
+      ${scan ? `<div class="go-note${state.scanStatus === 'running' ? '' : ' warn'}">${scan}</div>` : ''}
+      <ol class="ob-steps">${t.onboardingInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+      <div class="go-actions"><a class="go-primary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="/onboarding">${t.onboardingRefresh}</a></div>`;
+  } else if (state.step === 'processing') {
+    const notice = processingNotice(state.processing, lang, { dashboardHref });
+    content = `<h2>${t.onboardingProcessingTitle}</h2><p>${t.onboardingProcessingPara}</p>
+      ${notice || `<div class="go-note warn">${t.onboardingMoreData}</div>`}
+      <div class="go-actions"><a class="go-primary" href="/onboarding">${t.onboardingRefresh}</a><a class="go-secondary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
+  } else if (state.step === 'interests') {
+    const suggested = new Set(state.dimensions.suggestedTopicKeys);
+    const topics = MATCHING_TAXONOMY.topics.filter((topic) => suggested.has(topic.key));
+    content = `<h2>${t.onboardingInterestsTitle}</h2><p>${t.onboardingInterestsPara}</p>${provisional}
+      <p><a href="${dashboardHref}/insights">${t.onboardingPreview}</a></p>
+      <form method="post" action="/onboarding/interests" class="ob-form">
+        <input type="hidden" name="taxonomyVersion" value="${state.dimensions.taxonomyVersion}">
+        ${topics.length ? `<div class="go-topics">${topics.map((topic) => `<label class="go-topic"><input type="checkbox" name="selectedTopicKeys" value="${html(topic.key)}" checked> ${html(topic.name)}</label>`).join('')}</div>` : `<div class="go-note">${t.onboardingNoTopics}</div>`}
+        <button type="submit">${t.onboardingSaveInterests}</button>
+      </form>`;
+  } else if (state.step === 'consent') {
+    content = `<h2>${t.onboardingConsentTitle}</h2><p>${t.onboardingConsentPara}</p>${provisional}
+      <form method="post" action="/onboarding/finish" class="ob-form">
+        <label class="go-choice"><input type="radio" name="choice" value="join" required> <span>${t.onboardingJoin}</span></label>
+        <label class="go-choice"><input type="radio" name="choice" value="private" required> <span>${t.onboardingPrivate}</span></label>
+        <label for="matchingDisclosure">${t.onboardingDisclosure}</label>
+        <select id="matchingDisclosure" name="matchingDisclosure">
+          <option value="topics_only">${t.accountMatchingTopicsOnly}</option>
+          <option value="topics_and_channel">${t.accountMatchingTopicsChannel}</option>
+        </select>
+        <button type="submit">${t.onboardingFinish}</button>
+      </form>`;
+  } else {
+    content = `<h2>${t.onboardingCompleteTitle}</h2><p>${t.onboardingCompletePara}</p>
+      <div class="go-actions">${user.matchingOptIn ? `<a class="go-primary" href="/matches">${t.onboardingOpenMatches}</a>` : ''}<a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
+  }
+  const refresh = state.step === 'processing' || state.scanStatus === 'running'
+    ? '<script>setTimeout(()=>location.reload(),15000)</script>' : '';
+  const body = `<style>${formStyles}${processingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}</section>${refresh}`;
+  return shell(t.onboardingTitle, body, [
+    { label: t.navOnboarding, href: '/onboarding', active: true },
+    { label: t.navDashboard, href: dashboardHref },
+    { label: t.navAccount, href: '/account' },
+  ], '', lang, '/onboarding');
 }
 
 // The page the extension opens right after install (and the target of the
-// welcome page's step 2). Talks to the provision content script through DOM
+// guided setup). Talks to the provision content script through DOM
 // dataset attributes + events — the same bridge pattern dashboard.js uses.
 export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
   const t = messages(lang);
@@ -305,7 +351,7 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
     <div class="ob-card" data-urtube-provision>
       <div id="es-waiting">
         <p>${t.esWaiting}</p>
-        <ol class="ob-steps">${t.welcomeInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+        <ol class="ob-steps">${t.onboardingInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
       </div>
       <div id="es-ready" hidden>
         <p>${t.esAuthorizePara}</p>
@@ -314,7 +360,7 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
       <div id="es-done" hidden>
         <div class="ob-warn" style="border-color:rgba(94,182,125,.4);background:rgba(94,182,125,.1);color:#7ecf9d">${t.esDone}</div>
         <p>${t.esDonePara}</p>
-        <p><a href="/${html(user.handle)}">${t.landingMyDashboard}</a></p>
+        <p><a href="/onboarding">${t.esContinue}</a></p>
       </div>
       <p id="es-error" class="ob-error" hidden>${t.esError}</p>
     </div>
@@ -353,7 +399,7 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
     })();</script>`;
   return shell(t.esTitle, body, [
     { label: t.navHome, href: '/' },
-    { label: t.navDashboard, href: `/${user.handle}` },
+    { label: t.navOnboarding, href: '/onboarding' },
     { label: t.navAccount, href: '/account' },
   ], '', lang, '/extension-setup');
 }
@@ -361,8 +407,7 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
 export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang = 'en'): string {
   if (hasData) return '';
   const t = messages(lang);
-  const endpoint = `${config.publicBaseUrl}/api/ingest/youtube/capture`;
-  const steps = t.setupSteps(html(endpoint)).map((step) => `<li>${step}</li>`).join('\n      ');
+  const steps = t.setupSteps().map((step) => `<li>${step}</li>`).join('\n      ');
   return `<style>${formStyles}</style><div class="ob-card" style="margin:18px 0 0;max-width:none">
     <h2>${t.setupTitle}</h2>
     <ol class="ob-steps">

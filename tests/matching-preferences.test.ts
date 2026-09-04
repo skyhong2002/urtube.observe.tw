@@ -48,6 +48,7 @@ test('registry upgrade preserves the #6 opt-in and defaults disclosure safely', 
 
     const old = new DatabaseSync(registryPath);
     old.exec(`
+      ALTER TABLE users DROP COLUMN onboarding_completed_at;
       ALTER TABLE users DROP COLUMN matching_disclosure;
       ALTER TABLE users DROP COLUMN matching_opt_in;
     `);
@@ -57,6 +58,7 @@ test('registry upgrade preserves the #6 opt-in and defaults disclosure safely', 
     const user = upgraded.userByHandle('legacy')!;
     assert.equal(user.matchingOptIn, true);
     assert.equal(user.matchingDisclosure, 'topics_only');
+    assert.equal(user.onboardingCompletedAt, null);
     upgraded.close();
 
     const rolledBack = new DatabaseSync(registryPath);
