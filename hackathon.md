@@ -3,7 +3,7 @@
 > 隊伍：**T202 — MODEV**  
 > 主賽道：**Track 02 — AI for Everyday Life（日常生活 AI）**  
 > 專案：**urtube**  
-> 最後核對：2026-09-04（Asia/Taipei）
+> 最後核對：2026-09-05（Asia/Taipei）
 
 本文以 [BUILDMODE GEN-AI HACKATHON 2026 參賽者資訊站](https://hackathon2026.sitcon.org/)為準，整理活動規則，並把 urtube 在三天內應完成的內容收斂成可執行的開發、展示與交件計畫。若本文與現場公告不同，應以主辦單位最新公告為準。
 
@@ -44,11 +44,11 @@ urtube 在使用者同意下，把 YouTube 觀看紀錄轉成私密的興趣地�
 
 ### 解法
 
-urtube 只在取得授權後匯入使用者的 YouTube 紀錄，使用 AI 將公開的影片中繼資料分類成一致的興趣維度，再建立近期偏好向量。系統用這些聚合特徵配對使用者，但配對卡只揭露少量共同主題或經同意公開的頻道，不展示搜尋紀錄、單支影片、精確觀看時間或完整分析結果。雙方都按下「想認識」後，才進一步開啟破冰資訊。
+urtube 只在取得授權後匯入使用者的 YouTube 紀錄。AI 只讀公開影片中繼資料，建立可版本化、可審核的私人興趣洞察；跨使用者配對則另用原始碼控管的 YouTube 類別軸與近 90 天聚合向量，不拿個人 AI taxonomy 互相比較。配對卡只揭露少量共同主題或經雙方同意的頻道，不展示搜尋紀錄、單支影片、精確觀看時間或完整分析結果。雙方都按下「想認識」後，才開啟各自撰寫的介紹、聯絡方式與安全破冰提示。
 
 ### 100–200 字投稿摘要草稿
 
-> 多數交友軟體仰賴自行填寫的興趣標籤，不但容易失真，也難反映近期真正投入注意力的事物。urtube 在使用者授權下匯入 YouTube 觀看紀錄，運用 AI 將公開影片資訊轉為可比較的興趣地圖，先協助使用者理解自己，再依其選擇的生活面向尋找相近的人。配對過程只顯示少量共同主題，隱藏原始紀錄與敏感細節，並以雙向同意逐步揭露資訊，讓資料驅動的交友仍保留安全感、界線與認識彼此的空間。
+> 多數交友軟體仰賴自行填寫的興趣標籤，容易失真，也難反映近期投入注意力的事物。urtube 在使用者授權下匯入 YouTube 觀看紀錄，讓 AI 從公開影片資訊整理可審核的私人興趣地圖；配對只使用近 90 天的受治理聚合類別與使用者選擇的面向。候選卡隱藏原始紀錄與敏感細節，只顯示少量共同點，並在雙向同意後才揭露自填的介紹與聯絡方式，讓資料驅動的交友仍保留安全感、界線與認識彼此的空間。
 
 投稿前仍應依實際完成的功能修訂摘要，不可把尚未能展示的功能寫成已完成。
 
@@ -60,22 +60,22 @@ urtube 只在取得授權後匯入使用者的 YouTube 紀錄，使用 AI 將公
 2. 畫面持續顯示掃描、上傳、分類與完成狀態；失敗時能說明原因並安全重試。
 3. 使用者看到自己的私密興趣洞察，並知道哪些資料可能用於配對。
 4. 使用者主動開啟配對，選擇配對面向與可揭露層級。
-5. 系統以統一分類和近期資料計算相似度，回傳 3–5 位候選人。
+5. 系統以統一分類和近期資料計算相似度，每批最多回傳 5 位候選人；無合格人選時誠實顯示空狀態。
 6. 配對卡只顯示暱稱、相似面向、1–2 個共同主題，以及至多一個雙方允許顯示的共同頻道。
-7. 雙方互相按下「想認識」後，才顯示下一步聯絡或 AI 產生的破冰題目。
+7. 一方送出「想認識」、另一方接受後，才顯示彼此自填的聯絡方式與不含來源影片的破冰提示。
 8. 使用者可以關閉配對、撤回分享，並刪除自己的資料。
 
-只要這條流程穩定、隱私承諾可被實際驗證，就足以構成有說服力的黑客松產品。趨勢圖、朋友圈、影片推薦與完整社交關係圖可作為後續延伸，不應阻塞核心展示。
+這條流程、興趣趨勢、匿名參考群體、資料匯出與群體推薦都已實作。完整好友圈與社交動態牆仍是後續延伸，不阻塞核心展示。
 
 ## AI 在產品中的必要角色
 
 AI 不只是聊天介面，而是用來解決無法靠手工規則穩定完成的資料理解問題：
 
 - 只讀取公開影片中繼資料，例如標題、頻道與公開標籤，不把私人搜尋文字交給模型。
-- 將每個人的影片映射到同一套 canonical taxonomy，避免每位使用者各自生成分類而無法直接比較。
-- 把觀看行為聚合為近期興趣向量，避免使用極度稀疏的 Video ID 直接配對。
-- 根據雙方允許揭露的共同主題，產生不包含敏感觀看細節的破冰題目。
-- 分類結果保留模型版本、信心值與可重算能力；低信心資料不應成為強配對訊號。
+- 把公開影片 metadata 分成固定的廣義私人主題，保留模型、prompt、evidence、信心與版本帳本，讓本人可審核、啟用與 rollback。
+- 低資訊或低信心影片可落在 `Unknown`，不會被硬塞成個人結論。
+- 跨使用者配對不依賴模型推測：後端以原始碼控管的 canonical taxonomy 聚合近 90 天資料，再套用使用者選擇、排除與雙方揭露交集。
+- 破冰提示只由雙方允許的廣義共同點組成，不帶來源影片或私人事件。
 
 不應讓模型推斷或公開政治立場、健康狀況、性傾向等敏感身分。若資料涉及敏感內容，預設排除於配對與對外展示之外。
 
@@ -150,32 +150,33 @@ AI 不只是聊天介面，而是用來解決無法靠手工規則穩定完成�
 
 ## 開發優先順序
 
-### P0：必須完成
+### P0：目前狀態
 
-| 工作 | 驗收條件 | 對應 Issue |
-| --- | --- | --- |
-| 同步可靠性 | 可說明最早／最新日期、筆數與停止原因，重跑不重複寫入 | [#1](https://github.com/skyhong2002/urtube.observe.tw/issues/1)、[#2](https://github.com/skyhong2002/urtube.observe.tw/issues/2) |
-| 記憶體控制 | 長歷史掃描不因 DOM 無限成長而崩潰，可分段續跑 | [#3](https://github.com/skyhong2002/urtube.observe.tw/issues/3) |
-| 處理進度 | 上傳後可看見處理階段、進度、完成或失敗原因 | [#4](https://github.com/skyhong2002/urtube.observe.tw/issues/4) |
-| Takeout 匯入 | 能辨識實際匯出 ZIP，錯誤訊息指出缺少或不支援的檔案 | [#5](https://github.com/skyhong2002/urtube.observe.tw/issues/5) |
-| 統一分類 | 不同使用者可落在同一套興趣維度，分類可追溯、可重算 | [#14](https://github.com/skyhong2002/urtube.observe.tw/issues/14) |
-| 配對向量 | 使用近期比例、資料門檻與品質信號，不直接比較 Video ID | [#6](https://github.com/skyhong2002/urtube.observe.tw/issues/6)、[#9](https://github.com/skyhong2002/urtube.observe.tw/issues/9) |
-| 授權與揭露 | 預設不配對；可選面向、限制揭露、隨時撤回 | [#7](https://github.com/skyhong2002/urtube.observe.tw/issues/7)、[#11](https://github.com/skyhong2002/urtube.observe.tw/issues/11) |
-| 配對閉環 | 候選卡不洩漏原始紀錄，雙向同意後才進入破冰 | [#8](https://github.com/skyhong2002/urtube.observe.tw/issues/8)、[#13](https://github.com/skyhong2002/urtube.observe.tw/issues/13) |
-| Onboarding | 使用者知道為何匯入、目前進度、資料用途與下一步 | [#15](https://github.com/skyhong2002/urtube.observe.tw/issues/15) |
+| 工作 | 狀態 | 驗收摘要 | 對應 Issue |
+| --- | --- | --- | --- |
+| 同步可靠性 | 已完成 | 連續 coverage、停止原因、分段續跑與冪等寫入 | [#1](https://github.com/skyhong2002/urtube.observe.tw/issues/1)、[#2](https://github.com/skyhong2002/urtube.observe.tw/issues/2) |
+| 記憶體控制 | 實作完成／外部實機待驗 | 有界日期窗、2,000 筆分割、分頁重啟與續跑；尚缺登入 Google 的 5 年／5 萬筆、16 GB Mac 最終量測 | [#3](https://github.com/skyhong2002/urtube.observe.tw/issues/3) |
+| 處理進度 | 已完成 | pending/running/completed/failed、可重試原因與 ETA | [#4](https://github.com/skyhong2002/urtube.observe.tw/issues/4) |
+| Takeout 匯入 | 已完成 | JSON/HTML、多語路徑與時間、明確錯誤、重跑冪等 | [#5](https://github.com/skyhong2002/urtube.observe.tw/issues/5) |
+| 共用配對分類 | 已完成 | source-controlled、可版本化、敏感類別預設排除 | [#14](https://github.com/skyhong2002/urtube.observe.tw/issues/14) |
+| 私人 AI taxonomy | 已完成 | readiness、代表性抽樣、Unknown、quality gate、owner activate/rollback | [#19](https://github.com/skyhong2002/urtube.observe.tw/issues/19) |
+| 配對向量 | 已完成 | 近 90 天、資料／coverage 門檻、只存有界 registry projection | [#6](https://github.com/skyhong2002/urtube.observe.tw/issues/6)、[#9](https://github.com/skyhong2002/urtube.observe.tw/issues/9) |
+| 授權與揭露 | 已完成 | 預設 opt-out、可選／排除面向、雙方揭露交集、立即撤回 | [#7](https://github.com/skyhong2002/urtube.observe.tw/issues/7)、[#11](https://github.com/skyhong2002/urtube.observe.tw/issues/11) |
+| 配對閉環 | 已完成 | 有界候選卡、opaque action token、雙向同意、斷線撤銷 | [#8](https://github.com/skyhong2002/urtube.observe.tw/issues/8)、[#13](https://github.com/skyhong2002/urtube.observe.tw/issues/13) |
+| Onboarding | 已完成 | 可續接的登入、匯入、處理、興趣確認與配對選擇 | [#15](https://github.com/skyhong2002/urtube.observe.tw/issues/15) |
 
-### P1：主流程穩定後再做
+### 已完成的加值功能
 
 - 近期興趣趨勢與自我理解視覺化（[#12](https://github.com/skyhong2002/urtube.observe.tw/issues/12)）。
 - 可攜式匯出與刪除後的去識別驗證（[#16](https://github.com/skyhong2002/urtube.observe.tw/issues/16)）。
 - 相似群體看過、自己尚未看過的內容推薦（[#10](https://github.com/skyhong2002/urtube.observe.tw/issues/10)）。
 
-### 本次不做
+### 明確不做或限縮
 
 - 完整好友圈／Circle 管理與大型社交動態牆。
 - 以單支影片作為公開的配對理由。
-- 政治立場配對；敏感標籤治理先保留為後續工作（[#17](https://github.com/skyhong2002/urtube.observe.tw/issues/17)）。
-- 需要可靠外部母體資料的「正常值」比較；後續以可解釋的參考基準實作（[#18](https://github.com/skyhong2002/urtube.observe.tw/issues/18)）。
+- 不做政治立場配對或敏感身分推論；[#17](https://github.com/skyhong2002/urtube.observe.tw/issues/17) 已完成的是可追溯的頻道標籤治理與 fail-closed 排除，不是替觀眾貼標籤。
+- 不宣稱「正常人」母體；[#18](https://github.com/skyhong2002/urtube.observe.tw/issues/18) 只呈現至少五位另行 opt-in 使用者的匿名參考樣本，且明示不是社會代表值。
 - P2P 或區塊鏈式資料交換。
 - 為了增加功能數而硬接不相關的贊助商 API。
 
@@ -219,13 +220,13 @@ AI 不只是聊天介面，而是用來解決無法靠手工規則穩定完成�
 
 - [ ] 隊伍資料正確：T202／MODEV。
 - [ ] 主賽道只選 Track 02 — AI for Everyday Life。
-- [ ] 100–200 字問題／解法摘要已依實際成果更新並校稿。
-- [ ] 公開 GitHub 或 GitLab repository 可在無痕視窗開啟。
-- [ ] Repository 內有 LICENSE。
-- [ ] README 說明問題、核心功能、架構、技術、安裝／執行、限制與未來工作。
-- [ ] 第三方套件、模型、資料與素材均有來源及授權說明。
-- [ ] 如使用活動前既有程式碼，已清楚揭露原有範圍與黑客松期間新增內容。
-- [ ] Demo URL 可在無痕視窗使用，並提供最短操作路徑。
+- [x] 100–200 字問題／解法摘要已依實際成果更新並校稿。
+- [x] 公開 GitHub repository 可在無痕視窗開啟。
+- [ ] Repository 內有 LICENSE；等待 owner 在 [#27](https://github.com/skyhong2002/urtube.observe.tw/issues/27) 指定法律授權。
+- [x] README 說明問題、核心功能、架構、技術、安裝／執行、限制與未來工作。
+- [x] 第三方套件、模型、資料與素材來源已列出；正式提交仍須隨 LICENSE 決策複核授權相容性。
+- [x] README 與 migration/boundary 文件已揭露從 Infovore 抽出的既有範圍。
+- [x] Demo URL 可在無痕視窗開啟；登入後最短操作路徑見 README。
 - [ ] YouTube 影片不超過兩分鐘，聲音、字幕、畫面與權限均已驗證。
 
 ### 安全與備援
