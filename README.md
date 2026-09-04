@@ -30,6 +30,12 @@ remain in each user's SQLite file. The Insights keyword cloud is built from
 public title/tag/description metadata by the versioned pipeline described in
 `docs/keyword-pipeline.md`; keywords never enter matching. Imports enqueue a projection refresh, and
 the worker atomically publishes it without dropping a newer queued refresh.
+
+The topic trend on Insights always covers the 12 complete months before today,
+independent of the page range. Its monthly rank, all-topic heatmap, focused
+comparison, and table share the same 3-month moving shares. Months with
+incomplete current-taxonomy classification remain visibly provisional.
+
 Both channel and canonical-topic comparisons use that 90-day window, so old
 history cannot dominate a current match. Pool eligibility is controlled by
 the constants in `src/youtube/matching.ts` (initially 200 recent watch events

@@ -1121,7 +1121,7 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     });
     assert.match(html, /主題如何改變/);
     assert.match(html, /最近 12 個完整月份/);
-    assert.match(html, /已分類 50% · 分類中/);
+    assert.match(html, /已分類 50% · 暫定/);
     assert.match(html, /只納入精確時間紀錄/);
   } finally {
     repository.close();
