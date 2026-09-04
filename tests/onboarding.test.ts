@@ -188,6 +188,15 @@ test('personal taxonomy audit is owner-only and activation needs review confirma
     });
     assert.equal(rejected.status, 400);
     assert.match(await rejected.text(), /Manual review confirmation is required/);
+
+    const unconfirmedCandidate = await app.request('/account/taxonomy/prepare', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: '',
+    });
+    assert.equal(unconfirmedCandidate.status, 400);
+    assert.match(await unconfirmedCandidate.text(), /Candidate confirmation is required/);
+    assert.equal((await app.request('/account/taxonomy/prepare', { method: 'POST' })).status, 302);
   } finally {
     registry.close();
   }

@@ -16,7 +16,10 @@ Search queries are AES-256-GCM-encrypted server-side before storage and never
 served. Watch progress feeds aggregates only. Dashboards are private per user
 (token link) unless made public. AI classification sees public video metadata
 only. Personal topics use the governed, reviewable v2 pipeline in
-`docs/personal-taxonomy-v2.md`. Cross-user matching never compares the
+`docs/personal-taxonomy-v2.md`. Existing v1 archives do not start a bulk AI
+rebuild on deploy; their signed-in owner explicitly prepares a candidate at
+`/account/taxonomy`, reviews its bounded evidence and quality, and then
+activates it atomically. Cross-user matching never compares the
 personalized AI topic slugs:
 it uses the source-controlled, versioned taxonomy in
 `src/youtube/matching.ts`, derived from YouTube's public category ID. News &

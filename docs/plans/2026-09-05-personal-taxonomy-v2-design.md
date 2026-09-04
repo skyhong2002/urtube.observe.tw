@@ -24,4 +24,8 @@ and rollback, but new work uses only the v2 contract.
 - Model, prompt, taxonomy, or metadata changes make an assignment stale.
 - Low-confidence and insufficient results never enter known-topic totals.
 - Activation is atomic and requires passed automatic gates plus owner review.
+- Migrated v1 archives require explicit candidate creation; startup does not
+  fan out a full AI rebuild across legacy users.
+- Activation recalculates candidate quality under its write transaction, so a
+  review page cannot authorize stale coverage after a later import.
 - Restarting the worker continues the same candidate run without duplicate rows.
