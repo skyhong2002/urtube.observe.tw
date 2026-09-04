@@ -4,6 +4,10 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { Repository } from './data/database.js';
+import {
+  MATCHING_DISCLOSURE_LEVELS,
+  type MatchingDisclosureLevel,
+} from './youtube/disclosure.js';
 import { MATCHING_TAXONOMY } from './youtube/matching.js';
 import {
   parseRegistryMatchingCrystal,
@@ -22,12 +26,15 @@ import {
 export const DEFAULT_HANDLE = process.env.OWNER_HANDLE ?? 'sky';
 
 const HANDLE_PATTERN = /^[a-z0-9][a-z0-9.-]{1,31}$/;
+export type { MatchingDisclosureLevel } from './youtube/disclosure.js';
 
 export interface User {
   id: number;
   handle: string;
   displayName: string;
   dashboardPublic: boolean;
+  matchingOptIn: boolean;
+  matchingDisclosure: MatchingDisclosureLevel;
   dataKeyMode: 'legacy-env' | 'derived';
   keySeed: string;
   createdAt: string;
@@ -49,6 +56,7 @@ export interface MatchableCrystal {
   userId: number;
   handle: string;
   displayName: string;
+  disclosureLevel: MatchingDisclosureLevel;
   crystal: RegistryMatchingCrystal;
 }
 
@@ -72,6 +80,8 @@ function rowToUser(row: Record<string, unknown>): User {
     handle: String(row.handle),
     displayName: String(row.display_name),
     dashboardPublic: Number(row.dashboard_public) === 1,
+    matchingOptIn: Number(row.matching_opt_in) === 1,
+    matchingDisclosure: row.matching_disclosure as MatchingDisclosureLevel,
     dataKeyMode: row.data_key_mode as User['dataKeyMode'],
     keySeed: String(row.key_seed ?? row.handle),
     createdAt: String(row.created_at),
@@ -98,6 +108,10 @@ export class UserRegistry {
         capture_token_hash TEXT NOT NULL UNIQUE,
         dashboard_token_hash TEXT NOT NULL UNIQUE,
         dashboard_public INTEGER NOT NULL DEFAULT 0,
+        matching_opt_in INTEGER NOT NULL DEFAULT 0
+          CHECK (matching_opt_in IN (0, 1)),
+        matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
+          CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel')),
         data_key_mode TEXT NOT NULL DEFAULT 'derived'
           CHECK (data_key_mode IN ('legacy-env', 'derived')),
         created_at TEXT NOT NULL
@@ -116,6 +130,14 @@ export class UserRegistry {
       if (!columns.some((column) => column.name === name)) {
         this.db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
       }
+    }
+    if (!columns.some((column) => column.name === 'matching_opt_in')) {
+      this.db.exec(`ALTER TABLE users ADD COLUMN matching_opt_in INTEGER NOT NULL DEFAULT 0
+        CHECK (matching_opt_in IN (0, 1))`);
+    }
+    if (!columns.some((column) => column.name === 'matching_disclosure')) {
+      this.db.exec(`ALTER TABLE users ADD COLUMN matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
+        CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel'))`);
     }
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub
@@ -156,6 +178,17 @@ export class UserRegistry {
         user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         requested_at TEXT NOT NULL
       );
+    `);
+    // #6 stored opt-in in a dedicated row before #7 established the user
+    // preference columns. Reconcile it idempotently on every open: this also
+    // recovers an interrupted ALTER and imports changes made after a binary
+    // rollback. New writes update both copies in one transaction.
+    this.db.exec(`
+      UPDATE users SET matching_opt_in=(
+        SELECT p.opted_in FROM matching_profiles p WHERE p.user_id=users.id
+      ) WHERE EXISTS (
+        SELECT 1 FROM matching_profiles p WHERE p.user_id=users.id
+      )
     `);
   }
 
@@ -250,11 +283,35 @@ export class UserRegistry {
   setMatchingOptIn(handle: string, optedIn: boolean): void {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
-    this.db.prepare(`
-      INSERT INTO matching_profiles(user_id, opted_in, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET
-        opted_in=excluded.opted_in, updated_at=excluded.updated_at
-    `).run(user.id, optedIn ? 1 : 0, new Date().toISOString());
+    this.setMatchingPreferences(handle, optedIn, user.matchingDisclosure);
+  }
+
+  setMatchingPreferences(
+    handle: string,
+    optedIn: boolean,
+    disclosureLevel: MatchingDisclosureLevel,
+  ): User {
+    if (!MATCHING_DISCLOSURE_LEVELS.includes(disclosureLevel)) {
+      throw new Error('Unknown matching disclosure level');
+    }
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(`
+        UPDATE users SET matching_opt_in=?, matching_disclosure=? WHERE id=?
+      `).run(optedIn ? 1 : 0, disclosureLevel, user.id);
+      this.db.prepare(`
+        INSERT INTO matching_profiles(user_id, opted_in, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          opted_in=excluded.opted_in, updated_at=excluded.updated_at
+      `).run(user.id, optedIn ? 1 : 0, new Date().toISOString());
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return this.userByHandle(handle)!;
   }
 
   markCrystalDirty(user: User, requestedAt = new Date().toISOString()): void {
@@ -321,11 +378,10 @@ export class UserRegistry {
 
   listMatchableCrystals(): MatchableCrystal[] {
     const rows = this.db.prepare(`
-      SELECT u.id user_id, u.handle, u.display_name, c.json
+      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, c.json
       FROM crystals c
       JOIN users u ON u.id=c.user_id
-      JOIN matching_profiles p ON p.user_id=u.id AND p.opted_in=1
-      WHERE c.kind='matching' AND c.version=? AND c.eligible=1
+      WHERE u.matching_opt_in=1 AND c.kind='matching' AND c.version=? AND c.eligible=1
         AND c.taxonomy_version=?
       ORDER BY u.id
     `).all(
@@ -338,9 +394,16 @@ export class UserRegistry {
         userId: Number(row.user_id),
         handle: String(row.handle),
         displayName: String(row.display_name),
+        disclosureLevel: String(row.matching_disclosure) as MatchingDisclosureLevel,
         crystal,
       }] : [];
     });
+  }
+
+  listMatchingCandidatesFor(viewer: User): MatchableCrystal[] {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn) return [];
+    return this.listMatchableCrystals().filter((candidate) => candidate.userId !== current.id);
   }
 
   deleteUser(handle: string): void {

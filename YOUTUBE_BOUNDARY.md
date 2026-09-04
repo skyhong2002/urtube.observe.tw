@@ -57,7 +57,9 @@ the worker rebuilds it from public video metadata; Infovore has no source table
 for these versioned canonical classifications.
 
 The multi-user registry has a separate `crystals` table containing only the
-bounded matching projection, plus `crystal_refresh_queue` and an opt-in flag.
+bounded matching projection, plus `crystal_refresh_queue`. The authoritative
+opt-in and disclosure settings are separate `users` columns; the earlier
+`matching_profiles` opt-in row is mirrored only for rollback compatibility.
 Identity is joined by `user_id`; it is not copied into crystal JSON. Foreign
 keys cascade these shared rows on account deletion. These registry tables are
 included automatically in full backup bundles.
@@ -90,6 +92,11 @@ considered successful when they match.
   dedicated `youtube_video_matching_topics` table. Personalized topic slugs
   never enter matching; sensitive YouTube categories are stored only as an
   excluded classification with no public topic key.
+- Matching is a separate, default-off permission: `dashboard_public` never
+  opts an account in. Candidate presentation is a server-side allowlist of at
+  most two shared canonical topics and, only with mutual permission, one
+  shared channel. It carries no videos, searches, time, exact shares, or full
+  crystal fields; opt-out takes effect on the next registry query.
 
 ## Secrets
 
