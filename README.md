@@ -10,6 +10,13 @@ progress, metadata, and AI topics — privately, per user.
   [YOUTUBE_BOUNDARY.md](YOUTUBE_BOUNDARY.md) ·
   [CUTOVER_RUNBOOK.md](CUTOVER_RUNBOOK.md)
 
+## Collaboration
+
+Team changes follow an **Issue → branch → Pull Request → review → merge**
+workflow. Start from an [Issue](https://github.com/skyhong2002/urtube.observe.tw/issues/new/choose)
+and read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Direct pushes to `main` are discouraged.
+
 ## Privacy model
 
 Search queries are AES-256-GCM-encrypted server-side before storage and never

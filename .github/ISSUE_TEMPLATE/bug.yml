@@ -1,0 +1,55 @@
+name: Bug report / 錯誤回報
+description: Report a reproducible problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: 感謝回報。請避免貼上 token、私密 dashboard URL 或個人觀看紀錄。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 問題描述
+      description: 實際發生了什麼？
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 重現步驟
+      placeholder: |
+        1. 前往 ...
+        2. 點擊 ...
+        3. 看到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期結果
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本或 commit
+      placeholder: 例如 main@dc9f751 或 extension 0.1.0
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 執行環境
+      placeholder: 作業系統、瀏覽器、Node.js 版本、部署方式
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log 或截圖
+      description: 請先移除 token、cookie、私密連結及其他個人資料。
+      render: shell
+

@@ -1,0 +1,51 @@
+name: Task / 任務
+description: Track a scoped piece of work before opening a pull request
+title: "[Task]: "
+labels:
+  - task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        請先把目標與完成條件寫清楚。開始開發前，請指派負責人並確認範圍。
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目標
+      description: 這項工作要解決什麼問題？
+      placeholder: 完成後，使用者或團隊會得到什麼？
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 工作範圍
+      description: 列出要做與不做的內容，避免 PR 範圍持續擴大。
+      placeholder: |
+        要做：
+        - ...
+
+        不做：
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 驗收條件
+      description: 請用可以逐項確認的 checklist 描述完成標準。
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 補充資訊
+      description: 附上設計、截圖、相關 Issue 或技術限制。
+

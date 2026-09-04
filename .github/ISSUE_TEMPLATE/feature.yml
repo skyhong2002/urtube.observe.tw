@@ -1,0 +1,44 @@
+name: Feature request / 功能建議
+description: Propose a user-facing improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用情境與問題
+      description: 誰在什麼情況下遇到什麼問題？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建議方案
+      description: 描述你希望看到的行為或介面。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+      description: 是否考慮過其他解法？
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 驗收條件
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 補充資訊
+      description: 附上設計、截圖或相關 Issue。
+
