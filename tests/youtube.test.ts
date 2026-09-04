@@ -145,6 +145,38 @@ test('Takeout parser accepts localized folder names and Chinese timestamps', () 
   assert.equal(parsed.watches[0].channelId, 'channel-zh');
 });
 
+test('Takeout parser accepts Japanese and Korean timestamps and diagnoses unsupported ones', () => {
+  const activity = (time: string, videoId: string) =>
+    `<div class="outer-cell"><div class="content-cell">Watched&nbsp;<a href="https://www.youtube.com/watch?v=${videoId}">Video</a><br>${time}<br>YouTube watch history</div></div>`;
+  const zip = zipSync({
+    'Takeout/YouTube と YouTube Music/履歴/watch-history.html': strToU8(
+      activity('2026/09/04 21:45:27 JST', 'japanese01')
+      + activity('2026年9月4日 08:10:00 JST', 'japanese02')
+      + activity('2026. 9. 4. 오후 9:45:27 KST', 'korean00001')
+      + activity('2026. 9. 4. 오전 12:10:00 KST', 'korean00002'),
+    ),
+  });
+  assert.deepEqual(
+    parseYoutubeArchive(zip, SECRET).watches.map(({ videoId, watchedAt }) => [videoId, watchedAt]),
+    [
+      ['japanese01', '2026-09-04T12:45:27.000Z'],
+      ['japanese02', '2026-09-03T23:10:00.000Z'],
+      ['korean00001', '2026-09-04T12:45:27.000Z'],
+      ['korean00002', '2026-09-03T15:10:00.000Z'],
+    ],
+  );
+
+  const unsupported = zipSync({
+    'Takeout/YouTube/履歴/watch-history.html': strToU8(
+      activity('令和8年9月4日 21時45分27秒 JST', 'unsupported'),
+    ),
+  });
+  assert.throws(
+    () => parseYoutubeArchive(unsupported, SECRET),
+    /found 1 activity record, but 1 had unsupported timestamp formats and were skipped/,
+  );
+});
+
 test('private-value encryption is randomized and authenticated', () => {
   const first = encryptPrivateValue('sensitive', SECRET);
   const second = encryptPrivateValue('sensitive', SECRET);

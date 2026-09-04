@@ -34,6 +34,14 @@ const HTML_TIME_ENGLISH = new RegExp(
 const HTML_TIME_CHINESE = new RegExp(
   `^(\\d{4})年(\\d{1,2})月(\\d{1,2})日 ?(凌晨|清晨|早上|上午|午夜|中午|下午|傍晚|晚上)?(\\d{1,2}):(\\d{2}):(\\d{2}) ${HTML_ZONE}$`,
 );
+// Japanese Takeout uses the locale's numeric medium date (2026/09/04),
+// while Korean uses dotted dates and places 오전/오후 before the clock.
+const HTML_TIME_JAPANESE = new RegExp(
+  `^(\\d{4})(?:年|/)(\\d{1,2})(?:月|/)(\\d{1,2})日?[, ]+(\\d{1,2}):(\\d{2}):(\\d{2}) ${HTML_ZONE}$`,
+);
+const HTML_TIME_KOREAN = new RegExp(
+  `^(\\d{4})\\. ?(\\d{1,2})\\. ?(\\d{1,2})\\.? ?(?:(오전|오후) ?)?(\\d{1,2}):(\\d{2}):(\\d{2}) ${HTML_ZONE}$`,
+);
 const CHINESE_PM_PERIODS = new Set(['中午', '下午', '傍晚', '晚上']);
 
 interface HtmlClock {
@@ -94,6 +102,24 @@ function htmlClock(value: string): HtmlClock | null {
     return {
       year: Number(chinese[1]), month: Number(chinese[2]) - 1, day: Number(chinese[3]),
       hour, minute: Number(chinese[6]), second: Number(chinese[7]), zone: chinese[8],
+    };
+  }
+  const japanese = value.match(HTML_TIME_JAPANESE);
+  if (japanese) {
+    return {
+      year: Number(japanese[1]), month: Number(japanese[2]) - 1, day: Number(japanese[3]),
+      hour: Number(japanese[4]), minute: Number(japanese[5]), second: Number(japanese[6]),
+      zone: japanese[7],
+    };
+  }
+  const korean = value.match(HTML_TIME_KOREAN);
+  if (korean) {
+    const hour = korean[4]
+      ? twelveHour(Number(korean[5]), korean[4] === '오후')
+      : Number(korean[5]);
+    return {
+      year: Number(korean[1]), month: Number(korean[2]) - 1, day: Number(korean[3]),
+      hour, minute: Number(korean[6]), second: Number(korean[7]), zone: korean[8],
     };
   }
   return null;
@@ -219,6 +245,8 @@ function parseJson(bytes: Uint8Array, name: string): unknown[] {
 function parseHtml(bytes: Uint8Array, name: string): TakeoutActivity[] {
   const $ = cheerio.load(Buffer.from(bytes).toString('utf8'));
   const items: TakeoutActivity[] = [];
+  let activityCards = 0;
+  let unsupportedTimestamps = 0;
   $('.outer-cell').each((_, element) => {
     const content = $(element).find('.content-cell');
     if (!content.length) return;
@@ -228,8 +256,13 @@ function parseHtml(bytes: Uint8Array, name: string): TakeoutActivity[] {
       .get()
       .filter(Boolean);
     const action = directText[0] ?? '';
+    if (action) activityCards++;
     const time = directText.map(htmlTime).find((value): value is string => Boolean(value));
-    if (!action || !time) return;
+    if (!action) return;
+    if (!time) {
+      unsupportedTimestamps++;
+      return;
+    }
     const anchors = content.find('a').map((__, anchor) => ({
       name: $(anchor).text().replace(/\s+/g, ' ').trim(),
       url: $(anchor).attr('href')?.trim() ?? '',
@@ -265,6 +298,12 @@ function parseHtml(bytes: Uint8Array, name: string): TakeoutActivity[] {
       activityControls,
     });
   });
+  if (!items.length && activityCards > 0 && unsupportedTimestamps > 0) {
+    const noun = activityCards === 1 ? 'record' : 'records';
+    throw new Error(
+      `${name}: found ${activityCards} activity ${noun}, but ${unsupportedTimestamps} had unsupported timestamp formats and were skipped`,
+    );
+  }
   if (!items.length) throw new Error(`${name} contains no recognized activity records`);
   return items;
 }

@@ -65,7 +65,10 @@ search encryption key.
 ## Data import
 
 Per-user: POST a historical archive ZIP to `/api/ingest/youtube/takeout`
-with your capture token (kept for old Takeout exports). Owner CLI:
+with your capture token (kept for old Takeout exports). Localized Takeout
+folder names are accepted, and HTML timestamps support English, Chinese,
+Japanese, and Korean formats. If a recognized history file uses another time
+format, the error reports how many records were found and skipped. Owner CLI:
 
 ```sh
 npm run youtube:import -- /path/to/takeout.zip     # owner CLI import
