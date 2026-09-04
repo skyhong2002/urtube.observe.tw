@@ -483,10 +483,11 @@ export function createApp(registry: UserRegistry): Hono {
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
+    const inbox = registry.matchingInboxFor(me);
     const respond = (state: Parameters<typeof matchesPage>[2], status: 200 | 403 = 200) => {
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
-      return c.html(matchesPage(me.displayName, `/${me.handle}`, state, lang), status);
+      return c.html(matchesPage(me.displayName, `/${me.handle}`, state, lang, inbox), status);
     };
     if (!me.matchingOptIn) return respond({ kind: 'opt_in_required' }, 403);
     const crystal = registry.matchingCrystalFor(me.handle);
@@ -504,10 +505,58 @@ export function createApp(registry: UserRegistry): Hono {
       registry.listMatchingCandidatesFor(me, MATCHING_CANDIDATE_POOL_LIMIT),
     );
     if (!cards.length) return respond({ kind: 'empty' });
-    return respond({
-      kind: 'ready',
-      batch: matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1)),
-    });
+    const batch = matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1));
+    return respond({ kind: 'ready', batch: {
+      ...batch,
+      cards: batch.cards.map((card) => ({
+        ...card,
+        actionToken: registry.issueMatchActionToken(me, card.candidateUserId, card.disclosure.topics),
+      })),
+    } });
+  });
+
+  const matchingActionError = (c: Context) => {
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    return c.text(messages(langOf(c)).matchesActionInvalid, 400);
+  };
+
+  app.post('/matches/request', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fmatches');
+    const form = await c.req.parseBody();
+    try {
+      registry.createMatchRequest(me, String(form.actionToken ?? ''));
+      return c.redirect('/matches');
+    } catch {
+      return matchingActionError(c);
+    }
+  });
+
+  app.post('/matches/respond', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fmatches');
+    const form = await c.req.parseBody();
+    const response = String(form.response ?? '');
+    if (response !== 'accept' && response !== 'decline') return matchingActionError(c);
+    try {
+      registry.respondToMatchRequest(me, String(form.requestToken ?? ''), response);
+      return c.redirect('/matches');
+    } catch {
+      return matchingActionError(c);
+    }
+  });
+
+  app.post('/matches/withdraw', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fmatches');
+    const form = await c.req.parseBody();
+    try {
+      registry.withdrawMatchRequest(me, String(form.requestToken ?? ''));
+      return c.redirect('/matches');
+    } catch {
+      return matchingActionError(c);
+    }
   });
 
   // Token recovery: rotating invalidates both old tokens and shows the new
@@ -562,6 +611,18 @@ export function createApp(registry: UserRegistry): Hono {
         error: error instanceof Error ? error.message : String(error),
       }), langOf(c)), 400);
     }
+  });
+
+  app.post('/account/match-profile', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const form = await c.req.parseBody();
+    registry.setMatchingProfile(
+      me.handle,
+      String(form.matchingIntroduction ?? ''),
+      String(form.matchingContact ?? ''),
+    );
+    return c.redirect('/account');
   });
 
   app.post('/account/matching-dimensions', async (c) => {

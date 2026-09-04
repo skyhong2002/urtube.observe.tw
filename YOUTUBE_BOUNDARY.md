@@ -66,6 +66,12 @@ supplies safe empty, unconfirmed defaults for older registries.
 Identity is joined by `user_id`; it is not copied into crystal JSON. Foreign
 keys cascade these shared rows on account deletion. These registry tables are
 included automatically in full backup bundles.
+The registry also stores `match_requests` and short-lived
+`match_action_tokens`. Action tokens bind one signed-in sender to one eligible
+recipient without putting either user's internal id or handle in HTML.
+Introductions and contact methods live on the user's private registry row and
+are joined only for an accepted connection whose two participants remain
+opted in.
 
 The matching policy is centralized in `src/youtube/matching.ts`: both channel
 and canonical-topic vectors cover the latest 90 days, candidate eligibility
@@ -89,6 +95,13 @@ with equal internal weight, discards zero/no-signal rows, sorts within a
 five cards per finite batch with `no-store`/`noindex`, and never places a
 candidate handle or internal id in HTML. Card clues pass through the mutual
 disclosure allowlist; excluded dimensions cannot reappear in the icebreaker.
+Pending requests expose only the same saved broad topics that appeared on the
+candidate card, filtered again through both participants' current exclusions.
+Accepting unlocks only each person's self-authored introduction and contact
+method. Decline hides the pair; pending withdrawal, post-acceptance disconnect,
+opt-out, and account deletion revoke the server-side relationship. Every contact
+read verifies the accepted request and current opt-in instead of relying on
+hidden browser markup.
 
 The script prints per-table source vs. target row counts; migration is only
 considered successful when they match.
@@ -128,6 +141,10 @@ considered successful when they match.
   shared channel. It carries no videos, searches, time, exact shares, or full
   crystal fields. Per-user topic exclusions are removed before any downstream
   matching output; opt-out takes effect on the next registry query.
+- Candidate actions use random, expiring tokens scoped to the signed-in sender
+  and eligible recipient. A request does not reveal additional profile data.
+  Contact details are returned only after mutual consent and only while both
+  people remain opted in.
 
 ## Secrets
 
