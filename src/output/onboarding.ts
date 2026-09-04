@@ -2,6 +2,8 @@ import { config } from '../config.js';
 import type { CreatedUser, User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
 import type { YoutubeProcessingStatus } from '../youtube/processing.js';
+import type { MatchingDimensions } from '../youtube/dimensions.js';
+import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
 import { html, shell } from './pages.js';
 import { processingNotice, processingStyles } from './processing.js';
@@ -33,6 +35,7 @@ const formStyles = `
   .ob-google:hover{border-color:var(--muted)}
   .ob-advanced{border-top:1px solid var(--line);padding-top:22px}.ob-advanced>summary{color:var(--accent-text);cursor:pointer;font-size:14px;font-weight:750;list-style-position:outside;margin-left:16px;padding-left:3px}.ob-advanced>summary:hover{color:var(--ink)}
   .ob-advanced-body{padding-top:18px}.ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
+  .ob-dimensions{display:grid;gap:8px;margin:4px 0}.ob-dimension{align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:8px;display:grid;gap:8px;grid-template-columns:minmax(0,1fr) auto auto;padding:9px 10px}.ob-dimension-name{color:var(--ink);font-size:13px;font-weight:700}.ob-dimension code{color:var(--muted);font-size:10px}.ob-dimension .ob-check{font-size:11px;margin:0;white-space:nowrap}
 `;
 
 function signupNav(lang: Lang) {
@@ -118,6 +121,7 @@ export interface AccountPageState {
   // Background work still owed to this archive; shown right after an import
   // and on every later visit until the worker catches up.
   processing?: YoutubeProcessingStatus;
+  matchingDimensions?: MatchingDimensions;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -153,6 +157,40 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         </form>
       </div>
     </details>`;
+  const dimensions = state.matchingDimensions;
+  const dimensionsReady = dimensions && dimensions.status !== 'pending';
+  const selected = new Set(dimensions?.status === 'confirmed'
+    ? dimensions.selectedTopicKeys
+    : dimensions?.status === 'suggested' ? dimensions.suggestedTopicKeys : []);
+  const excluded = new Set(dimensions?.status === 'confirmed' ? dimensions.excludedTopicKeys : []);
+  const suggestedOrder = new Map(dimensions?.suggestedTopicKeys.map((key, index) => [key, index]) ?? []);
+  const topics = [...MATCHING_TAXONOMY.topics].sort((left, right) =>
+    (suggestedOrder.get(left.key) ?? 999) - (suggestedOrder.get(right.key) ?? 999));
+  const dimensionSettings = dimensionsReady ? `
+      <h2>${t.accountDimensions}</h2>
+      <p>${t.accountDimensionsPara}</p>
+      ${dimensions.status === 'stale' ? `<div class="ob-warn">${t.accountDimensionsStale}</div>` : ''}
+      ${dimensions.status === 'suggested' ? `<p class="ob-help">${t.accountDimensionsSuggested}</p>` : ''}
+      <form method="post" action="/account/matching-dimensions" class="ob-form">
+        <input type="hidden" name="taxonomyVersion" value="${dimensions.taxonomyVersion}">
+        <div class="ob-dimensions">
+          ${topics.map((topic) => `<div class="ob-dimension">
+            <span class="ob-dimension-name">${html(topic.name)} <code>${html(topic.key)}</code></span>
+            <label class="ob-check"><input type="checkbox" name="selectedTopicKeys" value="${html(topic.key)}"${selected.has(topic.key) ? ' checked' : ''}> ${t.accountDimensionsUse}</label>
+            <label class="ob-check"><input type="checkbox" name="excludedTopicKeys" value="${html(topic.key)}"${excluded.has(topic.key) ? ' checked' : ''}> ${t.accountDimensionsExclude}</label>
+          </div>`).join('')}
+        </div>
+        <p class="ob-help">${t.accountDimensionsFallback}</p>
+        <button type="submit">${t.accountDimensionsSave}</button>
+      </form>
+      <script>(() => { document.querySelectorAll('.ob-dimension').forEach((row) => {
+        const boxes = row.querySelectorAll('input[type=checkbox]');
+        boxes.forEach((box) => box.addEventListener('change', () => {
+          if (box.checked) boxes.forEach((other) => { if (other !== box) other.checked = false; });
+        }));
+      }); })();</script>` : `
+      <h2>${t.accountDimensions}</h2>
+      <p>${t.accountDimensionsPending}</p>`;
   const body = `<style>${formStyles}${processingStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
     <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></section>
     <div class="ob-card">
@@ -183,6 +221,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <p class="ob-help">${t.accountMatchingSeparate}</p>
         <button type="submit">${t.accountMatchingSave}</button>
       </form>
+      ${dimensionSettings}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
       <form method="post" action="/account/visibility" class="ob-form">

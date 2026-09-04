@@ -8,6 +8,12 @@ import {
   MATCHING_DISCLOSURE_LEVELS,
   type MatchingDisclosureLevel,
 } from './youtube/disclosure.js';
+import {
+  resolveMatchingDimensions,
+  validateMatchingDimensions,
+  type MatchingDimensions,
+  type StoredMatchingDimensions,
+} from './youtube/dimensions.js';
 import { MATCHING_TAXONOMY } from './youtube/matching.js';
 import {
   parseRegistryMatchingCrystal,
@@ -58,6 +64,7 @@ export interface MatchableCrystal {
   displayName: string;
   disclosureLevel: MatchingDisclosureLevel;
   crystal: RegistryMatchingCrystal;
+  dimensions: MatchingDimensions;
 }
 
 function tokenHash(token: string): string {
@@ -160,6 +167,11 @@ export class UserRegistry {
       CREATE TABLE IF NOT EXISTS matching_profiles (
         user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         opted_in INTEGER NOT NULL DEFAULT 0 CHECK (opted_in IN (0, 1)),
+        dimension_taxonomy_version INTEGER,
+        selected_topic_keys TEXT NOT NULL DEFAULT '[]',
+        excluded_topic_keys TEXT NOT NULL DEFAULT '[]',
+        dimensions_confirmed INTEGER NOT NULL DEFAULT 0
+          CHECK (dimensions_confirmed IN (0, 1)),
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS crystals (
@@ -179,6 +191,18 @@ export class UserRegistry {
         requested_at TEXT NOT NULL
       );
     `);
+    const profileColumns = this.db.prepare("SELECT name FROM pragma_table_info('matching_profiles')")
+      .all() as Array<{ name: string }>;
+    for (const [name, definition] of [
+      ['dimension_taxonomy_version', 'INTEGER'],
+      ['selected_topic_keys', "TEXT NOT NULL DEFAULT '[]'"],
+      ['excluded_topic_keys', "TEXT NOT NULL DEFAULT '[]'"],
+      ['dimensions_confirmed', 'INTEGER NOT NULL DEFAULT 0 CHECK (dimensions_confirmed IN (0, 1))'],
+    ] as const) {
+      if (!profileColumns.some((column) => column.name === name)) {
+        this.db.exec(`ALTER TABLE matching_profiles ADD COLUMN ${name} ${definition}`);
+      }
+    }
     // #6 stored opt-in in a dedicated row before #7 established the user
     // preference columns. Reconcile it idempotently on every open: this also
     // recovers an interrupted ALTER and imports changes made after a binary
@@ -314,6 +338,55 @@ export class UserRegistry {
     return this.userByHandle(handle)!;
   }
 
+  matchingDimensionsFor(user: User): MatchingDimensions {
+    const row = this.db.prepare(`
+      SELECT dimension_taxonomy_version, selected_topic_keys,
+        excluded_topic_keys, dimensions_confirmed
+      FROM matching_profiles WHERE user_id=?
+    `).get(user.id) as Record<string, unknown> | undefined;
+    const stored: StoredMatchingDimensions | null = row ? {
+      taxonomyVersion: row.dimension_taxonomy_version == null
+        ? null : Number(row.dimension_taxonomy_version),
+      selectedTopicKeysJson: String(row.selected_topic_keys),
+      excludedTopicKeysJson: String(row.excluded_topic_keys),
+      confirmed: Number(row.dimensions_confirmed) === 1,
+    } : null;
+    return resolveMatchingDimensions(this.matchingCrystalFor(user.handle), stored);
+  }
+
+  setMatchingDimensions(
+    handle: string,
+    taxonomyVersion: number,
+    selectedTopicKeys: string[],
+    excludedTopicKeys: string[],
+  ): MatchingDimensions {
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    const valid = validateMatchingDimensions(
+      taxonomyVersion, selectedTopicKeys, excludedTopicKeys,
+    );
+    this.db.prepare(`
+      INSERT INTO matching_profiles(
+        user_id, opted_in, dimension_taxonomy_version, selected_topic_keys,
+        excluded_topic_keys, dimensions_confirmed, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        dimension_taxonomy_version=excluded.dimension_taxonomy_version,
+        selected_topic_keys=excluded.selected_topic_keys,
+        excluded_topic_keys=excluded.excluded_topic_keys,
+        dimensions_confirmed=1,
+        updated_at=excluded.updated_at
+    `).run(
+      user.id,
+      user.matchingOptIn ? 1 : 0,
+      taxonomyVersion,
+      JSON.stringify(valid.selectedTopicKeys),
+      JSON.stringify(valid.excludedTopicKeys),
+      new Date().toISOString(),
+    );
+    return this.matchingDimensionsFor(user);
+  }
+
   markCrystalDirty(user: User, requestedAt = new Date().toISOString()): void {
     this.db.prepare(`
       INSERT INTO crystal_refresh_queue(user_id, requested_at) VALUES (?, ?)
@@ -378,9 +451,12 @@ export class UserRegistry {
 
   listMatchableCrystals(): MatchableCrystal[] {
     const rows = this.db.prepare(`
-      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, c.json
+      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, c.json,
+        p.dimension_taxonomy_version, p.selected_topic_keys,
+        p.excluded_topic_keys, p.dimensions_confirmed
       FROM crystals c
       JOIN users u ON u.id=c.user_id
+      LEFT JOIN matching_profiles p ON p.user_id=u.id
       WHERE u.matching_opt_in=1 AND c.kind='matching' AND c.version=? AND c.eligible=1
         AND c.taxonomy_version=?
       ORDER BY u.id
@@ -390,12 +466,20 @@ export class UserRegistry {
     ) as Array<Record<string, unknown>>;
     return rows.flatMap((row) => {
       const crystal = parseRegistryMatchingCrystal(String(row.json));
+      const stored: StoredMatchingDimensions | null = row.selected_topic_keys == null ? null : {
+        taxonomyVersion: row.dimension_taxonomy_version == null
+          ? null : Number(row.dimension_taxonomy_version),
+        selectedTopicKeysJson: String(row.selected_topic_keys),
+        excludedTopicKeysJson: String(row.excluded_topic_keys),
+        confirmed: Number(row.dimensions_confirmed) === 1,
+      };
       return crystal ? [{
         userId: Number(row.user_id),
         handle: String(row.handle),
         displayName: String(row.display_name),
         disclosureLevel: String(row.matching_disclosure) as MatchingDisclosureLevel,
         crystal,
+        dimensions: resolveMatchingDimensions(crystal, stored),
       }] : [];
     });
   }

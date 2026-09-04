@@ -35,10 +35,17 @@ across 14 active days); incomplete topic coverage falls back to channels.
 User-facing comparisons show qualitative bands and a sync/processing next
 step instead of exposing exact scores or the activity cutoff.
 Matching is off by default and independent of `dashboard_public`. After data
-setup, the account page lets a signed-in user opt in and choose either two
-broad shared topics only, or those topics plus one common channel when both
-people allow it. Turning matching off removes the user from new candidate
-queries immediately; it does not change or publish the personal dashboard.
+setup, the account page suggests up to five leading canonical interests from
+the eligible 90-day projection. A signed-in user can choose the interests to
+match on and separately exclude interests that must never reach matching,
+recommendations, or icebreakers. Choices store stable keys plus the taxonomy
+version; a version change disables topic matching until explicit
+reconfirmation. If no mutually usable topic remains, matching falls back to
+aggregate channels when possible. Disclosure is a separate presentation-only
+setting: candidate cards show at most two broad shared topics, plus one common
+channel only when both people allow it. Turning matching off removes the user
+from new candidate queries immediately; it does not change or publish the
+personal dashboard.
 
 ## Run
 
@@ -64,7 +71,8 @@ permanent `sub` claim (never the email, which can change). Accounts created
 before Google sign-in can be claimed from the same form with their dashboard
 key. Sessions live in an HttpOnly cookie for 180 days; `/account` shows your
 dashboard link and lets you rename yourself, configure matching privacy,
-toggle dashboard visibility, rotate tokens (lost-token recovery), and sign out. Signups
+choose or exclude matching interests, toggle dashboard visibility, rotate
+tokens (lost-token recovery), and sign out. Signups
 are rate-limited per IP; disable them with `SIGNUP_ENABLED=false` (login and
 claiming stay available).
 
