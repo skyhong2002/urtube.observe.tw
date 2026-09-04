@@ -38,7 +38,14 @@ import {
   matchingCandidateBatch,
   rankedMatchingCandidateCards,
 } from './youtube/candidates.js';
+import {
+  cohortChannelPolicy,
+  cohortRecommendations,
+  type CohortChannelPolicy,
+  type CohortRecommendations,
+} from './youtube/cohort-recommendations.js';
 import { registryCrystalEligible } from './youtube/registry-crystal.js';
+import type { TagListSnapshot } from './youtube/taglists.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
@@ -124,8 +131,13 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
   return entry.crystal;
 }
 
-export function createApp(registry: UserRegistry): Hono {
+interface AppServices {
+  loadTagLists: () => Promise<TagListSnapshot>;
+}
+
+export function createApp(registry: UserRegistry, services: Partial<AppServices> = {}): Hono {
   const app = new Hono();
+  const loadTagLists = services.loadTagLists ?? fetchTagLists;
   app.use('*', securityHeaders(true));
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
@@ -234,7 +246,7 @@ export function createApp(registry: UserRegistry): Hono {
     let leaningsHtml = '';
     if (page === 'insights' && hasData) {
       try {
-        const snapshot = await fetchTagLists();
+        const snapshot = await loadTagLists();
         leaningsHtml = tagLeanSection(
           computeTagLean(range, repository.youtubeChannelTotals(range), snapshot),
           lang,
@@ -550,16 +562,28 @@ export function createApp(registry: UserRegistry): Hono {
     return c.html(accountPage(me, accountStateFor(me), langOf(c)));
   });
 
-  app.get('/matches', (c) => {
+  app.get('/matches', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
     const inbox = registry.matchingInboxFor(me);
     const provisional = processingFor(registry.repositoryFor(me)).pending > 0;
-    const respond = (state: Parameters<typeof matchesPage>[2], status: 200 | 403 = 200) => {
+    const respond = (
+      state: Parameters<typeof matchesPage>[2],
+      status: 200 | 403 = 200,
+      recommendations: CohortRecommendations = { topics: [], channels: [] },
+    ) => {
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
-      return c.html(matchesPage(me.displayName, `/${me.handle}`, state, lang, inbox, provisional), status);
+      return c.html(matchesPage(
+        me.displayName,
+        `/${me.handle}`,
+        state,
+        lang,
+        inbox,
+        provisional,
+        recommendations,
+      ), status);
     };
     if (!me.matchingOptIn) return respond({ kind: 'opt_in_required' }, 403);
     const crystal = registry.matchingCrystalFor(me.handle);
@@ -572,11 +596,26 @@ export function createApp(registry: UserRegistry): Hono {
       crystal,
       dimensions: registry.matchingDimensionsFor(me),
     };
+    const pool = registry.listMatchableCrystals(MATCHING_CANDIDATE_POOL_LIMIT + 1);
+    let channelPolicy: CohortChannelPolicy | undefined;
+    if (pool.length >= 4) {
+      try {
+        const snapshot = await loadTagLists();
+        channelPolicy = cohortChannelPolicy(
+          snapshot.lists,
+          registry.repositoryFor(me).youtubeChannelTotals('90d'),
+        );
+      } catch (error) {
+        console.warn('cohort channel recommendations unavailable:',
+          error instanceof Error ? error.message : 'unknown error');
+      }
+    }
+    const recommendations = cohortRecommendations(viewer, pool, channelPolicy);
     const cards = rankedMatchingCandidateCards(
       viewer,
       registry.listMatchingCandidatesFor(me, MATCHING_CANDIDATE_POOL_LIMIT),
     );
-    if (!cards.length) return respond({ kind: 'empty' });
+    if (!cards.length) return respond({ kind: 'empty' }, 200, recommendations);
     const batch = matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1));
     return respond({ kind: 'ready', batch: {
       ...batch,
@@ -584,7 +623,7 @@ export function createApp(registry: UserRegistry): Hono {
         ...card,
         actionToken: registry.issueMatchActionToken(me, card.candidateUserId, card.disclosure.topics),
       })),
-    } });
+    } }, 200, recommendations);
   });
 
   const matchingActionError = (c: Context) => {

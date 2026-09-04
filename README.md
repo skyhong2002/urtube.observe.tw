@@ -54,6 +54,12 @@ cards per finite batch. Cards contain only a display name, qualitative band,
 up to two allowed canonical topics, an optional mutually allowed channel, and
 a generic icebreaker; the service-to-template model omits exact scores and
 never exposes handles, crystals, histories, shares, or candidate dashboards.
+When at least three of the ten nearest eligible people contribute the same
+unseen item, `/matches` may also show up to five broad topics and five channels
+as a group signal. It never names contributors or exposes their values, videos,
+or source details. Channels from people who allow topic-only disclosure are not
+used. Governed news, editorial, and political channels are excluded. If those
+labels cannot be verified, channel recommendations stay hidden.
 “Want to meet” uses a short-lived opaque action token, so candidate handles and
 internal ids never enter the page. A request reveals nothing new. The recipient
 can accept, skip locally, or decline, and the sender can withdraw while it is
