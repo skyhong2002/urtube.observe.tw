@@ -14,6 +14,7 @@ import {
   type WorkerOpsStatus,
 } from '../src/ops-status.js';
 import { UserRegistry } from '../src/users.js';
+import { youtubeWorkerCycleStartedStatus } from '../src/youtube-worker.js';
 
 // Form posts as the browser would send them after the Google step: the
 // pending-signup token rides in the urtube_signup cookie.
@@ -435,13 +436,13 @@ test('readyz accepts a fresh worker heartbeat or completion and rejects failed o
     assert.equal((await ready.json() as Record<string, unknown>).status, 'ready');
 
     writeOpsStatus('worker', {
-      lastCompletedAt: now, running: false, failedUsers: 0, lastError: '',
+      lastCompletedAt: now, running: false, failedUsers: 1, lastError: 'previous cycle failed',
     });
-    patchOpsStatus<WorkerOpsStatus>('worker', {
-      lastStartedAt: now, heartbeatAt: now, running: true,
-    });
+    patchOpsStatus<WorkerOpsStatus>('worker', youtubeWorkerCycleStartedStatus(now));
     assert.equal(readOpsStatus<WorkerOpsStatus>('worker')?.lastCompletedAt, now,
       'starting a long catch-up cycle preserves the prior successful completion');
+    assert.equal(readOpsStatus<WorkerOpsStatus>('worker')?.failedUsers, 0,
+      'starting a retry clears failures from the completed cycle it supersedes');
     assert.equal((await app.request('/readyz')).status, 200);
 
     writeOpsStatus('worker', {
