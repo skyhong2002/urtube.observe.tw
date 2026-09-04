@@ -158,12 +158,15 @@ test('privacy page explains optional matching and withdrawal in both languages',
   try {
     const english = await (await app.request('/privacy')).text();
     assert.match(english, /Matching is off by default/);
-    assert.match(english, /at most two broad shared topics/);
-    assert.match(english, /Turn matching off/);
+    assert.match(english, /Only mutual consent unlocks/);
+    assert.match(english, /Every read checks that the connection is still accepted/);
+    assert.match(english, /Turning matching off withdraws requests and connections immediately/);
     assert.match(english, /separate from making a dashboard public/);
     const chinese = await (await app.request('/privacy?lang=zh')).text();
     assert.match(chinese, /配對預設關閉/);
-    assert.match(chinese, /只有雙方都允許/);
+    assert.match(chinese, /只有雙方同意後/);
+    assert.match(chinese, /每次讀取都會確認連結仍有效/);
+    assert.match(chinese, /關閉配對會立即撤銷邀請與連結/);
     assert.match(chinese, /公開儀表板是兩個獨立設定/);
   } finally {
     registry.close();

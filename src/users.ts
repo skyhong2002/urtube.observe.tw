@@ -41,6 +41,8 @@ export interface User {
   dashboardPublic: boolean;
   matchingOptIn: boolean;
   matchingDisclosure: MatchingDisclosureLevel;
+  matchingIntroduction: string;
+  matchingContact: string;
   dataKeyMode: 'legacy-env' | 'derived';
   keySeed: string;
   createdAt: string;
@@ -67,12 +69,56 @@ export interface MatchableCrystal {
   dimensions: MatchingDimensions;
 }
 
+export interface MatchRequestPreview {
+  requestToken: string;
+  displayName: string;
+  topics: string[];
+  requestedAt: string;
+}
+
+export interface MatchConnection {
+  requestToken: string;
+  displayName: string;
+  introduction: string;
+  contact: string;
+  topics: string[];
+  connectedAt: string;
+}
+
+export interface MatchingInbox {
+  incoming: MatchRequestPreview[];
+  sent: MatchRequestPreview[];
+  connections: MatchConnection[];
+}
+
 function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
 function newToken(): string {
   return randomBytes(36).toString('base64url');
+}
+
+const MATCH_ACTION_TTL_MS = 20 * 60_000;
+const MATCH_TOPIC_NAMES = new Set(MATCHING_TAXONOMY.topics.map((topic) => topic.name));
+const MATCH_TOPIC_KEYS_BY_NAME = new Map(
+  MATCHING_TAXONOMY.topics.map((topic) => [topic.name, topic.key]),
+);
+
+function matchTopics(value: string): string[] {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.length > 2 || parsed.some((topic) =>
+    typeof topic !== 'string' || !MATCH_TOPIC_NAMES.has(topic))) {
+    throw new Error('Stored match topics are invalid');
+  }
+  return [...new Set(parsed)];
+}
+
+function normalizeMatchTopics(topics: string[]): string[] {
+  if (topics.length > 2 || topics.some((topic) => !MATCH_TOPIC_NAMES.has(topic))) {
+    throw new Error('Match topics are invalid');
+  }
+  return [...new Set(topics)];
 }
 
 export function timingSafeEquals(a: string, b: string): boolean {
@@ -89,6 +135,8 @@ function rowToUser(row: Record<string, unknown>): User {
     dashboardPublic: Number(row.dashboard_public) === 1,
     matchingOptIn: Number(row.matching_opt_in) === 1,
     matchingDisclosure: row.matching_disclosure as MatchingDisclosureLevel,
+    matchingIntroduction: String(row.matching_introduction ?? ''),
+    matchingContact: String(row.matching_contact ?? ''),
     dataKeyMode: row.data_key_mode as User['dataKeyMode'],
     keySeed: String(row.key_seed ?? row.handle),
     createdAt: String(row.created_at),
@@ -119,6 +167,8 @@ export class UserRegistry {
           CHECK (matching_opt_in IN (0, 1)),
         matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
           CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel')),
+        matching_introduction TEXT NOT NULL DEFAULT '',
+        matching_contact TEXT NOT NULL DEFAULT '',
         data_key_mode TEXT NOT NULL DEFAULT 'derived'
           CHECK (data_key_mode IN ('legacy-env', 'derived')),
         created_at TEXT NOT NULL
@@ -145,6 +195,14 @@ export class UserRegistry {
     if (!columns.some((column) => column.name === 'matching_disclosure')) {
       this.db.exec(`ALTER TABLE users ADD COLUMN matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
         CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel'))`);
+    }
+    for (const [name, definition] of [
+      ['matching_introduction', "TEXT NOT NULL DEFAULT ''"],
+      ['matching_contact', "TEXT NOT NULL DEFAULT ''"],
+    ] as const) {
+      if (!columns.some((column) => column.name === name)) {
+        this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+      }
     }
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub
@@ -190,6 +248,30 @@ export class UserRegistry {
         user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         requested_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS match_action_tokens (
+        token_hash TEXT PRIMARY KEY,
+        sender_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        recipient_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        topics_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        UNIQUE(sender_user_id, recipient_user_id),
+        CHECK(sender_user_id <> recipient_user_id)
+      );
+      CREATE TABLE IF NOT EXISTS match_requests (
+        request_token TEXT NOT NULL UNIQUE,
+        sender_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        recipient_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn')),
+        topics_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK(sender_user_id <> recipient_user_id)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS match_requests_pending_direction
+        ON match_requests(sender_user_id, recipient_user_id) WHERE status='pending';
+      CREATE INDEX IF NOT EXISTS match_requests_participants
+        ON match_requests(recipient_user_id, sender_user_id, status, updated_at DESC);
     `);
     const profileColumns = this.db.prepare("SELECT name FROM pragma_table_info('matching_profiles')")
       .all() as Array<{ name: string }>;
@@ -330,6 +412,17 @@ export class UserRegistry {
         ON CONFLICT(user_id) DO UPDATE SET
           opted_in=excluded.opted_in, updated_at=excluded.updated_at
       `).run(user.id, optedIn ? 1 : 0, new Date().toISOString());
+      if (!optedIn) {
+        const now = new Date().toISOString();
+        this.db.prepare(`
+          UPDATE match_requests SET status='withdrawn', updated_at=?
+          WHERE status IN ('pending', 'accepted')
+            AND (sender_user_id=? OR recipient_user_id=?)
+        `).run(now, user.id, user.id);
+        this.db.prepare(`
+          DELETE FROM match_action_tokens WHERE sender_user_id=? OR recipient_user_id=?
+        `).run(user.id, user.id);
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -490,10 +583,237 @@ export class UserRegistry {
   listMatchingCandidatesFor(viewer: User, limit = 250): MatchableCrystal[] {
     const current = this.userByHandle(viewer.handle);
     if (!current || current.id !== viewer.id || !current.matchingOptIn) return [];
+    const unavailable = new Set((this.db.prepare(`
+      SELECT CASE WHEN sender_user_id=? THEN recipient_user_id ELSE sender_user_id END user_id
+      FROM match_requests
+      WHERE status IN ('pending', 'accepted', 'declined')
+        AND (sender_user_id=? OR recipient_user_id=?)
+    `).all(current.id, current.id, current.id) as Array<{ user_id: number }>)
+      .map((row) => Number(row.user_id)));
     const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 499);
     return this.listMatchableCrystals(boundedLimit + 1)
-      .filter((candidate) => candidate.userId !== current.id)
+      .filter((candidate) => candidate.userId !== current.id && !unavailable.has(candidate.userId))
       .slice(0, boundedLimit);
+  }
+
+  issueMatchActionToken(sender: User, recipientUserId: number, topics: string[]): string {
+    const current = this.userByHandle(sender.handle);
+    if (!current || current.id !== sender.id || !current.matchingOptIn) {
+      throw new Error('Matching is not enabled');
+    }
+    if (!this.listMatchingCandidatesFor(current).some((candidate) => candidate.userId === recipientUserId)) {
+      throw new Error('Candidate is no longer eligible');
+    }
+    const token = newToken();
+    const now = new Date();
+    this.db.prepare('DELETE FROM match_action_tokens WHERE expires_at < ?').run(now.toISOString());
+    this.db.prepare(`
+      INSERT INTO match_action_tokens(
+        token_hash, sender_user_id, recipient_user_id, topics_json, created_at, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(sender_user_id, recipient_user_id) DO UPDATE SET
+        token_hash=excluded.token_hash,
+        topics_json=excluded.topics_json,
+        created_at=excluded.created_at,
+        expires_at=excluded.expires_at
+    `).run(
+      tokenHash(token), current.id, recipientUserId,
+      JSON.stringify(normalizeMatchTopics(topics)), now.toISOString(),
+      new Date(now.getTime() + MATCH_ACTION_TTL_MS).toISOString(),
+    );
+    return token;
+  }
+
+  createMatchRequest(sender: User, actionToken: string): void {
+    const current = this.userByHandle(sender.handle);
+    if (!current || current.id !== sender.id || !current.matchingOptIn || !actionToken) {
+      throw new Error('Match request is not allowed');
+    }
+    const now = new Date().toISOString();
+    this.db.prepare('DELETE FROM match_action_tokens WHERE expires_at < ?').run(now);
+    const action = this.db.prepare(`
+      SELECT a.recipient_user_id, a.topics_json
+      FROM match_action_tokens a
+      JOIN users recipient ON recipient.id=a.recipient_user_id AND recipient.matching_opt_in=1
+      JOIN crystals c ON c.user_id=recipient.id AND c.kind='matching'
+        AND c.version=? AND c.taxonomy_version=? AND c.eligible=1
+      JOIN crystals sender_crystal ON sender_crystal.user_id=a.sender_user_id
+        AND sender_crystal.kind='matching' AND sender_crystal.version=?
+        AND sender_crystal.taxonomy_version=? AND sender_crystal.eligible=1
+      WHERE a.token_hash=? AND a.sender_user_id=? AND a.expires_at>=?
+    `).get(
+      REGISTRY_CRYSTAL_VERSION,
+      MATCHING_TAXONOMY.version,
+      REGISTRY_CRYSTAL_VERSION,
+      MATCHING_TAXONOMY.version,
+      tokenHash(actionToken),
+      current.id,
+      now,
+    ) as { recipient_user_id: number; topics_json: string } | undefined;
+    if (!action) throw new Error('Match action expired or is no longer valid');
+    const existing = this.db.prepare(`
+      SELECT status FROM match_requests
+      WHERE ((sender_user_id=? AND recipient_user_id=?)
+        OR (sender_user_id=? AND recipient_user_id=?))
+        AND status IN ('pending', 'accepted')
+      ORDER BY status='accepted' DESC, updated_at DESC LIMIT 1
+    `).get(
+      current.id, action.recipient_user_id,
+      action.recipient_user_id, current.id,
+    ) as { status: 'pending' | 'accepted' } | undefined;
+    if (existing?.status === 'accepted') return;
+    if (existing?.status === 'pending') {
+      const sameDirection = this.db.prepare(`
+        SELECT 1 FROM match_requests
+        WHERE sender_user_id=? AND recipient_user_id=? AND status='pending'
+      `).get(current.id, action.recipient_user_id);
+      if (sameDirection) return;
+    }
+    this.db.prepare(`
+      INSERT INTO match_requests(
+        request_token, sender_user_id, recipient_user_id, status, topics_json, created_at, updated_at
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?)
+    `).run(
+      newToken(), current.id, action.recipient_user_id,
+      JSON.stringify(matchTopics(action.topics_json)), now, now,
+    );
+  }
+
+  matchingInboxFor(viewer: User): MatchingInbox {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn) {
+      return { incoming: [], sent: [], connections: [] };
+    }
+    const viewerDimensions = this.matchingDimensionsFor(current);
+    const visibleTopics = (otherUserId: number, value: string): string[] => {
+      const topics = matchTopics(value);
+      const row = this.db.prepare('SELECT * FROM users WHERE id=?').get(otherUserId) as
+        | Record<string, unknown>
+        | undefined;
+      if (!row) return [];
+      const other = rowToUser(row);
+      const otherDimensions = this.matchingDimensionsFor(other);
+      // A stale taxonomy cannot safely reinterpret a saved topic name. Current
+      // exclusions from either participant apply to every later read, not only
+      // to the candidate card that created the request.
+      if (viewerDimensions.status === 'stale' || otherDimensions.status === 'stale') return [];
+      const excluded = new Set([
+        ...viewerDimensions.excludedTopicKeys,
+        ...otherDimensions.excludedTopicKeys,
+      ]);
+      return topics.filter((name) => {
+        const key = MATCH_TOPIC_KEYS_BY_NAME.get(name);
+        return Boolean(key && !excluded.has(key));
+      });
+    };
+    const previews = (direction: 'incoming' | 'sent'): MatchRequestPreview[] => {
+      const incoming = direction === 'incoming';
+      const rows = this.db.prepare(`
+        SELECT r.request_token, other.id other_user_id, other.display_name,
+          r.topics_json, r.created_at
+        FROM match_requests r
+        JOIN users other ON other.id=${incoming ? 'r.sender_user_id' : 'r.recipient_user_id'}
+          AND other.matching_opt_in=1
+        WHERE r.${incoming ? 'recipient_user_id' : 'sender_user_id'}=? AND r.status='pending'
+        ORDER BY r.created_at DESC
+      `).all(current.id) as Array<Record<string, unknown>>;
+      return rows.map((row) => ({
+        requestToken: String(row.request_token),
+        displayName: String(row.display_name),
+        topics: visibleTopics(Number(row.other_user_id), String(row.topics_json)),
+        requestedAt: String(row.created_at),
+      }));
+    };
+    const connectionRows = this.db.prepare(`
+      SELECT r.request_token, other.id other_user_id, other.display_name,
+        other.matching_introduction, other.matching_contact, r.topics_json, r.updated_at
+      FROM match_requests r
+      JOIN users other ON other.id=CASE
+        WHEN r.sender_user_id=? THEN r.recipient_user_id ELSE r.sender_user_id END
+        AND other.matching_opt_in=1
+      WHERE r.status='accepted' AND (r.sender_user_id=? OR r.recipient_user_id=?)
+      ORDER BY r.updated_at DESC
+    `).all(current.id, current.id, current.id) as Array<Record<string, unknown>>;
+    return {
+      incoming: previews('incoming'),
+      sent: previews('sent'),
+      connections: connectionRows.map((row) => ({
+        requestToken: String(row.request_token),
+        displayName: String(row.display_name),
+        introduction: String(row.matching_introduction),
+        contact: String(row.matching_contact),
+        topics: visibleTopics(Number(row.other_user_id), String(row.topics_json)),
+        connectedAt: String(row.updated_at),
+      })),
+    };
+  }
+
+  respondToMatchRequest(
+    recipient: User,
+    requestToken: string,
+    response: 'accept' | 'decline',
+  ): void {
+    const current = this.userByHandle(recipient.handle);
+    if (!current || current.id !== recipient.id || !current.matchingOptIn || !requestToken) {
+      throw new Error('Match response is not allowed');
+    }
+    const now = new Date().toISOString();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const request = this.db.prepare(`
+        SELECT sender_user_id FROM match_requests
+        WHERE request_token=? AND recipient_user_id=? AND status='pending'
+      `).get(requestToken, current.id) as { sender_user_id: number } | undefined;
+      if (!request) throw new Error('Match request is no longer pending');
+      if (response === 'accept') {
+        const sender = this.db.prepare('SELECT matching_opt_in FROM users WHERE id=?')
+          .get(request.sender_user_id) as { matching_opt_in: number } | undefined;
+        if (!sender || Number(sender.matching_opt_in) !== 1) {
+          throw new Error('The sender is no longer in matching');
+        }
+      }
+      const result = this.db.prepare(`
+        UPDATE match_requests SET status=?, updated_at=?
+        WHERE request_token=? AND recipient_user_id=? AND status='pending'
+      `).run(response === 'accept' ? 'accepted' : 'declined', now, requestToken, current.id);
+      if (Number(result.changes) !== 1) throw new Error('Match request is no longer pending');
+      if (response === 'accept') {
+        this.db.prepare(`
+          UPDATE match_requests SET status='declined', updated_at=?
+          WHERE sender_user_id=? AND recipient_user_id=? AND status='pending'
+        `).run(now, current.id, request.sender_user_id);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  withdrawMatchRequest(sender: User, requestToken: string): void {
+    const current = this.userByHandle(sender.handle);
+    if (!current || current.id !== sender.id || !requestToken) {
+      throw new Error('Match withdrawal is not allowed');
+    }
+    const result = this.db.prepare(`
+      UPDATE match_requests SET status='withdrawn', updated_at=?
+      WHERE request_token=? AND (
+        (status='pending' AND sender_user_id=?)
+        OR (status='accepted' AND (sender_user_id=? OR recipient_user_id=?))
+      )
+    `).run(new Date().toISOString(), requestToken, current.id, current.id, current.id);
+    if (Number(result.changes) !== 1) throw new Error('Match request is no longer active');
+  }
+
+  setMatchingProfile(handle: string, introduction: string, contact: string): User {
+    const user = this.userByHandle(handle);
+    if (!user) throw new Error(`Unknown user: ${handle}`);
+    const normalizedIntroduction = [...introduction.trim()].slice(0, 160).join('');
+    const normalizedContact = [...contact.trim()].slice(0, 240).join('');
+    this.db.prepare(`
+      UPDATE users SET matching_introduction=?, matching_contact=? WHERE id=?
+    `).run(normalizedIntroduction, normalizedContact, user.id);
+    return this.userByHandle(handle)!;
   }
 
   deleteUser(handle: string): void {

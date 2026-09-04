@@ -166,7 +166,9 @@ test('/matches renders five bounded cards, a finite next batch, and no private p
     assert.match(first, /Candidate 5/);
     assert.doesNotMatch(first, /Candidate 6/);
     assert.match(first, /href="\/matches\?page=2"/);
-    assert.match(first, /class="mt-want" type="button" disabled/);
+    assert.equal((first.match(/action="\/matches\/request"/g) ?? []).length, 5);
+    assert.match(first, /name="actionToken" value="[A-Za-z0-9_-]{40,}"/);
+    assert.doesNotMatch(first, /class="mt-want"[^>]*disabled/);
     assert.doesNotMatch(first, /hidden-candidate|Private Channel|\/compare|\/u\//);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);
 
