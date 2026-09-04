@@ -8,8 +8,12 @@ function trendFixture(): YoutubeTopicTrendMonth[] {
   return Array.from({ length: 12 }, (_, monthIndex) => ({
     month: `2025-${String(monthIndex + 1).padStart(2, '0')}`,
     classifiableWatchEvents: 100,
+    processedWatchEvents: 100,
     classifiedWatchEvents: monthIndex === 9 ? 50 : 100,
+    unknownWatchEvents: monthIndex === 9 ? 50 : 0,
     classificationCoverage: monthIndex === 9 ? 0.5 : 1,
+    processedCoverage: 1,
+    unknownShare: monthIndex === 9 ? 0.5 : 0,
     classifiedWatchSeconds: 10_000,
     topics: Array.from({ length: 20 }, (_, topicIndex) => ({
       slug: `topic-${topicIndex + 1}`,
@@ -35,7 +39,14 @@ test('topic trend views share one 12-month, 20-topic model', () => {
   assert.match(output, /All topics/);
   assert.match(output, /Other/);
   assert.match(output, /Select up to 3 topics to compare/);
-  assert.match(output, /always uses the 12 complete months/);
+  assert.match(output, /follows the page range/);
+  assert.match(output, /data-trend-smoothing="raw"/);
+  assert.match(output, /data-trend-smoothing="smoothed"/);
+  assert.match(output, /rawShare/);
+  assert.match(output, /smoothedShare/);
+  assert.match(output, /cell\.setAttribute\('aria-label',detail\)/);
+  assert.match(output, /data-trend-summary/);
+  assert.match(output, /data-trend-table-body/);
   assert.match(output, /current taxonomy/);
   assert.match(output, /prefers-reduced-motion:reduce/);
   assert.match(output, /play\.hidden=true;play\.disabled=true/);

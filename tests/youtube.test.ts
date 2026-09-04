@@ -16,6 +16,12 @@ import { normalizeYoutubeCapture } from '../src/youtube/capture.js';
 import { normalizeYoutubeHistoryBatch } from '../src/youtube/history-sync.js';
 import { runYoutubePortabilityStep } from '../src/youtube/portability.js';
 import {
+  PERSONAL_TAXONOMY_DEFINITION_VERSION,
+  PERSONAL_TAXONOMY_PROMPT_VERSION,
+  PERSONAL_TOPICS,
+  samplePersonalTaxonomy,
+} from '../src/youtube/personal-taxonomy.js';
+import {
   normalizeYoutubeProgressBatch,
   progressSeconds,
 } from '../src/youtube/progress.js';
@@ -1023,9 +1029,6 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
         publishedAt: null, categoryId: null, availability: 'available', metadataHash: 'new',
       },
     ]);
-    assert.equal(repository.youtubeVideosForClassification(1)[0]?.videoId, 'CLASSNEW001');
-    assert.equal(repository.youtubeVideosForTaxonomy(12)[0]?.videoId, 'CLASSNEW001');
-
     const [topic] = repository.replaceYoutubeTaxonomy([{
       version: 1, slug: 'recent-topic', name: 'Recent topic', description: 'Recent videos',
     }]);
@@ -1036,6 +1039,25 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
     const partial = repository.youtubeDashboard('all');
     assert.equal(partial.stats.topicCoverage, 0.5);
     assert.equal(partial.topics[0]?.slug, 'recent-topic');
+    const partialPage = youtubeDashboardPage('Fixture', partial, 'duration', {
+      lang: 'en', page: 'insights',
+    });
+    assert.match(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
+    assert.match(partialPage, /Effective coverage is below 80%/);
+    assert.doesNotMatch(partialPage, /<div class="yt-topic"><strong>Recent topic/);
+
+    const sample = samplePersonalTaxonomy(repository.youtubePersonalTaxonomyCandidates(), 2);
+    const run = repository.createPersonalTaxonomyRun({
+      definitionVersion: PERSONAL_TAXONOMY_DEFINITION_VERSION,
+      model: 'test-model',
+      promptVersion: PERSONAL_TAXONOMY_PROMPT_VERSION,
+      topics: PERSONAL_TOPICS.map(({ slug, name, description }) => ({ slug, name, description })),
+      sample,
+    });
+    assert.equal(
+      repository.youtubeVideosForPersonalClassification(run, 1)[0]?.videoId,
+      'CLASSNEW001',
+    );
 
     repository.upsertYoutubeVideoMetadata([{
       videoId: 'CLASSNEW001', title: 'New', channelId: null, channelTitle: 'Channel',
@@ -1098,10 +1120,10 @@ test('topic trend uses exact-time events, current classifications, and weighted 
         'test-model', 'test-prompt', `${videoId}-v1`);
     }
 
-    const trend = repository.youtubeTopicTrend(now);
-    assert.equal(trend.length, 12);
+    const trend = repository.youtubeTopicTrend('365d', now);
+    assert.equal(trend.length, 13);
     assert.equal(trend[0].month, '2025-05');
-    assert.equal(trend.at(-1)?.month, '2026-04');
+    assert.equal(trend.at(-1)?.month, '2026-05');
     const march = trend.find((month) => month.month === '2026-03')!;
     assert.deepEqual(
       { classifiable: march.classifiableWatchEvents, classified: march.classifiedWatchEvents,
@@ -1116,11 +1138,21 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     assert.equal(april.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.2);
     assert.equal(april.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.8);
 
+    const sevenDays = repository.youtubeTopicTrend('7d', now);
+    assert.equal(sevenDays.length, 8);
+    assert.match(sevenDays[0].month, /^2026-05-0[78]$/);
+    assert.equal(sevenDays.at(-1)?.month, '2026-05-15');
+    const allTime = repository.youtubeTopicTrend('all', now);
+    assert.deepEqual(allTime.map((period) => period.month), [
+      '2026-01', '2026-02', '2026-03', '2026-04', '2026-05',
+    ]);
+
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
       lang: 'zh', page: 'insights',
     });
     assert.match(html, /主題如何改變/);
-    assert.match(html, /最近 12 個完整月份/);
+    assert.match(html, /依頁面範圍/);
+    assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);
     assert.match(html, /只納入精確時間紀錄/);
     assert.match(html, /\.yt-short-absolute\{[^}]*overflow:hidden/,
@@ -1295,14 +1327,14 @@ test('YouTube keywords segment Unicode, ignore URLs, and count each video once',
   assert.deepEqual(stopWords, []);
 });
 
-test('AI taxonomy is versioned, validated, cached, and receives only public metadata', async () => {
+test('personal taxonomy v2 is gated, versioned, restart-safe, and public-metadata only', async () => {
   const repository = new Repository(':memory:');
   try {
-    const metadata = Array.from({ length: 12 }, (_, index): YoutubeVideoMetadata => ({
-      videoId: `ai-video-${index + 1}`,
+    const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
+      videoId: `AIVIDEO${String(index).padStart(4, '0')}`,
       title: `Technical Video ${index + 1}`,
-      channelId: `channel-${index + 1}`,
-      channelTitle: `Channel ${index + 1}`,
+      channelId: `channel-${index % 12 + 1}`,
+      channelTitle: `Channel ${index % 12 + 1}`,
       description: 'A public description about software and culture.',
       tags: ['software', 'culture'],
       thumbnailUrl: `https://i.ytimg.com/vi/ai-video-${index + 1}/hqdefault.jpg`,
@@ -1312,10 +1344,25 @@ test('AI taxonomy is versioned, validated, cached, and receives only public meta
       availability: 'available',
       metadataHash: `hash-${index + 1}`,
     }));
+    for (const [index, video] of metadata.entries()) {
+      repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+        sessionId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        videoId: video.videoId,
+        title: video.title,
+        url: `https://www.youtube.com/watch?v=${video.videoId}`,
+        channelTitle: video.channelTitle,
+        watchedAt: `2026-07-${String(index % 24 + 1).padStart(2, '0')}T00:00:00.000Z`,
+        actualWatchedSeconds: 300,
+        durationSeconds: 1200,
+      }, new Date('2026-07-28T00:00:00Z')));
+    }
+    assert.equal((await ensureYoutubeTaxonomyWithClient(repository, false, {
+      baseUrl: 'https://ai.example.test/v1', apiKey: 'test-key', model: 'test-model',
+      fetchImpl: (async () => { throw new Error('must not run'); }) as typeof fetch,
+    })).length, 0);
     repository.upsertYoutubeVideoMetadata(metadata, '2026-07-28T00:00:00Z');
 
     const payloads: unknown[] = [];
-    let taxonomyGeneration = 1;
     let classificationCalls = 0;
     const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body)) as {
@@ -1323,23 +1370,17 @@ test('AI taxonomy is versioned, validated, cached, and receives only public meta
       };
       const payload = JSON.parse(request.messages.find((message) => message.role === 'user')!.content) as any;
       payloads.push(payload);
-      const content = payload.topics
-        ? (() => {
-            classificationCalls++;
-            return {
-              videos: payload.videos.map((video: { videoId: string }) => ({
-                videoId: video.videoId,
-                topics: [{ slug: payload.topics[0].slug, confidence: 0.9 }],
-              })),
-            };
-          })()
-        : {
-            topics: Array.from({ length: 12 }, (_, index) => ({
-              slug: `topic-${taxonomyGeneration}-${index + 1}`,
-              name: `Topic ${taxonomyGeneration}.${index + 1}`,
-              description: `Stable topic ${taxonomyGeneration}.${index + 1}`,
-            })),
-          };
+      classificationCalls++;
+      const content = {
+        videos: payload.videos.map((video: { videoId: string; title: string }) => ({
+          videoId: video.videoId,
+          slug: 'technology',
+          confidence: 0.9,
+          alternativeSlug: 'learning',
+          alternativeConfidence: 0.3,
+          evidence: [{ text: 'Technical Video', source: 'title', score: 0.9 }],
+        })),
+      };
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(content) } }],
       }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -1360,18 +1401,23 @@ test('AI taxonomy is versioned, validated, cached, and receives only public meta
       [],
     );
     const firstTopics = await ensureYoutubeTaxonomyWithClient(repository, false, client);
-    assert.equal(firstTopics.length, 12);
+    assert.equal(firstTopics.length, 14);
     assert.equal(firstTopics[0].version, 1);
-    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 12);
-    assert.equal(classificationCalls, 1);
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 24);
+    assert.equal(classificationCalls, 2);
     assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 0);
-    assert.equal(classificationCalls, 1);
+    assert.equal(classificationCalls, 2);
+    const firstRun = repository.youtubeTaxonomyRun(1)!;
+    assert.equal(firstRun.status, 'ready');
+    assert.equal(firstRun.quality?.passed, true);
+    repository.activatePersonalTaxonomy(1, '2026-07-28T01:00:00Z');
 
-    taxonomyGeneration = 2;
     const rebuilt = await ensureYoutubeTaxonomyWithClient(repository, true, client);
     assert.equal(rebuilt[0].version, 2);
-    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 12);
-    assert.equal(classificationCalls, 2);
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 24);
+    assert.equal(classificationCalls, 4);
+    repository.activatePersonalTaxonomy(2, '2026-07-28T02:00:00Z');
+    assert.deepEqual(repository.youtubeTaxonomyActivations().map((entry) => entry.toVersion), [2, 1]);
 
     const serializedPayloads = JSON.stringify(payloads);
     assert.doesNotMatch(serializedPayloads, /watchedAt|searchedAt|queryCiphertext|actualWatchedSeconds/);
@@ -1385,12 +1431,17 @@ test('AI taxonomy is versioned, validated, cached, and receives only public meta
     const invalidClient: YoutubeAiClient = {
       ...client,
       fetchImpl: (async () => new Response(JSON.stringify({
-        choices: [{ message: { content: '{"videos":[{"videoId":"ai-video-1","topics":[]}]}' } }],
+        choices: [{ message: { content: JSON.stringify({
+          videos: [{
+            videoId: metadata[0].videoId, slug: 'invented', confidence: 0.9,
+            alternativeSlug: null, alternativeConfidence: null, evidence: [],
+          }],
+        }) } }],
       }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch,
     };
     await assert.rejects(
       classifyYoutubeVideosWithClient(repository, 100, invalidClient),
-      /requires one to three topics/,
+      /unknown topic/,
     );
 
     let retryCalls = 0;
@@ -1406,7 +1457,9 @@ test('AI taxonomy is versioned, validated, cached, and receives only public meta
         ) as any;
         const videos = retryCalls === 1 ? [] : payload.videos.map((video: { videoId: string }) => ({
           videoId: video.videoId,
-          topics: [{ slug: payload.topics[0].slug, confidence: 0.9 }],
+          slug: 'technology', confidence: 0.9,
+          alternativeSlug: null, alternativeConfidence: null,
+          evidence: [{ text: 'Technical Video', source: 'title', score: 0.9 }],
         }));
         return new Response(JSON.stringify({
           choices: [{ message: { content: JSON.stringify({ videos }) } }],

@@ -28,6 +28,7 @@ import {
   type YoutubeProcessingStatus,
 } from './youtube/processing.js';
 import { tagLeanSection } from './output/taglean.js';
+import { personalTaxonomyAuditPage } from './output/taxonomy-audit.js';
 import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
@@ -49,6 +50,7 @@ import {
 import { registryCrystalEligible } from './youtube/registry-crystal.js';
 import type { TagListSnapshot } from './youtube/taglists.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
+import { PERSONAL_TAXONOMY_DEFINITION_VERSION } from './youtube/personal-taxonomy.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
   return YOUTUBE_RANGES.includes(value as YoutubeRange) ? value as YoutubeRange : '28d';
@@ -585,6 +587,52 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     c.header('Cache-Control', 'no-store');
     return c.html(accountPage(me, accountStateFor(me), langOf(c)));
+  });
+
+  const taxonomyAuditFor = (user: User) => {
+    const repository = registry.repositoryFor(user);
+    return {
+      readiness: repository.youtubePersonalTaxonomyReadiness(),
+      runs: repository.youtubeTaxonomyRuns().map((run) => ({
+        run,
+        distribution: repository.youtubePersonalTaxonomyDistribution(run.taxonomyVersion),
+        evidence: run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
+          ? repository.youtubePersonalTaxonomyEvidence(run.taxonomyVersion, 2) : [],
+      })),
+      activations: repository.youtubeTaxonomyActivations(),
+    };
+  };
+
+  app.get('/account/taxonomy', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), langOf(c)));
+  });
+
+  app.post('/account/taxonomy/:version/activate', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const lang = langOf(c);
+    const version = Number(c.req.param('version'));
+    const form = await c.req.parseBody();
+    const error = lang === 'zh' ? '必須先確認人工審核' : 'Manual review confirmation is required';
+    if (!Number.isSafeInteger(version) || version < 1 || form.reviewed !== '1') {
+      c.header('Cache-Control', 'no-store');
+      c.header('X-Robots-Tag', 'noindex');
+      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, error), 400);
+    }
+    try {
+      registry.repositoryFor(me).activatePersonalTaxonomy(version);
+      evictUserCaches(me.handle);
+      return c.redirect('/account/taxonomy');
+    } catch (caught) {
+      c.header('Cache-Control', 'no-store');
+      c.header('X-Robots-Tag', 'noindex');
+      const message = caught instanceof Error ? caught.message : 'Taxonomy activation failed';
+      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message), 400);
+    }
   });
 
   app.get('/matches', async (c) => {

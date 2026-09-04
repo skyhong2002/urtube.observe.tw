@@ -257,8 +257,12 @@ export interface YoutubeTopicTrendTopic {
 export interface YoutubeTopicTrendMonth {
   month: string;
   classifiableWatchEvents: number;
+  processedWatchEvents: number;
   classifiedWatchEvents: number;
+  unknownWatchEvents: number;
   classificationCoverage: number;
+  processedCoverage: number;
+  unknownShare: number;
   classifiedWatchSeconds: number;
   topics: YoutubeTopicTrendTopic[];
 }
@@ -326,7 +330,9 @@ export interface YoutubeDashboardData {
     progressCoverage: number;
     actualWatchedSeconds: number | null;
     metadataCoverage: number;
+    topicProcessedCoverage: number;
     topicCoverage: number;
+    topicUnknownCoverage: number;
   };
   daily: YoutubeDailySummary[];
   hourly: YoutubeHourlySummary[];

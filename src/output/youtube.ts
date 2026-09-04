@@ -5,6 +5,10 @@ import {
   type YoutubeHourlySummary,
   type YoutubeRecentVideo,
 } from '../youtube/types.js';
+import {
+  PERSONAL_TAXONOMY_TRUSTED_COVERAGE,
+  PERSONAL_TOPICS,
+} from '../youtube/personal-taxonomy.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
@@ -352,7 +356,7 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
     return `<div class="yt-chase-row" data-chase-index="${index}" style="transform:translateY(${rank * RACE_ROW_PITCH}px)">
     ${channelAvatar(channel)}
     <div class="yt-chase-copy"><div class="yt-chase-label"><strong>${html(channel.name)}</strong></div>
-      <div class="yt-chase-track"><i style="--share:${Math.round(score / max * 100)}%"></i></div></div>
+      <div class="yt-chase-track"><i style="--share:${(score / max).toFixed(4)}"></i></div></div>
     <span class="yt-chase-value">${hours(score)}</span>
   </div>`;
   }).join('');
@@ -438,7 +442,7 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
             seen.add(pair[0]);
             cached.row.style.transform = 'translateY(' + (rank * pitch) + 'px)';
             cached.row.style.opacity = '1';
-            cached.bar.style.setProperty('--share', Math.round(pair[1] / max * 100) + '%');
+            cached.bar.style.setProperty('--share', String(pair[1] / max));
             cached.value.textContent = formatHours(pair[1]);
           });
           for (const [index, cached] of rowCache) {
@@ -584,7 +588,7 @@ const dashboardStyles = `
   .yt-chase-label{display:flex;font-size:12px;justify-content:space-between;margin-bottom:4px}
   .yt-chase-label strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yt-chase-track{background:var(--raised);border-radius:999px;height:7px;overflow:hidden}
-  .yt-chase-track i{background:var(--accent);border-radius:999px;display:block;height:100%;transition:width .4s ease;width:var(--share)}
+  .yt-chase-track i{background:var(--accent);border-radius:999px;display:block;height:100%;transform:scaleX(var(--share));transform-origin:left;transition:transform .4s ease;width:100%}
   .yt-chase-value{color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 
   .yt-taxonomy{display:block}.yt-taxonomy>section{margin-top:18px}
@@ -821,10 +825,21 @@ export function youtubeDashboardPage(
     `<div class="yt-mix-row"><span>${html(t.buckets[bucket.label] ?? bucket.label)}</span><div class="yt-mix-track"><i style="background:${LENGTH_RAMP[bucket.label] ?? '#55534e'};width:${Math.round(bucket.videos / maxLength * 100)}%"></i></div><span>${bucket.videos}</span></div>`
   ).join('')}</div></section>`;
   const maxKeywordScore = Math.max(0.001, ...data.keywords.map((item) => item.score));
-  const taxonomy = `<div class="yt-taxonomy"><section class="section"><div class="section-head"><h2>${t.topics}</h2><span>${t.topicsSub(Math.round(data.stats.topicCoverage * 100))}</span></div>
-    <div class="yt-topic-list">${data.topics.length ? data.topics.map((topic) =>
-      `<div class="yt-topic"><strong>${html(topic.name)}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
-    ).join('') : `<span class="muted">${t.topicsPending}</span>`}</div></section>
+  const trustedTopics = data.stats.topicCoverage >= PERSONAL_TAXONOMY_TRUSTED_COVERAGE;
+  const localizedTopicName = (slug: string, fallback: string) => {
+    const definition = PERSONAL_TOPICS.find((topic) => topic.slug === slug);
+    return definition ? lang === 'zh' ? definition.nameZh : definition.name : fallback;
+  };
+  const topicCoverage = lang === 'zh'
+    ? `已處理 ${Math.round(data.stats.topicProcessedCoverage * 100)}% · 有效 ${Math.round(data.stats.topicCoverage * 100)}% · Unknown ${Math.round(data.stats.topicUnknownCoverage * 100)}%`
+    : `Processed ${Math.round(data.stats.topicProcessedCoverage * 100)}% · effective ${Math.round(data.stats.topicCoverage * 100)}% · Unknown ${Math.round(data.stats.topicUnknownCoverage * 100)}%`;
+  const topicPending = lang === 'zh'
+    ? '有效覆蓋未達 80%，暫不顯示主題排名。'
+    : 'Effective coverage is below 80%, so topic ranking is hidden for now.';
+  const taxonomy = `<div class="yt-taxonomy"><section class="section"><div class="section-head"><h2>${t.topics}</h2><span>${topicCoverage}</span></div>
+    <div class="yt-topic-list">${trustedTopics && data.topics.length ? data.topics.map((topic) =>
+      `<div class="yt-topic"><strong>${html(localizedTopicName(topic.slug, topic.name))}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
+    ).join('') : `<span class="muted">${topicPending}</span>`}</div></section>
     <section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub(data.keywordCoverage.sampledVideos, data.keywordCoverage.eligibleVideos)}</span></div>
     <div class="yt-keywords">${data.keywords.length ? data.keywords.map((keyword, index) => {
       // Size follows the commonness score; the tooltip states the distinct

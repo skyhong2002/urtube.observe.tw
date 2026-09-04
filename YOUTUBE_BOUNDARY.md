@@ -18,7 +18,7 @@ credentials cross over, and which stay behind.
 | Infovore | urtube | Notes |
 |---|---|---|
 | `src/youtube/*` (takeout, capture, history-sync, progress, metadata, keywords, ai, portability, crypto, types) | `src/youtube/*` | Verbatim semantics, except `keywords.ts`, which moved to the versioned v2 pipeline (`docs/keyword-pipeline.md`, #23) with a separate `keyword-lexicon.ts`. |
-| `src/data/database.ts` | `src/data/database.ts` | Same SQLite schema and migration chain (`user_version` 1–8) so a restored Infovore database opens unchanged. Non-YouTube repository methods (source sync, time ledger, stats.fm, backloggd) are dropped; their tables remain in the schema for restore compatibility. |
+| `src/data/database.ts` | `src/data/database.ts` | Keeps the Infovore-compatible base and applies additive urtube migrations through `user_version` 11. Non-YouTube repository methods are dropped while their tables remain for restore compatibility. |
 | `src/data/activity.ts`, `src/data/time.ts`, `src/data/types.ts` | same | Needed by the YouTube ingestion path (`activities` rows with `visibility='summary'`). |
 | `src/ingest.ts` | `src/ingest.ts` | YouTube endpoints only. The generic `/api/ingest/events` endpoint **stays in Infovore** — it is not YouTube data. |
 | `src/index.ts` (YouTube routes) | `src/index.ts` | Dashboard at `/youtube` (was `/platforms/youtube`), `/api/youtube/summary.json`, `/api/youtube/recent.json`, `/status`, `/healthz`. |
@@ -55,6 +55,12 @@ Not copied: `snapshots`, `sync_runs`, `time_ledger*`, non-YouTube
 After migration, urtube creates `youtube_video_matching_topics` additively and
 the worker rebuilds it from public video metadata; Infovore has no source table
 for these versioned canonical classifications.
+
+urtube also creates `youtube_taxonomy_runs` and
+`youtube_taxonomy_activations`. Migration 11 keeps the newest imported personal
+taxonomy active as `personal-generated-v1`. Later v2 candidates, assignments,
+reviews, activations, and rollbacks remain in the per-user archive and portable
+export.
 
 The multi-user registry has a separate `crystals` table containing only the
 bounded matching projection, plus `crystal_refresh_queue`. The authoritative
@@ -119,12 +125,11 @@ considered successful when they match.
 - `/api/youtube/recent.json` strips `watchedAt` and `actualWatchedSeconds`.
 - AI classification sends **only public video metadata** (title, channel,
   description, tags) — never timestamps, watch counts, searches, or progress.
-- Topic trends stay inside one archive and expose monthly aggregates only. They
-  cover the latest 12 complete Taipei calendar months, exclude date-only
-  history backfills, use the current taxonomy's fresh primary assignments, and
-  show per-month classification coverage. The displayed line is a trailing
-  three-month share of classified estimated watch time; incomplete months are
-  marked instead of presented as a drop in interest.
+- Topic trends stay inside one archive and expose aggregates only. They follow
+  the selected range, use days for short ranges and months for yearly or
+  all-time ranges, exclude date-only history backfills, and use the active
+  taxonomy's fresh primary assignments. Readers can switch between raw and
+  trailing smoothed shares. Incomplete periods stay visibly provisional.
 - Cross-user topic vectors use one source-controlled taxonomy version and the
   dedicated `youtube_video_matching_topics` table. Personalized topic slugs
   never enter matching; sensitive YouTube categories are stored only as an

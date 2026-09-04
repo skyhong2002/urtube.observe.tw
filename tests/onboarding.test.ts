@@ -168,6 +168,31 @@ test('account page rotates tokens behind a session and logout ends it', async ()
   }
 });
 
+test('personal taxonomy audit is owner-only and activation needs review confirmation', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const owner = registry.createUser('topic-owner', 'Topic Owner');
+    const cookie = `urtube_session=${registry.createSession(owner)}`;
+    const anonymous = await app.request('/account/taxonomy');
+    assert.equal(anonymous.status, 302);
+    const page = await app.request('/account/taxonomy', { headers: { cookie } });
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get('x-robots-tag'), 'noindex');
+    assert.match(await page.text(), /Personal topic review/);
+
+    const rejected = await app.request('/account/taxonomy/1/activate', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: '',
+    });
+    assert.equal(rejected.status, 400);
+    assert.match(await rejected.text(), /Manual review confirmation is required/);
+  } finally {
+    registry.close();
+  }
+});
+
 test('account Takeout import is progressively disclosed, session-only, and idempotent', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);

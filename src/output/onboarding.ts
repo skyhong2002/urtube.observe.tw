@@ -198,6 +198,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
       <h2>${t.accountDashboard}</h2>
       <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
+      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
       ${state.takeoutResult ? '' : processing}
       <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
         <label for="displayName">${t.signupName}</label>
