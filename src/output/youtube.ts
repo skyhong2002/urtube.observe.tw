@@ -8,6 +8,7 @@ import {
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
+import { topicTrendSection, topicTrendStyles } from './topic-trend.js';
 
 function compact(value: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -145,99 +146,6 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
       <thead><tr><th>${t.colHour}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
       <tbody>${tableRows}</tbody></table></details>
     <script>(()=>{const root=document.currentScript?.closest('section');if(!root)return;const toggle=root.querySelector('.yt-metric-toggle');const buttons=[...root.querySelectorAll('[data-rhythm-metric]')];const panels=[...root.querySelectorAll('[data-rhythm-panel]')];const wide=matchMedia('(min-width:900px)');let metric='watches';const apply=(next)=>{metric=next;toggle.hidden=wide.matches;for(const panel of panels)panel.hidden=!wide.matches&&panel.dataset.rhythmPanel!==metric;for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.rhythmMetric===metric))};for(const button of buttons)button.addEventListener('click',()=>apply(button.dataset.rhythmMetric));wide.addEventListener('change',()=>apply(metric));apply(metric)})();</script>
-  </section>`;
-}
-
-const TOPIC_COLORS = [
-  '#e66767', '#6f9fd8', '#70b28d', '#d29a55', '#9a7bd1', '#4fb6b2',
-  '#d6759a', '#9da45b', '#7f8fa6', '#c77b55', '#6696a8', '#a98568',
-];
-
-function topicColor(slug: string): string {
-  let hash = 0;
-  for (const char of slug) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
-  return TOPIC_COLORS[hash % TOPIC_COLORS.length];
-}
-
-function topicTrendSection(data: YoutubeDashboardData, t: Messages): string {
-  const months = data.topicTrend;
-  const topicTotals = new Map<string, number>();
-  for (const month of months) {
-    for (const topic of month.topics) {
-      topicTotals.set(topic.slug, (topicTotals.get(topic.slug) ?? 0) + topic.estimatedWatchSeconds);
-    }
-  }
-  const topics = (months[0]?.topics ?? [])
-    .filter((topic) => (topicTotals.get(topic.slug) ?? 0) > 0)
-    .sort((a, b) => (topicTotals.get(b.slug) ?? 0) - (topicTotals.get(a.slug) ?? 0)
-      || a.name.localeCompare(b.name));
-  if (!topics.length || !months.some((month) => month.classifiedWatchSeconds > 0)) {
-    return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div><p class="muted">${t.topicTrendEmpty}</p><p class="yt-topic-trend-method">${t.topicTrendMethod}</p></section>`;
-  }
-
-  const width = 720;
-  const height = 250;
-  const left = 38;
-  const right = 12;
-  const top = 12;
-  const bottom = 34;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const maxShare = Math.max(0.05, ...months.flatMap((month) =>
-    month.topics.map((topic) => topic.movingAverageShare)));
-  const x = (index: number) => left + (months.length === 1 ? plotWidth / 2 : index / (months.length - 1) * plotWidth);
-  const y = (share: number) => top + plotHeight - share / maxShare * plotHeight;
-  const grid = [0, 0.5, 1].map((ratio) => {
-    const gridY = top + plotHeight * (1 - ratio);
-    return `<line x1="${left}" y1="${gridY.toFixed(1)}" x2="${width - right}" y2="${gridY.toFixed(1)}"></line><text x="${left - 6}" y="${(gridY + 3).toFixed(1)}">${Math.round(maxShare * ratio * 100)}%</text>`;
-  }).join('');
-  const pendingWidth = plotWidth / Math.max(1, months.length - 1);
-  const pending = months.map((month, index) =>
-    month.classifiableWatchEvents > 0 && month.classificationCoverage < 0.999
-      ? `<rect class="yt-topic-trend-pending" x="${Math.max(left, x(index) - pendingWidth / 2).toFixed(1)}" y="${top}" width="${Math.min(pendingWidth, width - right - Math.max(left, x(index) - pendingWidth / 2)).toFixed(1)}" height="${plotHeight}"><title>${html(t.topicTrendCoverage(Math.round(month.classificationCoverage * 100)))} · ${t.topicTrendProcessing}</title></rect>`
-      : '').join('');
-  const lines = topics.map((topic) => {
-    let path = '';
-    let open = false;
-    let points = '';
-    for (let index = 0; index < months.length; index += 1) {
-      const month = months[index];
-      const value = month.topics.find((item) => item.slug === topic.slug);
-      if (!value || month.classifiedWatchSeconds === 0) {
-        open = false;
-        continue;
-      }
-      const pointX = x(index);
-      const pointY = y(value.movingAverageShare);
-      path += `${open ? 'L' : 'M'}${pointX.toFixed(1)},${pointY.toFixed(1)}`;
-      open = true;
-      points += `<circle cx="${pointX.toFixed(1)}" cy="${pointY.toFixed(1)}" r="2.6"><title>${html(topic.name)} · ${html(month.month)} · ${Math.round(value.movingAverageShare * 100)}%</title></circle>`;
-    }
-    const color = topicColor(topic.slug);
-    return `<g style="--topic-color:${color}"><path d="${path}"></path>${points}</g>`;
-  }).join('');
-  const labels = months.map((month, index) => {
-    const [year, monthNumber] = month.month.split('-').map(Number);
-    return `<text x="${x(index).toFixed(1)}" y="${height - 11}">${html(t.monthYear(year, monthNumber))}</text>`;
-  }).join('');
-  const legend = topics.map((topic) =>
-    `<span><i style="--topic-color:${topicColor(topic.slug)}"></i>${html(topic.name)}</span>`).join('');
-  const tableRows = months.map((month) => {
-    const [year, monthNumber] = month.month.split('-').map(Number);
-    const values = month.topics.filter((topic) => topic.estimatedWatchSeconds > 0)
-      .sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds)
-      .map((topic) => `${html(topic.name)} · ${hours(topic.estimatedWatchSeconds)} (${Math.round(topic.share * 100)}%)`)
-      .join('<br>') || '—';
-    const coverage = month.classifiableWatchEvents
-      ? `${t.topicTrendCoverage(Math.round(month.classificationCoverage * 100))}${month.classificationCoverage < 0.999 ? ` · ${t.topicTrendProcessing}` : ''}`
-      : '—';
-    return `<tr><td>${html(t.monthYear(year, monthNumber))}</td><td>${coverage}</td><td>${values}</td></tr>`;
-  }).join('');
-  return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div>
-    <div class="yt-topic-trend-wrap"><svg class="yt-topic-trend" viewBox="0 0 ${width} ${height}" role="img" aria-label="${html(t.topicTrendAria)}">
-      <g class="yt-topic-trend-grid">${grid}</g>${pending}<g class="yt-topic-trend-lines">${lines}</g><g class="yt-topic-trend-labels">${labels}</g>
-    </svg></div><div class="yt-topic-trend-legend">${legend}</div><p class="yt-topic-trend-method">${t.topicTrendMethod}</p>
-    <details class="viz-table"><summary>${t.tableView}</summary><table><thead><tr><th>${t.colMonth}</th><th>${t.colCoverage}</th><th>${t.colTopicShares}</th></tr></thead><tbody>${tableRows}</tbody></table></details>
   </section>`;
 }
 
@@ -680,13 +588,6 @@ const dashboardStyles = `
   .yt-chase-value{color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 
   .yt-taxonomy{display:block}.yt-taxonomy>section{margin-top:18px}
-  .yt-topic-trend-wrap{overflow-x:auto}.yt-topic-trend{display:block;min-width:620px;width:100%}
-  .yt-topic-trend-grid line{stroke:var(--line);stroke-width:1}.yt-topic-trend-grid text{fill:var(--muted);font-size:8px;text-anchor:end}
-  .yt-topic-trend-pending{fill:var(--accent);opacity:.055}
-  .yt-topic-trend-lines path{fill:none;stroke:var(--topic-color);stroke-linecap:round;stroke-linejoin:round;stroke-width:2.2}.yt-topic-trend-lines circle{fill:var(--surface);stroke:var(--topic-color);stroke-width:1.8}
-  .yt-topic-trend-labels text{fill:var(--muted);font-size:8px;text-anchor:middle}
-  .yt-topic-trend-legend{display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:12px}.yt-topic-trend-legend span{align-items:center;color:var(--ink-2);display:flex;font-size:10px;gap:5px}.yt-topic-trend-legend i{background:var(--topic-color);border-radius:50%;height:8px;width:8px}
-  .yt-topic-trend-method{color:var(--muted);font-size:10px;line-height:1.5;margin:12px 0 0}
   .yt-topic-list{display:flex;flex-wrap:wrap;gap:8px}
   .yt-topic{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
   .yt-topic strong{display:block;font-size:12px}
@@ -962,7 +863,7 @@ export function youtubeDashboardPage(
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url)}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('popstate',()=>apply(new URL(location.href).searchParams.get('sort')==='watches'?'watches':'duration',false));})();</script>`;
-  const intro = `<style>${dashboardStyles}${processingStyles}</style><section class="yt-profile">
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}</style><section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
