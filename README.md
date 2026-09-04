@@ -37,9 +37,9 @@ across 14 active days); incomplete topic coverage falls back to channels.
 User-facing comparisons show qualitative bands and a sync/processing next
 step instead of exposing exact scores or the activity cutoff.
 Matching is off by default and independent of `dashboard_public`. After data
-setup, the account page suggests up to five leading canonical interests from
-the eligible 90-day projection. A signed-in user can choose the interests to
-match on and separately exclude interests that must never reach matching,
+setup, guided onboarding and the account page suggest up to five leading
+canonical interests from the eligible 90-day projection. A signed-in user can
+choose the interests to match on and separately exclude interests that must never reach matching,
 recommendations, or icebreakers. Choices store stable keys plus the taxonomy
 version; a version change disables topic matching until explicit
 reconfirmation. If no mutually usable topic remains, matching falls back to
@@ -86,7 +86,18 @@ Signup is gated behind **Sign in with Google** (`/signup` → OAuth → pick a
 handle): one Google account maps to exactly one archive, keyed on Google's
 permanent `sub` claim (never the email, which can change). Accounts created
 before Google sign-in can be claimed from the same form with their dashboard
-key. Sessions live in an HttpOnly cookie for 180 days; `/account` shows your
+key. New dashboards stay private. `/onboarding` then resumes from stored state
+and guides desktop Extension setup, the first scan, processing, private insight
+preview, interest confirmation, and the matching choice. It never asks the
+person to copy a token. Reaching the matching data threshold unlocks the next
+step even while background processing continues, with provisional results
+marked clearly.
+Only the final decision records `onboarding_completed_at`. Earlier steps are
+derived from scan rows, processing counts, the current matching crystal, and
+confirmed interest settings, so refresh and sign-in cannot drift into a second
+onboarding state machine.
+
+Sessions live in an HttpOnly cookie for 180 days. `/account` shows your
 dashboard link and lets you rename yourself, configure matching privacy,
 choose what introduction and contact method a mutual match may see, choose or
 exclude matching interests, toggle dashboard visibility, rotate
