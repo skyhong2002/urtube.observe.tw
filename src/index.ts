@@ -28,6 +28,7 @@ import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
+import type { MatchingDisclosureLevel } from './youtube/disclosure.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
@@ -494,6 +495,27 @@ export function createApp(registry: UserRegistry): Hono {
     const form = await c.req.parseBody();
     registry.setDashboardPublic(me.handle, form.dashboardPublic === '1');
     return c.redirect('/account');
+  });
+
+  app.post('/account/matching', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const form = await c.req.parseBody();
+    try {
+      registry.setMatchingPreferences(
+        me.handle,
+        form.matchingOptIn === '1',
+        String(form.matchingDisclosure ?? '') as MatchingDisclosureLevel,
+      );
+      return c.redirect('/account');
+    } catch (error) {
+      const current = registry.userByHandle(me.handle) ?? me;
+      return c.html(accountPage(current, {
+        error: error instanceof Error ? error.message : String(error),
+        extensionVersion: extensionVersion(),
+        processing: processingFor(registry.repositoryFor(current)),
+      }, langOf(c)), 400);
+    }
   });
 
   // Browser-friendly Takeout import: same parser and idempotent ingest as
