@@ -27,8 +27,8 @@ export interface YoutubeProcessingCapabilities {
 
 export const YOUTUBE_WORKER_METADATA_PER_CYCLE = 5000;
 export const YOUTUBE_WORKER_TOPICS_PER_CYCLE = 1000;
-// While any archive has actionable work the worker runs every catch-up
-// interval; otherwise it settles back to the hourly full cycle.
+// Poll for fresh work at this cadence. Once a successful cycle makes progress,
+// the worker continues immediately instead of sleeping between batches.
 export const YOUTUBE_WORKER_CATCHUP_MINUTES = 5;
 export const YOUTUBE_WORKER_FULL_CYCLE_MINUTES = 60;
 
