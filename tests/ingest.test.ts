@@ -201,13 +201,13 @@ test('history batches dedupe overlapping checkpoint windows across syncs', async
     assert.equal(statusBody.coverage, null);
 
     // The extension reports how a scan ended even when it never sent a
-    // single progress row; a full read that reached the end becomes the
+    // single progress row; a full read that verified the history start becomes the
     // coverage the next sync stops at.
     const summary = (patch: Record<string, unknown>) => JSON.stringify({
       scanId: 'scan-coverage-000000001', observedAt: new Date().toISOString(),
       complete: true, items: [],
       summary: {
-        mode: 'full', videos: 3, passes: 2, endReason: 'end-of-history',
+        mode: 'full', videos: 3, passes: 2, endReason: 'history-start',
         oldestWatchedAt: '2026-07-17T04:00:00.000Z', newestWatchedAt: occurredAt,
         error: null, landedUrl: null, ...patch,
       },

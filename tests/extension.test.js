@@ -13,7 +13,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.7.0');
+  assert.equal(manifest.version, '1.8.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -356,7 +356,7 @@ test('history import waits for content, ends on a real signal, and reports how i
   // handful of 700 ms passes that a slow continuation would trip.
   assert.match(source, /HISTORY_IDLE_MS = 30_000/);
   assert.match(source, /now - lastContentAt >= HISTORY_IDLE_MS/);
-  assert.match(source, /endReason = 'end-of-history'/);
+  assert.match(source, /historyCompletionReason\(document\)/);
   // Daily syncs stop at dates the server already covers; there is no fixed
   // video cap standing in for that knowledge any more.
   assert.match(source, /coverageCutoffDay\(options\.coveredSince\)/);
@@ -387,6 +387,14 @@ test('history helper derives the coverage cutoff day and tracks date bounds', ()
   assert.deepEqual(bounds, { oldest: '2026-07-17', newest: '2026-09-03' });
   assert.equal(helper.dayTimestamp('2026-07-17'), new Date(2026, 6, 17, 12).toISOString());
   assert.equal(helper.dayTimestamp(null), null);
+});
+
+test('history helper distinguishes a stalled continuation from the verified history start', () => {
+  const helper = globalThis.urtubeYoutubeHistory;
+  assert.equal(helper.historyCompletionReason({
+    querySelector: () => ({ nodeName: 'YTD-CONTINUATION-ITEM-RENDERER' }),
+  }), 'stalled');
+  assert.equal(helper.historyCompletionReason({ querySelector: () => null }), 'history-start');
 });
 
 test('first sync reads the whole history page; later syncs stop at server coverage', () => {

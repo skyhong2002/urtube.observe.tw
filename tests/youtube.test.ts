@@ -708,7 +708,7 @@ test('YouTube watch estimates, measured sessions, and content progress remain se
   }
 });
 
-test('history coverage comes from covering scans only and advances with each caught-up sync', () => {
+test('history coverage requires a verified history start and advances with each caught-up sync', () => {
   const repository = new Repository(':memory:');
   const scan = (scanId: string, observedAt: string, summary: Record<string, unknown>) =>
     repository.ingestYoutubeProgress({
@@ -731,15 +731,28 @@ test('history coverage comes from covering scans only and advances with each cau
     });
     assert.equal(repository.youtubeHistoryStatus().coverage, null);
 
+    // Legacy idle-only "end-of-history" and a time-limited scan both describe
+    // intervals that were read, but neither proves the account's older history
+    // is complete. They must not make a later incremental sync stop near today.
+    scan('scan-shallow-idle-00001', '2026-09-04T12:40:00.000Z', {
+      videos: 80, passes: 20, endReason: 'end-of-history',
+      oldestWatchedAt: '2026-07-17T04:00:00.000Z', newestWatchedAt: '2026-09-04T04:00:00.000Z',
+    });
+    scan('scan-time-limit-000001', '2026-09-04T12:45:00.000Z', {
+      videos: 1000, passes: 500, endReason: 'time-limit',
+      oldestWatchedAt: '2025-06-01T04:00:00.000Z', newestWatchedAt: '2026-09-04T04:00:00.000Z',
+    });
+    assert.equal(repository.youtubeHistoryStatus().coverage, null);
+
     scan('scan-full-0000000000001', '2026-09-04T12:52:30.000Z', {
-      videos: 51005, passes: 1500, endReason: 'end-of-history',
+      videos: 51005, passes: 1500, endReason: 'history-start',
       oldestWatchedAt: '2018-11-25T04:00:00.000Z', newestWatchedAt: '2026-09-04T04:00:00.000Z',
     });
     let coverage = repository.youtubeHistoryStatus().coverage;
     assert.equal(coverage?.scanId, 'scan-full-0000000000001');
     assert.equal(coverage?.coveredSince, '2026-09-04T12:52:30.000Z');
     assert.equal(coverage?.oldestWatchedAt, '2018-11-25T04:00:00.000Z');
-    assert.equal(coverage?.endReason, 'end-of-history');
+    assert.equal(coverage?.endReason, 'history-start');
 
     // A later sync that stopped at already-covered dates moves the frontier
     // forward while the deepest day stays the full read's.
