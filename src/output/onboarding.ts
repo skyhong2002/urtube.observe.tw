@@ -1,8 +1,10 @@
 import { config } from '../config.js';
 import type { CreatedUser, User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
+import type { YoutubeProcessingStatus } from '../youtube/processing.js';
 import { messages, type Lang } from './i18n.js';
 import { html, shell } from './pages.js';
+import { processingNotice, processingStyles } from './processing.js';
 
 const formStyles = `
   .ob-intro{margin:14px 0 26px}
@@ -113,6 +115,9 @@ export interface AccountPageState {
   extensionVersion?: string;
   takeoutResult?: YoutubeImportResult;
   takeoutError?: string;
+  // Background work still owed to this archive; shown right after an import
+  // and on every later visit until the worker catches up.
+  processing?: YoutubeProcessingStatus;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -124,11 +129,12 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <code class="ob-token">${html(state.rotated.captureToken)}</code>
       <p style="margin-bottom:2px">${t.accountDashboardKey}</p>
       <code class="ob-token">${html(state.rotated.dashboardToken)}</code>` : '';
+  const processing = processingNotice(state.processing, lang, { dashboardHref });
   const takeoutFeedback = state.takeoutResult
     ? `<div class="ob-success" role="status">${t.accountTakeoutSuccess(
       state.takeoutResult.watchesSeen, state.takeoutResult.watchesInserted,
       state.takeoutResult.searchesSeen, state.takeoutResult.searchesInserted,
-    )}</div>`
+    )}</div>${processing ? `<p>${t.accountTakeoutNext}</p>${processing}` : ''}`
     : state.takeoutError
       ? `<div class="ob-error" role="alert">${t.accountTakeoutFailed(html(state.takeoutError))}</div>`
       : '';
@@ -147,12 +153,13 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         </form>
       </div>
     </details>`;
-  const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
+  const body = `<style>${formStyles}${processingStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
     <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></section>
     <div class="ob-card">
       ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
       <h2>${t.accountDashboard}</h2>
       <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
+      ${state.takeoutResult ? '' : processing}
       <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
         <label for="displayName">${t.signupName}</label>
         <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">

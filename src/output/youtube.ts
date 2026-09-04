@@ -7,6 +7,7 @@ import {
 } from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
+import { processingStyles } from './processing.js';
 
 function compact(value: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -734,6 +735,10 @@ export interface YoutubeDashboardOptions {
   profilePath?: string;
   // Private raw watch events, provided only to authorized History viewers.
   history?: YoutubeRecentVideo[];
+  // Background-processing notice, rendered above every profile page while
+  // the worker still owes this archive metadata or topics. Its presence also
+  // marks the headline figure as provisional.
+  processingHtml?: string;
   // Insight-only content computed outside the dashboard aggregate cache.
   insightsHtml?: string;
 }
@@ -763,7 +768,7 @@ export function youtubeDashboardPage(
   const hero = `<section class="card yt-hero">
     <div class="yt-hero-figure">
       <strong>${heroHours === null ? '—' : new Intl.NumberFormat('en').format(heroHours)}<em>${t.heroHoursUnit}</em></strong>
-      <span>${t.heroSub(t.ranges[data.range])}</span>
+      <span>${t.heroSub(t.ranges[data.range])}${options.processingHtml ? `<span class="yt-provisional">${t.provisional}</span>` : ''}</span>
     </div>
     <div class="yt-hero-stats">
       <div class="yt-stat"><strong>${compact(data.stats.watchEvents)}</strong><span>${t.statWatchEvents}</span></div>
@@ -854,7 +859,7 @@ export function youtubeDashboardPage(
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url)}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('popstate',()=>apply(new URL(location.href).searchParams.get('sort')==='watches'?'watches':'duration',false));})();</script>`;
-  const intro = `<style>${dashboardStyles}</style><section class="yt-profile">
+  const intro = `<style>${dashboardStyles}${processingStyles}</style><section class="yt-profile">
     <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
@@ -866,9 +871,9 @@ export function youtubeDashboardPage(
     + channelChase(data, t) + (options.insightsHtml ?? '') + distribution + taxonomy;
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
-  const content = page === 'overview' ? importControl + overview
+  const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview
     : page === 'insights' ? insights
-      : page === 'history' ? history : recap;
+      : page === 'history' ? history : recap);
   return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + content,
     options.nav ?? [], '', lang, basePath);
 }
