@@ -3,7 +3,8 @@ import test from 'node:test';
 import type { Repository } from '../src/data/database.js';
 import { UserRegistry, type User } from '../src/users.js';
 import {
-  runYoutubeWorkerCycle, youtubeWorkerMadeProgress, type YoutubeWorkerSteps,
+  runYoutubeWorkerCycle, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue,
+  type YoutubeWorkerSteps,
 } from '../src/youtube-worker.js';
 
 test('YouTube worker enriches every user while keeping portability owner-only', async () => {
@@ -72,6 +73,8 @@ test('YouTube worker starts independent user archives concurrently', async () =>
     assert.deepEqual(results.map((result) => result.user), ['sky', 'alice', 'bob']);
     assert.equal(youtubeWorkerMadeProgress(results), true);
     assert.equal(youtubeWorkerMadeProgress(results.map((result) => ({ ...result, metadata: 0 }))), false);
+    assert.equal(youtubeWorkerShouldContinue(results, true), true);
+    assert.equal(youtubeWorkerShouldContinue(results, false), false);
   } finally {
     registry.close();
   }
@@ -93,7 +96,7 @@ test('one user failure is recorded without preventing later users from running',
       channelMetadata: async () => 0,
       classification: async (_repository, user) => {
         classified.push(user.handle);
-        return 0;
+        return user.handle === bob.handle ? 1 : 0;
       },
     };
 
@@ -101,6 +104,7 @@ test('one user failure is recorded without preventing later users from running',
 
     assert.match(results.find((result) => result.user === alice.handle)?.error ?? '', /alice metadata failed/);
     assert.ok(classified.includes(bob.handle));
+    assert.equal(youtubeWorkerShouldContinue(results, true), true);
     assert.match(registry.repositoryFor(alice).youtubeSyncState('last_error') ?? '', /alice metadata failed/);
     assert.equal(registry.repositoryFor(bob).youtubeSyncState('last_error'), '');
   } finally {

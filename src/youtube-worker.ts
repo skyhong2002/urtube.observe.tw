@@ -94,6 +94,16 @@ export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): b
     (result.metadata ?? 0) + (result.channelMetadata ?? 0) + (result.classified ?? 0) > 0);
 }
 
+export function youtubeWorkerShouldContinue(
+  results: YoutubeWorkerUserResult[],
+  workPending: boolean,
+): boolean {
+  // A failed archive must not reintroduce a global queue. Keep advancing the
+  // other archives while any cycle is still making progress; once every
+  // result is stalled, the normal failure/no-progress cooldown takes over.
+  return workPending && youtubeWorkerMadeProgress(results);
+}
+
 // Whether any archive has enrichment the configured stages can still do.
 // Drives the catch-up cadence: a fresh Takeout should not wait an hour for
 // its first metadata pass.
@@ -151,9 +161,7 @@ if (process.env.NODE_ENV !== 'test') {
       // impose an additional five-minute sleep. Continue immediately while a
       // successful cycle actually moved the backlog forward. The timer below
       // remains the idle/no-progress safety poll.
-      continueImmediately = !lastCycleFailed
-        && youtubeWorkerMadeProgress(users)
-        && youtubeWorkPending(registry);
+      continueImmediately = youtubeWorkerShouldContinue(users, youtubeWorkPending(registry));
     } catch (error) {
       const lastError = errorMessage(error);
       lastCycleFailed = true;
