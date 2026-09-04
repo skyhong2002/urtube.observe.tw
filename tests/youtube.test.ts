@@ -503,6 +503,23 @@ test('extension history batches canonicalize watches and encrypt searches server
   }, SECRET, now), /youtube\.com/);
 });
 
+test('deep extension history accepts old events but rejects dates before YouTube existed', () => {
+  const base = {
+    syncId: 'deep-history-0000000001',
+    observedAt: '2026-09-05T12:00:00.000Z',
+    events: [{
+      kind: 'watch', occurredAt: '2008-03-10T12:00:00.000Z', videoId: 'OLDVIDEO001',
+      title: 'Anonymous old video', url: 'https://www.youtube.com/watch?v=OLDVIDEO001',
+      channelId: null, channelTitle: null, durationSeconds: null, activityType: 'video',
+    }],
+  };
+  assert.equal(normalizeYoutubeHistoryBatch(base, SECRET, new Date(base.observedAt)).watches.length, 1);
+  assert.throws(() => normalizeYoutubeHistoryBatch({
+    ...base,
+    events: [{ ...base.events[0], occurredAt: '2004-01-01T00:00:00.000Z' }],
+  }, SECRET, new Date(base.observedAt)), /predates YouTube/);
+});
+
 test('YouTube progress validation prefers exact resume positions and rejects stale observations', () => {
   const now = new Date('2026-07-29T12:00:00Z');
   const batch = normalizeYoutubeProgressBatch({

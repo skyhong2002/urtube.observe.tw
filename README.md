@@ -77,4 +77,9 @@ npm run db:migrate-from-infovore -- <backup> <target>  # YouTube-only migration
 The extension's **Sync now** action skips only a continuous history range
 whose oldest boundary was verified. A stalled or time-limited scan is saved
 for diagnosis but never treated as complete; **Rescan all history** always
-ignores saved coverage. Re-running either path is idempotent.
+ignores saved coverage. Deep rescans use bounded 90-day Google My Activity
+date windows and restart the scan tab between windows; a window that reaches
+2,000 rows is split automatically. Closing the tab preserves the remaining
+windows so the next rescan resumes safely. Re-running either path is
+idempotent. YouTube's history page progress scan has the same 2,000-row tab
+limit, while the bounded My Activity pass supplies the complete event archive.
