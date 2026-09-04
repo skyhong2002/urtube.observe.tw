@@ -56,8 +56,10 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
 // video sits within five minutes (a duplicate sighting of the same session),
 // saved progress capped at ten minutes for history-page rows that only have
 // day precision, otherwise the gap to the next watch/search event capped at
-// the video length. The day cap prevents a live stream's multi-day playback
-// position from being mistaken for one viewing session.
+// the video length. When a long inactive gap would imply that the whole video
+// was watched, a known saved position is the stronger upper bound. The day
+// cap prevents a live stream's multi-day playback position from being mistaken
+// for one viewing session.
 const YOUTUBE_ESTIMATED_EVENTS_CTE = `
       WITH timeline AS (
         SELECT 'watch' kind, event_id, watched_at occurred_at
@@ -87,7 +89,13 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
             WHEN v.duration_seconds IS NULL OR o.next_activity_at IS NULL THEN 0
             ELSE MIN(
               v.duration_seconds,
-              MAX(0, CAST((julianday(o.next_activity_at)-julianday(w.watched_at))*86400 AS INTEGER))
+              MAX(0, CAST((julianday(o.next_activity_at)-julianday(w.watched_at))*86400 AS INTEGER)),
+              CASE
+                WHEN (julianday(o.next_activity_at)-julianday(w.watched_at))*86400
+                  >= v.duration_seconds
+                THEN COALESCE(vp.progress_seconds, v.duration_seconds)
+                ELSE v.duration_seconds
+              END
             )
           END estimated_watch_seconds
         FROM youtube_watch_events w

@@ -680,6 +680,47 @@ test('YouTube watch estimates, measured sessions, and content progress remain se
   }
 });
 
+test('saved progress bounds a full-length estimate across a long inactive gap', () => {
+  const repository = new Repository(':memory:');
+  const now = new Date('2026-08-17T12:00:00Z');
+  try {
+    repository.ingestYoutubeArchive({
+      archiveHash: 'long-gap-progress-fixture',
+      source: 'takeout',
+      watches: [{
+        eventId: 'long-gap-watch', videoId: 'LONGGAP0001', title: 'Long video',
+        url: 'https://www.youtube.com/watch?v=LONGGAP0001', channelId: 'long-channel',
+        channelTitle: 'Long Channel', channelUrl: null,
+        watchedAt: '2026-08-16T13:35:00Z', actualWatchedSeconds: null,
+        activityType: 'video', precision: 'exact',
+      }],
+      searches: [{
+        eventId: 'long-gap-next-activity', searchedAt: '2026-08-17T07:00:00Z',
+        queryCiphertext: encryptPrivateValue('next activity', SECRET), activityType: 'search',
+      }],
+    });
+    repository.upsertYoutubeVideoMetadata([{
+      videoId: 'LONGGAP0001', title: 'Long video', channelId: 'long-channel',
+      channelTitle: 'Long Channel', description: '', tags: [], thumbnailUrl: '',
+      durationSeconds: 5760, publishedAt: null, categoryId: null,
+      availability: 'available', metadataHash: 'long-gap',
+    }]);
+    assert.equal(repository.youtubeDashboard('all', now).stats.estimatedWatchSeconds, 5760);
+
+    repository.ingestYoutubeProgress({
+      scanId: 'long-gap-progress-scan', observedAt: '2026-08-17T11:00:00Z',
+      complete: true,
+      items: [{
+        videoId: 'LONGGAP0001', progressPercent: null,
+        resumeSeconds: 1832, durationSeconds: 5760,
+      }],
+    });
+    assert.equal(repository.youtubeDashboard('all', now).stats.estimatedWatchSeconds, 1832);
+  } finally {
+    repository.close();
+  }
+});
+
 test('extension-only data combines measured captures with bounded day-history progress', () => {
   const repository = new Repository(':memory:');
   const now = new Date('2026-07-29T12:00:00Z');
