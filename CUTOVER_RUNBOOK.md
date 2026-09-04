@@ -72,6 +72,11 @@ curl -fsS https://urtube.observe.tw/readyz              # config + all DBs + wor
 docker compose ps                                      # all four containers Up
 ```
 
+During a long catch-up cycle, readiness uses the worker's 30-second heartbeat
+instead of waiting hours for every archive to finish. A stopped/failed worker
+or a heartbeat older than two minutes still makes `/readyz` return 503; an
+idle worker must have a successful completion from the last three hours.
+
 ## 3. Backup
 
 **urtube (automatic):** configure the host bind mount in `.env`. Keep this

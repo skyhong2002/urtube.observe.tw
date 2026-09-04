@@ -7,7 +7,12 @@ import { strToU8, zipSync } from 'fflate';
 import { config } from '../src/config.js';
 import { createApp } from '../src/index.js';
 import { createIngestApp } from '../src/ingest.js';
-import { writeOpsStatus } from '../src/ops-status.js';
+import {
+  patchOpsStatus,
+  readOpsStatus,
+  writeOpsStatus,
+  type WorkerOpsStatus,
+} from '../src/ops-status.js';
 import { UserRegistry } from '../src/users.js';
 
 // Form posts as the browser would send them after the Google step: the
@@ -412,7 +417,7 @@ test('new signups stop at the configured instance capacity', async () => {
   }
 });
 
-test('readyz requires fresh successful worker and backup cycles', async () => {
+test('readyz accepts a fresh worker heartbeat or completion and rejects failed or stale workers', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   const dir = mkdtempSync(join(tmpdir(), 'urtube-ready-'));
@@ -425,13 +430,48 @@ test('readyz requires fresh successful worker and backup cycles', async () => {
     assert.equal((await app.request('/readyz')).status, 503);
 
     const now = new Date().toISOString();
-    writeOpsStatus('worker', { lastCompletedAt: now, failedUsers: 0, lastError: '' });
     writeOpsStatus('backup', { lastCompletedAt: now, lastError: '' });
+
+    writeOpsStatus('worker', {
+      lastStartedAt: now, heartbeatAt: now, running: true, failedUsers: 0, lastError: '',
+    });
     const ready = await app.request('/readyz');
     assert.equal(ready.status, 200);
     assert.equal((await ready.json() as Record<string, unknown>).status, 'ready');
 
-    writeOpsStatus('worker', { lastCompletedAt: now, failedUsers: 1, lastError: '' });
+    writeOpsStatus('worker', {
+      lastCompletedAt: now, running: false, failedUsers: 0, lastError: '',
+    });
+    patchOpsStatus<WorkerOpsStatus>('worker', {
+      lastStartedAt: now, heartbeatAt: now, running: true,
+    });
+    assert.equal(readOpsStatus<WorkerOpsStatus>('worker')?.lastCompletedAt, now,
+      'starting a long catch-up cycle preserves the prior successful completion');
+    assert.equal((await app.request('/readyz')).status, 200);
+
+    writeOpsStatus('worker', {
+      lastStartedAt: now,
+      heartbeatAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      running: true,
+      failedUsers: 0,
+      lastError: '',
+    });
+    assert.equal((await app.request('/readyz')).status, 503);
+
+    writeOpsStatus('worker', {
+      heartbeatAt: now, running: false, failedUsers: 0, lastError: '',
+    });
+    assert.equal((await app.request('/readyz')).status, 503,
+      'a stopped worker cannot rely on its last heartbeat');
+
+    writeOpsStatus('worker', {
+      lastCompletedAt: now, running: false, failedUsers: 0, lastError: '',
+    });
+    assert.equal((await app.request('/readyz')).status, 200);
+
+    writeOpsStatus('worker', {
+      lastCompletedAt: now, running: false, failedUsers: 1, lastError: 'one archive failed',
+    });
     assert.equal((await app.request('/readyz')).status, 503);
   } finally {
     config.opsStatusDirectory = previousDirectory;
