@@ -240,6 +240,12 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}> ${t.accountVisibilityToggle}</label>
         <button type="submit">${t.accountVisibilitySave}</button>
       </form>
+      <h2>${t.accountReferenceTitle}</h2>
+      <p>${t.accountReferencePara}</p>
+      <form method="post" action="/account/reference-population" class="ob-form">
+        <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
+        <button type="submit">${t.accountReferenceSave}</button>
+      </form>
       ${rotatedHtml}
       <h2>${t.accountRotate}</h2>
       <p>${t.accountRotatePara}</p>

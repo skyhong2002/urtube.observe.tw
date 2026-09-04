@@ -76,6 +76,13 @@ introduction and contact method each person chose to share. Current topic
 exclusions are reapplied to saved icebreakers. Turning matching off withdraws
 pending requests and established connections immediately.
 
+Anonymous reference comparisons use a separate account opt-in. They compare
+only the governed channel-category percentages described in
+[`docs/reference-population.md`](docs/reference-population.md). Every person
+has equal weight, and an axis stays hidden until at least five consenting
+accounts have comparable data. The result shows rounded group statistics,
+never identities, histories, matching data, or a claim about society.
+
 ## Run
 
 ```sh
