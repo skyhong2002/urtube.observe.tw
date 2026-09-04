@@ -1,6 +1,10 @@
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
-import { writeOpsStatus } from './ops-status.js';
+import {
+  patchOpsStatus,
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  type WorkerOpsStatus,
+} from './ops-status.js';
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
 import { buildYoutubeCrystal } from './youtube/crystal.js';
@@ -136,9 +140,9 @@ if (process.env.NODE_ENV !== 'test') {
   if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
   let running = false;
 
-  const recordStatus = (value: unknown) => {
+  const recordStatus = (value: Partial<WorkerOpsStatus>) => {
     try {
-      writeOpsStatus('worker', value);
+      patchOpsStatus<WorkerOpsStatus>('worker', value);
     } catch (error) {
       console.error(`worker status write failed: ${errorMessage(error)}`);
     }
@@ -156,7 +160,15 @@ if (process.env.NODE_ENV !== 'test') {
     let continueImmediately = false;
     lastCycleStartedAt = Date.now();
     const lastStartedAt = new Date(lastCycleStartedAt).toISOString();
-    recordStatus({ lastStartedAt });
+    recordStatus({
+      lastStartedAt,
+      heartbeatAt: lastStartedAt,
+      running: true,
+      lastError: '',
+    });
+    const heartbeat = setInterval(() => {
+      recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
+    }, WORKER_HEARTBEAT_INTERVAL_MS);
     try {
       const users = await runYoutubeWorkerCycle(registry);
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
@@ -168,6 +180,8 @@ if (process.env.NODE_ENV !== 'test') {
       recordStatus({
         lastStartedAt,
         lastCompletedAt: new Date().toISOString(),
+        heartbeatAt: new Date().toISOString(),
+        running: false,
         users: users.length,
         failedUsers,
         lastError: '',
@@ -181,8 +195,14 @@ if (process.env.NODE_ENV !== 'test') {
       const lastError = errorMessage(error);
       lastCycleFailed = true;
       console.error(lastError);
-      recordStatus({ lastStartedAt, lastError });
+      recordStatus({
+        lastStartedAt,
+        heartbeatAt: new Date().toISOString(),
+        running: false,
+        lastError,
+      });
     } finally {
+      clearInterval(heartbeat);
       running = false;
       if (continueImmediately && !stopping) setImmediate(() => { void run(); });
     }
@@ -203,6 +223,11 @@ if (process.env.NODE_ENV !== 'test') {
   process.once('SIGTERM', () => {
     stopping = true;
     clearInterval(interval);
+    recordStatus({
+      heartbeatAt: new Date().toISOString(),
+      running: false,
+      lastError: running ? 'Worker stopped before its active cycle completed' : '',
+    });
     registry.close();
     process.exit(0);
   });

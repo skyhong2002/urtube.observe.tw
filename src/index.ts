@@ -25,7 +25,7 @@ import {
   type YoutubeProcessingStatus,
 } from './youtube/processing.js';
 import { tagLeanSection } from './output/taglean.js';
-import { readOpsStatus } from './ops-status.js';
+import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
@@ -851,11 +851,12 @@ export function createApp(registry: UserRegistry): Hono {
   });
 
   // Production readiness is stricter than liveness: every user database must
-  // open, required signup config must exist, and both scheduled jobs must have
-  // completed recently. External monitoring should probe this endpoint.
+  // open, required signup config must exist, and scheduled jobs must either
+  // be live with a fresh heartbeat or have completed recently. External
+  // monitoring should probe this endpoint.
   app.get('/readyz', (c) => {
     const now = Date.now();
-    const worker = readOpsStatus<{ lastCompletedAt?: string; failedUsers?: number; lastError?: string }>('worker');
+    const worker = readOpsStatus<WorkerOpsStatus>('worker');
     const backup = readOpsStatus<{ lastCompletedAt?: string; lastError?: string }>('backup');
     const fresh = (iso: string | undefined, maxAgeMs: number) =>
       Boolean(iso && Number.isFinite(Date.parse(iso)) && now - Date.parse(iso) <= maxAgeMs);
@@ -871,8 +872,7 @@ export function createApp(registry: UserRegistry): Hono {
     const checks = {
       config: Boolean(config.youtube.privateDataKey && (!config.signupEnabled || googleLoginConfigured())),
       databases: databaseFailures === 0,
-      worker: fresh(worker?.lastCompletedAt, 3 * 3600_000)
-        && !worker?.lastError && (worker?.failedUsers ?? 0) === 0,
+      worker: workerOpsReady(worker, now),
       backup: fresh(backup?.lastCompletedAt, (config.backup.intervalHours + 2) * 3600_000)
         && !backup?.lastError,
     };
@@ -881,7 +881,12 @@ export function createApp(registry: UserRegistry): Hono {
       status: ready ? 'ready' : 'not_ready',
       checks,
       users: { total: users.length, databaseFailures },
-      worker: { lastCompletedAt: worker?.lastCompletedAt ?? null, failedUsers: worker?.failedUsers ?? null },
+      worker: {
+        running: worker?.running ?? false,
+        heartbeatAt: worker?.heartbeatAt ?? null,
+        lastCompletedAt: worker?.lastCompletedAt ?? null,
+        failedUsers: worker?.failedUsers ?? null,
+      },
       backup: { lastCompletedAt: backup?.lastCompletedAt ?? null },
     }, ready ? 200 : 503);
   });
