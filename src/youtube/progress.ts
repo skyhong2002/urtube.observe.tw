@@ -20,7 +20,7 @@ const summarySchema = z.object({
   videos: z.number().int().min(0).max(10_000_000),
   passes: z.number().int().min(0).max(10_000_000),
   endReason: z.enum([
-    'history-start', 'end-of-history', 'covered', 'time-limit', 'stalled',
+    'history-start', 'end-of-history', 'covered', 'time-limit', 'stalled', 'segment-limit',
     'history-paused', 'signed-out', 'no-content', 'cancelled', 'error', 'no-receiver',
   ]),
   oldestWatchedAt: z.string().datetime({ offset: true }).nullable(),

@@ -65,8 +65,8 @@ function validEventTime(value: string, now: Date): string {
   if (date.getTime() > now.getTime() + 5 * 60_000) {
     throw new Error('History event time is too far in the future');
   }
-  if (date.getTime() < now.getTime() - 90 * 86_400_000) {
-    throw new Error('History event time is older than 90 days');
+  if (date.getTime() < Date.parse('2005-04-23T00:00:00Z')) {
+    throw new Error('History event time predates YouTube');
   }
   return date.toISOString();
 }

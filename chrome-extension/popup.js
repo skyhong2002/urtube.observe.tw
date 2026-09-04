@@ -62,11 +62,17 @@ async function render() {
   historyButton.textContent = running ? urtubeT.cancelScan : urtubeT.rescanAll;
   historyButton.classList.toggle('danger', running);
   document.querySelector('#history-state').textContent = running
-    ? urtubeT.videos(history.videos ?? 0)
+    ? history.mode === 'deep'
+      ? urtubeT.deepHistoryProgress(
+        Number(history.events ?? 0) + Number(history.currentEvents ?? 0),
+        history.segments ?? 0,
+        (history.ranges?.length ?? 0) + (history.activeRange ? 1 : 0),
+      )
+      : urtubeT.videos(history.videos ?? 0)
     : history.state === 'complete'
-      ? urtubeT.historyResult(history.endReason, history.videos ?? 0)
+      ? urtubeT.historyResult(history.endReason, history.events ?? history.videos ?? 0)
       : history.state === 'error'
-        ? urtubeT.historyResult(history.endReason, history.videos ?? 0)
+        ? urtubeT.historyResult(history.endReason, history.events ?? history.videos ?? 0)
         : urtubeT.notImported;
   if (history.lastError) document.querySelector('#error').textContent = history.lastError;
   const lifelogRunning = lifelog.state === 'running';

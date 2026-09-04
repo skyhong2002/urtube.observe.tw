@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { mergeQueue, retryDelayMs } from '../chrome-extension/queue.js';
+import {
+  buildDeepHistoryRanges,
+  myActivityRangeUrl,
+  splitDeepHistoryRange,
+} from '../chrome-extension/history-ranges.js';
 import { extensionDownloadName } from '../src/extension-bundle.ts';
 
 await import('../chrome-extension/history.js');
@@ -13,7 +18,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.9.0');
+  assert.equal(manifest.version, '2.0.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -471,4 +476,71 @@ test('history import compacts old sections without collapsing scroll geometry', 
     contain: 'strict',
   });
   assert.equal(sections[2]['data-urtube-compacted'], undefined);
+});
+
+test('deep history ranges cover the whole YouTube lifetime with bounded, gapless windows', () => {
+  const now = new Date('2026-09-05T12:00:00.000Z');
+  const earliest = new Date('2021-09-05T12:00:00.000Z');
+  const ranges = buildDeepHistoryRanges(now, earliest, 90);
+  assert.equal(ranges[0].end, now.toISOString());
+  assert.equal(ranges.at(-1).start, earliest.toISOString());
+  for (let index = 0; index < ranges.length; index++) {
+    assert.ok(Date.parse(ranges[index].end) - Date.parse(ranges[index].start) <= 90 * 86_400_000);
+    if (index) assert.equal(ranges[index - 1].start, ranges[index].end);
+  }
+  const url = new URL(myActivityRangeUrl(ranges[0], 'demo@example.invalid'));
+  assert.equal(url.pathname, '/product/youtube');
+  assert.equal(url.searchParams.get('authuser'), 'demo@example.invalid');
+  assert.equal(Number(url.searchParams.get('min')), Date.parse(ranges[0].start) * 1000);
+  assert.equal(Number(url.searchParams.get('max')), Date.parse(ranges[0].end) * 1000 - 1);
+});
+
+test('an overloaded deep-history range splits without gaps or overlap', () => {
+  const range = { start: '2026-01-01T00:00:00.000Z', end: '2026-04-01T00:00:00.000Z' };
+  const halves = splitDeepHistoryRange(range);
+  assert.equal(halves.length, 2);
+  assert.equal(halves[0].start, range.start);
+  assert.equal(halves[0].end, halves[1].start);
+  assert.equal(halves[1].end, range.end);
+  assert.deepEqual(splitDeepHistoryRange({
+    start: '2026-01-01T00:00:00.000Z',
+    end: '2026-01-02T00:00:00.000Z',
+  }), []);
+  assert.deepEqual(splitDeepHistoryRange({ start: 'invalid', end: range.end }), []);
+});
+
+test('recursive date splitting keeps a synthetic 50k-event history below the per-tab cap', () => {
+  const start = Date.parse('2021-01-01T00:00:00.000Z');
+  const end = Date.parse('2026-01-01T00:00:00.000Z');
+  const events = Array.from({ length: 50_000 }, (_, index) =>
+    start + Math.floor((end - start) * index / 50_000));
+  const pending = buildDeepHistoryRanges(new Date(end), new Date(start), 90);
+  let completed = 0;
+  while (pending.length) {
+    const range = pending.shift();
+    const count = events.filter((at) => at >= Date.parse(range.start) && at < Date.parse(range.end)).length;
+    if (count > 2_000) {
+      const split = splitDeepHistoryRange(range);
+      assert.equal(split.length, 2);
+      pending.unshift(...split);
+    } else {
+      assert.ok(count <= 2_000);
+      completed += count;
+    }
+  }
+  assert.equal(completed, 50_000);
+});
+
+test('deep history uses capped date windows and restarts tabs between segments', () => {
+  const activity = readFileSync(new URL('../chrome-extension/myactivity.js', import.meta.url), 'utf8');
+  const background = readFileSync(new URL('../chrome-extension/background.js', import.meta.url), 'utf8');
+  assert.match(activity, /DEEP_HISTORY_EVENT_LIMIT = 2_000/);
+  assert.match(activity, /DEEP_HISTORY_EVENT_LIMIT - sent\.size/);
+  assert.match(activity, /endReason = 'segment-limit'/);
+  assert.match(background, /startDeepHistoryImport/);
+  assert.match(background, /splitDeepHistoryRange/);
+  assert.match(background, /closeActivitySyncTab/);
+  assert.match(background, /myActivityRangeUrl/);
+  assert.match(background, /reportScanEnd\(completedStatus, 'history-start'/);
+  assert.match(background, /response does not match the active range/);
 });

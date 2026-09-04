@@ -224,6 +224,7 @@
       'signed-out': 'YouTube History is signed out. Sign in to the intended Google account, then retry.',
       'no-content': 'No YouTube history items appeared. Check that you are signed in and watch history is enabled, then retry.',
       stalled: 'YouTube stopped loading while more history was available. Retry to continue.',
+      'segment-limit': 'Recent playback progress was saved at the safe tab limit. Use Rescan all history for the older archive.',
       'time-limit': 'The scan reached its safety time limit. Retry to continue.',
     };
     return messages[endReason] ?? null;

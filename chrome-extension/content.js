@@ -236,6 +236,7 @@
   const HISTORY_CONTENT_WAIT_MS = 60_000;
   const HISTORY_IDLE_MS = 30_000;
   const HISTORY_PASS_MS = 700;
+  const HISTORY_SCAN_VIDEO_LIMIT = 2_000;
   const HISTORY_TIME_LIMIT_MS = { full: 60 * 60_000, incremental: 15 * 60_000 };
 
   async function runHistoryImport(scanId, observedAt, options = {}) {
@@ -316,6 +317,9 @@
           }
         } else if (coverageCutoff && bounds.oldest && bounds.oldest < coverageCutoff) {
           endReason = 'covered';
+          break;
+        } else if (sent.size >= HISTORY_SCAN_VIDEO_LIMIT) {
+          endReason = 'segment-limit';
           break;
         } else if (now - lastContentAt >= HISTORY_IDLE_MS) {
           endReason = globalThis.urtubeYoutubeHistory.historyCompletionReason(document);

@@ -1,4 +1,9 @@
 import { DEFAULT_ENDPOINT, mergeQueue, retryDelayMs } from './queue.js';
+import {
+  buildDeepHistoryRanges,
+  myActivityRangeUrl,
+  splitDeepHistoryRange,
+} from './history-ranges.js';
 
 const QUEUE_KEY = 'captureQueue';
 const SETTINGS_KEY = 'captureSettings';
@@ -373,7 +378,12 @@ function historyScanFailureMessage(endReason) {
 // Tells the server how a scan ended when the content script could not (it
 // never ran, or it was cancelled from here). Best effort; the diagnosis lives
 // in the archive so a failing account can be read without its popup.
-async function reportScanEnd(status, endReason, { error = null, landedUrl = null } = {}) {
+async function reportScanEnd(status, endReason, {
+  error = null,
+  landedUrl = null,
+  oldestWatchedAt = null,
+  newestWatchedAt = null,
+} = {}) {
   if (!status?.scanId || !status?.observedAt) return;
   await sendProgressBatch({
     scanId: status.scanId,
@@ -382,11 +392,11 @@ async function reportScanEnd(status, endReason, { error = null, landedUrl = null
     complete: true,
     summary: {
       mode: status.mode === 'incremental' ? 'incremental' : 'full',
-      videos: Number(status.videos ?? 0),
+      videos: Number(status.videos ?? status.events ?? 0),
       passes: Number(status.pass ?? 0),
       endReason,
-      oldestWatchedAt: null,
-      newestWatchedAt: null,
+      oldestWatchedAt,
+      newestWatchedAt,
       error: error ? String(error).slice(0, 500) : null,
       landedUrl: landedUrl ? String(landedUrl).slice(0, 500) : null,
     },
@@ -475,14 +485,17 @@ async function cancelHistoryImport() {
   const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
   const status = stored[HISTORY_STATUS_KEY] ?? {};
   if (status.tabId) {
-    await chrome.tabs.sendMessage(status.tabId, { type: 'cancel-history-import' }).catch(() => {});
+    await chrome.tabs.sendMessage(status.tabId, {
+      type: status.mode === 'deep' ? 'cancel-activity-sync' : 'cancel-history-import',
+    }).catch(() => {});
   }
   await closeHistoryImportTab(status.tabId);
-  if (status.state === 'running') await reportScanEnd(status, 'cancelled');
+  if (status.state === 'running' && status.mode !== 'deep') await reportScanEnd(status, 'cancelled');
   await historyStatus({
     state: 'cancelled',
     endReason: 'cancelled',
     completedAt: new Date().toISOString(),
+    tabId: null,
     lastError: '',
   });
 }
@@ -575,6 +588,155 @@ async function startActivitySync(syncId, observedAt, since) {
     await closeActivitySyncTab(tab.id);
     throw error;
   }
+}
+
+async function startDeepHistoryRange(scanId) {
+  const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
+  const status = stored[HISTORY_STATUS_KEY] ?? {};
+  if (status.state !== 'running' || status.mode !== 'deep' || status.scanId !== scanId) return;
+  const range = status.activeRange ?? status.ranges?.[0];
+  if (!range) return;
+  const ranges = status.activeRange ? (status.ranges ?? []) : (status.ranges ?? []).slice(1);
+  const config = await settings();
+  await historyStatus({ activeRange: range, ranges, tabId: null, currentEvents: 0 });
+  await closeActivitySyncTab(status.tabId);
+  const tab = await chrome.tabs.create({
+    active: true,
+    url: myActivityRangeUrl(range, config.googleAccount),
+  });
+  if (!tab.id) throw new Error('Could not open Google My Activity history segment');
+  await historyStatus({ tabId: tab.id });
+  try {
+    await waitForTab(tab.id);
+    const result = await sendToTab(tab.id, {
+      type: 'start-activity-sync',
+      syncId: scanId,
+      observedAt: status.observedAt,
+      since: range.start,
+      purpose: 'deep-history',
+      range,
+    }, 'Google My Activity history segment');
+    if (!result?.ok) throw new Error(result?.error || 'Deep history segment failed');
+  } catch (error) {
+    await historyStatus({
+      state: 'error',
+      completedAt: new Date().toISOString(),
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    await closeActivitySyncTab(tab.id);
+  }
+}
+
+async function startDeepHistoryImport() {
+  const config = await settings();
+  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+  const stored = await chrome.storage.local.get([HISTORY_STATUS_KEY, LIFELOG_STATUS_KEY]);
+  const previous = stored[HISTORY_STATUS_KEY] ?? {};
+  if (previous.state === 'running') throw new Error('A history import is already running');
+  if (stored[LIFELOG_STATUS_KEY]?.state === 'running') {
+    throw new Error('A YouTube lifelog sync is already running');
+  }
+  const resumable = previous.mode === 'deep'
+    && (previous.activeRange || previous.ranges?.length)
+    && ['error', 'cancelled'].includes(previous.state);
+  const ranges = resumable
+    ? [previous.activeRange, ...(previous.ranges ?? [])].filter(Boolean)
+    : buildDeepHistoryRanges();
+  if (!ranges.length) throw new Error('No history date ranges are available');
+  await closeActivitySyncTab(previous.tabId);
+  const scanId = crypto.randomUUID();
+  const observedAt = new Date().toISOString();
+  await historyStatus({
+    state: 'running',
+    mode: 'deep',
+    stage: 'history',
+    scanId,
+    observedAt,
+    startedAt: resumable ? previous.startedAt ?? observedAt : observedAt,
+    completedAt: null,
+    events: resumable ? Number(previous.events ?? 0) : 0,
+    segments: resumable ? Number(previous.segments ?? 0) : 0,
+    ranges,
+    activeRange: null,
+    tabId: null,
+    oldestEventAt: resumable ? previous.oldestEventAt ?? null : null,
+    newestEventAt: resumable ? previous.newestEventAt ?? null : null,
+    lastError: '',
+  });
+  void startDeepHistoryRange(scanId).catch((error) => failDeepHistoryImport(scanId, error));
+  return { scanId, observedAt, resumed: Boolean(resumable) };
+}
+
+async function completeDeepHistoryRange(message) {
+  const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
+  const status = stored[HISTORY_STATUS_KEY] ?? {};
+  if (status.state !== 'running' || status.mode !== 'deep' || status.scanId !== message.syncId) {
+    return { updated: false };
+  }
+  const activeRange = status.activeRange;
+  if (!activeRange) throw new Error('Deep history segment has no active range');
+  if (
+    message.range?.start !== activeRange.start
+    || message.range?.end !== activeRange.end
+  ) {
+    throw new Error('Deep history segment response does not match the active range');
+  }
+  let ranges = status.ranges ?? [];
+  if (message.endReason === 'segment-limit') {
+    const split = splitDeepHistoryRange(activeRange);
+    if (!split.length) {
+      throw new Error('A single day exceeds the safe history segment limit; use Takeout for this account');
+    }
+    ranges = [...split, ...ranges];
+  } else if (message.endReason !== 'range-complete') {
+    throw new Error(`Deep history segment ended unexpectedly: ${message.endReason ?? 'unknown'}`);
+  }
+  const oldestEventAt = [status.oldestEventAt, message.oldestEventAt]
+    .filter(Boolean).sort().at(0) ?? null;
+  const newestEventAt = [status.newestEventAt, message.newestEventAt]
+    .filter(Boolean).sort().at(-1) ?? null;
+  const completedStatus = {
+    ...status,
+    events: Number(status.events ?? 0) + Number(message.events ?? 0),
+    segments: Number(status.segments ?? 0) + 1,
+    ranges,
+    activeRange: null,
+    tabId: null,
+    oldestEventAt,
+    newestEventAt,
+  };
+  await historyStatus(completedStatus);
+  await closeActivitySyncTab(status.tabId);
+  if (ranges.length) {
+    void startDeepHistoryRange(status.scanId)
+      .catch((error) => failDeepHistoryImport(status.scanId, error));
+    return { updated: true, complete: false };
+  }
+  await reportScanEnd(completedStatus, 'history-start', {
+    landedUrl: 'https://myactivity.google.com/product/youtube',
+    oldestWatchedAt: oldestEventAt,
+    newestWatchedAt: newestEventAt,
+  });
+  await historyStatus({
+    state: 'complete',
+    stage: 'idle',
+    endReason: 'history-start',
+    completedAt: new Date().toISOString(),
+    lastError: '',
+  });
+  return { updated: true, complete: true };
+}
+
+async function failDeepHistoryImport(syncId, error) {
+  const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
+  const status = stored[HISTORY_STATUS_KEY] ?? {};
+  if (status.state !== 'running' || status.mode !== 'deep' || status.scanId !== syncId) return;
+  await historyStatus({
+    state: 'error',
+    completedAt: new Date().toISOString(),
+    lastError: error instanceof Error ? error.message : String(error),
+  });
+  await closeActivitySyncTab(status.tabId);
 }
 
 async function startLifelogSync({ automatic = false } = {}) {
@@ -772,7 +934,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'history-import-start') {
-    startHistoryImport()
+    startDeepHistoryImport()
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => {
         sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -814,6 +976,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'activity-sync-progress') {
     const operation = (async () => {
+      if (message.purpose === 'deep-history') {
+        const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
+        const status = stored[HISTORY_STATUS_KEY] ?? {};
+        if (status.scanId !== message.syncId || status.state !== 'running' || status.mode !== 'deep') return;
+        await historyStatus({
+          stage: 'history',
+          currentEvents: message.events,
+          pass: message.pass,
+          oldestEventAt: [status.oldestEventAt, message.oldestEventAt].filter(Boolean).sort().at(0) ?? null,
+          newestEventAt: [status.newestEventAt, message.newestEventAt].filter(Boolean).sort().at(-1) ?? null,
+        });
+        return;
+      }
       const stored = await chrome.storage.local.get(LIFELOG_STATUS_KEY);
       const status = stored[LIFELOG_STATUS_KEY] ?? {};
       if (status.syncId !== message.syncId || status.state !== 'running') return;
@@ -831,19 +1006,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'activity-sync-complete') {
-    completeActivitySync(message.syncId, {
-      events: message.events,
-      newestEventAt: message.newestEventAt,
-    })
+    const operation = message.purpose === 'deep-history'
+      ? completeDeepHistoryRange(message)
+      : completeActivitySync(message.syncId, {
+        events: message.events,
+        newestEventAt: message.newestEventAt,
+      });
+    operation
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+      .catch(async (error) => {
+        if (message.purpose === 'deep-history') await failDeepHistoryImport(message.syncId, error);
+        sendResponse({ ok: false, error: String(error) });
+      });
     return true;
   }
   if (message?.type === 'activity-sync-error') {
-    failLifelogSync(
-      message.syncId,
-      String(message.error || 'Google My Activity sync failed'),
-    )
+    const operation = message.purpose === 'deep-history'
+      ? failDeepHistoryImport(message.syncId, String(message.error || 'Deep history segment failed'))
+      : failLifelogSync(
+        message.syncId,
+        String(message.error || 'Google My Activity sync failed'),
+      );
+    operation
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
@@ -970,9 +1154,34 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureAlarms();
+  const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
+  const history = stored[HISTORY_STATUS_KEY] ?? {};
+  if (history.state === 'running' && history.mode === 'deep') {
+    await closeActivitySyncTab(history.tabId);
+    await historyStatus({ state: 'error', tabId: null, lastError: 'Browser restarted; resuming saved history segments.' });
+    void startDeepHistoryImport().catch(() => {});
+  }
   void flushQueue();
   void maybeStartLifelogSync();
   void checkExtensionUpdate();
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void (async () => {
+    // Normal segment completion clears tabId before closing. If the user or
+    // Chrome closes the active tab first, preserve the active range so the
+    // next click resumes it rather than starting over.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
+    const status = stored[HISTORY_STATUS_KEY] ?? {};
+    if (status.state !== 'running' || status.mode !== 'deep' || status.tabId !== tabId) return;
+    await historyStatus({
+      state: 'error',
+      tabId: null,
+      completedAt: new Date().toISOString(),
+      lastError: 'History scan tab closed. Click Rescan all history to resume.',
+    });
+  })();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

@@ -107,6 +107,8 @@
   if (typeof chrome === 'undefined' || typeof document === 'undefined') return;
 
   let cancelled = false;
+  const DEEP_HISTORY_EVENT_LIMIT = 2_000;
+  const DEEP_HISTORY_MAX_PASSES = 200;
 
   function wait(milliseconds) {
     return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -120,7 +122,7 @@
     if (!response?.ok) throw new Error(response?.error || 'Activity batch was rejected');
   }
 
-  async function runSync(syncId, observedAt, since) {
+  async function runSync(syncId, observedAt, since, options = {}) {
     if (!isActivityPath(location.pathname)) {
       throw new Error('Activity sync must run on Google My Activity YouTube History');
     }
@@ -128,24 +130,36 @@
     const cutoff = Date.parse(since);
     const sent = new Set();
     let newestEventAt = null;
+    let oldestEventAt = null;
     let idlePasses = 0;
-    for (let pass = 0; pass < 50; pass++) {
+    let endReason = 'pass-limit';
+    const deep = options.purpose === 'deep-history';
+    const maximumPasses = deep ? DEEP_HISTORY_MAX_PASSES : 50;
+    for (let pass = 0; pass < maximumPasses; pass++) {
       if (cancelled) throw new Error('Activity sync cancelled');
       const events = [...document.querySelectorAll('[role="listitem"]')]
         .map(activityFromCard)
         .filter(Boolean);
       const timestamps = events.map((event) => Date.parse(event.occurredAt))
         .filter(Number.isFinite);
+      const remainingCapacity = deep
+        ? Math.max(0, DEEP_HISTORY_EVENT_LIMIT - sent.size)
+        : Number.POSITIVE_INFINITY;
       const changed = events.filter((event) => {
         if (Date.parse(event.occurredAt) < cutoff) return false;
         const identity = event.kind === 'search'
           ? `${event.kind}\u001f${event.query}\u001f${event.occurredAt}`
           : `${event.kind}\u001f${event.url}\u001f${event.occurredAt}`;
-        if (sent.has(identity)) return false;
+        return !sent.has(identity);
+      }).slice(0, remainingCapacity);
+      for (const event of changed) {
+        const identity = event.kind === 'search'
+          ? `${event.kind}\u001f${event.query}\u001f${event.occurredAt}`
+          : `${event.kind}\u001f${event.url}\u001f${event.occurredAt}`;
         sent.add(identity);
         if (!newestEventAt || event.occurredAt > newestEventAt) newestEventAt = event.occurredAt;
-        return true;
-      });
+        if (!oldestEventAt || event.occurredAt < oldestEventAt) oldestEventAt = event.occurredAt;
+      }
       for (let index = 0; index < changed.length; index += 200) {
         await sendBatch(syncId, observedAt, changed.slice(index, index + 200));
       }
@@ -155,33 +169,51 @@
         events: sent.size,
         pass,
         newestEventAt,
+        oldestEventAt,
+        purpose: options.purpose ?? 'daily',
       });
       const oldestLoaded = timestamps.length ? Math.min(...timestamps) : Number.POSITIVE_INFINITY;
-      if (oldestLoaded <= cutoff) break;
+      if (oldestLoaded <= cutoff) {
+        endReason = 'range-complete';
+        break;
+      }
+      if (deep && sent.size >= DEEP_HISTORY_EVENT_LIMIT) {
+        endReason = 'segment-limit';
+        break;
+      }
       const loadMore = document.querySelector('button[jsname="T8gEfd"]');
       if (!loadMore) {
         idlePasses++;
-        if (idlePasses >= 3) break;
+        if (idlePasses >= 3) {
+          endReason = 'range-complete';
+          break;
+        }
       } else {
         idlePasses = 0;
         loadMore.click();
       }
       await wait(900);
     }
-    return { events: sent.size, newestEventAt };
+    return { events: sent.size, newestEventAt, oldestEventAt, endReason };
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'start-activity-sync') {
-      runSync(message.syncId, message.observedAt, message.since)
+      runSync(message.syncId, message.observedAt, message.since, {
+        purpose: message.purpose,
+      })
         .then((result) => chrome.runtime.sendMessage({
           type: 'activity-sync-complete',
           syncId: message.syncId,
+          purpose: message.purpose ?? 'daily',
+          range: message.range ?? null,
           ...result,
         }))
         .catch((error) => chrome.runtime.sendMessage({
           type: 'activity-sync-error',
           syncId: message.syncId,
+          purpose: message.purpose ?? 'daily',
+          range: message.range ?? null,
           error: error instanceof Error ? error.message : String(error),
         }));
       sendResponse({ ok: true, started: true });
