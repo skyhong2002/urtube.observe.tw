@@ -8,6 +8,7 @@ import { createFullBackup } from '../scripts/backup.js';
 import { restoreFullBackup } from '../scripts/restore-backup.js';
 import { Repository } from '../src/data/database.js';
 import { UserRegistry } from '../src/users.js';
+import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
 
 const SECRET = process.env.YOUTUBE_PRIVATE_DATA_KEY!;
 
@@ -32,7 +33,14 @@ test('full backup and restore cover registry, owner, and every materialized user
   try {
     registry.ensureDefaultUser();
     const alice = registry.createUser('alice', 'Alice');
-    registry.repositoryFor(alice).setYoutubeSyncState('fixture', 'alice-data');
+    const aliceRepository = registry.repositoryFor(alice);
+    aliceRepository.setYoutubeSyncState('fixture', 'alice-data');
+    aliceRepository.upsertYoutubeVideoMetadata([{
+      videoId: 'BACKUPMATCH', title: 'Anonymous fixture', channelId: null, channelTitle: null,
+      description: '', tags: [], thumbnailUrl: '', durationSeconds: 60,
+      publishedAt: null, categoryId: '27', availability: 'available', metadataHash: 'v1',
+    }]);
+    assert.equal(classifyYoutubeVideosForMatching(aliceRepository), 1);
     new Repository(ownerPath).close();
   } finally {
     registry.close();
@@ -65,6 +73,7 @@ test('full backup and restore cover registry, owner, and every materialized user
     assert.ok(existsSync(join(restoreTarget, 'users', 'alice.sqlite')));
     assert.equal(rowCount(join(restoreTarget, 'users.sqlite'), 'users'), 2);
     assert.equal(rowCount(join(restoreTarget, 'users', 'alice.sqlite'), 'youtube_sync_state'), 1);
+    assert.equal(rowCount(join(restoreTarget, 'users', 'alice.sqlite'), 'youtube_video_matching_topics'), 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

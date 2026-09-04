@@ -25,17 +25,18 @@ and CUTOVER_RUNBOOK.md for the operational steps.
    checkpoint and 1-day overlap (`src/youtube/portability.ts`).
 6. **Metadata enrichment** — YouTube Data API v3 videos + channels, batched
    by 50, unavailable-video tombstones.
-7. **Topic classification** — AI taxonomy (12–20 stable topics) and per-video
-   classification over public metadata only; keyword extraction.
-8. **Idempotent SQLite storage** — identical schema/migration chain as
-   Infovore (`user_version` 1–8, `node:sqlite`, WAL).
+7. **Topic classification** — personalized AI topics for private insights,
+   plus a source-controlled 14-topic matching taxonomy derived from public
+   YouTube category IDs; keyword extraction.
+8. **Idempotent SQLite storage** — Infovore-compatible base migrations plus
+   additive urtube migrations (`user_version` 1–10, `node:sqlite`, WAL).
 9. **Private ingest APIs** — bearer-token endpoints, timing-safe comparison,
    size limits, strict zod validation.
 10. **YouTube dashboard** — `/youtube` HTML dashboard (ranges 7d/28d/90d/all,
     channels, topics, keywords, daily volume, recent), plus
     `/api/youtube/summary.json` and `/api/youtube/recent.json`.
-11. **Scheduled worker** — hourly loop: portability step → video metadata →
-    channel metadata → AI classification.
+11. **Scheduled worker** — catch-up loop: portability step → video metadata →
+    channel metadata → canonical matching classification → private AI topics.
 
 Not extracted: satori/resvg SVG cards, MCP server, other platform sources,
 generic `/api/ingest/events` (all remain Infovore features).

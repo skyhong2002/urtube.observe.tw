@@ -3,9 +3,10 @@ import test from 'node:test';
 import type { Repository } from '../src/data/database.js';
 import { UserRegistry, type User } from '../src/users.js';
 import {
-  runYoutubeWorkerCycle, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue,
+  runYoutubeWorkerCycle, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
   type YoutubeWorkerSteps,
 } from '../src/youtube-worker.js';
+import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
 
 test('YouTube worker enriches every user while keeping portability owner-only', async () => {
   const registry = new UserRegistry(':memory:');
@@ -25,6 +26,7 @@ test('YouTube worker enriches every user while keeping portability owner-only', 
       },
       metadata: step('metadata'),
       channelMetadata: step('channels'),
+      matchingClassification: step('matching'),
       classification: step('classification'),
     };
 
@@ -37,6 +39,7 @@ test('YouTube worker enriches every user while keeping portability owner-only', 
         ...(user === owner.handle ? [`portability:${user}`] : []),
         `metadata:${user}`,
         `channels:${user}`,
+        `matching:${user}`,
         `classification:${user}`,
       ]);
     }
@@ -64,6 +67,7 @@ test('YouTube worker starts independent user archives concurrently', async () =>
         return 1;
       },
       channelMetadata: async () => 0,
+      matchingClassification: async () => 0,
       classification: async () => 0,
     };
 
@@ -94,6 +98,7 @@ test('one user failure is recorded without preventing later users from running',
         return 0;
       },
       channelMetadata: async () => 0,
+      matchingClassification: async () => 0,
       classification: async (_repository, user) => {
         classified.push(user.handle);
         return user.handle === bob.handle ? 1 : 0;
@@ -107,6 +112,24 @@ test('one user failure is recorded without preventing later users from running',
     assert.equal(youtubeWorkerShouldContinue(results, true), true);
     assert.match(registry.repositoryFor(alice).youtubeSyncState('last_error') ?? '', /alice metadata failed/);
     assert.equal(registry.repositoryFor(bob).youtubeSyncState('last_error'), '');
+  } finally {
+    registry.close();
+  }
+});
+
+test('canonical matching catch-up remains actionable when private AI topics are disabled', () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('matching', 'Matching');
+    const repository = registry.repositoryFor(user);
+    repository.upsertYoutubeVideoMetadata([{
+      videoId: 'MATCHWORK01', title: 'Public fixture', channelId: null, channelTitle: null,
+      description: '', tags: [], thumbnailUrl: '', durationSeconds: 60,
+      publishedAt: null, categoryId: '27', availability: 'available', metadataHash: 'v1',
+    }]);
+    assert.equal(youtubeWorkPending(registry, { metadata: false, topics: false }), true);
+    assert.equal(classifyYoutubeVideosForMatching(repository), 1);
+    assert.equal(youtubeWorkPending(registry, { metadata: false, topics: false }), false);
   } finally {
     registry.close();
   }

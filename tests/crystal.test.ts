@@ -154,6 +154,7 @@ test('crystal.json and /compare enforce dashboard access', async () => {
     const compareHtml = await compared.text();
     assert.match(compareHtml, /Alice × Bob/);
     assert.match(compareHtml, /channel similarity/);
+    assert.match(compareHtml, /pending · using channels only/);
     assert.equal((await app.request('/compare?a=alice&b=alice')).status, 400);
   } finally {
     registry.close();

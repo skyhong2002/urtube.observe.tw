@@ -15,7 +15,14 @@ progress, metadata, and AI topics — privately, per user.
 Search queries are AES-256-GCM-encrypted server-side before storage and never
 served. Watch progress feeds aggregates only. Dashboards are private per user
 (token link) unless made public. AI classification sees public video metadata
-only.
+only. Cross-user matching never compares the personalized AI topic slugs:
+it uses the source-controlled, versioned taxonomy in
+`src/youtube/matching.ts`, derived from YouTube's public category ID. News &
+Politics and Nonprofits & Activism are excluded from matching by default.
+Matching classifications are stored by taxonomy version without deleting the
+previous version. After a version bump the worker rebuilds them in the
+background; until both profiles reach 80% current-version coverage, topic
+comparison is disabled and the product falls back to aggregate channels.
 
 ## Run
 

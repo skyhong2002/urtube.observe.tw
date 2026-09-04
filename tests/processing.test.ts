@@ -7,6 +7,7 @@ import { youtubeDashboardPage } from '../src/output/youtube.js';
 import { accountPage } from '../src/output/onboarding.js';
 import { describeYoutubeProcessing, type YoutubeProcessingCounts } from '../src/youtube/processing.js';
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
+import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
 import { runYoutubeWorkerCycle, youtubeWorkPending, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 import { UserRegistry } from '../src/users.js';
 import type { YoutubeVideoMetadata } from '../src/youtube/types.js';
@@ -119,6 +120,7 @@ test('processing notice counts fall across catch-up cycles and disappear when se
         })));
         return ids.length;
       },
+      matchingClassification: async (archive) => classifyYoutubeVideosForMatching(archive, 2),
       classification: async (archive) => {
         const videos = archive.youtubeVideosForClassification(2);
         for (const video of videos) {
@@ -239,6 +241,7 @@ test('worker stamps each archive and reports pending work only for configured st
       portability: async () => 'idle',
       metadata: async () => 0,
       channelMetadata: async () => 0,
+      matchingClassification: async () => 0,
       classification: async () => { throw new Error('boom'); },
     };
     await runYoutubeWorkerCycle(registry, steps, () => new Date('2026-09-04T10:00:00Z'));
