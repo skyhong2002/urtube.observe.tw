@@ -189,10 +189,21 @@
     return new Date(year, month - 1, date, 12).toISOString();
   }
 
+  // YouTube keeps a continuation renderer while another response can still
+  // extend the history. An idle timer with that renderer present is a stall,
+  // not proof that the account's oldest entry was reached. Be conservative:
+  // an unnecessary rescan is recoverable; a false coverage frontier is not.
+  function historyCompletionReason(documentRoot = document) {
+    return documentRoot.querySelector('ytd-continuation-item-renderer')
+      ? 'stalled'
+      : 'history-start';
+  }
+
   globalThis.urtubeYoutubeHistory = {
     compactHistorySections,
     coverageCutoffDay,
     dayTimestamp,
+    historyCompletionReason,
     trackDateBounds,
     collectProgress,
     collectProgressFromRoots,

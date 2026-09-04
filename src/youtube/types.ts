@@ -76,20 +76,23 @@ export interface YoutubeProgressInput {
   durationSeconds: number | null;
 }
 
-// How a history-page scan ended. 'end-of-history' and 'covered' mean the page
-// was read down to the end or down into already-covered dates; 'time-limit'
-// still covers everything above where it stopped. The rest cover nothing.
+// How a history-page scan ended. 'history-start' is the only proof that a
+// scan reached the account's oldest entry; 'covered' may extend that verified
+// continuous interval. Legacy idle-only 'end-of-history', 'time-limit', and
+// 'stalled' scans describe what was observed but never establish coverage.
 export type YoutubeScanEndReason =
+  | 'history-start'
   | 'end-of-history'
   | 'covered'
   | 'time-limit'
+  | 'stalled'
   | 'no-content'
   | 'cancelled'
   | 'error'
   | 'no-receiver';
 
 export const YOUTUBE_SCAN_COVERING_REASONS: ReadonlySet<YoutubeScanEndReason> = new Set([
-  'end-of-history', 'covered', 'time-limit',
+  'history-start', 'covered',
 ]);
 
 export interface YoutubeScanSummary {

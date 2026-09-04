@@ -229,8 +229,10 @@
   // The history page renders its list well after the tab reports "complete",
   // so nothing is judged until the first lockup appears (or the wait runs
   // out). After that a scan ends only on a signal: no new lockups for a full
-  // idle window (the page really ended), a date group older than what the
-  // server already covers (a daily sync caught up), or the time limit.
+  // idle window with no remaining continuation (the page really ended), a
+  // date group older than what the server already covers (a daily sync caught
+  // up), or the time limit. An idle continuation is reported as stalled and
+  // cannot become a false coverage frontier.
   const HISTORY_CONTENT_WAIT_MS = 60_000;
   const HISTORY_IDLE_MS = 30_000;
   const HISTORY_PASS_MS = 700;
@@ -312,7 +314,7 @@
           endReason = 'covered';
           break;
         } else if (now - lastContentAt >= HISTORY_IDLE_MS) {
-          endReason = 'end-of-history';
+          endReason = globalThis.urtubeYoutubeHistory.historyCompletionReason(document);
           break;
         }
         if (now - startedAt >= HISTORY_TIME_LIMIT_MS[mode]) {

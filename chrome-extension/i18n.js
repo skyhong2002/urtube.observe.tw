@@ -64,6 +64,7 @@ if (urtubeZh) {
     syncNow: urtubeT.syncNow,
     rescanAll: urtubeT.rescanAll,
     settings: '設定',
+    scanHelp: '立即同步只會略過已驗證的歷史；重新掃描全部紀錄會忽略既有覆蓋範圍。',
     optionsTitle: 'urtube YouTube 擷取設定',
     optionsHeader: 'urtube YouTube 擷取',
     optionsSub: '私人連線設定',

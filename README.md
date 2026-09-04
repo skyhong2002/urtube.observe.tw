@@ -73,3 +73,8 @@ npm run db:backup -- /path/to/backup-bundle       # all users, hashes + manifest
 npm run db:restore -- /path/to/bundle /path/to/data  # while services are stopped
 npm run db:migrate-from-infovore -- <backup> <target>  # YouTube-only migration
 ```
+
+The extension's **Sync now** action skips only a continuous history range
+whose oldest boundary was verified. A stalled or time-limited scan is saved
+for diagnosis but never treated as complete; **Rescan all history** always
+ignores saved coverage. Re-running either path is idempotent.

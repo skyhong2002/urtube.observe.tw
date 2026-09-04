@@ -1135,11 +1135,6 @@ export class Repository {
     };
   }
 
-  // The latest completed scan that read the page to its end, into dates a
-  // previous covering scan already held, or up to its time limit. Everything
-  // watched before that scan ran is known; the oldest day is the deepest any
-  // covering scan reached. Scans that never saw content, failed, or were
-  // cancelled cover nothing.
   // Recent scans with how they ended: the operator's view of an account whose
   // syncs keep coming back empty.
   youtubeProgressImports(limit = 50): YoutubeProgressImportRow[] {
@@ -1169,13 +1164,23 @@ export class Repository {
     const reasons = [...YOUTUBE_SCAN_COVERING_REASONS];
     const placeholders = reasons.map(() => '?').join(',');
     const row = this.db.prepare(`
+      WITH eligible AS (
+        SELECT candidate.*
+        FROM youtube_progress_imports candidate
+        WHERE candidate.completed_at IS NOT NULL
+          AND candidate.end_reason IN (${placeholders})
+          AND EXISTS (
+            SELECT 1 FROM youtube_progress_imports baseline
+            WHERE baseline.completed_at IS NOT NULL
+              AND baseline.end_reason='history-start'
+              AND baseline.observed_at<=candidate.observed_at
+          )
+      )
       SELECT scan_id, observed_at, end_reason, completed_at,
-        (SELECT MIN(oldest_watched_at) FROM youtube_progress_imports
-          WHERE completed_at IS NOT NULL AND end_reason IN (${placeholders})) oldest_watched_at
-      FROM youtube_progress_imports
-      WHERE completed_at IS NOT NULL AND end_reason IN (${placeholders})
+        (SELECT MIN(oldest_watched_at) FROM eligible) oldest_watched_at
+      FROM eligible
       ORDER BY observed_at DESC LIMIT 1
-    `).get(...reasons, ...reasons) as {
+    `).get(...reasons) as {
       scan_id: string; observed_at: string; end_reason: string;
       completed_at: string; oldest_watched_at: string | null;
     } | undefined;
