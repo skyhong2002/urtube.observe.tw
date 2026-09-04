@@ -36,6 +36,15 @@ function archiveJson(videoIds: string[]): Uint8Array {
   });
 }
 
+function videoMetadata(videoId: string, availability: 'available' | 'unavailable' = 'available'): YoutubeVideoMetadata {
+  return {
+    videoId, title: `Video ${videoId}`, channelId: 'channel-one', channelTitle: 'Channel One',
+    description: '', tags: [], thumbnailUrl: '', durationSeconds: 600,
+    publishedAt: '2026-07-20T00:00:00Z', categoryId: '28', availability,
+    metadataHash: `${videoId}-v1`,
+  };
+}
+
 test('processing status follows the worker through metadata and topics', () => {
   const repository = new Repository(':memory:');
   try {
@@ -57,12 +66,9 @@ test('processing status follows the worker through metadata and topics', () => {
     assert.equal(afterImport.pending, 3);
     assert.equal(afterImport.estimatedMinutes, 10);
 
-    const metadata = (videoId: string, availability: 'available' | 'unavailable'): YoutubeVideoMetadata => ({
-      videoId, title: `Video ${videoId}`, channelId: 'channel-one', channelTitle: 'Channel One',
-      description: '', tags: [], thumbnailUrl: '', durationSeconds: 600,
-      publishedAt: '2026-07-20T00:00:00Z', categoryId: '28', availability, metadataHash: `${videoId}-v1`,
-    });
-    repository.upsertYoutubeVideoMetadata([metadata('video-one', 'available'), metadata('video-two', 'unavailable')]);
+    repository.upsertYoutubeVideoMetadata([
+      videoMetadata('video-one'), videoMetadata('video-two', 'unavailable'),
+    ]);
     const enriched = repository.youtubeProcessingCounts();
     assert.equal(enriched.videosPendingMetadata, 0);
     assert.equal(enriched.channelsPendingMetadata, 1);
@@ -85,6 +91,68 @@ test('processing status follows the worker through metadata and topics', () => {
     assert.equal(settled.estimatedMinutes, null);
   } finally {
     repository.close();
+  }
+});
+
+test('processing notice counts fall across catch-up cycles and disappear when settled', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('archive', 'Anonymous Archive');
+    const repository = registry.repositoryFor(user);
+    repository.ingestYoutubeArchive(parseYoutubeArchive(archiveJson([
+      'video-00001', 'video-00002', 'video-00003', 'video-00004', 'video-00005',
+    ]), SECRET, 'takeout'));
+    const [topic] = repository.replaceYoutubeTaxonomy([{
+      version: 1, slug: 'general', name: 'General', description: 'Anonymous fixture topic',
+    }]);
+    const steps: YoutubeWorkerSteps = {
+      portability: async () => 'idle',
+      metadata: async (archive) => {
+        const ids = archive.youtubeVideosNeedingMetadata(2);
+        archive.upsertYoutubeVideoMetadata(ids.map((id) => videoMetadata(id)));
+        return ids.length;
+      },
+      channelMetadata: async (archive) => {
+        const ids = archive.youtubeChannelsNeedingMetadata(2);
+        archive.upsertYoutubeChannelMetadata(ids.map((channelId) => ({
+          channelId, name: 'Anonymous Channel', thumbnailUrl: '',
+        })));
+        return ids.length;
+      },
+      classification: async (archive) => {
+        const videos = archive.youtubeVideosForClassification(2);
+        for (const video of videos) {
+          archive.saveYoutubeVideoTopics(
+            video.videoId,
+            [{ topicId: topic.id, rank: 1, confidence: 0.9 }],
+            'fixture',
+            'v1',
+            video.metadataHash,
+          );
+        }
+        return videos.length;
+      },
+    };
+
+    const pending = (): number => describeYoutubeProcessing(
+      repository.youtubeProcessingCounts(), BOTH,
+    ).pending;
+    assert.equal(pending(), 6);
+    assert.match(processingNotice(describeYoutubeProcessing(
+      repository.youtubeProcessingCounts(), BOTH,
+    ), 'en'), /Still organizing this archive/);
+
+    const observed = [pending()];
+    while (youtubeWorkPending(registry, BOTH)) {
+      await runYoutubeWorkerCycle(registry, steps);
+      observed.push(pending());
+    }
+    assert.deepEqual(observed, [6, 3, 1, 0]);
+    assert.equal(processingNotice(describeYoutubeProcessing(
+      repository.youtubeProcessingCounts(), BOTH,
+    ), 'en'), '');
+  } finally {
+    registry.close();
   }
 });
 
