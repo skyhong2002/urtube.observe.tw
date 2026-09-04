@@ -796,6 +796,15 @@ test('a scan summary is only accepted on the completing batch', () => {
     },
   });
   assert.equal(batch.summary?.oldestWatchedAt, '2026-09-01T20:00:00.000Z');
+  const paused = normalizeYoutubeProgressBatch({
+    scanId: 'scan-paused-00000000001', observedAt: new Date().toISOString(), complete: true, items: [],
+    summary: {
+      mode: 'full', videos: 0, passes: 1, endReason: 'history-paused',
+      oldestWatchedAt: null, newestWatchedAt: null,
+      error: 'YouTube watch history is paused.', landedUrl: 'https://www.youtube.com/feed/history',
+    },
+  });
+  assert.equal(paused.summary?.endReason, 'history-paused');
   assert.throws(() => normalizeYoutubeProgressBatch({
     scanId: 'scan-summary-0000000001', observedAt: new Date().toISOString(), complete: true, items: [],
     summary: { mode: 'full', videos: 0, passes: 0, endReason: 'gave-up' },

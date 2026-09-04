@@ -86,6 +86,8 @@ export type YoutubeScanEndReason =
   | 'covered'
   | 'time-limit'
   | 'stalled'
+  | 'history-paused'
+  | 'signed-out'
   | 'no-content'
   | 'cancelled'
   | 'error'

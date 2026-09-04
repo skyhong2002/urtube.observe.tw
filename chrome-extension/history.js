@@ -199,11 +199,44 @@
       : 'history-start';
   }
 
+  function historyPageProblem(documentRoot = document) {
+    const text = String(documentRoot.body?.textContent ?? '');
+    if (/watch history is (?:off|paused)|觀看紀錄(?:已)?(?:暫停|關閉)|暫停(?:了)?觀看紀錄/i.test(text)) {
+      return 'history-paused';
+    }
+    if (/sign in to (?:see|view) your watch history|登入.*觀看紀錄|請先登入/i.test(text)) {
+      return 'signed-out';
+    }
+    return null;
+  }
+
+  function historyLandedUrl(locationValue = location) {
+    try {
+      return `${locationValue.origin}${locationValue.pathname}`;
+    } catch {
+      return null;
+    }
+  }
+
+  function historyScanDiagnostic(endReason) {
+    const messages = {
+      'history-paused': 'YouTube watch history is paused. Turn it on in YouTube History, then retry.',
+      'signed-out': 'YouTube History is signed out. Sign in to the intended Google account, then retry.',
+      'no-content': 'No YouTube history items appeared. Check that you are signed in and watch history is enabled, then retry.',
+      stalled: 'YouTube stopped loading while more history was available. Retry to continue.',
+      'time-limit': 'The scan reached its safety time limit. Retry to continue.',
+    };
+    return messages[endReason] ?? null;
+  }
+
   globalThis.urtubeYoutubeHistory = {
     compactHistorySections,
     coverageCutoffDay,
     dayTimestamp,
     historyCompletionReason,
+    historyLandedUrl,
+    historyPageProblem,
+    historyScanDiagnostic,
     trackDateBounds,
     collectProgress,
     collectProgressFromRoots,

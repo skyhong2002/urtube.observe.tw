@@ -358,6 +358,18 @@ async function closeHistoryImportTab(tabId) {
   await chrome.tabs.remove(tabId).catch(() => {});
 }
 
+function historyScanFailed(endReason) {
+  return ['history-paused', 'signed-out', 'no-content'].includes(endReason);
+}
+
+function historyScanFailureMessage(endReason) {
+  return {
+    'history-paused': 'YouTube watch history is paused. Turn it on in YouTube History, then retry.',
+    'signed-out': 'YouTube History is signed out. Sign in to the intended Google account, then retry.',
+    'no-content': 'No YouTube history items appeared. Check that you are signed in and watch history is enabled, then retry.',
+  }[endReason] ?? '';
+}
+
 // Tells the server how a scan ended when the content script could not (it
 // never ran, or it was cancelled from here). Best effort; the diagnosis lives
 // in the archive so a failing account can be read without its popup.
@@ -867,18 +879,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'history-import-complete') {
+    const failed = historyScanFailed(message.endReason);
+    const diagnosis = message.error || historyScanFailureMessage(message.endReason);
     finishHistoryImport(message.scanId, {
-      state: 'complete',
+      state: failed ? 'error' : 'complete',
       videos: message.videos,
       endReason: message.endReason ?? null,
-      lastError: '',
+      lastError: diagnosis,
     })
       .then(({ updated, tabId, parentSyncId, active }) => {
         sendResponse({ ok: true, updated });
-        // A foreground read that never saw a single video stays open: the
-        // page itself is the explanation (signed-out, history off, ...).
-        if (!(active && message.endReason === 'no-content')) void closeHistoryImportTab(tabId);
-        if (updated && parentSyncId) void finishLifelogSync(parentSyncId, message.videos);
+        // A foreground failed read stays open: the page itself helps explain
+        // a signed-out account or disabled history setting.
+        if (!(active && failed)) void closeHistoryImportTab(tabId);
+        if (updated && parentSyncId) {
+          if (failed) void failLifelogSync(parentSyncId, diagnosis);
+          else void finishLifelogSync(parentSyncId, message.videos);
+        }
       })
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;

@@ -64,9 +64,9 @@ async function render() {
   document.querySelector('#history-state').textContent = running
     ? urtubeT.videos(history.videos ?? 0)
     : history.state === 'complete'
-      ? urtubeT.importedVideos(history.videos ?? 0)
+      ? urtubeT.historyResult(history.endReason, history.videos ?? 0)
       : history.state === 'error'
-        ? urtubeT.importFailed
+        ? urtubeT.historyResult(history.endReason, history.videos ?? 0)
         : urtubeT.notImported;
   if (history.lastError) document.querySelector('#error').textContent = history.lastError;
   const lifelogRunning = lifelog.state === 'running';
