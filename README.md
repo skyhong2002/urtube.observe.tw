@@ -70,6 +70,12 @@ introduction and contact method each person chose to share. Current topic
 exclusions are reapplied to saved icebreakers. Turning matching off withdraws
 pending requests and established connections immediately.
 
+Signed-in users can export their own archive from `/account` after an explicit
+confirmation. The response is a non-cacheable streamed ZIP containing readable
+JSON, a schema and field manifest, decrypted owner search terms, metadata,
+topics, aggregates, and sanitized matching records. Credentials, action tokens,
+and other users' private profile or contact details are excluded.
+
 ## Run
 
 ```sh

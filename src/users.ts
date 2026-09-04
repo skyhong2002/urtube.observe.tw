@@ -92,6 +92,42 @@ export interface MatchingInbox {
   connections: MatchConnection[];
 }
 
+export interface PortableAccountData {
+  account: {
+    handle: string;
+    displayName: string;
+    googleAccountId: string | null;
+    googleEmail: string | null;
+    dashboardPublic: boolean;
+    createdAt: string;
+    onboardingCompletedAt: string | null;
+  };
+  matching: {
+    settings: {
+      optedIn: boolean;
+      disclosure: MatchingDisclosureLevel;
+      introduction: string;
+      contact: string;
+      dimensions: MatchingDimensions;
+    };
+    invitations: Array<{
+      direction: 'sent' | 'received';
+      displayName: string;
+      status: 'pending' | 'declined' | 'withdrawn';
+      topics: string[];
+      createdAt: string;
+      updatedAt: string;
+    }>;
+    connections: Array<{
+      direction: 'sent' | 'received';
+      displayName: string;
+      topics: string[];
+      connectedAt: string;
+    }>;
+  };
+  matchingCrystal: RegistryMatchingCrystal | null;
+}
+
 function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -775,6 +811,57 @@ export class UserRegistry {
         topics: visibleTopics(Number(row.other_user_id), String(row.topics_json)),
         connectedAt: String(row.updated_at),
       })),
+    };
+  }
+
+  portableAccountDataFor(viewer: User): PortableAccountData {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id) throw new Error('User is no longer available');
+    const rows = this.db.prepare(`
+      SELECT r.sender_user_id, r.status, r.topics_json, r.created_at, r.updated_at,
+        other.display_name
+      FROM match_requests r
+      JOIN users other ON other.id=CASE
+        WHEN r.sender_user_id=? THEN r.recipient_user_id ELSE r.sender_user_id END
+      WHERE r.sender_user_id=? OR r.recipient_user_id=?
+      ORDER BY r.created_at, r.request_token
+    `).all(current.id, current.id, current.id) as Array<Record<string, unknown>>;
+    const shared = (row: Record<string, unknown>) => ({
+      direction: (Number(row.sender_user_id) === current.id ? 'sent' : 'received') as
+        'sent' | 'received',
+      displayName: String(row.display_name),
+      topics: matchTopics(String(row.topics_json)),
+    });
+    return {
+      account: {
+        handle: current.handle,
+        displayName: current.displayName,
+        googleAccountId: current.googleSub,
+        googleEmail: current.googleEmail,
+        dashboardPublic: current.dashboardPublic,
+        createdAt: current.createdAt,
+        onboardingCompletedAt: current.onboardingCompletedAt,
+      },
+      matching: {
+        settings: {
+          optedIn: current.matchingOptIn,
+          disclosure: current.matchingDisclosure,
+          introduction: current.matchingIntroduction,
+          contact: current.matchingContact,
+          dimensions: this.matchingDimensionsFor(current),
+        },
+        invitations: rows.filter((row) => row.status !== 'accepted').map((row) => ({
+          ...shared(row),
+          status: row.status as 'pending' | 'declined' | 'withdrawn',
+          createdAt: String(row.created_at),
+          updatedAt: String(row.updated_at),
+        })),
+        connections: rows.filter((row) => row.status === 'accepted').map((row) => ({
+          ...shared(row),
+          connectedAt: String(row.updated_at),
+        })),
+      },
+      matchingCrystal: this.matchingCrystalFor(current.handle),
     };
   }
 

@@ -36,6 +36,7 @@ import {
   keywordSampleStride,
 } from '../youtube/keywords.js';
 import { progressSeconds } from '../youtube/progress.js';
+import { decryptPrivateValue } from '../youtube/crypto.js';
 
 export interface PersistResult { inserted: number; updated: number }
 
@@ -55,6 +56,58 @@ export interface ActivityPage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface PortableExportColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  description: string;
+}
+
+export interface PortableExportTable {
+  file: string;
+  source: string;
+  description: string;
+  columns: PortableExportColumn[];
+  rowCount: number;
+  rows: () => Iterable<Record<string, unknown>>;
+}
+
+export interface PortableRepositoryExport {
+  schemaVersion: number;
+  tables: PortableExportTable[];
+  close: () => void;
+}
+
+const PORTABLE_TABLES = [
+  ['activity-records.json', 'activities', 'Saved activity records used by the archive timeline.'],
+  ['source-snapshots.json', 'snapshots', 'Saved source snapshots and their fetch status.'],
+  ['sync-runs.json', 'sync_runs', 'Import and synchronization run history.'],
+  ['youtube-imports.json', 'youtube_imports', 'Imported archive batches and row counts.'],
+  ['watch-events.json', 'youtube_watch_events', 'YouTube watch events saved by urtube.'],
+  ['search-events.json', 'youtube_search_events', 'YouTube searches with the owner-only query decrypted.'],
+  ['videos.json', 'youtube_videos', 'Public YouTube video metadata cached by urtube.'],
+  ['channels.json', 'youtube_channels', 'Public YouTube channel metadata cached by urtube.'],
+  ['playback-progress.json', 'youtube_video_progress', 'Latest saved playback progress per video.'],
+  ['scan-runs.json', 'youtube_progress_imports', 'History scan boundaries, completion, and diagnostics.'],
+  ['personal-taxonomy.json', 'youtube_topics', 'Versioned personal topic definitions.'],
+  ['personal-topic-assignments.json', 'youtube_video_topics', 'Personal topic classifications and their provenance.'],
+  ['matching-topic-assignments.json', 'youtube_video_matching_topics', 'Canonical matching-topic classifications.'],
+  ['sync-state.json', 'youtube_sync_state', 'Data Portability and worker checkpoints.'],
+  ['time-ledger.json', 'time_ledger', 'Derived daily measured and estimated time.'],
+  ['time-ledger-state.json', 'time_ledger_state', 'Time-ledger processing checkpoints.'],
+] as const;
+
+function portableColumnDescription(name: string): string {
+  if (name.endsWith('_at')) return 'ISO 8601 timestamp.';
+  if (name.endsWith('_seconds')) return 'Duration in seconds.';
+  if (name.endsWith('_percent')) return 'Percentage from 0 to 100.';
+  if (name.endsWith('_json')) return 'JSON-encoded structured value.';
+  if (name.endsWith('_id') || name === 'id') return 'Stable record identifier.';
+  if (name.includes('hash')) return 'Integrity or freshness hash, not a login credential.';
+  if (name === 'query') return 'Decrypted search text belonging to the exporting user.';
+  return `Stored ${name.replaceAll('_', ' ')} value.`;
 }
 
 function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
@@ -254,10 +307,12 @@ export function buildChannelRace(
 
 export class Repository {
   private readonly db: DatabaseSync;
+  private readonly path: string;
   private estimatedEventsKey = '';
   private estimatedEventsBuiltAt = 0;
 
   constructor(path: string) {
+    this.path = path;
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
@@ -265,6 +320,60 @@ export class Repository {
   }
 
   close(): void { this.db.close(); }
+
+  openPortableExport(dataKey: string): PortableRepositoryExport {
+    if (!dataKey) throw new Error('Private data key is required for export');
+    const database = this.path === ':memory:'
+      ? this.db
+      : new DatabaseSync(this.path, { readOnly: true });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      database.exec('ROLLBACK');
+      if (database !== this.db) database.close();
+    };
+    database.exec('BEGIN');
+    try {
+      const schemaVersion = Number((database.prepare('PRAGMA user_version').get() as
+        { user_version: number }).user_version);
+      const tables = PORTABLE_TABLES.map(([file, source, description]): PortableExportTable => {
+        const rawColumns = database.prepare(`PRAGMA table_info(${source})`).all() as Array<{
+          name: string;
+          type: string;
+          notnull: number;
+        }>;
+        const columns = rawColumns.map((column) => ({
+          name: source === 'youtube_search_events' && column.name === 'query_ciphertext'
+            ? 'query' : column.name,
+          type: column.type,
+          nullable: column.notnull === 0,
+          description: portableColumnDescription(
+            source === 'youtube_search_events' && column.name === 'query_ciphertext'
+              ? 'query' : column.name,
+          ),
+        }));
+        const rowCount = Number((database.prepare(`SELECT COUNT(*) count FROM ${source}`).get() as
+          { count: number }).count);
+        const rows = function* (): Iterable<Record<string, unknown>> {
+          const iterator = database.prepare(`SELECT * FROM ${source} ORDER BY rowid`).iterate();
+          for (const raw of iterator) {
+            const row = { ...raw } as Record<string, unknown>;
+            if (source === 'youtube_search_events') {
+              row.query = decryptPrivateValue(String(row.query_ciphertext), dataKey);
+              delete row.query_ciphertext;
+            }
+            yield row;
+          }
+        };
+        return { file: `data/${file}`, source, description, columns, rowCount, rows };
+      });
+      return { schemaVersion, tables, close };
+    } catch (error) {
+      close();
+      throw error;
+    }
+  }
 
   // Versions 1–8 remain byte-compatible with Infovore, so an imported
   // production database upgrades in place. Later urtube-only migrations are

@@ -210,6 +210,14 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
       </ol>
       ${takeout}
+      <section id="account-export">
+        <h2>${t.accountExportTitle}</h2>
+        <p>${t.accountExportPara}</p>
+        <form method="post" action="/account/export" class="ob-form">
+          <label class="ob-check"><input type="checkbox" name="confirmExport" value="1" required> ${t.accountExportConfirm}</label>
+          <button type="submit">${t.accountExportButton}</button>
+        </form>
+      </section>
       <h2>${t.accountMatching}</h2>
       <p>${t.accountMatchingPara}</p>
       <form method="post" action="/account/matching" class="ob-form">

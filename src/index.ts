@@ -7,6 +7,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
+import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
@@ -559,6 +560,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/account', (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
+    c.header('Cache-Control', 'no-store');
     return c.html(accountPage(me, accountStateFor(me), langOf(c)));
   });
 
@@ -812,6 +814,39 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     } catch (error) {
       return renderError(error instanceof Error ? error.message : String(error));
     }
+  });
+
+  app.post('/account/export', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.text('Sign in required', 401);
+    const lang = langOf(c);
+    const t = messages(lang);
+    const form = await c.req.parseBody();
+    if (form.confirmExport !== '1') {
+      c.header('Cache-Control', 'no-store');
+      return c.html(accountPage(me, accountStateFor(me, {
+        error: t.accountExportConfirmError,
+      }), lang), 400);
+    }
+    const dataKey = registry.dataKeyFor(me);
+    if (!dataKey) {
+      c.header('Cache-Control', 'no-store');
+      return c.html(accountPage(me, accountStateFor(me, {
+        error: t.accountExportUnavailable,
+      }), lang), 503);
+    }
+    const repository = registry.repositoryFor(me);
+    const download = userDataExport({
+      repository,
+      dataKey,
+      account: registry.portableAccountDataFor(me),
+      personalCrystal: cachedCrystalFor(registry, me, repository),
+    });
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    c.header('Content-Type', 'application/zip');
+    c.header('Content-Disposition', `attachment; filename="${download.filename}"`);
+    return c.body(download.stream);
   });
 
   // Self-serve deletion: session plus retyping the handle. deleteUser refuses
