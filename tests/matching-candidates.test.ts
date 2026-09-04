@@ -12,6 +12,28 @@ import {
   REGISTRY_CRYSTAL_VERSION,
   type RegistryMatchingCrystal,
 } from '../src/youtube/registry-crystal.js';
+import type { TagListSnapshot } from '../src/youtube/taglists.js';
+
+const noTaggedChannels = async (): Promise<TagListSnapshot> => ({
+  lists: {
+    news: new Set(),
+    editorial: new Set(),
+    editorialShows: new Set(),
+    blue: new Set(),
+    green: new Set(),
+    white: new Set(),
+    red: new Set(),
+  },
+  provenance: {
+    sourceUrl: 'https://labels.example.test',
+    sourceUpdatedAt: '2026-09-05 12:00:00',
+    fetchedAt: '2026-09-05T12:00:00.000Z',
+    membershipVersion: 'sha256:test',
+    policyVersion: 'test',
+    policyUrl: 'https://example.test/policy',
+    reportUrl: 'https://example.test/report',
+  },
+});
 
 const topic = (key: string, share: number) => ({
   key,
@@ -114,7 +136,7 @@ test('candidate cards remove excluded dimensions and enforce mutual disclosure',
 
 test('/matches requires a session and explicit matching opt-in', async () => {
   const registry = new UserRegistry(':memory:');
-  const app = createApp(registry);
+  const app = createApp(registry, { loadTagLists: noTaggedChannels });
   try {
     const user = registry.createUser('viewer-gate', 'Viewer Gate');
     const cookie = `urtube_session=${registry.createSession(user)}`;
@@ -136,7 +158,7 @@ test('/matches requires a session and explicit matching opt-in', async () => {
 
 test('/matches renders five bounded cards, a finite next batch, and no private profile payload', async () => {
   const registry = new UserRegistry(':memory:');
-  const app = createApp(registry);
+  const app = createApp(registry, { loadTagLists: noTaggedChannels });
   try {
     const viewer = registry.createUser('viewer-list', 'Viewer List');
     publish(registry, viewer, crystal(
