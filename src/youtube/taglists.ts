@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type { YoutubeChannelSummary, YoutubeRange } from './types.js';
 
@@ -28,42 +29,102 @@ export type TagLists = Record<TagGroupKey, Set<string>>;
 
 const ALL_KEYS = [...CONTENT_KEYS, ...POLITICAL_KEYS] as TagGroupKey[];
 
-// The lists change rarely (channel curation), so a fetched copy is reused for
-// hours and kept as a stale fallback when the upstream API is unreachable —
-// the leanings page should not go down with analysis.tw.
-const TAG_LISTS_TTL_MS = 6 * 3600_000;
-let cached: { at: number; lists: TagLists } | null = null;
-let pending: Promise<TagLists> | null = null;
+export const TAG_POLICY = {
+  version: '2026-09-05',
+  url: 'https://github.com/skyhong2002/urtube.observe.tw/blob/main/docs/channel-tag-policy.md',
+  reportUrl: 'https://github.com/skyhong2002/urtube.observe.tw/issues/new',
+} as const;
 
-async function fetchList(query: string): Promise<Set<string>> {
+export interface TagListProvenance {
+  sourceUrl: string;
+  sourceUpdatedAt: string;
+  fetchedAt: string;
+  membershipVersion: string;
+  policyVersion: string;
+  policyUrl: string;
+  reportUrl: string;
+}
+
+export interface TagListSnapshot {
+  lists: TagLists;
+  provenance: TagListProvenance;
+}
+
+// A verified fetched copy can be reused briefly. Once it expires, failure to
+// refresh fails closed so an old political classification is never presented
+// as current.
+const TAG_LISTS_TTL_MS = 6 * 3600_000;
+let cached: { at: number; snapshot: TagListSnapshot } | null = null;
+let pending: Promise<TagListSnapshot> | null = null;
+
+function isSourceTime(value: unknown): value is string {
+  if (typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return false;
+  const iso = `${value.replace(' ', 'T')}Z`;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 19) === iso.slice(0, 19);
+}
+
+function isChannelRow(value: unknown): value is { youtube_id: string } {
+  return typeof value === 'object'
+    && value !== null
+    && 'youtube_id' in value
+    && typeof value.youtube_id === 'string'
+    && /^UC[A-Za-z0-9_-]{22}$/.test(value.youtube_id);
+}
+
+async function fetchList(query: string): Promise<{ ids: Set<string>; sourceUpdatedAt: string }> {
   const response = await fetch(`${config.tagListsUrl}?${query}`, {
     headers: { 'User-Agent': config.userAgent },
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`tag list ${query}: HTTP ${response.status}`);
-  const body = await response.json() as { result?: Array<{ youtube_id?: string }> };
-  if (!Array.isArray(body.result)) throw new Error(`tag list ${query}: unexpected payload`);
-  return new Set(body.result
-    .map((channel) => String(channel.youtube_id ?? ''))
-    .filter((id) => id.startsWith('UC')));
+  const body = await response.json() as { result?: unknown; time?: unknown };
+  if (!Array.isArray(body.result)
+    || !body.result.every(isChannelRow)
+    || !isSourceTime(body.time)) {
+    throw new Error(`tag list ${query}: unexpected payload`);
+  }
+  return {
+    ids: new Set(body.result.map((channel) => channel.youtube_id)),
+    sourceUpdatedAt: body.time,
+  };
 }
 
-export async function fetchTagLists(now = Date.now()): Promise<TagLists> {
-  if (cached && now - cached.at < TAG_LISTS_TTL_MS) return cached.lists;
+function membershipVersion(lists: TagLists): string {
+  const rows = ALL_KEYS.flatMap((key) =>
+    [...lists[key]].sort().map((channelId) => `${key}:${channelId}`));
+  return `sha256:${createHash('sha256').update(rows.join('\n')).digest('hex').slice(0, 12)}`;
+}
+
+export async function fetchTagLists(now = Date.now()): Promise<TagListSnapshot> {
+  if (cached && now - cached.at < TAG_LISTS_TTL_MS) return cached.snapshot;
   if (!pending) {
     pending = (async () => {
-      const sets = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUP_QUERIES[key])));
-      const lists = Object.fromEntries(ALL_KEYS.map((key, index) => [key, sets[index]])) as TagLists;
-      cached = { at: Date.now(), lists };
-      return lists;
+      const responses = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUP_QUERIES[key])));
+      const lists = Object.fromEntries(
+        ALL_KEYS.map((key, index) => [key, responses[index].ids]),
+      ) as TagLists;
+      const snapshot = {
+        lists,
+        provenance: {
+          sourceUrl: config.tagListsUrl,
+          sourceUpdatedAt: responses
+            .map((response) => response.sourceUpdatedAt)
+            .sort()
+            .at(-1)!,
+          fetchedAt: new Date(now).toISOString(),
+          membershipVersion: membershipVersion(lists),
+          policyVersion: TAG_POLICY.version,
+          policyUrl: TAG_POLICY.url,
+          reportUrl: TAG_POLICY.reportUrl,
+        },
+      };
+      cached = { at: now, snapshot };
+      return snapshot;
     })().finally(() => { pending = null; });
   }
-  try {
-    return await pending;
-  } catch (error) {
-    if (cached) return cached.lists; // stale beats down
-    throw error;
-  }
+  return pending;
 }
 
 export function resetTagListsCache(): void {
@@ -82,6 +143,7 @@ export interface TagLeanGroup {
 export interface TagLeanData {
   range: YoutubeRange;
   generatedAt: string;
+  provenance: TagListProvenance;
   totals: { watches: number; estimatedWatchSeconds: number; channels: number };
   matched: { watches: number; estimatedWatchSeconds: number; channels: number };
   content: TagLeanGroup[];
@@ -96,9 +158,10 @@ const TOP_CHANNELS_PER_GROUP = 5;
 export function computeTagLean(
   range: YoutubeRange,
   channels: YoutubeChannelSummary[],
-  lists: TagLists,
+  snapshot: TagListSnapshot,
   now = new Date(),
 ): TagLeanData {
+  const { lists } = snapshot;
   const totals = { watches: 0, estimatedWatchSeconds: 0, channels: channels.length };
   const matched = { watches: 0, estimatedWatchSeconds: 0, channels: 0 };
   for (const channel of channels) {
@@ -126,6 +189,7 @@ export function computeTagLean(
   return {
     range,
     generatedAt: now.toISOString(),
+    provenance: snapshot.provenance,
     totals,
     matched,
     content: CONTENT_KEYS.map(group),

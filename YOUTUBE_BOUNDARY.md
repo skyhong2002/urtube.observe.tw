@@ -110,6 +110,12 @@ considered successful when they match.
   dedicated `youtube_video_matching_topics` table. Personalized topic slugs
   never enter matching; sensitive YouTube categories are stored only as an
   excluded classification with no public topic key.
+- News/editorial/political channel labels are governed by
+  [the channel tag policy](docs/channel-tag-policy.md). They describe channels,
+  not viewers; each displayed result carries the policy version, source time,
+  and a membership hash. Unverifiable or expired source data produces no
+  classification. These labels never enter registry crystals, matching
+  scores, candidate cards, recommendations, or icebreakers.
 - Matching is a separate, default-off permission: `dashboard_public` never
   opts an account in. Candidate presentation is a server-side allowlist of at
   most two shared canonical topics and, only with mutual permission, one
