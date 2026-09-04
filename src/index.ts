@@ -31,6 +31,7 @@ import { tagLeanSection } from './output/taglean.js';
 import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
+import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import type { MatchingDisclosureLevel } from './youtube/disclosure.js';
@@ -248,9 +249,31 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (page === 'insights' && hasData) {
       try {
         const snapshot = await loadTagLists();
+        const tagLean = computeTagLean(
+          range,
+          repository.youtubeChannelTotals(range),
+          snapshot,
+        );
+        const contributions = registry.listReferencePopulationUsers().flatMap((contributor) => {
+          const contributorRepository = registry.repositoryFor(contributor);
+          const dataUpdatedAt = contributorRepository.youtubeReferenceDataUpdatedAt();
+          if (!dataUpdatedAt) return [];
+          return [{
+            subjectId: contributor.id,
+            dataUpdatedAt,
+            data: contributor.id === user.id
+              ? tagLean
+              : computeTagLean(
+                range,
+                contributorRepository.youtubeChannelTotals(range),
+                snapshot,
+              ),
+          }];
+        });
         leaningsHtml = tagLeanSection(
-          computeTagLean(range, repository.youtubeChannelTotals(range), snapshot),
+          tagLean,
           lang,
+          buildReferencePopulation(tagLean, contributions),
         );
       } catch (error) {
         console.warn('channel classifications unavailable:',
@@ -724,6 +747,14 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         error: error instanceof Error ? error.message : String(error),
       }), langOf(c)), 400);
     }
+  });
+
+  app.post('/account/reference-population', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const form = await c.req.parseBody();
+    registry.setReferenceOptIn(me.handle, form.referenceOptIn === '1');
+    return c.redirect('/account');
   });
 
   app.post('/account/match-profile', async (c) => {

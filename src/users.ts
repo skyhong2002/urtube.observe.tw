@@ -39,6 +39,7 @@ export interface User {
   handle: string;
   displayName: string;
   dashboardPublic: boolean;
+  referenceOptIn: boolean;
   matchingOptIn: boolean;
   matchingDisclosure: MatchingDisclosureLevel;
   matchingIntroduction: string;
@@ -99,6 +100,7 @@ export interface PortableAccountData {
     googleAccountId: string | null;
     googleEmail: string | null;
     dashboardPublic: boolean;
+    referenceOptIn: boolean;
     createdAt: string;
     onboardingCompletedAt: string | null;
   };
@@ -170,6 +172,7 @@ function rowToUser(row: Record<string, unknown>): User {
     handle: String(row.handle),
     displayName: String(row.display_name),
     dashboardPublic: Number(row.dashboard_public) === 1,
+    referenceOptIn: Number(row.reference_opt_in) === 1,
     matchingOptIn: Number(row.matching_opt_in) === 1,
     matchingDisclosure: row.matching_disclosure as MatchingDisclosureLevel,
     matchingIntroduction: String(row.matching_introduction ?? ''),
@@ -202,6 +205,8 @@ export class UserRegistry {
         capture_token_hash TEXT NOT NULL UNIQUE,
         dashboard_token_hash TEXT NOT NULL UNIQUE,
         dashboard_public INTEGER NOT NULL DEFAULT 0,
+        reference_opt_in INTEGER NOT NULL DEFAULT 0
+          CHECK (reference_opt_in IN (0, 1)),
         matching_opt_in INTEGER NOT NULL DEFAULT 0
           CHECK (matching_opt_in IN (0, 1)),
         matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
@@ -231,6 +236,10 @@ export class UserRegistry {
     if (!columns.some((column) => column.name === 'matching_opt_in')) {
       this.db.exec(`ALTER TABLE users ADD COLUMN matching_opt_in INTEGER NOT NULL DEFAULT 0
         CHECK (matching_opt_in IN (0, 1))`);
+    }
+    if (!columns.some((column) => column.name === 'reference_opt_in')) {
+      this.db.exec(`ALTER TABLE users ADD COLUMN reference_opt_in INTEGER NOT NULL DEFAULT 0
+        CHECK (reference_opt_in IN (0, 1))`);
     }
     if (!columns.some((column) => column.name === 'matching_disclosure')) {
       this.db.exec(`ALTER TABLE users ADD COLUMN matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
@@ -425,6 +434,20 @@ export class UserRegistry {
   listUsers(): User[] {
     const rows = this.db.prepare('SELECT * FROM users ORDER BY id').all() as Array<Record<string, unknown>>;
     return rows.map(rowToUser);
+  }
+
+  listReferencePopulationUsers(): User[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM users WHERE reference_opt_in=1 ORDER BY id
+    `).all() as Array<Record<string, unknown>>;
+    return rows.map(rowToUser);
+  }
+
+  setReferenceOptIn(handle: string, optedIn: boolean): User {
+    const result = this.db.prepare('UPDATE users SET reference_opt_in=? WHERE handle=?')
+      .run(optedIn ? 1 : 0, handle);
+    if (result.changes !== 1) throw new Error(`Unknown user: ${handle}`);
+    return this.userByHandle(handle)!;
   }
 
   setMatchingOptIn(handle: string, optedIn: boolean): void {
@@ -839,6 +862,7 @@ export class UserRegistry {
         googleAccountId: current.googleSub,
         googleEmail: current.googleEmail,
         dashboardPublic: current.dashboardPublic,
+        referenceOptIn: current.referenceOptIn,
         createdAt: current.createdAt,
         onboardingCompletedAt: current.onboardingCompletedAt,
       },

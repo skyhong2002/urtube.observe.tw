@@ -82,6 +82,13 @@ JSON, a schema and field manifest, decrypted owner search terms, metadata,
 topics, aggregates, and sanitized matching records. Credentials, action tokens,
 and other users' private profile or contact details are excluded.
 
+Anonymous reference comparisons use a separate account opt-in. They compare
+only the governed channel-category percentages described in
+[`docs/reference-population.md`](docs/reference-population.md). Every person
+has equal weight, and an axis stays hidden until at least five consenting
+accounts have comparable data. The result shows rounded group statistics,
+never identities, histories, matching data, or a claim about society.
+
 ## Run
 
 ```sh
