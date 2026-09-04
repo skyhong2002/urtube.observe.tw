@@ -13,7 +13,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.8.0');
+  assert.equal(manifest.version, '1.9.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -365,7 +365,7 @@ test('history import waits for content, ends on a real signal, and reports how i
   assert.doesNotMatch(source, /1_200/);
   assert.doesNotMatch(source, /idlePasses/);
   // Every exit, including failures, tells the server how the scan ended.
-  assert.match(source, /sendProgressBatch\(scanId, observedAt, \[\], true, summary\(\)\)/);
+  assert.match(source, /sendProgressBatch\(scanId, observedAt, \[\], true, completed\)/);
   assert.match(source, /endReason = 'error'/);
   assert.match(source, /endReason: result\.endReason/);
   assert.doesNotMatch(source, /urtubeYoutubeHistory\.collectProgress\(\)/);
@@ -397,6 +397,28 @@ test('history helper distinguishes a stalled continuation from the verified hist
   assert.equal(helper.historyCompletionReason({ querySelector: () => null }), 'history-start');
 });
 
+test('history helper recognizes signed-out and paused-history empty states', () => {
+  const helper = globalThis.urtubeYoutubeHistory;
+  assert.equal(helper.historyPageProblem({ body: { textContent: 'Watch history is off' } }), 'history-paused');
+  assert.equal(helper.historyPageProblem({ body: { textContent: '觀看紀錄已暫停' } }), 'history-paused');
+  assert.equal(helper.historyPageProblem({ body: { textContent: 'Sign in to see your watch history' } }), 'signed-out');
+  assert.equal(helper.historyPageProblem({ body: { textContent: '載入中' } }), null);
+});
+
+test('every content-script scan result carries an actionable diagnosis and landed URL', () => {
+  const content = readFileSync(new URL('../chrome-extension/content.js', import.meta.url), 'utf8');
+  const background = readFileSync(new URL('../chrome-extension/background.js', import.meta.url), 'utf8');
+  const popup = readFileSync(new URL('../chrome-extension/popup.js', import.meta.url), 'utf8');
+  assert.match(content, /historyPageProblem\(document\)/);
+  assert.match(content, /historyLandedUrl\(location\)/);
+  assert.match(content, /historyScanDiagnostic\(endReason\)/);
+  assert.match(content, /error: result\.error/);
+  assert.match(content, /landedUrl: result\.landedUrl/);
+  assert.match(background, /historyScanFailed\(message\.endReason\)/);
+  assert.match(background, /lastError: diagnosis/);
+  assert.match(popup, /historyResult\(history\.endReason/);
+});
+
 test('first sync reads the whole history page; later syncs stop at server coverage', () => {
   const background = readFileSync(
     new URL('../chrome-extension/background.js', import.meta.url),
@@ -412,7 +434,7 @@ test('first sync reads the whole history page; later syncs stop at server covera
   assert.match(background, /reportScanEnd\(status, 'no-receiver', \{ error, landedUrl \}\)/);
   assert.match(background, /reportScanEnd\(status, 'cancelled'\)/);
   // A foreground read that saw no video keeps its tab open as the diagnosis.
-  assert.match(background, /if \(!\(active && message\.endReason === 'no-content'\)\) void closeHistoryImportTab\(tabId\)/);
+  assert.match(background, /if \(!\(active && failed\)\) void closeHistoryImportTab\(tabId\)/);
 });
 
 test('history import compacts old sections without collapsing scroll geometry', () => {

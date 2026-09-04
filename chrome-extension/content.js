@@ -270,8 +270,8 @@
       endReason,
       oldestWatchedAt: globalThis.urtubeYoutubeHistory.dayTimestamp(bounds.oldest),
       newestWatchedAt: globalThis.urtubeYoutubeHistory.dayTimestamp(bounds.newest),
-      error: null,
-      landedUrl: null,
+      error: globalThis.urtubeYoutubeHistory.historyScanDiagnostic(endReason),
+      landedUrl: globalThis.urtubeYoutubeHistory.historyLandedUrl(location),
     });
     try {
       for (;;) {
@@ -306,7 +306,11 @@
         const now = Date.now();
         if (roots.length || changed.length) lastContentAt = now;
         if (lastContentAt === null) {
-          if (now - startedAt >= HISTORY_CONTENT_WAIT_MS) {
+          const pageProblem = globalThis.urtubeYoutubeHistory.historyPageProblem(document);
+          if (pageProblem) {
+            endReason = pageProblem;
+            break;
+          } else if (now - startedAt >= HISTORY_CONTENT_WAIT_MS) {
             endReason = 'no-content';
             break;
           }
@@ -337,8 +341,14 @@
     } finally {
       historyObserver.disconnect();
     }
-    await sendProgressBatch(scanId, observedAt, [], true, summary());
-    return { videos: sent.size, endReason };
+    const completed = summary();
+    await sendProgressBatch(scanId, observedAt, [], true, completed);
+    return {
+      videos: sent.size,
+      endReason,
+      error: completed.error,
+      landedUrl: completed.landedUrl,
+    };
   }
 
   function handleNavigation() {
@@ -368,6 +378,8 @@
           scanId: message.scanId,
           videos: result.videos,
           endReason: result.endReason,
+          error: result.error,
+          landedUrl: result.landedUrl,
         }))
         .catch((error) => chrome.runtime.sendMessage({
           type: 'history-import-error',
