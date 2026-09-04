@@ -16,6 +16,7 @@ export interface PersonalTaxonomyAuditRun {
 
 export interface PersonalTaxonomyAuditData {
   readiness: PersonalTaxonomyReadiness;
+  canPrepare: boolean;
   runs: PersonalTaxonomyAuditRun[];
   activations: Array<{
     fromVersion: number | null;
@@ -107,19 +108,29 @@ export function personalTaxonomyAuditPage(
     eyebrow: 'OWNER ONLY', title: '個人主題審核',
     intro: '這裡只供本人檢查分類版本。公開洞察只顯示廣義主題與覆蓋率。',
     readiness: 'Metadata 準備度', available: '可分類影片', history: '啟用紀錄',
-    noRuns: '尚無分類版本。Worker 會在 metadata 達標後建立候選版本。',
+    noRuns: '尚無分類版本。Metadata 達標後可建立候選版本。',
+    prepare: '建立 governed v2 候選版本',
+    prepareConfirm: '我了解這會在背景對我的公開影片 metadata 執行有界 AI 分類',
     noHistory: '尚無啟用或 rollback 紀錄', back: '返回帳號', account: '帳號', dashboard: 'Dashboard',
   } : {
     eyebrow: 'OWNER ONLY', title: 'Personal topic review',
     intro: 'Only you can inspect versions here. Public insights show broad topics and coverage only.',
     readiness: 'Metadata readiness', available: 'Classifiable videos', history: 'Activation history',
-    noRuns: 'No taxonomy run yet. The worker creates a candidate after metadata is ready.',
+    noRuns: 'No taxonomy run yet. A candidate can be prepared after metadata is ready.',
+    prepare: 'Prepare a governed v2 candidate',
+    prepareConfirm: 'I understand this starts bounded background AI classification of my public video metadata',
     noHistory: 'No activation or rollback yet', back: 'Back to account', account: 'Account', dashboard: 'Dashboard',
   };
   const history = data.activations.map((item) => `<li><strong>${html(item.action)}</strong><span>${item.fromVersion === null ? '—' : `v${item.fromVersion}`} → v${item.toVersion} · ${html(item.changedAt)}</span></li>`).join('');
+  const prepare = data.canPrepare && data.readiness.ready
+    ? `<form method="post" action="/account/taxonomy/prepare" class="tx-action tx-prepare">
+        <label><input type="checkbox" name="confirmed" value="1" required> ${copy.prepareConfirm}</label>
+        <button type="submit">${copy.prepare}</button>
+      </form>` : '';
   const body = `<style>${styles}</style><section class="tx-intro"><div class="eyebrow">${copy.eyebrow}</div><h1>${copy.title}</h1><p>${copy.intro}</p><a href="/account">← ${copy.back}</a></section>
     ${error ? `<div class="tx-error" role="alert">${html(error)}</div>` : ''}
     <section class="section tx-readiness"><div class="section-head"><h2>${copy.readiness}</h2><span>${data.readiness.reason}</span></div><strong>${percent(data.readiness.metadataCoverage)}</strong><span>${copy.available} ${data.readiness.availableVideos} / ${data.readiness.totalVideos}</span></section>
+    ${prepare}
     ${data.runs.length ? data.runs.map((entry) => runCard(entry, lang)).join('') : `<section class="section"><p class="muted">${copy.noRuns}</p></section>`}
     <section class="section"><div class="section-head"><h2>${copy.history}</h2></div>${history ? `<ul class="tx-history">${history}</ul>` : `<p class="muted">${copy.noHistory}</p>`}</section>`;
   return shell(copy.title, body, [

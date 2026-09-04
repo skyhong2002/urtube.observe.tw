@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { Repository } from '../src/data/database.js';
 import { personalTaxonomyAuditPage } from '../src/output/taxonomy-audit.js';
+import { ensureYoutubeTaxonomyWithClient, type YoutubeAiClient } from '../src/youtube/ai.js';
 import {
   PERSONAL_TAXONOMY_CONFIDENCE_MIN,
   PERSONAL_TAXONOMY_DEFINITION_VERSION,
@@ -216,6 +217,118 @@ test('candidate assignments survive a worker restart without creating another ru
   }
 });
 
+test('a migrated v1 archive needs an explicit v2 candidate start', async () => {
+  const repository = new Repository(':memory:');
+  try {
+    seedWatchedVideos(repository);
+    repository.replaceYoutubeTaxonomy([{
+      version: 1, slug: 'legacy', name: 'Legacy', description: 'Legacy personal taxonomy',
+    }]);
+    const client: YoutubeAiClient = {
+      baseUrl: 'https://ai.example.test/v1',
+      apiKey: 'fixture-key',
+      model: 'fixture-model',
+      fetchImpl: (async () => { throw new Error('fixed taxonomy creation must not call AI'); }) as typeof fetch,
+    };
+
+    const unchanged = await ensureYoutubeTaxonomyWithClient(repository, false, client);
+    assert.equal(unchanged[0]?.slug, 'legacy');
+    assert.equal(repository.youtubeTaxonomyRuns().length, 1);
+
+    const candidateTopics = await ensureYoutubeTaxonomyWithClient(repository, true, client);
+    assert.equal(candidateTopics.length, PERSONAL_TOPICS.length);
+    assert.equal(repository.youtubeTaxonomyRuns().find((run) =>
+      run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION)?.status, 'candidate');
+  } finally {
+    repository.close();
+  }
+});
+
+test('activation reopens a ready candidate when metadata changed after review', () => {
+  const repository = new Repository(':memory:');
+  try {
+    const videos = seedWatchedVideos(repository);
+    repository.replaceYoutubeTaxonomy([{
+      version: 1, slug: 'legacy', name: 'Legacy', description: 'Rollback baseline',
+    }]);
+    const run = repository.createPersonalTaxonomyRun({
+      definitionVersion: PERSONAL_TAXONOMY_DEFINITION_VERSION,
+      model: 'fixture-model',
+      promptVersion: PERSONAL_TAXONOMY_PROMPT_VERSION,
+      topics: PERSONAL_TOPICS.map(({ slug, name, description }) => ({ slug, name, description })),
+      sample: samplePersonalTaxonomy(repository.youtubePersonalTaxonomyCandidates()),
+    });
+    for (const video of videos) {
+      repository.savePersonalYoutubeVideoTopic(run, video, decidePersonalClassification(video, {
+        slug: 'technology', confidence: 0.9, alternativeSlug: null,
+        alternativeConfidence: null,
+        evidence: [{ text: 'Software lesson', source: 'title', score: 0.9 }],
+      }));
+    }
+    assert.equal(repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion).status, 'ready');
+
+    repository.upsertYoutubeVideoMetadata(videos.slice(0, 2).map((video, index) => ({
+      ...video,
+      description: `Changed public metadata ${index}`,
+      metadataHash: `changed-${index}`,
+    })));
+    assert.throws(
+      () => repository.activatePersonalTaxonomy(run.taxonomyVersion),
+      /has not passed activation gates/,
+    );
+    assert.equal(repository.youtubeTaxonomyRun(run.taxonomyVersion)?.status, 'candidate');
+    assert.equal(repository.youtubeVideosForPersonalClassification(
+      repository.youtubeTaxonomyRun(run.taxonomyVersion)!, 100,
+    ).length, 2);
+    assert.equal(repository.youtubeTaxonomyRuns().find((item) => item.status === 'active')?.taxonomyVersion, 1);
+  } finally {
+    repository.close();
+  }
+});
+
+test('low-confidence and Unknown assignments stay out of personal crystal topics', () => {
+  const repository = new Repository(':memory:');
+  try {
+    const videos = seedWatchedVideos(repository);
+    repository.replaceYoutubeTaxonomy([{
+      version: 1, slug: 'legacy', name: 'Legacy', description: 'Rollback baseline',
+    }]);
+    const run = repository.createPersonalTaxonomyRun({
+      definitionVersion: PERSONAL_TAXONOMY_DEFINITION_VERSION,
+      model: 'fixture-model',
+      promptVersion: PERSONAL_TAXONOMY_PROMPT_VERSION,
+      topics: PERSONAL_TOPICS.map(({ slug, name, description }) => ({ slug, name, description })),
+      sample: samplePersonalTaxonomy(repository.youtubePersonalTaxonomyCandidates()),
+    });
+    for (const [index, video] of videos.entries()) {
+      repository.savePersonalYoutubeVideoTopic(run, video, index < 22
+        ? decidePersonalClassification(video, {
+            slug: 'technology', confidence: 0.9, alternativeSlug: null,
+            alternativeConfidence: null,
+            evidence: [{ text: 'Software lesson', source: 'title', score: 0.9 }],
+          })
+        : decidePersonalClassification(video, {
+            slug: 'technology', confidence: 0.4, alternativeSlug: null,
+            alternativeConfidence: null,
+            evidence: [{ text: 'Software lesson', source: 'title', score: 0.8 }],
+          }));
+    }
+    assert.equal(repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion).status, 'ready');
+    repository.activatePersonalTaxonomy(run.taxonomyVersion);
+
+    const window = repository.youtubeCrystalWindow(null, null);
+    assert.deepEqual(window.topics.map(({ slug, watches }) => ({ slug, watches })), [
+      { slug: 'technology', watches: 22 },
+    ]);
+    const stats = repository.youtubeDashboard('all').stats;
+    assert.equal(stats.topicProcessedCoverage, 1);
+    assert.equal(stats.topicCoverage, 22 / 24);
+    assert.equal(stats.topicUnknownCoverage, 2 / 24);
+  } finally {
+    repository.close();
+  }
+});
+
 test('migration 11 keeps the newest legacy taxonomy active for rollback', () => {
   const directory = mkdtempSync(join(tmpdir(), 'urtube-taxonomy-migration-'));
   const databasePath = join(directory, 'archive.sqlite');
@@ -276,6 +389,7 @@ test('owner audit stays bounded and requires explicit review before activation',
   };
   const output = personalTaxonomyAuditPage({
     readiness,
+    canPrepare: false,
     runs: [{
       run,
       distribution: {
@@ -297,4 +411,16 @@ test('owner audit stays bounded and requires explicit review before activation',
   assert.match(output, /Sample evidence/);
   assert.match(output, /title 90% · “Software lesson”/);
   assert.doesNotMatch(output, /actualWatchedSeconds|queryCiphertext/);
+});
+
+test('owner audit offers an explicit candidate start only when allowed', () => {
+  const output = personalTaxonomyAuditPage({
+    readiness: personalTaxonomyReadiness(24, 24, 24),
+    canPrepare: true,
+    runs: [],
+    activations: [],
+  }, 'en');
+  assert.match(output, /action="\/account\/taxonomy\/prepare"/);
+  assert.match(output, /name="confirmed" value="1" required/);
+  assert.match(output, /bounded background AI classification/);
 });

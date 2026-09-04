@@ -107,6 +107,15 @@ export async function ensureYoutubeTaxonomyWithClient(
     PERSONAL_TAXONOMY_PROMPT_VERSION,
   );
   if (existing && !rebuild) return repository.youtubeTopics(existing.taxonomyVersion);
+  // Migrated archives keep their generated v1 active until their owner
+  // explicitly starts a governed candidate. Otherwise the first worker cycle
+  // after migration 11 would silently enqueue every large archive for a full
+  // AI rebuild. New archives, and an intentional model/prompt change after v2
+  // is active, can still start automatically once readiness passes.
+  const active = repository.youtubeTaxonomyRuns().find((run) => run.status === 'active');
+  if (!rebuild && active && active.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION) {
+    return repository.youtubeTopics(active.taxonomyVersion);
+  }
   const readiness = repository.youtubePersonalTaxonomyReadiness();
   if (!readiness.ready) return repository.youtubeTopics();
   const candidates = repository.youtubePersonalTaxonomyCandidates();

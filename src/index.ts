@@ -19,6 +19,7 @@ import {
 } from './output/onboarding.js';
 import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
+import { ensureYoutubeTaxonomy } from './youtube/ai.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
 import { processingNotice } from './output/processing.js';
@@ -591,9 +592,13 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   const taxonomyAuditFor = (user: User) => {
     const repository = registry.repositoryFor(user);
+    const runs = repository.youtubeTaxonomyRuns();
     return {
       readiness: repository.youtubePersonalTaxonomyReadiness(),
-      runs: repository.youtubeTaxonomyRuns().map((run) => ({
+      canPrepare: !runs.some((run) =>
+        run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
+        && ['candidate', 'ready', 'active'].includes(run.status)),
+      runs: runs.map((run) => ({
         run,
         distribution: repository.youtubePersonalTaxonomyDistribution(run.taxonomyVersion),
         evidence: run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
@@ -609,6 +614,44 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
     return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), langOf(c)));
+  });
+
+  app.post('/account/taxonomy/prepare', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/signup');
+    const lang = langOf(c);
+    const form = await c.req.parseBody();
+    const renderError = (message: string, status: 400 | 503 = 400) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('X-Robots-Tag', 'noindex');
+      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message), status);
+    };
+    if (form.confirmed !== '1') {
+      return renderError(lang === 'zh' ? '必須先確認建立候選版本' : 'Candidate confirmation is required');
+    }
+    const repository = registry.repositoryFor(me);
+    const before = repository.youtubeTaxonomyRuns();
+    if (before.some((run) => run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
+      && ['candidate', 'ready', 'active'].includes(run.status))) {
+      return renderError(lang === 'zh' ? '已有進行中或可用的 v2 版本' : 'A current v2 run already exists');
+    }
+    try {
+      const previousVersions = new Set(before.map((run) => run.taxonomyVersion));
+      await ensureYoutubeTaxonomy(repository, true);
+      const created = repository.youtubeTaxonomyRuns().find((run) =>
+        !previousVersions.has(run.taxonomyVersion)
+        && run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION);
+      if (!created) {
+        const readiness = repository.youtubePersonalTaxonomyReadiness();
+        return renderError(readiness.ready
+          ? (lang === 'zh' ? '此部署未啟用 AI 分類' : 'AI classification is not enabled on this deployment')
+          : (lang === 'zh' ? 'Metadata 尚未達到建立候選版本的門檻' : 'Metadata is not ready for a candidate yet'), 503);
+      }
+      evictUserCaches(me.handle);
+      return c.redirect('/account/taxonomy');
+    } catch (caught) {
+      return renderError(caught instanceof Error ? caught.message : 'Candidate creation failed');
+    }
   });
 
   app.post('/account/taxonomy/:version/activate', async (c) => {

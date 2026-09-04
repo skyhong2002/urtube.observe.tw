@@ -5,8 +5,10 @@ matching taxonomy.
 
 ## How it works
 
-- The worker waits for at least 98% metadata coverage and 24 available watched
-  videos.
+- New archives wait for at least 98% metadata coverage and 24 available watched
+  videos. Migrated v1 archives remain on v1 until their signed-in owner starts
+  a v2 candidate from `/account/taxonomy`; deployment never silently launches a
+  full legacy-archive rebuild.
 - A deterministic sample spans months and watch frequency. One channel may
   supply at most 5% of the 480-video sample.
 - The upper structure is fixed at 12 broad subjects plus `Other` and `Unknown`.
@@ -32,6 +34,9 @@ Database migration 11 adds run records, evidence, decision fields, and an
 activation ledger. Existing taxonomy versions become `personal-generated-v1`.
 The newest v1 stays active, so deploy rollback does not require data rollback.
 Restarting the worker resumes the open candidate from stored assignments.
+Each worker pass remains batch-limited. A candidate that became ready is
+rechecked under the activation transaction, so later imports or metadata
+changes reopen catch-up instead of activating stale quality results.
 
 Public Insights shows processed, effective, and Unknown coverage. Topic ranking
 stays hidden below 80% effective coverage. Trend charts follow the selected

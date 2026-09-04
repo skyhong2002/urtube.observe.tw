@@ -2106,7 +2106,7 @@ export class Repository {
         AND vt.metadata_hash=topic_video.metadata_hash
       JOIN youtube_topics t ON t.id=vt.topic_id
         AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
-      ${where}
+      ${where} AND vt.decision='accepted' AND t.slug<>'unknown'
       GROUP BY t.id ORDER BY estimated_watch_seconds DESC, watches DESC, t.name
     `).all(...params) as Array<Record<string, string | number>>;
     const eligibleKeywordVideos = Number(totals.unique_videos ?? 0);
@@ -2716,10 +2716,11 @@ export class Repository {
       ambiguous: Number(totals.ambiguous),
       acceptedConfidenceTotal: Number(totals.accepted_confidence_total),
     });
-    const status = run.status !== 'candidate' ? run.status
-      : quality.passed && quality.processedCoverage >= PERSONAL_TAXONOMY_RUN_COVERAGE_MIN
+    const status = ['candidate', 'ready', 'blocked'].includes(run.status)
+      ? quality.passed && quality.processedCoverage >= PERSONAL_TAXONOMY_RUN_COVERAGE_MIN
         ? 'ready'
-        : quality.processedCoverage >= 1 ? 'blocked' : 'candidate';
+        : quality.processedCoverage >= 1 ? 'blocked' : 'candidate'
+      : run.status;
     this.db.prepare(`
       UPDATE youtube_taxonomy_runs
       SET status=?, input_videos=?, data_start_at=?, data_end_at=?, quality_json=?
@@ -2739,19 +2740,28 @@ export class Repository {
     taxonomyVersion: number,
     reviewedAt = new Date().toISOString(),
   ): PersonalTaxonomyRun {
+    let gateError: Error | null = null;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const row = this.db.prepare(`
         SELECT * FROM youtube_taxonomy_runs WHERE taxonomy_version=?
       `).get(taxonomyVersion) as Record<string, unknown> | undefined;
       if (!row) throw new Error('Unknown personal taxonomy run');
-      const target = personalTaxonomyRunRow(row);
+      let target = personalTaxonomyRunRow(row);
+      // Re-evaluate a candidate under the same write lock as activation. A
+      // fresh import or metadata change after the review page was rendered
+      // must reopen classification instead of activating stale quality data.
+      if (target.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
+        && ['candidate', 'ready', 'blocked'].includes(target.status)) {
+        target = this.refreshPersonalTaxonomyRunQuality(taxonomyVersion);
+      }
       const readyCandidate = target.status === 'ready' && target.quality?.passed === true;
       const priorActive = target.status === 'retired' && target.activatedAt !== null;
       if (!readyCandidate && !priorActive && target.status !== 'active') {
-        throw new Error('Personal taxonomy run has not passed activation gates');
-      }
-      if (target.status !== 'active') {
+        // Keep the refreshed candidate status/quality: the worker must see a
+        // reopened candidate and fill its stale assignments on the next pass.
+        gateError = new Error('Personal taxonomy run has not passed activation gates');
+      } else if (target.status !== 'active') {
         const current = this.db.prepare(`
           SELECT taxonomy_version FROM youtube_taxonomy_runs WHERE status='active'
         `).get() as { taxonomy_version: number } | undefined;
@@ -2772,11 +2782,12 @@ export class Repository {
         );
       }
       this.db.exec('COMMIT');
-      return this.youtubeTaxonomyRun(taxonomyVersion)!;
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
+    if (gateError) throw gateError;
+    return this.youtubeTaxonomyRun(taxonomyVersion)!;
   }
 
   youtubeTaxonomyActivations(): Array<{
