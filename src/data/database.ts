@@ -26,6 +26,7 @@ import type {
   YoutubeVideoMetadata,
 } from '../youtube/types.js';
 import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
+import type { YoutubeProcessingCounts } from '../youtube/processing.js';
 import { extractYoutubeKeywords } from '../youtube/keywords.js';
 import { progressSeconds } from '../youtube/progress.js';
 
@@ -1074,6 +1075,42 @@ export class Repository {
       searches: Number(row.searches),
       searchQueries: Number(row.search_queries),
       channels: Number(row.channels),
+    };
+  }
+
+  // What the worker still owes this archive. Cheap COUNTs over the same
+  // predicates the enrichment steps use, so "pending" here is exactly what
+  // the next cycles will pick up.
+  youtubeProcessingCounts(): YoutubeProcessingCounts {
+    const row = this.db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM youtube_videos) videos,
+        (SELECT COUNT(*) FROM youtube_videos WHERE metadata_fetched_at IS NULL) videos_pending_metadata,
+        (SELECT COUNT(DISTINCT v.channel_id)
+           FROM youtube_videos v
+           LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
+           WHERE v.channel_id IS NOT NULL AND c.metadata_fetched_at IS NULL) channels_pending_metadata,
+        (SELECT COUNT(*) FROM youtube_videos
+           WHERE metadata_fetched_at IS NOT NULL AND availability='available') videos_classifiable,
+        (SELECT COUNT(*) FROM youtube_videos v
+           WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
+             AND NOT EXISTS (
+               SELECT 1 FROM youtube_video_topics vt
+               JOIN youtube_topics t ON t.id=vt.topic_id
+               WHERE vt.video_id=v.video_id AND vt.metadata_hash=v.metadata_hash
+                 AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+             )) videos_pending_topics,
+        (SELECT MAX(imported_at) FROM youtube_watch_events) last_import_at
+    `).get() as Record<string, unknown>;
+    return {
+      videos: Number(row.videos),
+      videosPendingMetadata: Number(row.videos_pending_metadata),
+      channelsPendingMetadata: Number(row.channels_pending_metadata),
+      videosClassifiable: Number(row.videos_classifiable),
+      videosPendingTopics: Number(row.videos_pending_topics),
+      lastImportAt: row.last_import_at === null ? null : String(row.last_import_at),
+      lastCycleAt: this.youtubeSyncState('worker_cycle_at'),
+      lastError: this.youtubeSyncState('last_error'),
     };
   }
 

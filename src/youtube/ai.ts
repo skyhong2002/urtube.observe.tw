@@ -27,6 +27,12 @@ function configured(client: YoutubeAiClient): boolean {
   );
 }
 
+// Whether this deployment will ever classify videos: the processing status
+// must not promise topics that no worker is configured to produce.
+export function youtubeClassificationConfigured(): boolean {
+  return configured(defaultClient());
+}
+
 function parseJson(content: string): unknown {
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   return JSON.parse(cleaned);

@@ -6,6 +6,7 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { config } from './config.js';
+import type { Repository } from './data/database.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
@@ -15,6 +16,12 @@ import {
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
+import { processingNotice } from './output/processing.js';
+import {
+  describeYoutubeProcessing,
+  youtubeProcessingCapabilities,
+  type YoutubeProcessingStatus,
+} from './youtube/processing.js';
 import { tagLeanSection } from './output/taglean.js';
 import { readOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
@@ -61,8 +68,18 @@ const crystalCache = new Map<string, { key: string; at: number; crystal: Youtube
 // handles) proportional to traffic, not to total signups.
 const warmedHandles = new Set<string>();
 
-function validityFor(counts: { watches: number; searches: number; videos: number; channels: number }): string {
-  return `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}`;
+// Pending enrichment rides along in the key: the worker changes estimates
+// and topics without adding rows, and readers should see that promptly
+// rather than after the TTL.
+function validityFor(
+  counts: { watches: number; searches: number; videos: number; channels: number },
+  processing: { pending: number },
+): string {
+  return `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}:${processing.pending}`;
+}
+
+function processingFor(repository: Repository): YoutubeProcessingStatus {
+  return describeYoutubeProcessing(repository.youtubeProcessingCounts(), youtubeProcessingCapabilities());
 }
 
 function evictUserCaches(handle: string): void {
@@ -75,7 +92,7 @@ function evictUserCaches(handle: string): void {
 // crystal.json, /compare, the warm sweep): entries are keyed on the table
 // counts with a shared TTL. Callers that already computed counts pass them
 // in so a request never runs the COUNT aggregates twice.
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts())): YoutubeDashboardData {
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeDashboardData {
   const now = Date.now();
   const id = `${user.handle}:${range}`;
   let entry = dashboardCache.get(id);
@@ -86,7 +103,7 @@ function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRa
   return entry.data;
 }
 
-function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts())): YoutubeCrystal {
+function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeCrystal {
   const now = Date.now();
   let entry = crystalCache.get(user.handle);
   if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
@@ -166,7 +183,8 @@ export function createApp(registry: UserRegistry): Hono {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
     const counts = repository.youtubeCounts();
-    const validity = validityFor(counts);
+    const processing = processingFor(repository);
+    const validity = validityFor(counts, processing);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
     const shortFormVariant = requestedShortForm === 'stacked'
@@ -221,6 +239,9 @@ export function createApp(registry: UserRegistry): Hono {
         langToggle(c, lang),
       ],
       setupHtml: showSetup ? dashboardSetupSection(user, hasData, lang) : '',
+      // Every visitor, not just the owner: a public reader deserves to know
+      // the figures are still settling.
+      processingHtml: hasData ? processingNotice(processing, lang) : '',
       insightsHtml: crystalHtml + leaningsHtml,
       history,
       showRecent,
@@ -436,7 +457,10 @@ export function createApp(registry: UserRegistry): Hono {
   app.get('/account', (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
-    return c.html(accountPage(me, { extensionVersion: extensionVersion() }, langOf(c)));
+    return c.html(accountPage(me, {
+      extensionVersion: extensionVersion(),
+      processing: processingFor(registry.repositoryFor(me)),
+    }, langOf(c)));
   });
 
   // Token recovery: rotating invalidates both old tokens and shows the new
@@ -513,12 +537,14 @@ export function createApp(registry: UserRegistry): Hono {
       if (!dataKey) return renderError(t.accountTakeoutUnavailable);
       const archive = new Uint8Array(await upload.arrayBuffer());
       const parsed = parseYoutubeArchive(archive, dataKey, 'takeout');
-      const result = registry.repositoryFor(me).ingestYoutubeArchive(parsed);
+      const repository = registry.repositoryFor(me);
+      const result = repository.ingestYoutubeArchive(parsed);
       evictUserCaches(me.handle);
       c.header('Cache-Control', 'no-store');
       return c.html(accountPage(me, {
         takeoutResult: result,
         extensionVersion: extensionVersion(),
+        processing: processingFor(repository),
       }, lang));
     } catch (error) {
       return renderError(error instanceof Error ? error.message : String(error));
@@ -840,7 +866,7 @@ function warmDashboards(registry: UserRegistry): void {
       const repository = registry.repositoryFor(user);
       const counts = repository.youtubeCounts();
       if (counts.watches === 0) continue;
-      const validity = validityFor(counts);
+      const validity = validityFor(counts, processingFor(repository));
       for (const range of YOUTUBE_RANGES) {
         cachedDashboardFor(registry, user, range, repository, validity);
       }
