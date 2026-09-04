@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { zipSync, strToU8 } from 'fflate';
+import { config } from '../src/config.js';
 import { Repository } from '../src/data/database.js';
 import { createApp } from '../src/index.js';
 import { UserRegistry } from '../src/users.js';
@@ -13,6 +14,26 @@ import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 
 const SECRET = process.env.YOUTUBE_PRIVATE_DATA_KEY!;
 const PLAINTEXT_QUERY = 'extremely private search term';
+
+test('default owner bootstrap is silent, idempotent, and keeps legacy capture auth', () => {
+  const registry = new UserRegistry(':memory:');
+  const logged: unknown[][] = [];
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => { logged.push(values); };
+  try {
+    const first = registry.ensureDefaultUser();
+    const repeated = registry.ensureDefaultUser();
+    assert.equal(repeated.id, first.id);
+    assert.equal('captureToken' in first, false);
+    assert.equal('dashboardToken' in first, false);
+    assert.equal(registry.listUsers().length, 1);
+    assert.equal(registry.userByCaptureToken(config.youtube.captureToken)?.id, first.id);
+  } finally {
+    console.log = originalLog;
+    registry.close();
+  }
+  assert.deepEqual(logged, [], 'unattended bootstrap must never emit credentials');
+});
 
 function fixtureZip(): Uint8Array {
   return zipSync({

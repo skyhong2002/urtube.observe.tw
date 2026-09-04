@@ -393,16 +393,18 @@ export class UserRegistry {
   ensureDefaultUser(): User {
     const existing = this.userByHandle(DEFAULT_HANDLE);
     if (existing) return existing;
-    const created = this.createUser(DEFAULT_HANDLE, config.ownerName, {
+    const {
+      captureToken: _discardedCaptureToken,
+      dashboardToken: _discardedDashboardToken,
+      ...created
+    } = this.createUser(DEFAULT_HANDLE, config.ownerName, {
       dataKeyMode: 'legacy-env',
       dashboardPublic: true,
     });
-    console.log(JSON.stringify({
-      createdDefaultUser: created.handle,
-      captureToken: created.captureToken,
-      dashboardToken: created.dashboardToken,
-      note: 'Store these tokens now; only hashes are kept. The legacy env YOUTUBE_CAPTURE_TOKEN also works for this user.',
-    }));
+    // Service bootstrap is unattended and its stdout is normally retained by
+    // the container runtime. Never emit the one-time credentials here. The
+    // legacy env capture token remains valid for this owner; an operator who
+    // explicitly needs fresh per-user credentials can run the rotation CLI.
     return created;
   }
 
