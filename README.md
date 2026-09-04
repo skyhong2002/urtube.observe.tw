@@ -23,6 +23,11 @@ Matching classifications are stored by taxonomy version without deleting the
 previous version. After a version bump the worker rebuilds them in the
 background; until both profiles reach 80% current-version coverage, topic
 comparison is disabled and the product falls back to aggregate channels.
+The shared registry stores only an internal, versioned 90-day matching
+projection: data-volume/coverage counters plus capped topic and channel
+shares. Raw events, video lists, keywords, searches, and playback timestamps
+remain in each user's SQLite file. Imports enqueue a projection refresh, and
+the worker atomically publishes it without dropping a newer queued refresh.
 
 ## Run
 

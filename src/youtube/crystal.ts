@@ -49,7 +49,12 @@ export interface YoutubeCrystal {
   matching: {
     taxonomyVersion: number;
     windowDays: number;
+    watchEvents: number;
+    uniqueVideos: number;
+    estimatedWatchSeconds: number;
+    activeDays: number;
     topicCoverage: number;
+    channels: CrystalItem[];
     topics: CrystalItem[];
   };
   shifts: CrystalShift[];
@@ -137,6 +142,7 @@ export function buildYoutubeCrystal(
   const allTime = crystalWindow(repository, null, null);
   const matchingWindowDays = 90;
   const matchingStart = new Date(now.getTime() - matchingWindowDays * 86_400_000).toISOString();
+  const matchingSource = crystalWindow(repository, matchingStart, end);
   const matchingProfile = matchingTopicProfile(repository, matchingStart, end);
   // Topic rows are filled asynchronously. Comparing a mostly classified
   // recent window with an unclassified prior window manufactures "new"
@@ -162,7 +168,12 @@ export function buildYoutubeCrystal(
     matching: {
       taxonomyVersion: matchingProfile.taxonomyVersion,
       windowDays: matchingWindowDays,
+      watchEvents: matchingSource.watchEvents,
+      uniqueVideos: matchingSource.uniqueVideos,
+      estimatedWatchSeconds: matchingSource.estimatedWatchSeconds,
+      activeDays: matchingSource.activeDays,
       topicCoverage: matchingProfile.coverage,
+      channels: matchingSource.channels,
       topics: matchingProfile.topics,
     },
     shifts,

@@ -3,9 +3,11 @@ import type { Repository } from './data/database.js';
 import { writeOpsStatus } from './ops-status.js';
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
+import { buildYoutubeCrystal } from './youtube/crystal.js';
 import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata } from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
+import { registryMatchingCrystal } from './youtube/registry-crystal.js';
 import {
   YOUTUBE_WORKER_CATCHUP_MINUTES,
   YOUTUBE_WORKER_FULL_CYCLE_MINUTES,
@@ -79,6 +81,8 @@ export async function runYoutubeWorkerCycle(
       const channelMetadata = await steps.channelMetadata(repository, user);
       const matchingClassified = await steps.matchingClassification(repository, user);
       const classified = await steps.classification(repository, user);
+      const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
+      registry.upsertMatchingCrystal(user, crystal);
       repository.setYoutubeSyncState('last_error', '');
       return {
         user: user.handle,
@@ -119,6 +123,7 @@ export function youtubeWorkPending(
   registry: UserRegistry,
   capabilities: YoutubeProcessingCapabilities = youtubeProcessingCapabilities(),
 ): boolean {
+  if (registry.crystalRefreshPending()) return true;
   return registry.listUsers().some((user) => {
     const repository = registry.repositoryFor(user);
     return youtubeMatchingWorkPending(repository)

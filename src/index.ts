@@ -539,6 +539,7 @@ export function createApp(registry: UserRegistry): Hono {
       const parsed = parseYoutubeArchive(archive, dataKey, 'takeout');
       const repository = registry.repositoryFor(me);
       const result = repository.ingestYoutubeArchive(parsed);
+      registry.markCrystalDirty(me);
       evictUserCaches(me.handle);
       c.header('Cache-Control', 'no-store');
       return c.html(accountPage(me, {

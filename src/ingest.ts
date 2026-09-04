@@ -82,6 +82,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
       const archive = new Uint8Array(await c.req.arrayBuffer());
       const parsed = parseYoutubeArchive(archive, context.dataKey, 'takeout');
       const result = context.repository.ingestYoutubeArchive(parsed);
+      registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result, totals: context.repository.youtubeCounts() }, 201);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
@@ -110,6 +111,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
       }
       const input = normalizeYoutubeCapture(JSON.parse(body));
       const result = context.repository.upsertYoutubeCapture(input);
+      registry.markCrystalDirty(context.user);
       return c.json({ ok: true, ...result }, result.inserted ? 201 : 200);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
@@ -130,6 +132,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
       }
       const input = normalizeYoutubeProgressBatch(JSON.parse(body));
       const result = context.repository.ingestYoutubeProgress(input);
+      registry.markCrystalDirty(context.user);
       return c.json({ ok: true, ...result }, result.completed ? 200 : 202);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
@@ -162,6 +165,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
       }
       const input = normalizeYoutubeBackfillBatch(JSON.parse(body));
       const result = context.repository.ingestYoutubeArchive(input);
+      registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result }, 201);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
@@ -189,6 +193,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
         context.dataKey,
       );
       const result = context.repository.ingestYoutubeArchive(input);
+      registry.markCrystalDirty(context.user);
       return c.json({
         ok: true,
         ...result,
