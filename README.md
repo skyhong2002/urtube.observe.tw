@@ -46,6 +46,14 @@ setting: candidate cards show at most two broad shared topics, plus one common
 channel only when both people allow it. Turning matching off removes the user
 from new candidate queries immediately; it does not change or publish the
 personal dashboard.
+`/matches` is session-only and requires that opt-in. It ranks at most 250
+eligible profiles using equal internal topic/channel weight and renders five
+cards per finite batch. Cards contain only a display name, qualitative band,
+up to two allowed canonical topics, an optional mutually allowed channel, and
+a generic icebreaker; the service-to-template model omits exact scores and
+never exposes handles, crystals, histories, shares, or candidate dashboards.
+The “Want to meet” integration point stays locked until the mutual-consent
+request flow is installed.
 
 ## Run
 

@@ -10,6 +10,7 @@ import type { Repository } from './data/database.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
+import { matchesPage } from './output/matches.js';
 import {
   accountPage, dashboardSetupSection, extensionSetupPage, signupCompletePage, signupStartPage, welcomePage,
   type AccountPageState,
@@ -28,8 +29,14 @@ import { readOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
-import { DEFAULT_HANDLE, UserRegistry, type User } from './users.js';
+import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import type { MatchingDisclosureLevel } from './youtube/disclosure.js';
+import {
+  MATCHING_CANDIDATE_POOL_LIMIT,
+  matchingCandidateBatch,
+  rankedMatchingCandidateCards,
+} from './youtube/candidates.js';
+import { registryCrystalEligible } from './youtube/registry-crystal.js';
 import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
@@ -243,6 +250,7 @@ export function createApp(registry: UserRegistry): Hono {
       page,
       lang,
       nav: [
+        ...(viewerOwns ? [{ label: messages(lang).navMatches, href: '/matches' }] : []),
         ...(viewerOwns ? [{ label: messages(lang).navAccount, href: '/account' }] : []),
         langToggle(c, lang),
       ],
@@ -297,6 +305,7 @@ export function createApp(registry: UserRegistry): Hono {
     <div class="lp-points">${points}</div>
     ${me ? '' : `<p class="lp-note">${t.landingNote}</p>`}`;
     return c.html(shell(t.landingDocTitle, body, [
+      ...(me ? [{ label: t.navMatches, href: '/matches' }] : []),
       me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
       { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
       langToggle(c, lang),
@@ -466,6 +475,37 @@ export function createApp(registry: UserRegistry): Hono {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
     return c.html(accountPage(me, accountStateFor(me), langOf(c)));
+  });
+
+  app.get('/matches', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect('/auth/google?next=%2Fmatches');
+    const lang = langOf(c);
+    const respond = (state: Parameters<typeof matchesPage>[2], status: 200 | 403 = 200) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('X-Robots-Tag', 'noindex');
+      return c.html(matchesPage(me.displayName, `/${me.handle}`, state, lang), status);
+    };
+    if (!me.matchingOptIn) return respond({ kind: 'opt_in_required' }, 403);
+    const crystal = registry.matchingCrystalFor(me.handle);
+    if (!crystal || !registryCrystalEligible(crystal)) return respond({ kind: 'data_pending' });
+    const viewer: MatchableCrystal = {
+      userId: me.id,
+      handle: me.handle,
+      displayName: me.displayName,
+      disclosureLevel: me.matchingDisclosure,
+      crystal,
+      dimensions: registry.matchingDimensionsFor(me),
+    };
+    const cards = rankedMatchingCandidateCards(
+      viewer,
+      registry.listMatchingCandidatesFor(me, MATCHING_CANDIDATE_POOL_LIMIT),
+    );
+    if (!cards.length) return respond({ kind: 'empty' });
+    return respond({
+      kind: 'ready',
+      batch: matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1)),
+    });
   });
 
   // Token recovery: rotating invalidates both old tokens and shows the new

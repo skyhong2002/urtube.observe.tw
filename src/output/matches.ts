@@ -1,0 +1,73 @@
+import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/candidates.js';
+import { messages, type Lang } from './i18n.js';
+import { html, shell } from './pages.js';
+
+export type MatchesPageState =
+  | { kind: 'opt_in_required' }
+  | { kind: 'data_pending' }
+  | { kind: 'empty' }
+  | { kind: 'ready'; batch: MatchingCandidateBatch };
+
+const matchesStyles = `
+  .mt-intro{margin:14px 0 26px;max-width:700px}.mt-intro h1{font-size:clamp(30px,4.5vw,46px);letter-spacing:-.04em;line-height:1.05;margin:7px 0 10px}.mt-intro p{color:var(--ink-2);margin:0}
+  .mt-privacy{background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:12px;margin:0 0 20px;padding:11px 13px}
+  .mt-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .mt-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:290px;padding:20px}
+  .mt-person{align-items:center;display:flex;gap:12px}.mt-avatar{align-items:center;background:linear-gradient(140deg,#e66767,#9b2b2b);border-radius:50%;color:#fff;display:flex;flex:0 0 44px;font-size:19px;font-weight:800;height:44px;justify-content:center;width:44px}.mt-person h2{font-size:17px;margin:0}.mt-strength{color:var(--accent-text);font-size:11px;font-weight:750;margin-top:2px}
+  .mt-clues{display:grid;gap:9px;margin:20px 0 16px}.mt-clue-label{color:var(--muted);display:block;font-size:9px;font-weight:700;letter-spacing:.08em;margin-bottom:5px;text-transform:uppercase}.mt-pills{display:flex;flex-wrap:wrap;gap:6px}.mt-pill{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:11px;padding:3px 9px}.mt-channel{color:var(--ink-2);font-size:12px}
+  .mt-icebreaker{color:var(--ink-2);font-size:12px;line-height:1.6;margin:auto 0 16px}.mt-actions{display:flex;gap:8px}.mt-actions button{border-radius:999px;font:inherit;font-size:12px;font-weight:700;padding:8px 12px}.mt-want{background:var(--accent);border:1px solid var(--accent);color:#fff}.mt-want:disabled{cursor:not-allowed;opacity:.58}.mt-skip{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);cursor:pointer}
+  .mt-pagination{align-items:center;display:flex;gap:9px;justify-content:center;margin-top:22px}.mt-pagination a{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:12px;font-weight:700;padding:8px 13px;text-decoration:none}.mt-page{color:var(--muted);font-size:11px}
+  .mt-empty{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);max-width:620px;padding:26px}.mt-empty h2{font-size:18px;margin:0 0 8px}.mt-empty p{color:var(--ink-2);margin:0 0 16px}.mt-empty a{background:var(--accent);border-radius:999px;color:#fff;display:inline-block;font-size:13px;font-weight:700;padding:9px 15px;text-decoration:none}
+`;
+
+function candidateCard(card: MatchingCandidateCard, lang: Lang): string {
+  const t = messages(lang);
+  const topics = card.disclosure.topics;
+  const icebreaker = topics.length
+    ? t.matchesIcebreakerTopics(topics.join(lang === 'zh' ? '、' : ' and '))
+    : card.disclosure.channel
+      ? t.matchesIcebreakerChannel(card.disclosure.channel)
+      : t.matchesIcebreakerGeneric;
+  return `<article class="mt-card">
+    <div class="mt-person"><div class="mt-avatar" aria-hidden="true">${html(card.displayName.trim().charAt(0).toUpperCase() || '?')}</div><div><h2>${html(card.displayName)}</h2><div class="mt-strength">${html(t.matchStrength(card.similarity))}</div></div></div>
+    <div class="mt-clues">
+      ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
+      ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
+    </div>
+    <p class="mt-icebreaker">${html(icebreaker)}</p>
+    <div class="mt-actions"><button class="mt-want" type="button" disabled title="${html(t.matchesWantPending)}">${t.matchesWant}</button><button class="mt-skip" type="button">${t.matchesSkip}</button></div>
+  </article>`;
+}
+
+export function matchesPage(
+  displayName: string,
+  dashboardHref: string,
+  state: MatchesPageState,
+  lang: Lang = 'en',
+): string {
+  const t = messages(lang);
+  let content: string;
+  if (state.kind === 'opt_in_required') {
+    content = `<section class="mt-empty"><h2>${t.matchesOptInTitle}</h2><p>${t.matchesOptInPara}</p><a href="/account">${t.matchesSettings}</a></section>`;
+  } else if (state.kind === 'data_pending') {
+    content = `<section class="mt-empty"><h2>${t.matchesPendingTitle}</h2><p>${t.matchesPendingPara}</p><a href="${html(dashboardHref)}">${t.navDashboard}</a></section>`;
+  } else if (state.kind === 'empty') {
+    content = `<section class="mt-empty"><h2>${t.matchesEmptyTitle}</h2><p>${t.matchesEmptyPara}</p><a href="/signup">${t.matchesInvite}</a></section>`;
+  } else {
+    const { batch } = state;
+    content = `<div class="mt-grid">${batch.cards.map((card) => candidateCard(card, lang)).join('')}</div>
+      <p class="mt-empty" id="mt-batch-empty" hidden>${t.matchesBatchEmpty}</p>
+      <nav class="mt-pagination" aria-label="${html(t.matchesPages)}">
+        ${batch.hasPrevious ? `<a href="/matches?page=${batch.page - 1}">${t.matchesPrevious}</a>` : ''}
+        <span class="mt-page">${t.matchesPage(batch.page)}</span>
+        ${batch.hasNext ? `<a href="/matches?page=${batch.page + 1}">${t.matchesNext}</a>` : ''}
+      </nav>
+      <script>(()=>{const cards=[...document.querySelectorAll('.mt-card')];for(const card of cards){card.querySelector('.mt-skip')?.addEventListener('click',()=>{card.remove();if(!document.querySelector('.mt-card'))document.getElementById('mt-batch-empty').hidden=false})}})();</script>`;
+  }
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${content}`;
+  return shell(t.matchesTitle, body, [
+    { label: t.navDashboard, href: dashboardHref },
+    { label: t.navMatches, href: '/matches', active: true },
+    { label: t.navAccount, href: '/account' },
+  ], '', lang);
+}
