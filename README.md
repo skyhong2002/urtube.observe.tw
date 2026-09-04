@@ -26,7 +26,9 @@ comparison is disabled and the product falls back to aggregate channels.
 The shared registry stores only an internal, versioned 90-day matching
 projection: data-volume/coverage counters plus capped topic and channel
 shares. Raw events, video lists, keywords, searches, and playback timestamps
-remain in each user's SQLite file. Imports enqueue a projection refresh, and
+remain in each user's SQLite file. The Insights keyword cloud is built from
+public title/tag/description metadata by the versioned pipeline described in
+`docs/keyword-pipeline.md`; keywords never enter matching. Imports enqueue a projection refresh, and
 the worker atomically publishes it without dropping a newer queued refresh.
 Both channel and canonical-topic comparisons use that 90-day window, so old
 history cannot dominate a current match. Pool eligibility is controlled by

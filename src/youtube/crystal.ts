@@ -4,6 +4,8 @@
 // aggregates only — no timestamps, no searches, no per-event history — so it
 // is safe to exchange for cross-person comparison.
 import type { Repository } from '../data/database.js';
+import { KEYWORD_ALGORITHM_VERSION } from './keywords.js';
+import type { YoutubeKeyword, YoutubeKeywordCoverage } from './types.js';
 import {
   MATCHING_TOPIC_MIN_COVERAGE,
   MATCHING_WINDOW_DAYS,
@@ -29,7 +31,8 @@ export interface CrystalWindow {
   activeDays: number;
   channels: CrystalItem[];
   topics: CrystalItem[];
-  keywords: Array<{ term: string; videos: number; score: number }>;
+  keywords: YoutubeKeyword[];
+  keywordCoverage: YoutubeKeywordCoverage;
 }
 
 export interface CrystalShift {
@@ -44,6 +47,9 @@ export interface CrystalShift {
 
 export interface YoutubeCrystal {
   version: 2;
+  // Keyword lists from different algorithm versions are not comparable;
+  // consumers must check crystalKeywordsComparable() before using them.
+  keywordAlgorithmVersion: number;
   generatedAt: string;
   handle: string;
   displayName: string;
@@ -95,7 +101,18 @@ function crystalWindow(repository: Repository, start: string | null, end: string
     channels: withShares(window.channels, window.estimatedWatchSeconds, window.watchEvents),
     topics: withShares(window.topics, window.estimatedWatchSeconds, window.watchEvents),
     keywords: window.keywords,
+    keywordCoverage: window.keywordCoverage,
   };
+}
+
+// Keyword rankings only compare across crystals produced by the same
+// keyword algorithm version; older crystals must be rebuilt first.
+export function crystalKeywordsComparable(
+  a: Pick<YoutubeCrystal, 'keywordAlgorithmVersion'> | { keywordAlgorithmVersion?: number },
+  b: Pick<YoutubeCrystal, 'keywordAlgorithmVersion'> | { keywordAlgorithmVersion?: number },
+): boolean {
+  return a.keywordAlgorithmVersion === KEYWORD_ALGORITHM_VERSION
+    && b.keywordAlgorithmVersion === KEYWORD_ALGORITHM_VERSION;
 }
 
 // A shift is reportable when a channel/topic enters, leaves, or moves by at
@@ -163,6 +180,7 @@ export function buildYoutubeCrystal(
   ].slice(0, 24);
   return {
     version: 2,
+    keywordAlgorithmVersion: KEYWORD_ALGORITHM_VERSION,
     generatedAt: end,
     handle: identity.handle,
     displayName: identity.displayName,

@@ -28,7 +28,13 @@ import type {
 } from '../youtube/types.js';
 import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
 import type { YoutubeProcessingCounts } from '../youtube/processing.js';
-import { extractYoutubeKeywords } from '../youtube/keywords.js';
+import {
+  KEYWORD_DEFAULT_LIMIT,
+  KEYWORD_SAMPLE_LIMIT,
+  extractYoutubeKeywords,
+  keywordCoverage,
+  keywordSampleStride,
+} from '../youtube/keywords.js';
 import { progressSeconds } from '../youtube/progress.js';
 
 export interface PersistResult { inserted: number; updated: number }
@@ -1643,22 +1649,31 @@ export class Repository {
         actual_watched_seconds, watched_at, watch_count
       FROM ranked WHERE row_number=1 ORDER BY watched_at DESC LIMIT 10
     `).all(...params) as Array<Record<string, string | number | null>>;
+    // Same sampling rule as youtubeCrystalWindow(): distinct videos, one
+    // evenly spaced pick every `stride` videos in watch order, so a long
+    // range is represented across its whole span and both surfaces agree.
+    const keywordStride = keywordSampleStride(uniqueVideos);
     const keywordRows = this.db.prepare(`
       WITH ranked AS (
-        SELECT w.video_id, w.raw_url, w.raw_title, w.watched_at,
+        SELECT w.video_id, w.raw_url, w.raw_title, w.watched_at, w.channel_id,
           ROW_NUMBER() OVER (
             PARTITION BY COALESCE(w.video_id, w.raw_url) ORDER BY w.watched_at DESC
           ) row_number
         FROM youtube_watch_events w
         ${where}
+      ), distinct_videos AS (
+        SELECT w.video_id, w.raw_url, w.raw_title, w.channel_id,
+          ROW_NUMBER() OVER (ORDER BY w.watched_at DESC, COALESCE(w.video_id, w.raw_url)) position
+        FROM ranked w WHERE w.row_number=1
       )
       SELECT COALESCE(v.title, w.raw_title) title,
-        SUBSTR(v.description, 1, 600) description, v.tags_json
-      FROM ranked w LEFT JOIN youtube_videos v ON v.video_id=w.video_id
-      WHERE w.row_number=1
-      ORDER BY w.watched_at DESC
-      LIMIT 2000
-    `).all(...params) as Array<{ title: string; description: string | null; tags_json: string | null }>;
+        SUBSTR(v.description, 1, 600) description, v.tags_json,
+        COALESCE(w.channel_id, v.channel_id) channel_id
+      FROM distinct_videos w LEFT JOIN youtube_videos v ON v.video_id=w.video_id
+      WHERE (w.position - 1) % ? = 0
+      ORDER BY w.position
+      LIMIT ${KEYWORD_SAMPLE_LIMIT}
+    `).all(...params, keywordStride) as Array<{ title: string; description: string | null; tags_json: string | null; channel_id: string | null }>;
     return {
       range,
       generatedAt: now.toISOString(),
@@ -1710,7 +1725,8 @@ export class Repository {
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
       topicTrend: this.youtubeTopicTrend(now),
-      keywords: extractYoutubeKeywords(keywordRows, 40),
+      keywords: extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT),
+      keywordCoverage: keywordCoverage(keywordRows.length, uniqueVideos),
       recent: recent.map((row) => ({
         videoId: row.video_id === null ? null : String(row.video_id),
         title: String(row.title), url: String(row.url),
@@ -1734,6 +1750,7 @@ export class Repository {
     channels: Array<{ key: string; channelId: string | null; name: string; watches: number; estimatedWatchSeconds: number }>;
     topics: Array<{ slug: string; name: string; watches: number; estimatedWatchSeconds: number }>;
     keywords: ReturnType<typeof extractYoutubeKeywords>;
+    keywordCoverage: ReturnType<typeof keywordCoverage>;
   } {
     this.ensureEstimatedEvents();
     const bounds = [
@@ -1780,23 +1797,30 @@ export class Repository {
       ${where}
       GROUP BY t.id ORDER BY estimated_watch_seconds DESC, watches DESC, t.name
     `).all(...params) as Array<Record<string, string | number>>;
+    const eligibleKeywordVideos = Number(totals.unique_videos ?? 0);
+    const keywordStride = keywordSampleStride(eligibleKeywordVideos);
     const keywordRows = this.db.prepare(`
       ${YOUTUBE_ESTIMATED_EVENTS_VIEW},
       ranked AS (
-        SELECT e.video_id, e.raw_url, e.raw_title, e.watched_at,
+        SELECT e.video_id, e.raw_url, e.raw_title, e.watched_at, e.channel_id,
           ROW_NUMBER() OVER (
             PARTITION BY COALESCE(e.video_id, e.raw_url) ORDER BY e.watched_at DESC
           ) row_number
         FROM estimated_events e
         ${where}
+      ), distinct_videos AS (
+        SELECT w.video_id, w.raw_url, w.raw_title, w.channel_id,
+          ROW_NUMBER() OVER (ORDER BY w.watched_at DESC, COALESCE(w.video_id, w.raw_url)) position
+        FROM ranked w WHERE w.row_number=1
       )
       SELECT COALESCE(v.title, w.raw_title) title,
-        SUBSTR(v.description, 1, 600) description, v.tags_json
-      FROM ranked w LEFT JOIN youtube_videos v ON v.video_id=w.video_id
-      WHERE w.row_number=1
-      ORDER BY w.watched_at DESC
-      LIMIT 1000
-    `).all(...params) as Array<{ title: string; description: string | null; tags_json: string | null }>;
+        SUBSTR(v.description, 1, 600) description, v.tags_json,
+        COALESCE(w.channel_id, v.channel_id) channel_id
+      FROM distinct_videos w LEFT JOIN youtube_videos v ON v.video_id=w.video_id
+      WHERE (w.position - 1) % ? = 0
+      ORDER BY w.position
+      LIMIT ${KEYWORD_SAMPLE_LIMIT}
+    `).all(...params, keywordStride) as Array<{ title: string; description: string | null; tags_json: string | null; channel_id: string | null }>;
     return {
       watchEvents: Number(totals.watch_events ?? 0),
       uniqueVideos: Number(totals.unique_videos ?? 0),
@@ -1813,7 +1837,8 @@ export class Repository {
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
-      keywords: extractYoutubeKeywords(keywordRows, 30),
+      keywords: extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT),
+      keywordCoverage: keywordCoverage(keywordRows.length, eligibleKeywordVideos),
     };
   }
 
