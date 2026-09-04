@@ -112,7 +112,7 @@ export interface DimensionedMatchingProfile {
 
 export interface MatchingCandidateSimilarity {
   score: number;
-  mode: 'topics' | 'channels' | 'none';
+  mode: 'combined' | 'topics' | 'channels' | 'none';
   topicSimilarity: number | null;
   channelSimilarity: number | null;
   allowedTopicKeys: string[];
@@ -157,8 +157,17 @@ export function matchingCandidateSimilarity(
   const channelSimilarity = eligibleActivity
     ? cosine(requester.crystal.channels, candidate.crystal.channels)
     : null;
+  if (topicSimilarity !== null && channelSimilarity !== null) {
+    return {
+      score: (topicSimilarity + channelSimilarity) / 2,
+      mode: 'combined',
+      topicSimilarity,
+      channelSimilarity,
+      allowedTopicKeys,
+    };
+  }
   if (topicSimilarity !== null) {
-    return { score: topicSimilarity, mode: 'topics', topicSimilarity, channelSimilarity, allowedTopicKeys };
+    return { score: topicSimilarity, mode: 'topics', topicSimilarity, channelSimilarity: null, allowedTopicKeys };
   }
   if (channelSimilarity !== null) {
     return { score: channelSimilarity, mode: 'channels', topicSimilarity: null, channelSimilarity, allowedTopicKeys };

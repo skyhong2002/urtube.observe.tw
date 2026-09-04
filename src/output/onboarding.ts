@@ -243,6 +243,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
   return shell(t.accountTitle, body, [
     { label: t.navHome, href: '/' },
     { label: t.navDashboard, href: dashboardHref },
+    { label: t.navMatches, href: '/matches' },
     { label: t.navAccount, href: '/account', active: true },
   ], '', lang, '/account');
 }

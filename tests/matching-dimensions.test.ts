@@ -194,7 +194,7 @@ test('matching uses only A selections not excluded by B and falls back without l
     crystal: candidateCrystal,
     dimensions: confirmed(['learning'], ['music']),
   });
-  assert.equal(oneAllowed.mode, 'topics');
+  assert.equal(oneAllowed.mode, 'combined');
   assert.deepEqual(oneAllowed.allowedTopicKeys, ['gaming']);
 
   const noTopics = matchingCandidateSimilarity(requester, {

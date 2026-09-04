@@ -82,6 +82,13 @@ keys until the user reconfirms, so a taxonomy change cannot silently give an
 old choice a new meaning. Disclosure settings affect only the eventual card,
 not this computation; future candidate, recommendation, and icebreaker code
 must consume the same allowed-key result.
+`src/youtube/candidates.ts` then combines comparable topic and channel cosine
+with equal internal weight, discards zero/no-signal rows, sorts within a
+250-profile server-side cap, and removes the exact score before presentation.
+`/matches` requires both a login session and matching opt-in, serves at most
+five cards per finite batch with `no-store`/`noindex`, and never places a
+candidate handle or internal id in HTML. Card clues pass through the mutual
+disclosure allowlist; excluded dimensions cannot reappear in the icebreaker.
 
 The script prints per-table source vs. target row counts; migration is only
 considered successful when they match.

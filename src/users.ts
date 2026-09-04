@@ -449,7 +449,8 @@ export class UserRegistry {
     return row ? parseRegistryMatchingCrystal(row.json) : null;
   }
 
-  listMatchableCrystals(): MatchableCrystal[] {
+  listMatchableCrystals(limit = 250): MatchableCrystal[] {
+    const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
     const rows = this.db.prepare(`
       SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, c.json,
         p.dimension_taxonomy_version, p.selected_topic_keys,
@@ -460,9 +461,11 @@ export class UserRegistry {
       WHERE u.matching_opt_in=1 AND c.kind='matching' AND c.version=? AND c.eligible=1
         AND c.taxonomy_version=?
       ORDER BY u.id
+      LIMIT ?
     `).all(
       REGISTRY_CRYSTAL_VERSION,
       MATCHING_TAXONOMY.version,
+      boundedLimit,
     ) as Array<Record<string, unknown>>;
     return rows.flatMap((row) => {
       const crystal = parseRegistryMatchingCrystal(String(row.json));
@@ -484,10 +487,13 @@ export class UserRegistry {
     });
   }
 
-  listMatchingCandidatesFor(viewer: User): MatchableCrystal[] {
+  listMatchingCandidatesFor(viewer: User, limit = 250): MatchableCrystal[] {
     const current = this.userByHandle(viewer.handle);
     if (!current || current.id !== viewer.id || !current.matchingOptIn) return [];
-    return this.listMatchableCrystals().filter((candidate) => candidate.userId !== current.id);
+    const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 499);
+    return this.listMatchableCrystals(boundedLimit + 1)
+      .filter((candidate) => candidate.userId !== current.id)
+      .slice(0, boundedLimit);
   }
 
   deleteUser(handle: string): void {
