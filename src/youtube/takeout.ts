@@ -6,10 +6,12 @@ import type { YoutubeParsedArchive, YoutubeSearchInput, YoutubeWatchInput } from
 
 export const MAX_YOUTUBE_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
-const WATCH_JSON_SUFFIX = '/history/watch-history.json';
-const SEARCH_JSON_SUFFIX = '/history/search-history.json';
-const WATCH_HTML_SUFFIX = '/history/watch-history.html';
-const SEARCH_HTML_SUFFIX = '/history/search-history.html';
+// Takeout localizes folder names (e.g. "觀看記錄" instead of "history") but keeps
+// the file names in English, so match on the file name alone.
+const WATCH_JSON_SUFFIX = '/watch-history.json';
+const SEARCH_JSON_SUFFIX = '/search-history.json';
+const WATCH_HTML_SUFFIX = '/watch-history.html';
+const SEARCH_HTML_SUFFIX = '/search-history.html';
 const HTML_MONTHS = new Map([
   ['Jan', 0], ['Feb', 1], ['Mar', 2], ['Apr', 3], ['May', 4], ['Jun', 5],
   ['Jul', 6], ['Aug', 7], ['Sep', 8], ['Oct', 9], ['Nov', 10], ['Dec', 11],
@@ -23,6 +25,26 @@ const HTML_TIMEZONE_OFFSETS = new Map([
   ['EST', -5 * 60], ['EDT', -4 * 60],
   ['CET', 60], ['CEST', 2 * 60], ['BST', 60],
 ]);
+const HTML_ZONE = '([A-Z]{2,5}|GMT[+-]\\d{1,2}(?::?\\d{2})?)';
+// English exports: "Sep 4, 2026, 9:45:27 PM CST".
+const HTML_TIME_ENGLISH = new RegExp(
+  `^([A-Z][a-z]{2}) (\\d{1,2}), (\\d{4}), (\\d{1,2}):(\\d{2}):(\\d{2}) (AM|PM) ${HTML_ZONE}$`,
+);
+// Chinese exports: "2026年9月4日 晚上9:45:27 CST", a 12-hour clock qualified by CLDR day periods.
+const HTML_TIME_CHINESE = new RegExp(
+  `^(\\d{4})年(\\d{1,2})月(\\d{1,2})日 ?(凌晨|清晨|早上|上午|午夜|中午|下午|傍晚|晚上)?(\\d{1,2}):(\\d{2}):(\\d{2}) ${HTML_ZONE}$`,
+);
+const CHINESE_PM_PERIODS = new Set(['中午', '下午', '傍晚', '晚上']);
+
+interface HtmlClock {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  zone: string;
+}
 
 export interface YoutubeArchiveLimits {
   maxArchiveBytes?: number;
@@ -50,14 +72,37 @@ function validTime(value: unknown): string | null {
   return raw && !Number.isNaN(date.getTime()) ? date.toISOString() : null;
 }
 
+function twelveHour(hour: number, pm: boolean): number {
+  return hour % 12 + (pm ? 12 : 0);
+}
+
+function htmlClock(value: string): HtmlClock | null {
+  const english = value.match(HTML_TIME_ENGLISH);
+  if (english) {
+    const month = HTML_MONTHS.get(english[1]);
+    if (month === undefined) return null;
+    return {
+      year: Number(english[3]), month, day: Number(english[2]),
+      hour: twelveHour(Number(english[4]), english[7] === 'PM'),
+      minute: Number(english[5]), second: Number(english[6]), zone: english[8],
+    };
+  }
+  const chinese = value.match(HTML_TIME_CHINESE);
+  if (chinese) {
+    const period = chinese[4];
+    const hour = period ? twelveHour(Number(chinese[5]), CHINESE_PM_PERIODS.has(period)) : Number(chinese[5]);
+    return {
+      year: Number(chinese[1]), month: Number(chinese[2]) - 1, day: Number(chinese[3]),
+      hour, minute: Number(chinese[6]), second: Number(chinese[7]), zone: chinese[8],
+    };
+  }
+  return null;
+}
+
 function htmlTime(value: string): string | null {
-  const match = value.match(
-    /^([A-Z][a-z]{2}) (\d{1,2}), (\d{4}), (\d{1,2}):(\d{2}):(\d{2}) (AM|PM) ([A-Z]{2,5}|GMT[+-]\d{1,2}(?::?\d{2})?)$/,
-  );
-  if (!match) return null;
-  const month = HTML_MONTHS.get(match[1]);
-  if (month === undefined) return null;
-  const zone = match[8];
+  const clock = htmlClock(value);
+  if (!clock) return null;
+  const { zone } = clock;
   let offsetMinutes = HTML_TIMEZONE_OFFSETS.get(zone);
   if (offsetMinutes === undefined && zone.startsWith('GMT')) {
     const offset = zone.slice(3).match(/^([+-])(\d{1,2})(?::?(\d{2}))?$/);
@@ -67,10 +112,8 @@ function htmlTime(value: string): string | null {
     }
   }
   if (offsetMinutes === undefined) return null;
-  const hour = Number(match[4]) % 12 + (match[7] === 'PM' ? 12 : 0);
   const timestamp = Date.UTC(
-    Number(match[3]), month, Number(match[2]), hour,
-    Number(match[5]), Number(match[6]),
+    clock.year, clock.month, clock.day, clock.hour, clock.minute, clock.second,
   ) - offsetMinutes * 60_000;
   const date = new Date(timestamp);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();

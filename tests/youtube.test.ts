@@ -117,6 +117,34 @@ function htmlFixtureZip(): Uint8Array {
   });
 }
 
+test('Takeout parser accepts localized folder names and Chinese timestamps', () => {
+  const activity = (time: string, videoId: string) =>
+    `<div class="outer-cell"><div class="mdl-grid"><div class="content-cell">Watched&nbsp;<a href="https://www.youtube.com/watch?v=${videoId}">影片</a><br><a href="https://www.youtube.com/channel/channel-zh">頻道</a><br>${time}<br></div><div class="content-cell"></div><div class="content-cell"><b>產品：</b><br>&emsp;YouTube<br><b>為什麼有這項活動記錄？</b><br>&emsp;由於您開啟了下列設定，因此系統將這個活動儲存到您的 Google 帳戶中：&nbsp;YouTube watch history.&nbsp;您可以前往<a href="https://myaccount.google.com/activitycontrols">這裡</a>控管這些設定。</div></div></div>`;
+  const html = `<html><body>${[
+    activity('2026年9月4日 晚上9:45:27 CST', 'evening'),
+    activity('2026年9月4日 凌晨12:10:00 CST', 'midnight'),
+    activity('2026年9月4日 中午12:30:00 CST', 'noon'),
+    activity('2026年9月4日 上午8:00:00 CST', 'morning'),
+    activity('2026年9月4日 清晨5:15:00 GMT+08:00', 'dawn'),
+    activity('2026年9月4日 下午1:00:00 CST', 'afternoon'),
+  ].join('')}</body></html>`;
+  const zip = zipSync({ 'Takeout/YouTube 和 YouTube Music/觀看記錄/watch-history.html': strToU8(html) });
+  const parsed = parseYoutubeArchive(zip, SECRET);
+  assert.deepEqual(
+    parsed.watches.map(({ videoId, watchedAt }) => [videoId, watchedAt]),
+    [
+      ['evening', '2026-09-04T13:45:27.000Z'],
+      ['midnight', '2026-09-03T16:10:00.000Z'],
+      ['noon', '2026-09-04T04:30:00.000Z'],
+      ['morning', '2026-09-04T00:00:00.000Z'],
+      ['dawn', '2026-09-03T21:15:00.000Z'],
+      ['afternoon', '2026-09-04T05:00:00.000Z'],
+    ],
+  );
+  assert.equal(parsed.watches[0].title, '影片');
+  assert.equal(parsed.watches[0].channelId, 'channel-zh');
+});
+
 test('private-value encryption is randomized and authenticated', () => {
   const first = encryptPrivateValue('sensitive', SECRET);
   const second = encryptPrivateValue('sensitive', SECRET);
