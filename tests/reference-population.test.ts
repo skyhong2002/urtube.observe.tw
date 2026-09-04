@@ -198,6 +198,10 @@ test('reference consent is separate, owner-only, withdrawable, and rendered with
     assert.match(page, /This site’s reference population/);
     assert.match(page, /5 consenting accounts/);
     assert.match(page, /Reference mean/);
+    assert.match(page, /Reference median/);
+    assert.match(page, /Lift/);
+    assert.match(page, /\.tl-reference-scroll\{overflow-x:auto\}/);
+    assert.doesNotMatch(page, /\.tl-reference-detail\{display:none\}/);
     assert.match(page, /method channel-tags-equal-user-v1/);
     assert.match(page, /version sha256:[a-f0-9]{12}/);
     for (const contributor of contributors) {
