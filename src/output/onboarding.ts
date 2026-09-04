@@ -19,7 +19,8 @@ const formStyles = `
   .ob-card p{color:var(--ink-2);font-size:13px;margin:0 0 16px}
   .ob-form{display:grid;gap:10px}
   .ob-form label{color:var(--ink-2);font-size:12px;font-weight:700;margin-top:6px}
-  .ob-form input[type=text],.ob-form select{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
+  .ob-form input[type=text],.ob-form select,.ob-form textarea{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
+  .ob-form textarea{min-height:82px;resize:vertical}
   .ob-form input[type=file]{background:var(--raised);border:1px dashed var(--line-strong);border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;padding:14px 12px;width:100%}
   .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(208,59,59,.3)}
   .ob-check{align-items:center;color:var(--ink-2);display:flex;font-size:13px;gap:8px;margin-top:6px}
@@ -220,6 +221,17 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         </select>
         <p class="ob-help">${t.accountMatchingSeparate}</p>
         <button type="submit">${t.accountMatchingSave}</button>
+      </form>
+      <h2>${t.accountMatchProfile}</h2>
+      <p>${t.accountMatchProfilePara}</p>
+      <form method="post" action="/account/match-profile" class="ob-form">
+        <label for="matchingIntroduction">${t.accountMatchIntroduction}</label>
+        <textarea id="matchingIntroduction" name="matchingIntroduction" maxlength="160">${html(user.matchingIntroduction)}</textarea>
+        <p class="ob-help">${t.accountMatchIntroductionHint}</p>
+        <label for="matchingContact">${t.accountMatchContact}</label>
+        <input id="matchingContact" name="matchingContact" type="text" maxlength="240" value="${html(user.matchingContact)}">
+        <p class="ob-help">${t.accountMatchContactHint}</p>
+        <button type="submit">${t.accountMatchProfileSave}</button>
       </form>
       ${dimensionSettings}
       <h2>${t.accountVisibility}</h2>

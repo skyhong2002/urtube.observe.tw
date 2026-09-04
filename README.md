@@ -52,8 +52,13 @@ cards per finite batch. Cards contain only a display name, qualitative band,
 up to two allowed canonical topics, an optional mutually allowed channel, and
 a generic icebreaker; the service-to-template model omits exact scores and
 never exposes handles, crystals, histories, shares, or candidate dashboards.
-The “Want to meet” integration point stays locked until the mutual-consent
-request flow is installed.
+“Want to meet” uses a short-lived opaque action token, so candidate handles and
+internal ids never enter the page. A request reveals nothing new. The recipient
+can accept, skip locally, or decline, and the sender can withdraw while it is
+pending. Only acceptance creates a connection. Every connection read checks the
+accepted request and both users' current matching opt-in before returning the
+introduction and contact method each person chose to share. Turning matching
+off withdraws pending requests and established connections immediately.
 
 ## Run
 
@@ -79,7 +84,8 @@ permanent `sub` claim (never the email, which can change). Accounts created
 before Google sign-in can be claimed from the same form with their dashboard
 key. Sessions live in an HttpOnly cookie for 180 days; `/account` shows your
 dashboard link and lets you rename yourself, configure matching privacy,
-choose or exclude matching interests, toggle dashboard visibility, rotate
+choose what introduction and contact method a mutual match may see, choose or
+exclude matching interests, toggle dashboard visibility, rotate
 tokens (lost-token recovery), and sign out. Signups
 are rate-limited per IP; disable them with `SIGNUP_ENABLED=false` (login and
 claiming stay available).
