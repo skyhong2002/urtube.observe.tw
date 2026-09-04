@@ -1285,6 +1285,18 @@ export class Repository {
     };
   }
 
+  youtubeReferenceDataUpdatedAt(): string | null {
+    const row = this.db.prepare(`
+      SELECT MAX(updated_at) updated_at FROM (
+        SELECT MAX(imported_at) updated_at FROM youtube_watch_events
+        UNION ALL SELECT MAX(metadata_fetched_at) FROM youtube_videos
+        UNION ALL SELECT MAX(metadata_fetched_at) FROM youtube_channels
+        UNION ALL SELECT MAX(observed_at) FROM youtube_video_progress
+      )
+    `).get() as { updated_at: string | null };
+    return row.updated_at;
+  }
+
   // Recent scans with how they ended: the operator's view of an account whose
   // syncs keep coming back empty.
   youtubeProgressImports(limit = 50): YoutubeProgressImportRow[] {

@@ -1,4 +1,9 @@
 import type { TagLeanData, TagLeanGroup } from '../youtube/taglists.js';
+import {
+  REFERENCE_POPULATION_POLICY_URL,
+  type ReferenceAxis,
+  type ReferencePopulation,
+} from '../youtube/reference-population.js';
 import { YOUTUBE_RANGES } from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { hours, html, shell, type ShellNavItem } from './pages.js';
@@ -47,6 +52,9 @@ const tagLeanStyles = `
   .tl-empty{color:var(--muted);font-size:12px}
   .tl-coverage{color:var(--ink-2);font-size:14px;line-height:1.6;margin:16px 2px 0}
   .tl-foot{color:var(--muted);font-size:11px;margin-top:16px}
+  .tl-reference{margin-top:26px}.tl-reference>p{color:var(--ink-2);font-size:13px;line-height:1.65;max-width:72ch}
+  .tl-reference-axis{margin-top:20px}.tl-reference-axis h3{align-items:baseline;display:flex;flex-wrap:wrap;font-size:14px;gap:8px;margin:0 0 9px}.tl-reference-axis h3 span{color:var(--muted);font-size:11px;font-weight:600}
+  .tl-reference-scroll{overflow-x:auto}.tl-reference-table{border-collapse:collapse;font-size:12px;min-width:640px;width:100%}.tl-reference-table th,.tl-reference-table td{border-bottom:1px solid var(--line);padding:9px 8px;text-align:right}.tl-reference-table th:first-child,.tl-reference-table td:first-child{text-align:left}.tl-reference-table th{color:var(--muted);font-size:10px;letter-spacing:.03em}.tl-reference-table td{color:var(--ink-2);font-variant-numeric:tabular-nums}.tl-reference-table td strong{color:var(--ink)}
   @media(min-width:900px){
     .tl-hero{align-items:center;display:grid;gap:22px 42px;grid-template-columns:minmax(270px,.78fr) minmax(0,1.22fr)}
     .tl-hero-lead{min-width:0}.tl-hero-title{margin-bottom:18px}
@@ -55,6 +63,7 @@ const tagLeanStyles = `
     .tl-groups{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
   }
   @media(max-width:820px){.tl-row{grid-template-columns:88px minmax(0,1fr) 118px}}
+  @media(max-width:640px){.tl-reference-table{min-width:0}.tl-reference-detail{display:none}}
 `;
 
 function channelAvatar(channel: { name: string; thumbnailUrl: string }): string {
@@ -69,6 +78,43 @@ function pct(part: number, whole: number): number {
 
 function pctLabel(value: number): string {
   return `${value >= 10 || value === 0 ? Math.round(value) : value.toFixed(1)}%`;
+}
+
+function referenceAxis(
+  heading: string,
+  axis: ReferenceAxis,
+  t: Messages,
+): string {
+  if (axis.status === 'insufficient') {
+    return `<div class="tl-reference-axis"><h3>${heading}</h3><p class="tl-empty">${t.tagLeanReferenceInsufficient(axis.sampleSize)}</p></div>`;
+  }
+  if (axis.status === 'viewer-unavailable') {
+    return `<div class="tl-reference-axis"><h3>${heading}<span>${t.tagLeanReferenceSample(axis.sampleSize)}</span></h3><p class="tl-empty">${t.tagLeanReferenceViewerUnavailable}</p></div>`;
+  }
+  const rows = axis.metrics.map((metric) => `<tr>
+    <td>${html(t.tagGroups[metric.key])}</td>
+    <td><strong>${pctLabel(metric.viewerPct)}</strong></td>
+    <td>${pctLabel(metric.meanPct)}</td>
+    <td class="tl-reference-detail">${pctLabel(metric.medianPct)}</td>
+    <td class="tl-reference-detail">${metric.lift === null ? '—' : `${metric.lift.toFixed(1)}×`}</td>
+    <td>${t.tagLeanReferencePercentile(metric.percentile)}</td>
+  </tr>`).join('');
+  return `<div class="tl-reference-axis"><h3>${heading}<span>${t.tagLeanReferenceSample(axis.sampleSize)}</span></h3>
+    <div class="tl-reference-scroll"><table class="tl-reference-table">
+      <thead><tr><th>${t.colGroup}</th><th>${t.tagLeanReferenceYou}</th><th>${t.tagLeanReferenceMean}</th><th class="tl-reference-detail">${t.tagLeanReferenceMedian}</th><th class="tl-reference-detail">${t.tagLeanReferenceLift}</th><th>${t.tagLeanReferencePercentileHeading}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function referenceSection(reference: ReferencePopulation, t: Messages): string {
+  const updated = reference.dataUpdatedAt?.slice(0, 10) ?? '—';
+  return `<section class="section tl-reference"><div class="section-head"><h2>${t.tagLeanReferenceTitle}</h2></div>
+    <p>${t.tagLeanReferencePara}</p>
+    ${referenceAxis(t.tagLeanContent, reference.content, t)}
+    ${referenceAxis(t.tagLeanPolitics, reference.political, t)}
+    <p class="tl-foot">${t.tagLeanReferenceMeta(updated, reference.version, reference.methodVersion)} · <a href="${REFERENCE_POPULATION_POLICY_URL}">${t.tagLeanReferenceMethodLink}</a></p>
+  </section>`;
 }
 
 // One axis of groups: share bars against `denominator` seconds, top channels
@@ -117,9 +163,14 @@ export interface TagLeanPageOptions {
   dashboardPath: string;
   nav?: ShellNavItem[];
   lang?: Lang;
+  reference?: ReferencePopulation;
 }
 
-export function tagLeanSection(data: TagLeanData, lang: Lang = 'en'): string {
+export function tagLeanSection(
+  data: TagLeanData,
+  lang: Lang = 'en',
+  reference?: ReferencePopulation,
+): string {
   const t = messages(lang);
   const politicalSeconds = data.political.reduce((sum, group) => sum + group.estimatedWatchSeconds, 0);
   const heroFigure = politicalSeconds > 0
@@ -170,7 +221,7 @@ export function tagLeanSection(data: TagLeanData, lang: Lang = 'en'): string {
     html(provenance.fetchedAt),
   )} · <a href="${html(provenance.policyUrl)}">${t.tagLeanPolicyLink}</a> · <a href="${html(provenance.reportUrl)}">${t.tagLeanReportLink}</a></p>
     <p class="tl-foot">${t.tagLeanCaveat}</p>`;
-  return `<style>${tagLeanStyles}</style>${hero}${coverage}${politics}${content}${foot}`;
+  return `<style>${tagLeanStyles}</style>${hero}${coverage}${politics}${content}${reference ? referenceSection(reference, t) : ''}${foot}`;
 }
 
 export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLeanPageOptions): string {
@@ -187,6 +238,6 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
     <div class="yt-profile-copy"><div class="eyebrow">${t.tagLeanEyebrow}</div>
     <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
     <div class="yt-profile-meta"><a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;
-  return shell(`${ownerName} · ${scope}`, intro + rangeNav + tagLeanSection(data, lang),
+  return shell(`${ownerName} · ${scope}`, intro + rangeNav + tagLeanSection(data, lang, options.reference),
     options.nav ?? [], '', lang, options.basePath);
 }

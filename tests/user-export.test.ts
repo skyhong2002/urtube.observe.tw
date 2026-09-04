@@ -77,6 +77,7 @@ test('signed-in owner receives a streamed, readable, privacy-bounded ZIP', async
       googleSub: 'google-export-owner',
       googleEmail: 'owner@example.test',
     });
+    registry.setReferenceOptIn(owner.handle, true);
     const other = registry.createUser('export-other', 'Export Other');
     for (const user of [owner, other]) publish(registry, user);
     registry.setMatchingProfile(other.handle, 'Other private introduction', OTHER_CONTACT);
@@ -150,6 +151,7 @@ test('signed-in owner receives a streamed, readable, privacy-bounded ZIP', async
     assert.ok(!allText.includes(action));
     assert.ok(manifest.excluded.some((item) => item.includes('contact details')));
     assert.equal(readJson('account.json').googleAccountId, 'google-export-owner');
+    assert.equal(readJson('account.json').referenceOptIn, true);
     assert.equal(repository.youtubeCounts().watches, 1, 'snapshot closes without changing the archive');
 
     const otherCookie = `urtube_session=${registry.createSession(other)}`;

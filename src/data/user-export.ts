@@ -111,7 +111,7 @@ export function userDataExport(options: UserDataExportOptions): {
       source: 'user registry',
       fields: fieldDescriptions([
         'handle', 'displayName', 'googleAccountId', 'googleEmail',
-        'dashboardPublic', 'createdAt', 'onboardingCompletedAt',
+        'dashboardPublic', 'referenceOptIn', 'createdAt', 'onboardingCompletedAt',
       ]),
       value: options.account.account,
     },
