@@ -120,6 +120,19 @@ export function youtubeWorkerShouldContinue(
   return workPending && youtubeWorkerMadeProgress(results);
 }
 
+// A new cycle supersedes the previous cycle's failure state as soon as it
+// publishes a fresh heartbeat. Keep lastCompletedAt through patchOpsStatus so
+// readers still know when the last complete sweep finished.
+export function youtubeWorkerCycleStartedStatus(at: string): Partial<WorkerOpsStatus> {
+  return {
+    lastStartedAt: at,
+    heartbeatAt: at,
+    running: true,
+    failedUsers: 0,
+    lastError: '',
+  };
+}
+
 // Whether any archive has enrichment the configured stages can still do.
 // Drives the catch-up cadence: a fresh Takeout should not wait an hour for
 // its first metadata pass.
@@ -160,12 +173,7 @@ if (process.env.NODE_ENV !== 'test') {
     let continueImmediately = false;
     lastCycleStartedAt = Date.now();
     const lastStartedAt = new Date(lastCycleStartedAt).toISOString();
-    recordStatus({
-      lastStartedAt,
-      heartbeatAt: lastStartedAt,
-      running: true,
-      lastError: '',
-    });
+    recordStatus(youtubeWorkerCycleStartedStatus(lastStartedAt));
     const heartbeat = setInterval(() => {
       recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
     }, WORKER_HEARTBEAT_INTERVAL_MS);
