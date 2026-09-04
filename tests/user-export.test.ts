@@ -130,7 +130,7 @@ test('signed-in owner receives a streamed, readable, privacy-bounded ZIP', async
       files: Array<{ name: string; rowCount: number; fields: unknown[] }>;
       excluded: string[];
     };
-    assert.equal(manifest.schemaVersion, 10);
+    assert.equal(manifest.schemaVersion, 11);
     assert.ok(manifest.files.every((file) => file.fields.length > 0 || file.name === 'matching-crystal.json'));
     for (const file of manifest.files.filter((entry) => entry.name.startsWith('data/'))) {
       assert.equal(readJson(file.name).length, file.rowCount, `${file.name} row count`);
@@ -141,6 +141,8 @@ test('signed-in owner receives a streamed, readable, privacy-bounded ZIP', async
     assert.equal(readJson('data/watch-events.json').length, 1);
     assert.equal(readJson('data/playback-progress.json').length, 1);
     assert.equal(readJson('data/scan-runs.json').length, 1);
+    assert.equal(readJson('data/personal-taxonomy-runs.json').length, 0);
+    assert.equal(readJson('data/personal-taxonomy-activations.json').length, 0);
 
     const matching = readJson('matching.json');
     assert.deepEqual(matching.connections.map((connection: { displayName: string }) => connection.displayName), ['Export Other']);

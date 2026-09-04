@@ -15,7 +15,9 @@ progress, metadata, and AI topics — privately, per user.
 Search queries are AES-256-GCM-encrypted server-side before storage and never
 served. Watch progress feeds aggregates only. Dashboards are private per user
 (token link) unless made public. AI classification sees public video metadata
-only. Cross-user matching never compares the personalized AI topic slugs:
+only. Personal topics use the governed, reviewable v2 pipeline in
+`docs/personal-taxonomy-v2.md`. Cross-user matching never compares the
+personalized AI topic slugs:
 it uses the source-controlled, versioned taxonomy in
 `src/youtube/matching.ts`, derived from YouTube's public category ID. News &
 Politics and Nonprofits & Activism are excluded from matching by default.
@@ -31,10 +33,10 @@ public title/tag/description metadata by the versioned pipeline described in
 `docs/keyword-pipeline.md`; keywords never enter matching. Imports enqueue a projection refresh, and
 the worker atomically publishes it without dropping a newer queued refresh.
 
-The topic trend on Insights always covers the 12 complete months before today,
-independent of the page range. Its monthly rank, all-topic heatmap, focused
-comparison, and table share the same 3-month moving shares. Months with
-incomplete current-taxonomy classification remain visibly provisional.
+The topic trend on Insights follows the selected page range. Short ranges use
+daily points, while yearly and all-time ranges use monthly points. Readers can
+switch between raw and smoothed shares. Incomplete current-taxonomy
+classification remains visibly provisional.
 
 Both channel and canonical-topic comparisons use that 90-day window, so old
 history cannot dominate a current match. Pool eligibility is controlled by

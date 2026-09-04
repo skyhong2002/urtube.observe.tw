@@ -36,6 +36,21 @@ import {
   keywordSampleStride,
 } from '../youtube/keywords.js';
 import { progressSeconds } from '../youtube/progress.js';
+import {
+  PERSONAL_TOPICS,
+  PERSONAL_TAXONOMY_DEFINITION_VERSION,
+  PERSONAL_TAXONOMY_RUN_COVERAGE_MIN,
+  assessPersonalTaxonomyQuality,
+  personalTaxonomyReadiness,
+  samplePersonalTaxonomy,
+  type PersonalClassificationDecision,
+  type PersonalTaxonomyDistribution,
+  type PersonalTaxonomyEvidenceRow,
+  type PersonalTaxonomyRun,
+  type PersonalTaxonomyRunStatus,
+  type PersonalTaxonomySampleCandidate,
+  type PersonalTaxonomySampleManifest,
+} from '../youtube/personal-taxonomy.js';
 import { decryptPrivateValue } from '../youtube/crypto.js';
 
 export interface PersistResult { inserted: number; updated: number }
@@ -92,6 +107,8 @@ const PORTABLE_TABLES = [
   ['playback-progress.json', 'youtube_video_progress', 'Latest saved playback progress per video.'],
   ['scan-runs.json', 'youtube_progress_imports', 'History scan boundaries, completion, and diagnostics.'],
   ['personal-taxonomy.json', 'youtube_topics', 'Versioned personal topic definitions.'],
+  ['personal-taxonomy-runs.json', 'youtube_taxonomy_runs', 'Personal taxonomy run status, contract, sample, and quality.'],
+  ['personal-taxonomy-activations.json', 'youtube_taxonomy_activations', 'Personal taxonomy activation and rollback history.'],
   ['personal-topic-assignments.json', 'youtube_video_topics', 'Personal topic classifications and their provenance.'],
   ['matching-topic-assignments.json', 'youtube_video_matching_topics', 'Canonical matching-topic classifications.'],
   ['sync-state.json', 'youtube_sync_state', 'Data Portability and worker checkpoints.'],
@@ -116,19 +133,37 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
   return new Date(now.getTime() - days * 86_400_000).toISOString();
 }
 
-function completeMonthWindow(now: Date, count = 12): { start: string; end: string; months: string[] } {
-  const taipeiNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  const year = taipeiNow.getUTCFullYear();
-  const month = taipeiNow.getUTCMonth();
-  const boundary = (monthOffset: number) =>
-    new Date(Date.UTC(year, month + monthOffset, 1) - 8 * 60 * 60 * 1000);
-  const start = boundary(-count);
-  const end = boundary(0);
-  const months = Array.from({ length: count }, (_, index) => {
-    const cursor = new Date(Date.UTC(year, month - count + index, 1));
-    return cursor.toISOString().slice(0, 7);
-  });
-  return { start: start.toISOString(), end: end.toISOString(), months };
+function selectedTrendWindow(
+  range: YoutubeRange,
+  now: Date,
+  firstExactWatchAt: string | null,
+): { start: string; end: string; periods: string[]; format: '%Y-%m' | '%Y-%m-%d'; smoothing: number } {
+  const monthly = range === '365d' || range === 'all';
+  const start = range === 'all'
+    ? firstExactWatchAt ?? now.toISOString()
+    : youtubeCutoff(range, now)!;
+  const format = monthly ? '%Y-%m' : '%Y-%m-%d';
+  const startTaipei = new Date(Date.parse(start) + 8 * 3600_000);
+  const endTaipei = new Date(now.getTime() + 8 * 3600_000);
+  const cursor = monthly
+    ? new Date(Date.UTC(startTaipei.getUTCFullYear(), startTaipei.getUTCMonth(), 1))
+    : new Date(Date.UTC(startTaipei.getUTCFullYear(), startTaipei.getUTCMonth(), startTaipei.getUTCDate()));
+  const last = monthly
+    ? new Date(Date.UTC(endTaipei.getUTCFullYear(), endTaipei.getUTCMonth(), 1))
+    : new Date(Date.UTC(endTaipei.getUTCFullYear(), endTaipei.getUTCMonth(), endTaipei.getUTCDate()));
+  const periods: string[] = [];
+  while (cursor <= last) {
+    periods.push(cursor.toISOString().slice(0, monthly ? 7 : 10));
+    if (monthly) cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    else cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return {
+    start,
+    end: now.toISOString(),
+    periods,
+    format,
+    smoothing: monthly ? 3 : 7,
+  };
 }
 
 // Shared by youtubeDashboard(). Per-event watch seconds: the measured value
@@ -193,6 +228,30 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
 const YOUTUBE_ESTIMATED_EVENTS_VIEW = `
       WITH estimated_events AS (SELECT * FROM temp.youtube_estimated_events)
     `;
+
+const ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL =
+  "(SELECT taxonomy_version FROM youtube_taxonomy_runs WHERE status='active')";
+
+function personalTaxonomyRunRow(row: Record<string, unknown>): PersonalTaxonomyRun {
+  return {
+    taxonomyVersion: Number(row.taxonomy_version),
+    definitionVersion: String(row.definition_version),
+    status: row.status as PersonalTaxonomyRunStatus,
+    model: String(row.model),
+    promptVersion: String(row.prompt_version),
+    createdAt: String(row.created_at),
+    activatedAt: row.activated_at === null ? null : String(row.activated_at),
+    reviewedAt: row.reviewed_at === null ? null : String(row.reviewed_at),
+    dataStartAt: row.data_start_at === null ? null : String(row.data_start_at),
+    dataEndAt: row.data_end_at === null ? null : String(row.data_end_at),
+    inputVideos: Number(row.input_videos),
+    categoryCount: Number(row.category_count),
+    sample: row.sampling_manifest_json === null
+      ? null : JSON.parse(String(row.sampling_manifest_json)) as PersonalTaxonomySampleManifest,
+    quality: row.quality_json === null
+      ? null : JSON.parse(String(row.quality_json)) as PersonalTaxonomyRun['quality'],
+  };
+}
 
 export interface ChannelRaceWeekRow {
   week: string;
@@ -445,6 +504,8 @@ export class Repository {
     if (afterBackloggd.user_version < 9) this.migrateYoutubeScanSummaries();
     const afterScanSummaries = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     if (afterScanSummaries.user_version < 10) this.migrateYoutubeMatchingTopics();
+    const afterMatchingTopics = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterMatchingTopics.user_version < 11) this.migratePersonalTaxonomyRuns();
   }
 
   private migrateYoutube(): void {
@@ -722,6 +783,74 @@ export class Repository {
       CREATE INDEX IF NOT EXISTS youtube_video_matching_topics_version_idx
         ON youtube_video_matching_topics(taxonomy_version, topic_key);
       PRAGMA user_version = 10;
+      COMMIT;
+    `);
+  }
+
+  private migratePersonalTaxonomyRuns(): void {
+    this.db.exec(`
+      BEGIN;
+      ALTER TABLE youtube_video_topics ADD COLUMN decision TEXT NOT NULL DEFAULT 'accepted'
+        CHECK (decision IN ('accepted', 'unknown', 'low-confidence'));
+      ALTER TABLE youtube_video_topics ADD COLUMN alternative_slug TEXT;
+      ALTER TABLE youtube_video_topics ADD COLUMN alternative_confidence REAL;
+      ALTER TABLE youtube_video_topics ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '[]';
+      CREATE TABLE youtube_taxonomy_runs (
+        taxonomy_version INTEGER PRIMARY KEY,
+        definition_version TEXT NOT NULL,
+        status TEXT NOT NULL
+          CHECK (status IN ('candidate', 'ready', 'blocked', 'active', 'retired')),
+        model TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        activated_at TEXT,
+        reviewed_at TEXT,
+        data_start_at TEXT,
+        data_end_at TEXT,
+        input_videos INTEGER NOT NULL,
+        category_count INTEGER NOT NULL,
+        sampling_manifest_json TEXT,
+        quality_json TEXT
+      );
+      INSERT INTO youtube_taxonomy_runs(
+        taxonomy_version, definition_version, status, model, prompt_version,
+        created_at, activated_at, reviewed_at, data_start_at, data_end_at,
+        input_videos, category_count, sampling_manifest_json, quality_json
+      )
+      SELECT t.taxonomy_version, 'personal-generated-v1',
+        CASE WHEN t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+          THEN 'active' ELSE 'retired' END,
+        COALESCE((SELECT vt.model FROM youtube_video_topics vt
+          JOIN youtube_topics assigned ON assigned.id=vt.topic_id
+          WHERE assigned.taxonomy_version=t.taxonomy_version LIMIT 1), 'unknown'),
+        COALESCE((SELECT vt.prompt_version FROM youtube_video_topics vt
+          JOIN youtube_topics assigned ON assigned.id=vt.topic_id
+          WHERE assigned.taxonomy_version=t.taxonomy_version LIMIT 1), 'youtube-topics-v1'),
+        MIN(t.created_at),
+        CASE WHEN t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+          THEN MIN(t.created_at) ELSE NULL END,
+        NULL,
+        (SELECT MIN(watched_at) FROM youtube_watch_events WHERE activity_type='video'),
+        (SELECT MAX(watched_at) FROM youtube_watch_events WHERE activity_type='video'),
+        (SELECT COUNT(*) FROM youtube_videos
+          WHERE metadata_fetched_at IS NOT NULL AND availability='available'),
+        COUNT(*), NULL, NULL
+      FROM youtube_topics t
+      GROUP BY t.taxonomy_version;
+      CREATE UNIQUE INDEX youtube_taxonomy_runs_active_idx
+        ON youtube_taxonomy_runs(status) WHERE status='active';
+      CREATE INDEX youtube_taxonomy_runs_created_idx
+        ON youtube_taxonomy_runs(created_at DESC);
+      CREATE TABLE youtube_taxonomy_activations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_version INTEGER,
+        to_version INTEGER NOT NULL REFERENCES youtube_taxonomy_runs(taxonomy_version),
+        action TEXT NOT NULL CHECK (action IN ('activate', 'rollback')),
+        changed_at TEXT NOT NULL
+      );
+      CREATE INDEX youtube_taxonomy_activations_changed_idx
+        ON youtube_taxonomy_activations(changed_at DESC);
+      PRAGMA user_version = 11;
       COMMIT;
     `);
   }
@@ -1233,6 +1362,13 @@ export class Repository {
   // the next cycles will pick up.
   youtubeProcessingCounts(): YoutubeProcessingCounts {
     const row = this.db.prepare(`
+      WITH work_run AS (
+        SELECT * FROM youtube_taxonomy_runs
+        WHERE definition_version='${PERSONAL_TAXONOMY_DEFINITION_VERSION}'
+          AND status IN ('candidate', 'active')
+        ORDER BY CASE status WHEN 'candidate' THEN 0 ELSE 1 END, taxonomy_version DESC
+        LIMIT 1
+      )
       SELECT
         (SELECT COUNT(*) FROM youtube_videos) videos,
         (SELECT COUNT(*) FROM youtube_videos WHERE metadata_fetched_at IS NULL) videos_pending_metadata,
@@ -1240,15 +1376,23 @@ export class Repository {
            FROM youtube_videos v
            LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
            WHERE v.channel_id IS NOT NULL AND c.metadata_fetched_at IS NULL) channels_pending_metadata,
-        (SELECT COUNT(*) FROM youtube_videos
-           WHERE metadata_fetched_at IS NOT NULL AND availability='available') videos_classifiable,
+        (SELECT COUNT(*) FROM youtube_videos v
+           WHERE metadata_fetched_at IS NOT NULL AND availability='available'
+             AND EXISTS (SELECT 1 FROM youtube_watch_events w
+               WHERE w.video_id=v.video_id AND w.activity_type='video')) videos_classifiable,
         (SELECT COUNT(*) FROM youtube_videos v
            WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
+             AND EXISTS (SELECT 1 FROM youtube_watch_events w
+               WHERE w.video_id=v.video_id AND w.activity_type='video')
+             AND EXISTS (
+               SELECT 1 FROM work_run
+             )
              AND NOT EXISTS (
                SELECT 1 FROM youtube_video_topics vt
                JOIN youtube_topics t ON t.id=vt.topic_id
+               JOIN work_run run ON run.taxonomy_version=t.taxonomy_version
                WHERE vt.video_id=v.video_id AND vt.metadata_hash=v.metadata_hash
-                 AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+                 AND vt.model=run.model AND vt.prompt_version=run.prompt_version
              )) videos_pending_topics,
         (SELECT MAX(imported_at) FROM youtube_watch_events) last_import_at
     `).get() as Record<string, unknown>;
@@ -1462,15 +1606,27 @@ export class Repository {
     }));
   }
 
-  youtubeTopicTrend(now = new Date()): YoutubeTopicTrendMonth[] {
+  youtubeTopicTrend(range: YoutubeRange = 'all', now = new Date()): YoutubeTopicTrendMonth[] {
     this.ensureEstimatedEvents();
-    const window = completeMonthWindow(now);
+    const firstExact = this.db.prepare(`
+      SELECT MIN(w.watched_at) first_at
+      FROM youtube_watch_events w
+      JOIN activities a ON a.id=w.activity_id
+      WHERE w.activity_type='video' AND a.occurred_precision='exact'
+    `).get() as { first_at: string | null };
+    const selectedWindow = selectedTrendWindow(range, now, firstExact?.first_at ?? null);
+    const periodExpression = `strftime('${selectedWindow.format}', e.watched_at, '+8 hours')`;
     const monthlyRows = this.db.prepare(`
       ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
-      SELECT strftime('%Y-%m', e.watched_at, '+8 hours') month,
+      SELECT ${periodExpression} month,
         COUNT(CASE WHEN e.video_id IS NOT NULL THEN 1 END) classifiable_watch_events,
-        COUNT(CASE WHEN t.id IS NOT NULL THEN 1 END) classified_watch_events,
-        COALESCE(SUM(CASE WHEN t.id IS NOT NULL THEN e.estimated_watch_seconds ELSE 0 END), 0)
+        COUNT(CASE WHEN t.id IS NOT NULL THEN 1 END) processed_watch_events,
+        COUNT(CASE WHEN t.id IS NOT NULL AND vt.decision='accepted' AND t.slug<>'unknown'
+          THEN 1 END) classified_watch_events,
+        COUNT(CASE WHEN t.id IS NOT NULL AND (vt.decision IN ('unknown', 'low-confidence')
+          OR t.slug='unknown') THEN 1 END) unknown_watch_events,
+        COALESCE(SUM(CASE WHEN t.id IS NOT NULL AND vt.decision='accepted' AND t.slug<>'unknown'
+          THEN e.estimated_watch_seconds ELSE 0 END), 0)
           classified_watch_seconds
       FROM estimated_events e
       JOIN activities a ON a.id=e.activity_id
@@ -1478,13 +1634,13 @@ export class Repository {
       LEFT JOIN youtube_video_topics vt
         ON vt.video_id=e.video_id AND vt.rank=1 AND vt.metadata_hash=v.metadata_hash
       LEFT JOIN youtube_topics t ON t.id=vt.topic_id
-        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+        AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
       WHERE a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
       GROUP BY month ORDER BY month
-    `).all(window.start, window.end) as Array<Record<string, string | number>>;
+    `).all(selectedWindow.start, selectedWindow.end) as Array<Record<string, string | number>>;
     const topicRows = this.db.prepare(`
       ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
-      SELECT strftime('%Y-%m', e.watched_at, '+8 hours') month,
+      SELECT ${periodExpression} month,
         t.slug, t.name, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
       JOIN activities a ON a.id=e.activity_id
@@ -1492,10 +1648,11 @@ export class Repository {
       JOIN youtube_video_topics vt
         ON vt.video_id=e.video_id AND vt.rank=1 AND vt.metadata_hash=v.metadata_hash
       JOIN youtube_topics t ON t.id=vt.topic_id
-        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
-      WHERE a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
+        AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
+      WHERE vt.decision='accepted' AND t.slug<>'unknown'
+        AND a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
       GROUP BY month, t.id ORDER BY month, t.name
-    `).all(window.start, window.end) as Array<Record<string, string | number>>;
+    `).all(selectedWindow.start, selectedWindow.end) as Array<Record<string, string | number>>;
     const monthly = new Map(monthlyRows.map((row) => [String(row.month), row]));
     const topicNames = new Map(topicRows.map((row) => [String(row.slug), String(row.name)]));
     const topicSeconds = new Map<string, Map<string, number>>();
@@ -1507,17 +1664,24 @@ export class Repository {
     }
     const slugs = [...topicNames.keys()].sort((a, b) =>
       (topicNames.get(a) ?? a).localeCompare(topicNames.get(b) ?? b));
-    const result: YoutubeTopicTrendMonth[] = window.months.map((month) => {
+    const result: YoutubeTopicTrendMonth[] = selectedWindow.periods.map((month) => {
       const row = monthly.get(month);
       const classifiableWatchEvents = Number(row?.classifiable_watch_events ?? 0);
+      const processedWatchEvents = Number(row?.processed_watch_events ?? 0);
       const classifiedWatchEvents = Number(row?.classified_watch_events ?? 0);
+      const unknownWatchEvents = Number(row?.unknown_watch_events ?? 0);
       const classifiedWatchSeconds = Number(row?.classified_watch_seconds ?? 0);
       return {
         month,
         classifiableWatchEvents,
+        processedWatchEvents,
         classifiedWatchEvents,
+        unknownWatchEvents,
         classificationCoverage: classifiableWatchEvents
           ? classifiedWatchEvents / classifiableWatchEvents : 1,
+        processedCoverage: classifiableWatchEvents
+          ? processedWatchEvents / classifiableWatchEvents : 1,
+        unknownShare: processedWatchEvents ? unknownWatchEvents / processedWatchEvents : 0,
         classifiedWatchSeconds,
         topics: slugs.map((slug) => {
           const estimatedWatchSeconds = topicSeconds.get(month)?.get(slug) ?? 0;
@@ -1532,7 +1696,7 @@ export class Repository {
       };
     });
     for (let index = 0; index < result.length; index += 1) {
-      const trailing = result.slice(Math.max(0, index - 2), index + 1);
+      const trailing = result.slice(Math.max(0, index - selectedWindow.smoothing + 1), index + 1);
       const denominator = trailing.reduce((sum, month) => sum + month.classifiedWatchSeconds, 0);
       for (const topic of result[index].topics) {
         const numerator = trailing.reduce((sum, month) =>
@@ -1588,9 +1752,31 @@ export class Repository {
             JOIN youtube_topics t ON t.id=vt.topic_id
             WHERE vt.video_id=s.video_id AND vt.rank=1
               AND vt.metadata_hash=v2.metadata_hash
-              AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+              AND vt.decision='accepted' AND t.slug<>'unknown'
+              AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
           )
-        ) classified_videos
+        ) classified_videos,
+        (SELECT COUNT(*) FROM selected_videos s
+          JOIN youtube_videos v2 ON v2.video_id=s.video_id
+          WHERE EXISTS (
+            SELECT 1 FROM youtube_video_topics vt
+            JOIN youtube_topics t ON t.id=vt.topic_id
+            WHERE vt.video_id=s.video_id AND vt.rank=1
+              AND vt.metadata_hash=v2.metadata_hash
+              AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
+          )
+        ) processed_topic_videos,
+        (SELECT COUNT(*) FROM selected_videos s
+          JOIN youtube_videos v2 ON v2.video_id=s.video_id
+          WHERE EXISTS (
+            SELECT 1 FROM youtube_video_topics vt
+            JOIN youtube_topics t ON t.id=vt.topic_id
+            WHERE vt.video_id=s.video_id AND vt.rank=1
+              AND vt.metadata_hash=v2.metadata_hash
+              AND (vt.decision IN ('unknown', 'low-confidence') OR t.slug='unknown')
+              AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
+          )
+        ) unknown_topic_videos
       FROM estimated_events e
       LEFT JOIN youtube_videos v ON v.video_id=e.video_id
       ${estimatedWhere}
@@ -1731,8 +1917,9 @@ export class Repository {
       JOIN youtube_videos topic_video ON topic_video.video_id=e.video_id
         AND vt.metadata_hash=topic_video.metadata_hash
       JOIN youtube_topics t ON t.id=vt.topic_id
-        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
-      ${estimatedWhere}
+        AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
+      WHERE vt.decision='accepted' AND t.slug<>'unknown'
+      ${cutoff ? 'AND e.watched_at>=?' : ''}
       GROUP BY t.id ORDER BY watches DESC, estimated_watch_seconds DESC, t.name LIMIT 12
     `).all(...params) as Array<Record<string, string | number>>;
     const lengthWhere = cutoff
@@ -1812,7 +1999,11 @@ export class Repository {
           : 0,
         actualWatchedSeconds: stats.actual_watched_seconds === null ? null : Number(stats.actual_watched_seconds),
         metadataCoverage: uniqueVideos ? Number(stats.enriched_videos ?? 0) / uniqueVideos : 0,
+        topicProcessedCoverage: uniqueVideos
+          ? Number(stats.processed_topic_videos ?? 0) / uniqueVideos : 0,
         topicCoverage: uniqueVideos ? Number(stats.classified_videos ?? 0) / uniqueVideos : 0,
+        topicUnknownCoverage: uniqueVideos
+          ? Number(stats.unknown_topic_videos ?? 0) / uniqueVideos : 0,
       },
       daily: daily.map((row) => ({
         day: String(row.day), watches: Number(row.watches),
@@ -1845,7 +2036,7 @@ export class Repository {
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
-      topicTrend: this.youtubeTopicTrend(now),
+      topicTrend: this.youtubeTopicTrend(range, now),
       keywords: extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT),
       keywordCoverage: keywordCoverage(keywordRows.length, uniqueVideos),
       recent: recent.map((row) => ({
@@ -1914,7 +2105,7 @@ export class Repository {
       JOIN youtube_videos topic_video ON topic_video.video_id=e.video_id
         AND vt.metadata_hash=topic_video.metadata_hash
       JOIN youtube_topics t ON t.id=vt.topic_id
-        AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+        AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
       ${where}
       GROUP BY t.id ORDER BY estimated_watch_seconds DESC, watches DESC, t.name
     `).all(...params) as Array<Record<string, string | number>>;
@@ -2044,7 +2235,14 @@ export class Repository {
     }
   }
 
-  youtubeVideosForClassification(limit = 250): Array<YoutubeVideoMetadata> {
+  youtubeVideosForPersonalClassification(
+    run: PersonalTaxonomyRun,
+    limit = 250,
+  ): Array<YoutubeVideoMetadata> {
+    if (run.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION
+      || !['candidate', 'active'].includes(run.status)) {
+      throw new Error('Personal taxonomy run is not open for classification');
+    }
     const rows = this.db.prepare(`
       SELECT v.* FROM youtube_videos v
       LEFT JOIN (
@@ -2053,16 +2251,22 @@ export class Repository {
         GROUP BY video_id
       ) watched ON watched.video_id=v.video_id
       WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
+        AND watched.video_id IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM youtube_video_topics vt
           JOIN youtube_topics t ON t.id=vt.topic_id
           WHERE vt.video_id=v.video_id AND vt.metadata_hash=v.metadata_hash
-            AND t.taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+            AND t.taxonomy_version=? AND vt.model=? AND vt.prompt_version=?
         )
       ORDER BY watched.latest_watched_at IS NULL,
         watched.latest_watched_at DESC, v.metadata_fetched_at DESC, v.video_id
       LIMIT ?
-    `).all(Math.max(1, Math.min(1000, Math.floor(limit)))) as Array<Record<string, unknown>>;
+    `).all(
+      run.taxonomyVersion,
+      run.model,
+      run.promptVersion,
+      Math.max(1, Math.min(1000, Math.floor(limit))),
+    ) as Array<Record<string, unknown>>;
     return this.youtubeMetadataRows(rows);
   }
 
@@ -2173,20 +2377,139 @@ export class Repository {
     };
   }
 
-  youtubeVideosForTaxonomy(limit = 160): Array<YoutubeVideoMetadata> {
+  youtubePersonalTaxonomyReadiness() {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) total_videos,
+        COUNT(CASE WHEN v.metadata_fetched_at IS NOT NULL THEN 1 END) metadata_ready_videos,
+        COUNT(CASE WHEN v.metadata_fetched_at IS NOT NULL AND v.availability='available' THEN 1 END)
+          available_videos
+      FROM youtube_videos v
+      WHERE EXISTS (SELECT 1 FROM youtube_watch_events w
+        WHERE w.video_id=v.video_id AND w.activity_type='video')
+    `).get() as Record<string, number>;
+    return personalTaxonomyReadiness(
+      Number(row.total_videos),
+      Number(row.metadata_ready_videos),
+      Number(row.available_videos),
+    );
+  }
+
+  youtubePersonalTaxonomyCandidates(): PersonalTaxonomySampleCandidate[] {
     const rows = this.db.prepare(`
-      SELECT v.* FROM youtube_videos v
-      LEFT JOIN (
-        SELECT video_id, MAX(watched_at) latest_watched_at
+      SELECT v.*, COALESCE(v.channel_id, NULLIF(v.channel_title, ''), 'video:' || v.video_id) channel_key,
+        watched.first_watched_at, watched.last_watched_at, watched.watches
+      FROM youtube_videos v
+      JOIN (
+        SELECT video_id, MIN(watched_at) first_watched_at,
+          MAX(watched_at) last_watched_at, COUNT(*) watches
         FROM youtube_watch_events WHERE activity_type='video'
         GROUP BY video_id
       ) watched ON watched.video_id=v.video_id
       WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available'
-      ORDER BY watched.latest_watched_at IS NULL,
-        watched.latest_watched_at DESC, v.metadata_fetched_at DESC, v.video_id
-      LIMIT ?
-    `).all(Math.max(12, Math.min(1000, Math.floor(limit)))) as Array<Record<string, unknown>>;
-    return this.youtubeMetadataRows(rows);
+      ORDER BY watched.last_watched_at, v.video_id
+    `).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      ...this.youtubeMetadataRows([row])[0],
+      channelKey: String(row.channel_key),
+      firstWatchedAt: String(row.first_watched_at),
+      lastWatchedAt: String(row.last_watched_at),
+      watches: Number(row.watches),
+    }));
+  }
+
+  youtubeTaxonomyRuns(): PersonalTaxonomyRun[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM youtube_taxonomy_runs ORDER BY taxonomy_version DESC
+    `).all() as Array<Record<string, unknown>>;
+    return rows.map(personalTaxonomyRunRow);
+  }
+
+  youtubeTaxonomyRun(taxonomyVersion: number): PersonalTaxonomyRun | null {
+    const row = this.db.prepare(`
+      SELECT * FROM youtube_taxonomy_runs WHERE taxonomy_version=?
+    `).get(taxonomyVersion) as Record<string, unknown> | undefined;
+    return row ? personalTaxonomyRunRow(row) : null;
+  }
+
+  youtubeTaxonomyRunForContract(
+    definitionVersion: string,
+    model: string,
+    promptVersion: string,
+  ): PersonalTaxonomyRun | null {
+    const row = this.db.prepare(`
+      SELECT * FROM youtube_taxonomy_runs
+      WHERE definition_version=? AND model=? AND prompt_version=?
+      ORDER BY taxonomy_version DESC LIMIT 1
+    `).get(definitionVersion, model, promptVersion) as Record<string, unknown> | undefined;
+    return row ? personalTaxonomyRunRow(row) : null;
+  }
+
+  createPersonalTaxonomyRun(input: {
+    definitionVersion: string;
+    model: string;
+    promptVersion: string;
+    topics: Array<{ slug: string; name: string; description: string }>;
+    sample: PersonalTaxonomySampleManifest;
+    createdAt?: string;
+  }): PersonalTaxonomyRun {
+    if (input.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION) {
+      throw new Error('New personal taxonomy runs must use the current governed definition');
+    }
+    const governedTopics = PERSONAL_TOPICS.map(({ slug, name, description }) => ({ slug, name, description }));
+    if (JSON.stringify(input.topics) !== JSON.stringify(governedTopics)) {
+      throw new Error('New personal taxonomy runs must use the governed topic definitions');
+    }
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const existing = this.db.prepare(`
+        SELECT taxonomy_version, status FROM youtube_taxonomy_runs
+        WHERE definition_version=? AND model=? AND prompt_version=?
+        ORDER BY taxonomy_version DESC LIMIT 1
+      `).get(input.definitionVersion, input.model, input.promptVersion) as
+        { taxonomy_version: number; status: PersonalTaxonomyRunStatus } | undefined;
+      if (existing?.status === 'candidate') {
+        throw new Error('Personal taxonomy run already exists for this contract');
+      }
+      this.db.prepare(`
+        UPDATE youtube_taxonomy_runs SET status='retired'
+        WHERE status IN ('candidate', 'ready', 'blocked')
+      `).run();
+      const versionRow = this.db.prepare(`
+        SELECT COALESCE(MAX(taxonomy_version), 0) + 1 taxonomy_version FROM youtube_topics
+      `).get() as { taxonomy_version: number };
+      const taxonomyVersion = Number(versionRow.taxonomy_version);
+      this.db.prepare(`
+        INSERT INTO youtube_taxonomy_runs(
+          taxonomy_version, definition_version, status, model, prompt_version,
+          created_at, activated_at, reviewed_at, data_start_at, data_end_at,
+          input_videos, category_count, sampling_manifest_json, quality_json
+        ) VALUES (?, ?, 'candidate', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL)
+      `).run(
+        taxonomyVersion,
+        input.definitionVersion,
+        input.model,
+        input.promptVersion,
+        createdAt,
+        input.sample.firstWatchedAt,
+        input.sample.lastWatchedAt,
+        input.sample.eligibleVideos,
+        input.topics.length,
+        JSON.stringify(input.sample),
+      );
+      const insert = this.db.prepare(`
+        INSERT INTO youtube_topics(taxonomy_version, slug, name, description, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const topic of input.topics) {
+        insert.run(taxonomyVersion, topic.slug, topic.name, topic.description, createdAt);
+      }
+      this.db.exec('COMMIT');
+      return this.youtubeTaxonomyRun(taxonomyVersion)!;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   private youtubeMetadataRows(rows: Array<Record<string, unknown>>): YoutubeVideoMetadata[] {
@@ -2204,12 +2527,12 @@ export class Repository {
     }));
   }
 
-  youtubeTopics(): YoutubeTopic[] {
+  youtubeTopics(taxonomyVersion?: number): YoutubeTopic[] {
     const rows = this.db.prepare(`
       SELECT id, taxonomy_version, slug, name, description FROM youtube_topics
-      WHERE taxonomy_version=(SELECT MAX(taxonomy_version) FROM youtube_topics)
+      WHERE taxonomy_version=COALESCE(?, ${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL})
       ORDER BY id
-    `).all() as Array<Record<string, unknown>>;
+    `).all(taxonomyVersion ?? null) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: Number(row.id), version: Number(row.taxonomy_version), slug: String(row.slug),
       name: String(row.name), description: String(row.description),
@@ -2217,6 +2540,10 @@ export class Repository {
   }
 
   replaceYoutubeTaxonomy(topics: Array<Omit<YoutubeTopic, 'id'>>, createdAt = new Date().toISOString()): YoutubeTopic[] {
+    if (!topics.length || new Set(topics.map((topic) => topic.version)).size !== 1) {
+      throw new Error('Legacy taxonomy replacement requires one non-empty version');
+    }
+    const taxonomyVersion = topics[0].version;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const statement = this.db.prepare(`
@@ -2224,12 +2551,25 @@ export class Repository {
         VALUES (?, ?, ?, ?, ?)
       `);
       for (const topic of topics) statement.run(topic.version, topic.slug, topic.name, topic.description, createdAt);
+      this.db.prepare(`UPDATE youtube_taxonomy_runs SET status='retired' WHERE status='active'`).run();
+      this.db.prepare(`
+        INSERT INTO youtube_taxonomy_runs(
+          taxonomy_version, definition_version, status, model, prompt_version,
+          created_at, activated_at, reviewed_at, data_start_at, data_end_at,
+          input_videos, category_count, sampling_manifest_json, quality_json
+        ) VALUES (?, 'personal-generated-v1', 'active', 'unknown', 'youtube-topics-v1',
+          ?, ?, NULL,
+          (SELECT MIN(watched_at) FROM youtube_watch_events WHERE activity_type='video'),
+          (SELECT MAX(watched_at) FROM youtube_watch_events WHERE activity_type='video'),
+          (SELECT COUNT(*) FROM youtube_videos WHERE metadata_fetched_at IS NOT NULL
+            AND availability='available'), ?, NULL, NULL)
+      `).run(taxonomyVersion, createdAt, createdAt, topics.length);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
-    return this.youtubeTopics();
+    return this.youtubeTopics(taxonomyVersion);
   }
 
   saveYoutubeVideoTopics(
@@ -2240,9 +2580,20 @@ export class Repository {
     metadataHash: string,
     classifiedAt = new Date().toISOString(),
   ): void {
+    if (!assignments.length) throw new Error('At least one topic assignment is required');
+    const versions = this.db.prepare(`
+      SELECT DISTINCT taxonomy_version FROM youtube_topics
+      WHERE id IN (${assignments.map(() => '?').join(',')})
+    `).all(...assignments.map((assignment) => assignment.topicId)) as Array<{ taxonomy_version: number }>;
+    if (versions.length !== 1) throw new Error('Topic assignments must belong to one taxonomy version');
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('DELETE FROM youtube_video_topics WHERE video_id=?').run(videoId);
+      this.db.prepare(`
+        DELETE FROM youtube_video_topics
+        WHERE video_id=? AND topic_id IN (
+          SELECT id FROM youtube_topics WHERE taxonomy_version=?
+        )
+      `).run(videoId, versions[0].taxonomy_version);
       const statement = this.db.prepare(`
         INSERT INTO youtube_video_topics(
           video_id, topic_id, rank, confidence, model, prompt_version, metadata_hash, classified_at
@@ -2256,6 +2607,291 @@ export class Repository {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  savePersonalYoutubeVideoTopic(
+    run: PersonalTaxonomyRun,
+    video: YoutubeVideoMetadata,
+    assignment: PersonalClassificationDecision,
+    classifiedAt = new Date().toISOString(),
+  ): void {
+    if (run.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION
+      || !['candidate', 'active'].includes(run.status)) {
+      throw new Error('Personal taxonomy run is not open for classification');
+    }
+    const topic = this.db.prepare(`
+      SELECT id FROM youtube_topics WHERE taxonomy_version=? AND slug=?
+    `).get(run.taxonomyVersion, assignment.slug) as { id: number } | undefined;
+    if (!topic) throw new Error('Personal taxonomy assignment does not belong to its run');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(`
+        DELETE FROM youtube_video_topics
+        WHERE video_id=? AND topic_id IN (
+          SELECT id FROM youtube_topics WHERE taxonomy_version=?
+        )
+      `).run(video.videoId, run.taxonomyVersion);
+      this.db.prepare(`
+        INSERT INTO youtube_video_topics(
+          video_id, topic_id, rank, confidence, model, prompt_version,
+          metadata_hash, classified_at, decision, alternative_slug,
+          alternative_confidence, evidence_json
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        video.videoId,
+        topic.id,
+        assignment.confidence,
+        run.model,
+        run.promptVersion,
+        video.metadataHash,
+        classifiedAt,
+        assignment.decision,
+        assignment.alternativeSlug,
+        assignment.alternativeConfidence,
+        JSON.stringify(assignment.evidence),
+      );
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  refreshPersonalTaxonomyRunQuality(
+    taxonomyVersion: number,
+  ): PersonalTaxonomyRun {
+    const run = this.youtubeTaxonomyRun(taxonomyVersion);
+    if (!run || run.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION) {
+      throw new Error('Unknown personal taxonomy v2 run');
+    }
+    const totals = this.db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM youtube_videos v2
+          WHERE metadata_fetched_at IS NOT NULL AND availability='available'
+            AND EXISTS (SELECT 1 FROM youtube_watch_events w2
+              WHERE w2.video_id=v2.video_id AND w2.activity_type='video')) total,
+        COUNT(DISTINCT CASE WHEN vt.metadata_hash=v.metadata_hash
+          AND vt.model=? AND vt.prompt_version=? THEN v.video_id END) processed,
+        COUNT(DISTINCT CASE WHEN vt.metadata_hash=v.metadata_hash
+          AND vt.model=? AND vt.prompt_version=? AND vt.decision='accepted'
+          AND t.slug<>'unknown' THEN v.video_id END) accepted,
+        COUNT(DISTINCT CASE WHEN vt.metadata_hash=v.metadata_hash
+          AND vt.model=? AND vt.prompt_version=? AND vt.decision='unknown'
+          THEN v.video_id END) unknown,
+        COUNT(DISTINCT CASE WHEN vt.metadata_hash=v.metadata_hash
+          AND vt.model=? AND vt.prompt_version=? AND vt.decision='low-confidence'
+          THEN v.video_id END) low_confidence,
+        COUNT(DISTINCT CASE WHEN vt.metadata_hash=v.metadata_hash
+          AND vt.model=? AND vt.prompt_version=? AND vt.decision='accepted'
+          AND vt.alternative_confidence IS NOT NULL
+          AND vt.confidence-vt.alternative_confidence<0.15 THEN v.video_id END) ambiguous,
+        COALESCE(SUM(CASE WHEN vt.metadata_hash=v.metadata_hash
+          AND vt.model=? AND vt.prompt_version=? AND vt.decision='accepted'
+          AND t.slug<>'unknown' THEN vt.confidence ELSE 0 END), 0) accepted_confidence_total,
+        MIN(w.first_watched_at) data_start_at,
+        MAX(w.last_watched_at) data_end_at
+      FROM youtube_topics t
+      LEFT JOIN youtube_video_topics vt ON vt.topic_id=t.id
+      LEFT JOIN youtube_videos v ON v.video_id=vt.video_id
+      LEFT JOIN (
+        SELECT video_id, MIN(watched_at) first_watched_at, MAX(watched_at) last_watched_at
+        FROM youtube_watch_events WHERE activity_type='video' GROUP BY video_id
+      ) w ON w.video_id=v.video_id
+      WHERE t.taxonomy_version=?
+    `).get(
+      run.model, run.promptVersion,
+      run.model, run.promptVersion,
+      run.model, run.promptVersion,
+      run.model, run.promptVersion,
+      run.model, run.promptVersion,
+      run.model, run.promptVersion,
+      taxonomyVersion,
+    ) as Record<string, unknown>;
+    const quality = assessPersonalTaxonomyQuality({
+      total: Number(totals.total),
+      processed: Number(totals.processed),
+      accepted: Number(totals.accepted),
+      unknown: Number(totals.unknown) + Number(totals.low_confidence),
+      lowConfidence: Number(totals.low_confidence),
+      ambiguous: Number(totals.ambiguous),
+      acceptedConfidenceTotal: Number(totals.accepted_confidence_total),
+    });
+    const status = run.status !== 'candidate' ? run.status
+      : quality.passed && quality.processedCoverage >= PERSONAL_TAXONOMY_RUN_COVERAGE_MIN
+        ? 'ready'
+        : quality.processedCoverage >= 1 ? 'blocked' : 'candidate';
+    this.db.prepare(`
+      UPDATE youtube_taxonomy_runs
+      SET status=?, input_videos=?, data_start_at=?, data_end_at=?, quality_json=?
+      WHERE taxonomy_version=?
+    `).run(
+      status,
+      Number(totals.total),
+      totals.data_start_at === null ? null : String(totals.data_start_at),
+      totals.data_end_at === null ? null : String(totals.data_end_at),
+      JSON.stringify(quality),
+      taxonomyVersion,
+    );
+    return this.youtubeTaxonomyRun(taxonomyVersion)!;
+  }
+
+  activatePersonalTaxonomy(
+    taxonomyVersion: number,
+    reviewedAt = new Date().toISOString(),
+  ): PersonalTaxonomyRun {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare(`
+        SELECT * FROM youtube_taxonomy_runs WHERE taxonomy_version=?
+      `).get(taxonomyVersion) as Record<string, unknown> | undefined;
+      if (!row) throw new Error('Unknown personal taxonomy run');
+      const target = personalTaxonomyRunRow(row);
+      const readyCandidate = target.status === 'ready' && target.quality?.passed === true;
+      const priorActive = target.status === 'retired' && target.activatedAt !== null;
+      if (!readyCandidate && !priorActive && target.status !== 'active') {
+        throw new Error('Personal taxonomy run has not passed activation gates');
+      }
+      if (target.status !== 'active') {
+        const current = this.db.prepare(`
+          SELECT taxonomy_version FROM youtube_taxonomy_runs WHERE status='active'
+        `).get() as { taxonomy_version: number } | undefined;
+        this.db.prepare(`UPDATE youtube_taxonomy_runs SET status='retired' WHERE status='active'`).run();
+        this.db.prepare(`
+          UPDATE youtube_taxonomy_runs
+          SET status='active', reviewed_at=?, activated_at=COALESCE(activated_at, ?)
+          WHERE taxonomy_version=?
+        `).run(reviewedAt, reviewedAt, taxonomyVersion);
+        this.db.prepare(`
+          INSERT INTO youtube_taxonomy_activations(from_version, to_version, action, changed_at)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          current?.taxonomy_version ?? null,
+          taxonomyVersion,
+          priorActive ? 'rollback' : 'activate',
+          reviewedAt,
+        );
+      }
+      this.db.exec('COMMIT');
+      return this.youtubeTaxonomyRun(taxonomyVersion)!;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  youtubeTaxonomyActivations(): Array<{
+    fromVersion: number | null;
+    toVersion: number;
+    action: 'activate' | 'rollback';
+    changedAt: string;
+  }> {
+    const rows = this.db.prepare(`
+      SELECT from_version, to_version, action, changed_at
+      FROM youtube_taxonomy_activations ORDER BY id DESC
+    `).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      fromVersion: row.from_version === null ? null : Number(row.from_version),
+      toVersion: Number(row.to_version),
+      action: row.action as 'activate' | 'rollback',
+      changedAt: String(row.changed_at),
+    }));
+  }
+
+  youtubePersonalTaxonomyEvidence(
+    taxonomyVersion: number,
+    perTopic = 2,
+  ): PersonalTaxonomyEvidenceRow[] {
+    const safeLimit = Math.max(1, Math.min(5, Math.floor(perTopic)));
+    const rows = this.db.prepare(`
+      WITH ranked AS (
+        SELECT t.slug topic_slug, t.name topic_name, v.video_id, v.title,
+          COALESCE(v.channel_title, '') channel_title, vt.confidence, vt.evidence_json,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.id ORDER BY vt.confidence DESC, v.video_id
+          ) evidence_rank
+        FROM youtube_topics t
+        JOIN youtube_video_topics vt ON vt.topic_id=t.id AND vt.rank=1
+          AND vt.decision='accepted' AND vt.evidence_json<>'[]'
+        JOIN youtube_videos v ON v.video_id=vt.video_id AND v.metadata_hash=vt.metadata_hash
+        WHERE t.taxonomy_version=? AND t.slug NOT IN ('unknown', 'other')
+      )
+      SELECT * FROM ranked WHERE evidence_rank<=?
+      ORDER BY topic_name, evidence_rank
+    `).all(taxonomyVersion, safeLimit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      topicSlug: String(row.topic_slug),
+      topicName: String(row.topic_name),
+      videoId: String(row.video_id),
+      title: String(row.title),
+      channelTitle: String(row.channel_title),
+      confidence: Number(row.confidence),
+      evidence: JSON.parse(String(row.evidence_json)) as PersonalTaxonomyEvidenceRow['evidence'],
+    }));
+  }
+
+  youtubePersonalTaxonomyDistribution(
+    taxonomyVersion: number,
+    range: YoutubeRange = 'all',
+    now = new Date(),
+  ): PersonalTaxonomyDistribution {
+    this.ensureEstimatedEvents();
+    const cutoff = youtubeCutoff(range, now);
+    const where = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
+    const params = cutoff ? [taxonomyVersion, cutoff] : [taxonomyVersion];
+    const totals = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW},
+      selected_topics AS (
+        SELECT vt.*, t.slug, t.name
+        FROM youtube_video_topics vt
+        JOIN youtube_topics t ON t.id=vt.topic_id
+        WHERE t.taxonomy_version=? AND vt.rank=1
+      )
+      SELECT COALESCE(SUM(e.estimated_watch_seconds), 0) total_watch_seconds,
+        COALESCE(SUM(CASE WHEN selected.decision='accepted' AND selected.slug<>'unknown'
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) effective_watch_seconds,
+        COALESCE(SUM(CASE WHEN selected.decision IN ('unknown', 'low-confidence')
+          OR selected.slug='unknown' THEN e.estimated_watch_seconds ELSE 0 END), 0) unknown_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN selected_topics selected ON selected.video_id=v.video_id
+        AND selected.metadata_hash=v.metadata_hash
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const topicRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW},
+      selected_topics AS (
+        SELECT vt.*, t.slug, t.name
+        FROM youtube_video_topics vt
+        JOIN youtube_topics t ON t.id=vt.topic_id
+        WHERE t.taxonomy_version=? AND vt.rank=1
+      )
+      SELECT selected.slug, selected.name,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) watch_seconds
+      FROM estimated_events e
+      JOIN youtube_videos v ON v.video_id=e.video_id
+      JOIN selected_topics selected ON selected.video_id=v.video_id
+        AND selected.metadata_hash=v.metadata_hash AND selected.decision='accepted'
+        AND selected.slug<>'unknown'
+      ${where}
+      GROUP BY selected.slug ORDER BY watch_seconds DESC, selected.name
+    `).all(...params) as Array<Record<string, unknown>>;
+    const totalWatchSeconds = Number(totals.total_watch_seconds);
+    const effectiveWatchSeconds = Number(totals.effective_watch_seconds);
+    const unknownWatchSeconds = Number(totals.unknown_watch_seconds);
+    return {
+      taxonomyVersion,
+      totalWatchSeconds,
+      effectiveWatchSeconds,
+      unknownWatchSeconds,
+      effectiveCoverage: totalWatchSeconds ? effectiveWatchSeconds / totalWatchSeconds : 0,
+      unknownShare: totalWatchSeconds ? unknownWatchSeconds / totalWatchSeconds : 0,
+      topics: topicRows.map((row) => ({
+        slug: String(row.slug),
+        name: String(row.name),
+        watchSeconds: Number(row.watch_seconds),
+        share: effectiveWatchSeconds ? Number(row.watch_seconds) / effectiveWatchSeconds : 0,
+      })),
+    };
   }
 
   createYoutubeOAuthState(state: string, expiresAt: string): void {

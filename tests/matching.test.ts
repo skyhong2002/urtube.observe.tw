@@ -238,7 +238,16 @@ test('matching schema migration upgrades a version-9 archive without losing data
     seedVideo(initial, 'MIGRATION01', 'Migration fixture', 'Fixture');
     initial.close();
     const old = new DatabaseSync(path);
-    old.exec('DROP TABLE youtube_video_matching_topics; PRAGMA user_version = 9;');
+    old.exec(`
+      DROP TABLE youtube_taxonomy_activations;
+      DROP TABLE youtube_taxonomy_runs;
+      ALTER TABLE youtube_video_topics DROP COLUMN evidence_json;
+      ALTER TABLE youtube_video_topics DROP COLUMN alternative_confidence;
+      ALTER TABLE youtube_video_topics DROP COLUMN alternative_slug;
+      ALTER TABLE youtube_video_topics DROP COLUMN decision;
+      DROP TABLE youtube_video_matching_topics;
+      PRAGMA user_version = 9;
+    `);
     old.close();
 
     const upgraded = new Repository(path);

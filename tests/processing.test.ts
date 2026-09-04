@@ -8,6 +8,12 @@ import { accountPage } from '../src/output/onboarding.js';
 import { describeYoutubeProcessing, type YoutubeProcessingCounts } from '../src/youtube/processing.js';
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
+import {
+  PERSONAL_TAXONOMY_DEFINITION_VERSION,
+  PERSONAL_TAXONOMY_PROMPT_VERSION,
+  PERSONAL_TOPICS,
+  type PersonalTaxonomyRun,
+} from '../src/youtube/personal-taxonomy.js';
 import { runYoutubeWorkerCycle, youtubeWorkPending, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 import { UserRegistry } from '../src/users.js';
 import type { YoutubeVideoMetadata } from '../src/youtube/types.js';
@@ -46,6 +52,21 @@ function videoMetadata(videoId: string, availability: 'available' | 'unavailable
   };
 }
 
+function createPersonalRun(repository: Repository, inputVideos: number): PersonalTaxonomyRun {
+  return repository.createPersonalTaxonomyRun({
+    definitionVersion: PERSONAL_TAXONOMY_DEFINITION_VERSION,
+    model: 'fixture',
+    promptVersion: PERSONAL_TAXONOMY_PROMPT_VERSION,
+    topics: PERSONAL_TOPICS.map(({ slug, name, description }) => ({ slug, name, description })),
+    sample: {
+      algorithmVersion: 'fixture', eligibleVideos: inputVideos, sampledVideos: inputVideos,
+      firstWatchedAt: null, lastWatchedAt: null, periods: [], channels: 0,
+      maxVideosPerChannel: inputVideos, frequencyBuckets: { once: inputVideos, repeat: 0, frequent: 0 },
+      videoIds: [],
+    },
+  });
+}
+
 test('processing status follows the worker through metadata and topics', () => {
   const repository = new Repository(':memory:');
   try {
@@ -70,6 +91,7 @@ test('processing status follows the worker through metadata and topics', () => {
     repository.upsertYoutubeVideoMetadata([
       videoMetadata('video-one'), videoMetadata('video-two', 'unavailable'),
     ]);
+    const run = createPersonalRun(repository, 1);
     const enriched = repository.youtubeProcessingCounts();
     assert.equal(enriched.videosPendingMetadata, 0);
     assert.equal(enriched.channelsPendingMetadata, 1);
@@ -81,11 +103,10 @@ test('processing status follows the worker through metadata and topics', () => {
     assert.equal(afterMetadata.pending, 2);
 
     repository.upsertYoutubeChannelMetadata([{ channelId: 'channel-one', name: 'Channel One', thumbnailUrl: '' }]);
-    repository.replaceYoutubeTaxonomy([...Array(12)].map((_, index) => ({
-      version: 1, slug: `topic-${index}`, name: `Topic ${index}`, description: `About ${index}`,
-    })));
-    const topic = repository.youtubeTopics()[0]!;
-    repository.saveYoutubeVideoTopics('video-one', [{ topicId: topic.id, rank: 1, confidence: 0.9 }], 'test', 'v1', 'video-one-v1');
+    repository.savePersonalYoutubeVideoTopic(run, videoMetadata('video-one'), {
+      slug: 'unknown', confidence: 0.4, alternativeSlug: null,
+      alternativeConfidence: null, evidence: [], decision: 'low-confidence',
+    });
     const settled = describeYoutubeProcessing(repository.youtubeProcessingCounts(), BOTH);
     assert.equal(settled.stage, 'done');
     assert.equal(settled.pending, 0);
@@ -103,9 +124,7 @@ test('processing notice counts fall across catch-up cycles and disappear when se
     repository.ingestYoutubeArchive(parseYoutubeArchive(archiveJson([
       'video-00001', 'video-00002', 'video-00003', 'video-00004', 'video-00005',
     ]), SECRET, 'takeout'));
-    const [topic] = repository.replaceYoutubeTaxonomy([{
-      version: 1, slug: 'general', name: 'General', description: 'Anonymous fixture topic',
-    }]);
+    const run = createPersonalRun(repository, 5);
     const steps: YoutubeWorkerSteps = {
       portability: async () => 'idle',
       metadata: async (archive) => {
@@ -122,15 +141,12 @@ test('processing notice counts fall across catch-up cycles and disappear when se
       },
       matchingClassification: async (archive) => classifyYoutubeVideosForMatching(archive, 2),
       classification: async (archive) => {
-        const videos = archive.youtubeVideosForClassification(2);
+        const videos = archive.youtubeVideosForPersonalClassification(run, 2);
         for (const video of videos) {
-          archive.saveYoutubeVideoTopics(
-            video.videoId,
-            [{ topicId: topic.id, rank: 1, confidence: 0.9 }],
-            'fixture',
-            'v1',
-            video.metadataHash,
-          );
+          archive.savePersonalYoutubeVideoTopic(run, video, {
+            slug: 'unknown', confidence: 0.4, alternativeSlug: null,
+            alternativeConfidence: null, evidence: [], decision: 'low-confidence',
+          });
         }
         return videos.length;
       },
