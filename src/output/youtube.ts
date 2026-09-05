@@ -10,7 +10,7 @@ import {
   PERSONAL_TOPICS,
 } from '../youtube/personal-taxonomy.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
+import { duration, hours, html, shell, timeAgo, trustSignals, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
 import { topicTrendSection, topicTrendStyles } from './topic-trend.js';
 
@@ -772,6 +772,8 @@ export interface YoutubeDashboardOptions {
   processingHtml?: string;
   // Insight-only content computed outside the dashboard aggregate cache.
   insightsHtml?: string;
+  // Public examples must not imply that their current dashboard is private.
+  dashboardPrivate?: boolean;
 }
 
 export function youtubeDashboardPage(
@@ -917,8 +919,11 @@ export function youtubeDashboardPage(
     + distribution + taxonomy;
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
+  const insightTrust = page === 'insights' && options.dashboardPrivate
+    ? trustSignals([t.trustPrivateDefault], t.trustSignalsLabel)
+    : '';
   const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview
-    : page === 'insights' ? insights
+    : page === 'insights' ? insightTrust + insights
       : page === 'history' ? history : recap);
   return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + content,
     options.nav ?? [], '', lang, basePath);

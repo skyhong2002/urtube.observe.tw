@@ -360,6 +360,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       insightsHtml: crystalHtml + leaningsHtml,
       history,
       showRecent,
+      dashboardPrivate: !user.dashboardPublic,
       shortFormVariant,
     }));
   }

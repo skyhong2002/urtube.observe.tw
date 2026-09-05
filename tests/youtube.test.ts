@@ -389,8 +389,10 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(overviewPage, /\.yt-channels,\.yt-top-videos,\.yt-recent\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
     assert.doesNotMatch(overviewPage, /data-rhythm-panel=/);
     const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', profilePath: '/fixture', page: 'insights',
+      lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: true,
     });
+    assert.match(insightsPage, /預設私密/);
+    assert.match(insightsPage, /aria-label="信任與資料界線"/);
     assert.match(insightsPage, /data-rhythm-panel="watches"/);
     assert.match(insightsPage, /data-rhythm-panel="estimatedWatchSeconds"/);
     assert.match(insightsPage, /data-rhythm-metric="watches"/);
@@ -400,6 +402,10 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(insightsPage, /yt-short-segment/);
     assert.match(insightsPage, /yt-regular-segment/);
     assert.doesNotMatch(insightsPage, /yt-short-line-chart/);
+    const publicInsightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: false,
+    });
+    assert.doesNotMatch(publicInsightsPage, /預設私密/);
     const partialRhythmPage = youtubeDashboardPage('Fixture', {
       ...dashboard, rhythmCoverage: { exactWatches: 2, dateOnlyWatches: 1 },
     }, 'duration', { lang: 'zh', profilePath: '/fixture', page: 'insights' });
