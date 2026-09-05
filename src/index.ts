@@ -15,6 +15,7 @@ import { buildExtensionZip, extensionDownloadName, extensionVersion } from './ex
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import { matchesPage, matchingCandidatePage } from './output/matches.js';
+import { channelPreview } from './output/channel-preview.js';
 import {
   YOUTUBE_CHANNEL_ID_PATTERN,
   channelPage,
@@ -862,10 +863,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/channel/:channelId', async (c) => {
     const channelId = c.req.param('channelId');
     if (!YOUTUBE_CHANNEL_ID_PATTERN.test(channelId)) return notFoundPage(c);
-    let me = sessionUser(c);
-    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
+    const preview = c.req.query('preview') === '1';
     c.header('Cache-Control', 'private, no-store');
     c.header('X-Robots-Tag', 'noindex');
+    let me = sessionUser(c);
+    if (!me && preview) return c.text('Sign in required', 401);
+    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
     const range = channelPageRange(c.req.query('range'));
     const sort = channelPageSort(c.req.query('sort'));
     const repository = registry.repositoryFor(me);
@@ -882,6 +885,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       // The external request may outlive a sign-out or opt-out. Recheck before
       // reading or rendering anyone's private aggregates.
       me = sessionUser(c);
+      if (!me && preview) return c.text('Sign in required', 401);
       if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
       if (fresh) {
         metadata = { ...fresh, name: fresh.name || metadata.name, thumbnailUrl: fresh.thumbnailUrl || metadata.thumbnailUrl };
@@ -928,6 +932,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     }
     // Nobody who can be shown has ever seen this channel: nothing to render.
     if (!channel) return notFoundPage(c);
+    if (preview) {
+      c.header('X-Urtube-Fragment', 'channel-preview');
+      return c.html(channelPreview({ channel, range, sort, mine, community }, langOf(c)));
+    }
     return c.html(channelPage(
       { handle: me.handle, displayName: me.displayName },
       { channel, range, sort, mine, community },

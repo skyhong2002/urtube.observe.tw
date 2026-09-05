@@ -143,9 +143,12 @@ test('the channel page shows your history and reciprocal member rankings', async
     registry.createMatchRequest(alice, registry.issueMatchActionToken(alice, bob.id, ['Music']));
     const request = registry.matchingInboxFor(bob).incoming[0]!;
     registry.respondToMatchRequest(bob, request.requestToken, 'accept');
-    // Channel names on the comparison page now open the channel page.
+    // Channel links progressively enhance to a drawer while retaining native links.
     const compare = await (await app.request('/alice-ch/compare/bob-ch', { headers: { cookie: aliceCookie } })).text();
     assert.match(compare, new RegExp(`href="/channel/${CHANNEL_A}"`));
+    const comparisonHtml = load(compare);
+    assert.equal(comparisonHtml(`a[href="/channel/${CHANNEL_A}"]:not([aria-hidden])`).first().attr('aria-haspopup'), 'dialog');
+    assert.equal(comparisonHtml('dialog.cp-drawer').length, 1);
     assert.equal(page.headers.get('cache-control'), 'private, no-store');
     registry.setMatchingPreferences(bob.handle, false, 'topics_and_channel');
     const after = await (await app.request(`/channel/${CHANNEL_A}`, { headers: { cookie: aliceCookie } })).text();
