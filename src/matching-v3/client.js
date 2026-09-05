@@ -73,7 +73,7 @@ function renderDetail() {
   };
   actions.append(edit, remove); top.append(actions); $('detail').append(top);
   const chips = element('div', undefined, 'chips'); topic.genres.forEach(g => chips.append(element('span', g, 'chip'))); $('detail').append(chips);
-  $('detail').append(element('p', '依各類別的核心興趣分布比較，完整結果優先呈現。', 'muted'));
+  $('detail').append(element('p', '依整體合拍度排序，探索共同興趣與頻道。', 'muted'));
   const match = element('button', '開始配對', 'primary');
   const result = element('div');
   match.onclick = async () => {
@@ -84,11 +84,23 @@ function renderDetail() {
       result.replaceChildren();
       if (!data.candidates.length) { result.append(element('p', '還沒有同意參與這些類別、且已完成輪廓處理的使用者。', 'empty')); return; }
       const cards = element('div', undefined, 'mt-grid');
-      data.candidates.forEach(candidate => {
+      const rankedCards = data.candidates.flatMap(candidate => {
         // HTML comes from the same escaped server renderer as the member directory.
         const template = document.createElement('template');
         template.innerHTML = candidate.memberHtml || '';
-        if (template.content.querySelector('.mt-card')) cards.append(template.content);
+        const card = template.content.querySelector('.mt-card');
+        return card ? [card] : [];
+      });
+      const compatibility = card => {
+        const score = Number(card.dataset.compatibility ?? -1);
+        return Number.isFinite(score) ? score : -1;
+      };
+      rankedCards.sort((a, b) => compatibility(b) - compatibility(a));
+      rankedCards.forEach((card, index) => {
+        if (index < 3 && compatibility(card) > 70) {
+          card.querySelector('.mt-person-link > div')?.append(element('span', '絕佳拍檔', 'mt-partner'));
+        }
+        cards.append(card);
       }); result.append(cards);
     } catch (err) { if (number === requestNumber) result.textContent = err.message; }
     finally { match.disabled = false; }

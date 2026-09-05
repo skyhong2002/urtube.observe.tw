@@ -13,6 +13,7 @@ import {
 import { messages, type Lang, type Messages } from './i18n.js';
 import { duration, hours, html, shell, timeAgo, trustSignals, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
+import { v3ProcessingStyles } from './v3-processing.js';
 import { buildTopicTrendModel, topicTrendSection, topicTrendStyles } from './topic-trend.js';
 
 function compact(value: number): string {
@@ -517,7 +518,7 @@ const dashboardStyles = `${rhythmClockStyles}
   .yt-short-heat-year{align-self:center;color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums}.yt-short-heat-cell,.yt-short-heat-empty{align-items:baseline;aspect-ratio:1.45;border-radius:6px;display:flex;justify-content:center;place-self:stretch}.yt-short-heat-cell{background:rgba(230,103,103,var(--heat));color:#fff;padding-top:9px;text-shadow:0 1px 2px rgba(0,0,0,.35)}.yt-short-heat-cell strong{font-size:12px}.yt-short-heat-cell small{font-size:8px}.yt-short-heat-empty{background:var(--raised);opacity:.35}
   .yt-short-heat-scale{align-items:center;color:var(--muted);display:flex;font-size:9px;gap:8px;justify-content:flex-end;margin-top:8px}.yt-short-heat-scale i{background:linear-gradient(90deg,rgba(230,103,103,.12),rgba(230,103,103,.95));border-radius:999px;height:7px;width:110px}
 
-  .yt-overview-dynamics{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.yt-overview-dynamics>.section{margin-top:18px;min-width:0}.yt-overview-dynamics .section-head{align-items:flex-start;flex-direction:column;gap:4px}.yt-chase-note{color:var(--muted);font-size:10px;margin:-6px 0 12px;min-height:16px}.yt-chase-controls :disabled{cursor:default;opacity:.45}.yt-topic-details{margin:18px 0;color:var(--muted);font-size:12px}.yt-topic-details>summary{cursor:pointer}.yt-topic-details>.section{color:var(--ink)}
+  .yt-overview-dynamics{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.yt-overview-dynamics.yt-channel-dynamics{grid-template-columns:minmax(0,1fr)}.yt-overview-dynamics>.section{margin-top:18px;min-width:0}.yt-overview-dynamics .section-head{align-items:flex-start;flex-direction:column;gap:4px}.yt-chase-note{color:var(--muted);font-size:10px;margin:-6px 0 12px;min-height:16px}.yt-chase-controls :disabled{cursor:default;opacity:.45}.yt-topic-details{margin:18px 0;color:var(--muted);font-size:12px}.yt-topic-details>summary{cursor:pointer}.yt-topic-details>.section{color:var(--ink)}
   @media(max-width:800px){.yt-overview-dynamics{grid-template-columns:1fr}}
   @media(prefers-reduced-motion:reduce){.yt-chase-row,.yt-chase-track i{transition:none}}
   .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px 92px minmax(0,1fr);margin-bottom:18px}
@@ -693,8 +694,11 @@ export interface YoutubeDashboardOptions {
   // the worker still owes this archive metadata or topics. Its presence also
   // marks the headline figure as provisional.
   processingHtml?: string;
+  statsProvisional?: boolean;
   // Insight-only content computed outside the dashboard aggregate cache.
   insightsHtml?: string;
+  // Current v3 interests only; legacy taxonomy renderers are not used here.
+  v3Html?: string;
   // Public examples must not imply that their current dashboard is private.
   dashboardPrivate?: boolean;
 }
@@ -724,13 +728,12 @@ export function youtubeDashboardPage(
   const hero = `<section class="card yt-hero">
     <div class="yt-hero-figure">
       <strong>${heroHours === null ? '—' : new Intl.NumberFormat('en').format(heroHours)}<em>${t.heroHoursUnit}</em></strong>
-      <span>${t.heroSub(t.ranges[data.range])}${options.processingHtml ? `<span class="yt-provisional">${t.provisional}</span>` : ''}</span>
+      <span>${t.heroSub(t.ranges[data.range])}${(options.statsProvisional ?? Boolean(options.processingHtml)) ? `<span class="yt-provisional">${t.provisional}</span>` : ''}</span>
     </div>
     <div class="yt-hero-stats">
       <div class="yt-stat"><strong>${compact(data.stats.watchEvents)}</strong><span>${t.statWatchEvents}</span></div>
       <div class="yt-stat"><strong>${compact(data.stats.uniqueVideos)}</strong><span>${t.statVideos}</span></div>
       <div class="yt-stat"><strong>${compact(data.stats.uniqueChannels)}</strong><span>${t.statChannels}</span></div>
-      <div class="yt-stat"><strong>${Math.round(data.stats.topicCoverage * 100)}%</strong><span>${t.statTopicCoverage}</span></div>
       <div class="yt-stat"><strong>${hours(data.stats.actualWatchedSeconds)}</strong><span>${t.statMeasured}</span></div>
     </div>
     <div class="yt-hero-foot">${t.heroFoot(Math.round(data.stats.metadataCoverage * 100), Math.round(data.stats.progressCoverage * 100))}</div>
@@ -829,7 +832,7 @@ export function youtubeDashboardPage(
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
-  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}
     .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin-top:16px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
   </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
@@ -837,12 +840,11 @@ export function youtubeDashboardPage(
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
     <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div>${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
-  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + stableTopics
-    + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
-    + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
+  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '')
+    + `<div class="yt-overview-dynamics yt-channel-dynamics">${channelChase(data, t)}</div>`
     + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
-    + (options.insightsHtml ?? '') + distribution + keywords : '';
+    + (options.v3Html ?? '') + (options.insightsHtml ?? '') + distribution : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   const insightTrust = page === 'insights' && options.dashboardPrivate

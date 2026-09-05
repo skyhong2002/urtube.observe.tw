@@ -106,6 +106,12 @@ export const queryNavigationScript = String.raw`(()=>{
   addEventListener('popstate', () => {
     const previous = new URL(rendered);
     const next = new URL(location.href);
+    // Native fragment navigation also emits popstate. Let the browser finish
+    // scrolling instead of replacing the page and restoring its old position.
+    if (previous.origin === next.origin && previous.pathname === next.pathname
+      && previous.search === next.search) {
+      cancel(); rendered = location.href; return;
+    }
     previous.searchParams.delete('sort'); next.searchParams.delete('sort');
     if (document.querySelector('[data-youtube-sort]') && previous.href === next.href) {
       cancel();

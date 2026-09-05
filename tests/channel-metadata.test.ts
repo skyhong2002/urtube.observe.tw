@@ -190,3 +190,29 @@ test('channel preview returns an escaped, authenticated fragment and rechecks co
     assert.equal((await app.request(path, { headers })).status, 401);
   } finally { registry.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test('dormant channels refresh statistics quarterly while recently watched channels refresh weekly', () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-channel-refresh-'));
+  const path = join(root, 'archive.sqlite');
+  try {
+    const repository = new Repository(path);
+    try {
+      seed(repository, 'refresh'); // watched 2026-09-01
+      repository.upsertYoutubeChannelMetadata([metadata], '2026-09-05T00:00:00Z');
+      const pending = (iso: string) => ({
+        needing: repository.youtubeChannelsNeedingMetadata(10, new Date(iso)),
+        count: repository.youtubeProcessingCounts(new Date(iso)).channelsPendingMetadata,
+      });
+      // Watched 12 days ago: weekly cadence applies.
+      assert.deepEqual(pending('2026-09-13T00:00:00Z'), { needing: [ID], count: 1 });
+      // Watched 49 days ago, statistics 45 days old: dormant, wait for the quarterly refresh.
+      assert.deepEqual(pending('2026-10-20T00:00:00Z'), { needing: [], count: 0 });
+      // Statistics 96 days old: quarterly refresh is due even for dormant channels.
+      assert.deepEqual(pending('2026-12-10T00:00:00Z'), { needing: [ID], count: 1 });
+    } finally {
+      repository.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -168,35 +168,47 @@ test('account page rotates tokens behind a session and logout ends it', async ()
   }
 });
 
-test('personal taxonomy audit is owner-only and activation needs review confirmation', async () => {
+test('retired taxonomy review redirects to processing and refuses mutations without deleting legacy data', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
     const owner = registry.createUser('topic-owner', 'Topic Owner');
     const cookie = `urtube_session=${registry.createSession(owner)}`;
+    const repository = registry.repositoryFor(owner);
+    repository.replaceYoutubeTaxonomy([{ version: 1, slug: 'retained-topic', name: 'Retained topic', description: 'Legacy fixture' }]);
+    const before = {
+      topics: repository.youtubeTopics(),
+      runs: repository.youtubeTaxonomyRuns(),
+      activations: repository.youtubeTaxonomyActivations(),
+    };
     const anonymous = await app.request('/account/taxonomy');
     assert.equal(anonymous.status, 302);
-    const page = await app.request('/account/taxonomy', { headers: { cookie } });
-    assert.equal(page.status, 200);
-    assert.equal(page.headers.get('x-robots-tag'), 'noindex');
-    assert.match(await page.text(), /Personal topic review/);
-
-    const rejected = await app.request('/account/taxonomy/1/activate', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: '',
-    });
-    assert.equal(rejected.status, 400);
-    assert.match(await rejected.text(), /Manual review confirmation is required/);
-
-    const unconfirmedCandidate = await app.request('/account/taxonomy/prepare', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: '',
-    });
-    assert.equal(unconfirmedCandidate.status, 400);
-    assert.match(await unconfirmedCandidate.text(), /Candidate confirmation is required/);
-    assert.equal((await app.request('/account/taxonomy/prepare', { method: 'POST' })).status, 302);
+    for (const [query, location] of [
+      ['', '/account#processing'],
+      ['?lang=zh', '/account?lang=zh#processing'],
+      ['?lang=en', '/account?lang=en#processing'],
+      ['?lang=invalid&next=https://example.test', '/account?lang=en#processing'],
+    ]) {
+      const page = await app.request(`/account/taxonomy${query}`, { headers: { cookie } });
+      assert.equal(page.status, 302);
+      assert.equal(page.headers.get('location'), location);
+    }
+    for (const path of ['/account/taxonomy/prepare', '/account/taxonomy/1/activate']) {
+      const rejected = await app.request(path, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'confirmed=1&reviewed=1',
+      });
+      assert.equal(rejected.status, 410);
+      assert.equal((await app.request(path, { method: 'POST' })).status, 302);
+    }
+    assert.deepEqual({
+      topics: repository.youtubeTopics(),
+      runs: repository.youtubeTaxonomyRuns(),
+      activations: repository.youtubeTaxonomyActivations(),
+    }, before);
+    const account = await app.request('/account', { headers: { cookie } });
+    assert.doesNotMatch(await account.text(), /href="\/account\/taxonomy"/);
   } finally {
     registry.close();
   }

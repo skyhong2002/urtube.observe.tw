@@ -46,8 +46,10 @@ const matchesStyles = `
   .mt-provisional{background:rgba(250,178,25,.1);border:1px solid rgba(250,178,25,.35);border-radius:10px;color:#f5c95e;font-size:12px;margin:0 0 20px;padding:11px 13px}
   .mt-cohort{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin:0 0 20px;padding:20px}.mt-cohort h2{font-size:17px;margin:0 0 7px}.mt-cohort>p{color:var(--ink-2);font-size:12px;margin:0 0 14px;max-width:680px}.mt-cohort-groups{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.mt-cohort-group strong{color:var(--muted);display:block;font-size:9px;letter-spacing:.08em;margin-bottom:7px;text-transform:uppercase}
   .mt-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .mt-card[data-compact-friendship]{position:relative}.mt-card[data-compact-friendship] .mt-person{padding-right:32px}.mt-card[data-compact-friendship="incoming"] .mt-person{padding-right:68px}.mt-friend-tools{position:absolute;right:12px;top:12px}.mt-friend-tools svg{flex:none}.mt-friend-tools form{display:flex;gap:2px;margin:0}.mt-card .mt-friend-tools button{align-items:center;justify-content:center;display:inline-flex;width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}.mt-card .mt-friend-tools button:hover{background:var(--raised);color:var(--ink)}.mt-card .mt-friend-tools button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.mt-card .mt-friend-tools button{width:40px;height:40px;min-height:40px}.mt-card[data-compact-friendship] .mt-person{padding-right:40px}.mt-card[data-compact-friendship="incoming"] .mt-person{padding-right:80px}}
   .mt-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:230px;padding:20px}
   .mt-person{align-items:center;display:flex;gap:12px}.mt-person-link{align-items:center;color:inherit;display:flex;gap:12px;text-decoration:none}.mt-avatar{background:linear-gradient(140deg,#e66767,#9b2b2b);border:2px solid transparent;border-radius:50%;display:block;flex:0 0 54px;height:54px;object-fit:cover;transition:border-color .15s,transform .15s;width:54px}.mt-person-link:hover .mt-avatar,.mt-person-link:focus-visible .mt-avatar{border-color:var(--accent);transform:scale(1.04)}.mt-person h2{font-size:17px;margin:0}
+  .mt-partner{display:inline-block;margin-top:8px;border:1px solid var(--accent);border-radius:999px;padding:4px 10px;color:var(--accent-text);font-size:12px;font-weight:700}
   .mt-percent{color:var(--accent-text);font-size:22px;font-variant-numeric:tabular-nums;font-weight:850;letter-spacing:-.03em}.mt-percent small{color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.02em;margin-left:5px}
   .mt-clues{display:grid;gap:9px;margin:20px 0 16px}.mt-clue-label{color:var(--muted);display:block;font-size:9px;font-weight:700;letter-spacing:.08em;margin-bottom:5px;text-transform:uppercase}.mt-pills{display:flex;flex-wrap:wrap;gap:6px}.mt-pill{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:11px;padding:3px 9px}.mt-channel{color:var(--ink-2);font-size:12px}
   .mt-icebreaker{color:var(--ink-2);font-size:12px;line-height:1.6;margin:auto 0 16px}.mt-actions{align-items:center;display:flex;flex-wrap:wrap;gap:8px}.mt-actions form{display:flex;flex-wrap:wrap;gap:10px;margin:0}.mt-actions a,.mt-actions button,.mt-profile-actions button{align-items:center;border-radius:999px;display:inline-flex;font:inherit;font-size:14px;font-weight:700;justify-content:center;min-height:44px;padding:10px 20px;text-decoration:none}.mt-want{background:var(--accent);border:1px solid var(--accent);color:#fff;cursor:pointer}.mt-secondary-link,.mt-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);cursor:pointer}.mt-state{background:var(--raised);border-radius:999px;color:var(--muted);font-size:10px;font-weight:750;padding:5px 9px}.mt-state.connected{background:rgba(78,190,130,.12);color:#71d9a1}.mt-state.incoming{background:rgba(250,178,25,.12);color:#f5c95e}
@@ -78,7 +80,22 @@ export function friendshipActions(card: ActionableMatchingCandidateCard, viewerH
   }
 }
 
-export function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang): string {
+function friendshipIcons(card: ActionableMatchingCandidateCard, t: Messages): string {
+  const relationship = card.relationship;
+  if (relationship.status === 'none' && !card.actionToken) return '';
+  const common = `<input type="hidden" name="actionToken" value="${html(card.actionToken ?? '')}"><input type="hidden" name="returnTo" value="/matches">`;
+  const request = relationship.status === 'none' ? '' : `<input type="hidden" name="requestToken" value="${html(relationship.requestToken)}">`;
+  const icon = (kind: 'add' | 'remove' | 'accept' | 'decline') => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${kind === 'accept' ? '<path d="m5 12 4 4L19 6"/>' : kind === 'decline' ? '<path d="m6 6 12 12M6 18 18 6"/>' : `<circle cx="9" cy="7" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M17 9h6"/>${kind === 'add' ? '<path d="M20 6v6"/>' : ''}`}</svg>`;
+  const button = (label: string, kind: 'add' | 'remove' | 'accept' | 'decline', value?: string) => `<button type="submit" aria-label="${html(label)}" title="${html(label)}"${value ? ` name="response" value="${value}"` : ''}>${icon(kind)}</button>`;
+  const action = relationship.status === 'none' ? 'request' : relationship.status === 'incoming' ? 'respond' : 'withdraw';
+  const controls = relationship.status === 'none' ? button(t.matchesAddFriend, 'add')
+    : relationship.status === 'incoming' ? button(t.matchesAcceptFriend, 'accept', 'accept') + button(t.matchesDecline, 'decline', 'decline')
+      : relationship.status === 'sent' ? button(`${t.matchesFriendSent} · ${t.matchesWithdraw}`, 'remove')
+        : button(t.matchesDisconnect, 'remove');
+  return `<div class="mt-friend-tools" data-friendship-tools><form method="post" action="/matches/${action}">${common}${request}${controls}</form></div>`;
+}
+
+export function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang, compactFriendship = false): string {
   const t = messages(lang);
   const topics = card.disclosure.topics;
   const prompt = topics.length
@@ -86,15 +103,16 @@ export function candidateCard(card: ActionableMatchingCandidateCard, viewerHandl
     : card.disclosure.channel
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
-  return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${card.topicMatch ? (lang === 'zh' ? '整體合拍度' : 'Overall compatibility') : t.matchesFit}</small></div></div></a></div>
+  const icons = compactFriendship && !card.topicMatch ? friendshipIcons(card, t) : '';
+  return `<article class="mt-card"${icons ? ` data-compact-friendship="${card.relationship.status}"` : ''}${card.topicMatch ? ` data-compatibility="${card.comparisonReady === false || !Number.isFinite(card.matchPercent) ? -1 : card.matchPercent}"` : ''}>
+    ${icons}
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2>${card.topicMatch ? '' : `<div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div>`}</div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
     </div>
-    ${card.topicMatch ? `<div class="mv-topic-score"><strong>${card.topicMatch.score === null ? '—' : `${(card.topicMatch.score * 100).toFixed(1)}%`}</strong> ${lang === 'zh' ? '主題合拍度' : 'Topic compatibility'}<small>${card.topicMatch.score === null ? (lang === 'zh' ? '資料不足' : 'Insufficient data') : card.topicMatch.provisional ? (lang === 'zh' ? '暫定結果' : 'Provisional') : (lang === 'zh' ? '依所選類別計算' : 'Based on selected categories')}</small></div><details class="mv-reasons"><summary>${lang === 'zh' ? '為什麼推薦給你' : 'Why this match'}</summary>${card.topicMatch.detailsVisible ? card.topicMatch.reasons.map(reason => `<p>${html(reason)}</p>`).join('') || `<p>${lang === 'zh' ? '目前沒有足夠的共同興趣可說明。' : 'Not enough shared interests to explain this score.'}</p>` : `<p>${lang === 'zh' ? '成為好友後可查看詳細配對理由。' : 'Become friends to see detailed matching reasons.'}</p>`}</details>` : ''}
-    <p class="mt-icebreaker">${html(prompt)}</p>
-    <div class="mt-actions">${friendshipActions(card, viewerHandle, t, '/matches')}</div>
+    ${card.topicMatch ? (card.targetPublic || card.relationship.status === 'connected' ? `<div class="mt-actions"><a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a></div>` : '') : `<p class="mt-icebreaker">${html(prompt)}</p>
+    <div class="mt-actions">${compactFriendship ? (card.targetPublic || card.relationship.status === 'connected' ? `<a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a>` : '') : friendshipActions(card, viewerHandle, t, '/matches')}</div>`}
   </article>`;
 }
 
@@ -384,7 +402,7 @@ export function matchesPage(
     content = `<section class="mt-empty"><h2>${t.matchesEmptyTitle}</h2><p>${t.matchesEmptyPara}</p><a href="/signup">${t.matchesInvite}</a></section>`;
   } else {
     const { batch } = state;
-    content = `<div class="mt-grid">${batch.cards.map((card) => candidateCard(card, viewer.handle, lang)).join('')}</div>
+    content = `<div class="mt-grid">${batch.cards.map((card) => candidateCard(card, viewer.handle, lang, true)).join('')}</div>
       <nav class="mt-pagination" aria-label="${html(t.matchesPages)}">
         ${batch.hasPrevious ? `<a href="/matches?page=${batch.page - 1}">${t.matchesPrevious}</a>` : ''}
         <span class="mt-page">${t.matchesPage(batch.page)}</span>
