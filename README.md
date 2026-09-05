@@ -1,24 +1,50 @@
 # urtube
 
-A self-hosted, multi-user YouTube attention archive, extracted from
-[Infovore]'s YouTube subsystem. Tracks watch history (Google My
-Activity, YouTube History), measured viewing time (Chrome extension), saved
-progress, metadata, and AI topics — privately, per user.
+**Turn the YouTube history you already own into a private interest map, then
+meet people who share what you are genuinely interested in—without publishing
+your history.**
 
-- Public URL: https://urtube.observe.tw
-- Docs: [MIGRATION_PLAN.md](MIGRATION_PLAN.md) ·
-  [YOUTUBE_BOUNDARY.md](YOUTUBE_BOUNDARY.md) ·
-  [CUTOVER_RUNBOOK.md](CUTOVER_RUNBOOK.md)
+urtube is a self-hosted, multi-user consumer AI product for **Track 02 — AI for
+Everyday Life**. With a person's permission, it imports their YouTube history,
+uses AI to organize public video metadata into reviewable private insights,
+and uses a separate, deterministic 90-day projection for privacy-bounded
+matching.
 
-## Current product flow
+[![urtube — Your YouTube life, remembered](og.png)](https://urtube.observe.tw)
 
-The deployed flow is usable end to end: sign in with Google, provision the
-Chrome extension or import an anonymous Takeout ZIP, follow persisted
-processing states, inspect private insights, confirm matching interests, opt
-in to matching, review bounded candidate cards, mutually consent to a
-deeper comparison, then revoke that consent, export, or delete the archive. Empty,
-insufficient-data, processing, failed, retry, and no-candidate states have
-explicit UI instead of falling through to a misleading result.
+| Try it | Source and evidence |
+| --- | --- |
+| **Live product:** [urtube.observe.tw](https://urtube.observe.tw) | **Public repository:** [skyhong2002/urtube.observe.tw](https://github.com/skyhong2002/urtube.observe.tw) |
+| **No account:** open **Example dashboard** from the top navigation | [License](LICENSE) · [system boundary](YOUTUBE_BOUNDARY.md) · [migration disclosure](MIGRATION_PLAN.md) · [operations](CUTOVER_RUNBOOK.md) |
+
+There is no shared test account. To exercise private import and matching,
+choose **Sign up / sign in** and use your own Google account; new dashboards
+remain private. The shortest path is:
+
+1. Sign in, choose a handle, and import a Google Takeout ZIP or provision the
+   Chrome extension.
+2. Follow the persisted processing status, then open the private interest
+   insights and confirm the matching step.
+3. Open **Matches**, select a candidate, and inspect the side-by-side VS page.
+4. Send **Want to meet**; additional comparison details unlock only after the
+   other person also agrees.
+5. Use **Account** to turn matching off, export the archive, or delete it.
+
+Processing, insufficient-data, failure/retry, and no-candidate states have
+explicit UI instead of being presented as a confident result.
+
+## What is real today
+
+- Google login, resumable onboarding, Chrome capture, Takeout import, and Data
+  Portability ingestion.
+- Persisted metadata/topic processing with retry states and quality gates.
+- Private insights, time-range trends, export, and account deletion.
+- A bounded candidate directory, stable percentage VS comparison, mutual
+  **Want to meet** state, withdrawal, and immediate matching opt-out.
+- Anonymous reference-population comparisons and aggregate recommendations
+  that reveal neither contributors nor their histories.
+
+## Architecture
 
 ```text
 Chrome extension / Takeout / Data Portability
@@ -40,7 +66,39 @@ Chrome extension / Takeout / Data Portability
      daily backup snapshots registry + every user database
 ```
 
-## Privacy model
+Raw history stays in an isolated SQLite database for each user. Only a capped,
+versioned 90-day projection crosses into the shared registry; candidate queries
+never read another person's raw archive. Production runs the app, ingest API,
+worker, and daily backup as separate services behind Caddy.
+
+## Why AI, and where it stops
+
+AI solves the semantic problem: titles, channels, descriptions, and tags are
+too inconsistent for hand-written rules to turn into a useful personal map.
+The model sees **public video metadata only** and produces a versioned private
+taxonomy with evidence, confidence, `Unknown` handling, owner review,
+activation, and rollback.
+
+AI does **not** decide who should meet. Cross-user matching uses a
+source-controlled canonical taxonomy and the reproducible `calibrated-v2`
+formula over bounded 90-day topic/channel vectors. Sensitive categories fail
+closed and never become a viewer identity claim.
+
+## Privacy by default
+
+| Boundary | Guarantee |
+| --- | --- |
+| Private archive | Raw events, searches, videos, progress, and timestamps stay in the user's database. |
+| Model input | Only public video metadata is sent for AI classification—never searches, timestamps, watch counts, or progress. |
+| Candidate discovery | Matching is separate from dashboard visibility and uses only a bounded, versioned projection. |
+| Before mutual consent | The VS page is deliberately limited to rounded scores and a small set of broad comparison clues. |
+| Revocation | Turning matching off removes the account from new queries and withdraws active requests/connections immediately. |
+| Portability | A signed-in user can export their own archive or permanently delete the account and derived matching records. |
+
+The following sections document the implementation and operational details
+behind those guarantees.
+
+## Detailed privacy and matching model
 
 Search queries are AES-256-GCM-encrypted server-side before storage and never
 served. Watch progress feeds aggregates only. Dashboards are private per user
@@ -142,10 +200,34 @@ has equal weight, and an axis stays hidden until at least five consenting
 accounts have comparable data. The result shows rounded group statistics,
 never identities, histories, matching data, or a claim about society.
 
-## Run
+## Technology choices
+
+- **TypeScript + Hono on Node.js 22:** one small HTTP stack shared by the app,
+  ingest API, and worker, with Zod validation at ingest boundaries.
+- **SQLite (`node:sqlite`) per user:** portable ownership and isolation without
+  placing every person's raw archive in one shared database.
+- **OpenAI-compatible inference:** deployment can choose its model endpoint;
+  the governed input contract remains public metadata only.
+- **Docker Compose + Caddy:** repeatable app/worker/backup processes with TLS
+  terminated in front of localhost-bound services.
+- **Plain server-rendered HTML:** the private dashboard and matching flow do
+  not require a client framework or expose an application API token.
+
+Dependencies are pinned in [`package-lock.json`](package-lock.json). See
+[External services and source material](#external-services-and-source-material)
+for data/model provenance and [License](#license) for reuse terms.
+
+## Run locally
+
+Prerequisites: Node.js 22 and npm. Copy [`.env.example`](.env.example), then
+provide the credentials for the integrations you intend to exercise. Startup
+validation reports missing production-required configuration; no real secret
+is committed to this repository.
 
 ```sh
-cp .env.example .env   # fill in tokens
+git clone https://github.com/skyhong2002/urtube.observe.tw.git
+cd urtube.observe.tw
+cp .env.example .env   # fill in integration credentials
 npm ci
 npm run check          # typecheck + tests
 npm start              # dashboard on :3000
@@ -153,10 +235,18 @@ npm run ingest         # ingest API (separate process, same DB)
 npm run worker         # hourly metadata/topics/portability worker
 ```
 
-Production: `docker compose up -d --build` starts app, ingest, worker, and
-daily multi-user backup services (binds 127.0.0.1:18080/18081; front with
-Caddy — see CUTOVER_RUNBOOK.md). Probe `/healthz` for liveness and `/readyz`
-for worker/backup/config/all-user readiness.
+Run the last three commands in separate terminals. For a production-shaped
+local deployment, Docker and Docker Compose are the only additional
+prerequisites:
+
+```sh
+docker compose up -d --build
+```
+
+This starts app, ingest, worker, and daily multi-user backup services (bound
+to `127.0.0.1:18080` and `127.0.0.1:18081`; front them with Caddy as described
+in the [cutover runbook](CUTOVER_RUNBOOK.md)). Probe `/healthz` for liveness
+and `/readyz` for worker, backup, configuration, and all-user readiness.
 
 ## Users
 
