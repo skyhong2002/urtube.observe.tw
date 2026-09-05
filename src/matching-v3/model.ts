@@ -31,6 +31,7 @@ export function settings(env = process.env) {
     embeddingModel: env.MATCHING_V3_EMBEDDING_MODEL || 'gemini-embedding-001',
     dimensions: Math.trunc(number('MATCHING_V3_DIMENSIONS', 768, 128, 3072)),
     task: 'SEMANTIC_SIMILARITY',
+    compactDistance: number('MATCHING_V3_COMPACT_DISTANCE', 0.2, 0.001, 0.999),
     eps: number('MATCHING_V3_EPS', 0.2, 0.001, 1),
     minSamples: Math.trunc(number('MATCHING_V3_MIN_SAMPLES', 5, 1, 1000)),
     minShare: number('MATCHING_V3_MIN_SHARE', 0.05, 0, 1),
@@ -46,8 +47,8 @@ export function settings(env = process.env) {
   };
 }
 export function version(s: Settings) {
-  return digest(['matching-v3.3-gpt-gemini', 'classification-3-openai-text-only', s.classificationCacheNamespace, s.classificationModel,
-    s.backfillVideoLimit, s.embeddingBaseUrl, s.embeddingModel, s.dimensions, s.task, s.eps, s.minSamples, s.minShare, s.similarityFloor]);
+  return digest(['matching-v3.4-compact-medoid-v1', 'classification-3-openai-text-only', s.classificationCacheNamespace, s.classificationModel,
+    s.backfillVideoLimit, s.embeddingBaseUrl, s.embeddingModel, s.dimensions, s.task, s.compactDistance, s.eps, s.minSamples, s.minShare, s.similarityFloor]);
 }
 export interface VideoInput { id: string; title: string; tags: string[]; channelId: string | null; channelTitle: string | null }
 export interface SourceSnapshot { videos: VideoInput[]; complete: boolean; fingerprint: string }
@@ -58,6 +59,8 @@ export interface Classification {
 }
 export interface Cluster {
   centroid: number[];
+  representative?: number[];
+  memberCount?: number;
   mass: number;
   share: number;
   tags: { text: string; count: number; generatedCount: number }[];

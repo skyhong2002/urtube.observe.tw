@@ -20,7 +20,65 @@ def unit_rows(values):
     return matrix / lengths[:, None]
 
 
+def compact_cluster(data):
+    """Disjoint, diameter-bounded groups; compare actual tags, not broad means."""
+    points = sorted(data["points"], key=lambda p: p["text"])
+    if not points:
+        return {"clusters": [], "totalMass": 0, "retainedCoverage": 0}
+    if len(points) > 10000 or len({p["text"] for p in points}) != len(points):
+        raise ValueError("Too many or duplicate tag points")
+    x = unit_rows([p["vector"] for p in points])
+    w = np.asarray([p["count"] for p in points], dtype=float)
+    if not np.isfinite(w).all() or np.any(w < 1) or np.any(w != np.floor(w)):
+        raise ValueError("Invalid counts")
+    radius = float(data.get("compactDistance", .2))
+    minimum = int(data["minSamples"])
+    if not 0 < radius < 1 or not 1 <= minimum <= 1000:
+        raise ValueError("Invalid compact settings")
+    # Blocked similarities avoid an NxN float matrix. Boolean neighborhoods
+    # cost at most 100 MB at the existing 10,000-tag bound.
+    neighbors = np.empty((len(x), len(x)), dtype=bool)
+    for start in range(0, len(x), 256):
+        neighbors[start:start+256] = x[start:start+256] @ x.T >= 1-radius-1e-12
+    active = np.ones(len(x), dtype=bool)
+    groups = []
+    total = float(w.sum())
+    while active.any() and len(groups) < 10:
+        support = neighbors @ (w * active)
+        support[~active] = -1
+        anchor = int(np.argmax(support))
+        if support[anchor] < minimum:
+            break
+        candidates = np.where(active & neighbors[anchor])[0]
+        ordered = sorted(candidates, key=lambda i: (-w[i], points[i]["text"]))
+        members = [anchor]
+        for i in ordered:
+            if i != anchor and neighbors[i, members].all():
+                members.append(i)
+        ids = np.asarray(members)
+        active[ids] = False
+        mass = float(w[ids].sum())
+        if mass < minimum:
+            continue
+        mean = np.average(x[ids], axis=0, weights=w[ids])
+        # Weighted cosine medoid: a real member nearest the weighted mean.
+        representative = int(ids[np.argmax(x[ids] @ mean)])
+        tag_ids = [representative] + [i for i in sorted(ids, key=lambda i: (-w[i], points[i]["text"])) if i != representative]
+        groups.append({"centroid": (mean / np.linalg.norm(mean)).tolist(),
+                       "representative": x[representative].tolist(),
+                       "mass": mass, "memberCount": len(ids),
+                       "tags": [{"text": points[i]["text"], "count": int(w[i]),
+                                 "generatedCount": int(points[i].get("generatedCount", 0))} for i in tag_ids[:5]]})
+    groups.sort(key=lambda g: (-g["mass"], g["tags"][0]["text"]))
+    retained = sum(g["mass"] for g in groups)
+    for g in groups:
+        g["share"] = g["mass"] / retained
+    return {"clusters": groups, "totalMass": total, "retainedCoverage": retained / total}
+
+
 def cluster(data):
+    if data.get("algorithm") == "compact-medoid-v1":
+        return compact_cluster(data)
     points = data["points"]
     if not points:
         return {"clusters": [], "totalMass": 0, "retainedCoverage": 0}
@@ -64,7 +122,7 @@ def compare(data):
         return {"score": 0, "transport": []}
     if len(left) > 10 or len(right) > 10:
         raise ValueError("Maximum ten clusters per genre")
-    a, b = unit_rows([c["centroid"] for c in left]), unit_rows([c["centroid"] for c in right])
+    a, b = unit_rows([c.get("representative", c["centroid"]) for c in left]), unit_rows([c.get("representative", c["centroid"]) for c in right])
     floor = float(data["similarityFloor"])
     if not 0 <= floor < 1:
         raise ValueError("Invalid similarity floor")
@@ -74,7 +132,15 @@ def compare(data):
         raise ValueError("Invalid shares")
     if not math.isclose(float(wa.sum()), 1, abs_tol=1e-6) or not math.isclose(float(wb.sum()), 1, abs_tol=1e-6):
         raise ValueError("Shares must sum to one")
-    n, m = len(left), len(right)
+    real_n, real_m = len(left), len(right)
+    if data.get("algorithm") == "compact-medoid-v1":
+        ca, cb = float(data["leftCoverage"]), float(data["rightCoverage"])
+        if not 0 <= ca <= 1 or not 0 <= cb <= 1:
+            raise ValueError("Invalid coverage")
+        # Missing/noise mass has no similarity, even to other missing mass.
+        wa, wb = np.r_[wa * ca, 1-ca], np.r_[wb * cb, 1-cb]
+        kernel = np.pad(kernel, ((0, 1), (0, 1)))
+    n, m = len(wa), len(wb)
     constraints = np.zeros((n + m, n * m))
     for i in range(n):
         constraints[i, i*m:(i+1)*m] = 1
@@ -86,7 +152,7 @@ def compare(data):
     flow = result.x.reshape(n, m)
     transport = [{"left": i, "right": j, "mass": float(flow[i,j]),
                   "similarity": float(kernel[i,j]), "contribution": float(flow[i,j]*kernel[i,j])}
-                 for i in range(n) for j in range(m) if flow[i,j] > 1e-9]
+                 for i in range(real_n) for j in range(real_m) if flow[i,j] > 1e-9]
     transport.sort(key=lambda t: (-t["contribution"], t["left"], t["right"]))
     return {"score": float(np.clip(np.sum(flow*kernel), 0, 1)), "transport": transport}
 

@@ -313,3 +313,61 @@ HTTP 200，60ms／20ms，各回傳 7 位公開候選（僅為當次量測，不�
 回傳前重新驗證 session／管理員白名單，並排除已刪除帳號、更新已更名帳號；回應仍是 `no-store`。快取只影響監控資料新鮮度，不快取權限判斷。
 
 移除啟動後與每四分鐘對所有已瀏覽帳號、五種範圍進行的同步總覽預熱，保留依請求填入的 revision-aware 快取。首次開啟或快取失效時，該頁統計仍需要同步計算；本次修正消除的是管理監控與推測性預熱反覆阻塞所有網頁的負擔。
+
+## 2026-09-06: compact-medoid-v1 correction
+
+Content clusters now use deterministic, weighted compact neighborhoods. Every
+pair of tags within a cluster must have cosine distance <=
+`MATCHING_V3_COMPACT_DISTANCE` (default 0.2); neighbor chains cannot merge distant
+endpoints. Pick the highest remaining weighted neighborhood, filter candidates
+by complete pairwise compatibility, and retain at most ten disjoint groups with
+at least `MIN_SAMPLES` total distinct-video/tag count. This is a greedy bounded
+method, not DBSCAN or a globally optimal partition. No 5% relative mass cutoff
+is applied. Ties are deterministic by normalized tag text.
+
+Store both the weighted centroid and an actual weighted cosine medoid (the
+member closest to the weighted mean). Compare the medoids, not normalized means
+of heterogeneous tag sets. The first explanation tag is exactly this medoid;
+other displayed tags are members, not a claim that their top-three strings are
+what the solver compares. No AI-generated rationale is used.
+
+OT marginals are cluster shares times the profile's retained coverage. Add a
+zero-similarity unmatched bucket for all remaining mass, including missing
+embeddings in previews. Unknown mass cannot match unknown mass. Thus even a
+single retained group no longer implies 100% of all genre tag weight. A true
+single-interest fully covered profile can legitimately still have 100% weight.
+Channel-type histograms retain their existing comparison behavior.
+
+The profile version changes; classification and embedding cache keys do not.
+Old and new profiles cannot be compared. Workers and both compute services must
+be upgraded before rebuilding profiles. Cache-only previews require no paid
+API calls. Do not silently activate legacy clusters under the new version.
+
+Scores remain uncalibrated evidence scores, not compatibility probabilities.
+In the two-account snapshot (latest 2,000 distinct videos each), default 0.2
+compact clustering changes Streaming 99.1 -> 48.1 and Podcast 98.4 -> 46.2.
+Coverage is respectively 81.3%/73.7% and 85.1%/61.0%. Music coverage remains low
+(42.0%/30.1%, score 16.0), so these results must stay provisional. This is not an
+independent human relevance benchmark, nor proof the underlying genre/tag
+assignments are accurate. Tag-rich videos and generic/promotional tags still
+need a separate relevance/weighting evaluation. A 0.12 trial retained too little
+mass and was rejected as the default. No re-embedding is needed for this fix.
+
+### Production deployment
+
+Use `urtube-deploy` (alias for `sudo -u deck /home/deck/urtube-ops/deploy.sh`)
+against a committed, fetched ref. Do not patch running containers: recreation
+replaces those files. `compose.matching-v3-app.yml` now owns the numeric services
+and matching worker on the production default network. `MATCHING_V3_COMPARE_URL`
+points to a dedicated compare process. Stop the previous local matching worker
+when switching to this stack, keeping the shared data volume intact.
+
+The numeric-service build context uses `${PWD}/services/matching-compute`.
+Run Compose from the selected source checkout (the existing deploy.sh/up.sh
+already does this), even if `--project-directory` points at a separate runtime
+directory. This avoids modifying the host deployment scripts or taking compute
+code from somebody else's runtime checkout. Deploy an explicit commit produced
+from `/home/urtube/urtube.observe.tw`; do not implicitly deploy another main tip.
+Only the production URL https://urtube.observe.tw/matches is the test endpoint.
+The topic card exposes the uncalibrated score as a percentage for debugging;
+it is not a probability or a claim of validated compatibility.

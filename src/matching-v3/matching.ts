@@ -30,10 +30,15 @@ export async function compareProfiles(left: Profile, right: Profile, genres: Gen
     const ca = a.clusters[best.left], cb = b.clusters[best.right];
     const leftTags = ca.tags.slice(0, 3).map(t => t.text), rightTags = cb.tags.slice(0, 3).map(t => t.text);
     const hasGeneratedTags = [...ca.tags, ...cb.tags].some(t => t.generatedCount > 0);
-    const basis = genre === 'channel type' ? '已辨識頻道類型的權重' : '保留核心 tag 的權重';
-    reasons.push({ genre, leftTags, rightTags, leftShare: ca.share, rightShare: cb.share,
+    const compact = Boolean(ca.representative && cb.representative);
+    const leftShare = ca.share * (compact ? a.retainedCoverage : 1);
+    const rightShare = cb.share * (compact ? b.retainedCoverage : 1);
+    const basis = genre === 'channel type' ? '已辨識頻道類型的權重' : compact ? '此類別全部 tag 的權重' : '保留核心 tag 的權重';
+    reasons.push({ genre, leftTags, rightTags, leftShare, rightShare,
       contribution: best.contribution, hasGeneratedTags,
-      text: `${genre}：你的「${leftTags.join('、')}」群占${basis} ${percent(ca.share)}，對方的「${rightTags.join('、')}」群占 ${percent(cb.share)}。這組對應為此類別貢獻 ${(best.contribution * 100).toFixed(1)} 分。${hasGeneratedTags ? '代表 tag 含依影片標題補出的模型標籤。' : ''}`,
+      text: compact
+        ? `${genre}：實際比較代表 tag「${leftTags[0]}」與「${rightTags[0]}」。兩群分別占${basis} ${percent(leftShare)} / ${percent(rightShare)}；本次對應貢獻 ${(best.contribution * 100).toFixed(1)} 分。未被核心群代表的權重不會放大為共同興趣。`
+        : `${genre}：你的「${leftTags.join('、')}」群占${basis} ${percent(leftShare)}，對方的「${rightTags.join('、')}」群占 ${percent(rightShare)}。這組對應為此類別貢獻 ${(best.contribution * 100).toFixed(1)} 分。${hasGeneratedTags ? '代表 tag 含依影片標題補出的模型標籤。' : ''}`,
     });
   }
   // Never normalize over only the available genres: that would inflate a

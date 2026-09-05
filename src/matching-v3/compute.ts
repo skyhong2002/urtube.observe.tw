@@ -14,12 +14,16 @@ export function computeClient(s: Settings): Compute {
     return await response.json() as T;
   }
   return {
-    cluster: points => call('/cluster', { points, eps: s.eps, minSamples: s.minSamples, minShare: s.minShare }),
+    cluster: async points => {
+      const result = await call<Pick<GenreProfile, 'clusters' | 'totalMass' | 'retainedCoverage'>>('/cluster', { points, algorithm: 'compact-medoid-v1', compactDistance: s.compactDistance, eps: s.eps, minSamples: s.minSamples, minShare: s.minShare });
+      if (points.length && (!Array.isArray(result.clusters) || result.clusters.some(c => !c.representative))) throw new Error('Compute service must support compact-medoid-v1');
+      return result;
+    },
     compare: async (left, right) => {
       if (!left.clusters.length || !right.clusters.length) return { score: 0, transport: [] };
       // A 1x1 transport matrix has exactly one feasible flow (mass=1).
       // Identical to the solver, without HTTP/LP startup for the common case.
-      if (left.clusters.length === 1 && right.clusters.length === 1) {
+      if (!left.clusters[0].representative && !right.clusters[0].representative && left.clusters.length === 1 && right.clusters.length === 1) {
         const a = left.clusters[0], b = right.clusters[0];
         const na = Math.hypot(...a.centroid), nb = Math.hypot(...b.centroid);
         if (a.share === 1 && b.share === 1 && a.centroid.length === b.centroid.length
@@ -29,7 +33,7 @@ export function computeClient(s: Settings): Compute {
           return { score, transport: [{ left: 0, right: 0, mass: 1, similarity: score, contribution: score }] };
         }
       }
-      return call('/compare', { left: left.clusters, right: right.clusters, similarityFloor: s.similarityFloor });
+      return call('/compare', { left: left.clusters, right: right.clusters, similarityFloor: s.similarityFloor, ...(left.clusters[0].representative || right.clusters[0].representative ? { algorithm: 'compact-medoid-v1', leftCoverage: left.retainedCoverage, rightCoverage: right.retainedCoverage } : {}) });
     },
   };
 }

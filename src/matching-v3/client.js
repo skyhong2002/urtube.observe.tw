@@ -73,7 +73,7 @@ function renderDetail() {
   };
   actions.append(edit, remove); top.append(actions); $('detail').append(top);
   const chips = element('div', undefined, 'chips'); topic.genres.forEach(g => chips.append(element('span', g, 'chip'))); $('detail').append(chips);
-  $('detail').append(element('p', '依整體合拍度排序，探索共同興趣與頻道。', 'muted'));
+  $('detail').append(element('p', '主題配對除錯模式：依所選類別的主題分數排序；分數尚未校準，不代表契合機率。', 'muted'));
   const match = element('button', '開始配對', 'primary');
   const result = element('div');
   match.onclick = async () => {
@@ -89,19 +89,38 @@ function renderDetail() {
         const template = document.createElement('template');
         template.innerHTML = candidate.memberHtml || '';
         const card = template.content.querySelector('.mt-card');
-        return card ? [card] : [];
+        if (!card) return [];
+        const score = typeof candidate.score === 'number' && Number.isFinite(candidate.score) ? candidate.score : null;
+        card.dataset.topicScore = score === null ? '-1' : String(score);
+        const debug = element('section', undefined, 'mv-topic-score');
+        debug.append(element('strong', score === null ? '資料不足' : (score * 100).toFixed(1) + '%'));
+        debug.append(element('small', '新版主題配對 · 除錯百分比（尚未校準，非機率）'));
+        debug.append(element('p', candidate.provisional ? '暫定結果：部分資料尚未完成處理。' : '目前輪廓已完成處理。', 'muted'));
+        debug.append(element('h3', '為什麼推薦給你'));
+        if (candidate.detailsVisible) {
+          const reasons = Array.isArray(candidate.reasons) ? candidate.reasons : [];
+          reasons.forEach(reason => debug.append(element('p', reason.text)));
+          if (!reasons.length) debug.append(element('p', '目前沒有足夠的共同興趣可說明。'));
+          const coverage = element('details', undefined, 'mv-reasons');
+          coverage.append(element('summary', '查看各類別與資料覆蓋'));
+          (Array.isArray(candidate.details) ? candidate.details : []).forEach(detail => {
+            const scoreText = typeof detail.score === 'number' && Number.isFinite(detail.score) ? (detail.score * 100).toFixed(1) + '%' : '資料不足';
+            const percent = value => typeof value === 'number' && Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : '—';
+            coverage.append(element('p', detail.genre + '：' + scoreText + '；保留權重覆蓋 ' + percent(detail.leftCoverage) + ' / ' + percent(detail.rightCoverage)));
+          });
+          debug.append(coverage);
+        } else {
+          debug.append(element('p', '對方公開頁面或成為好友後，才可查看詳細配對理由與覆蓋資料。'));
+        }
+        card.insertBefore(debug, card.querySelector('.mt-actions'));
+        return [card];
       });
       const compatibility = card => {
-        const score = Number(card.dataset.compatibility ?? -1);
+        const score = Number(card.dataset.topicScore ?? -1);
         return Number.isFinite(score) ? score : -1;
       };
       rankedCards.sort((a, b) => compatibility(b) - compatibility(a));
-      rankedCards.forEach((card, index) => {
-        if (index < 3 && compatibility(card) > 70) {
-          card.querySelector('.mt-person-link > div')?.append(element('span', '絕佳拍檔', 'mt-partner'));
-        }
-        cards.append(card);
-      }); result.append(cards);
+      rankedCards.forEach(card => cards.append(card)); result.append(cards);
     } catch (err) { if (number === requestNumber) result.textContent = err.message; }
     finally { match.disabled = false; }
   };
