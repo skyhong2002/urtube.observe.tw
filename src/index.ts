@@ -16,6 +16,7 @@ import { matchesPage, matchingCandidatePage } from './output/matches.js';
 import {
   YOUTUBE_CHANNEL_ID_PATTERN,
   channelPage,
+  channelDirectoryPage,
   channelPageRange,
   channelPageSort,
   type ChannelCommunityVideo,
@@ -72,6 +73,7 @@ import type { TagListSnapshot } from './youtube/taglists.js';
 import {
   YOUTUBE_RANGES,
   type YoutubeChannelDetail,
+  type YoutubeChannelSummary,
   type YoutubeComparisonProfile,
   type YoutubeDashboardData,
   type YoutubeRange,
@@ -115,6 +117,7 @@ const CACHE_TTL_MS = 300_000;
 const dashboardCache = new Map<string, { key: string; at: number; data: YoutubeDashboardData }>();
 const crystalCache = new Map<string, { key: string; at: number; crystal: YoutubeCrystal }>();
 const comparisonCache = new Map<string, { key: string; at: number; profile: YoutubeComparisonProfile }>();
+const channelDirectoryCaches = new WeakMap<UserRegistry, Map<string, { key: string; at: number; channels: YoutubeChannelSummary[] }>>();
 const channelCaches = new WeakMap<UserRegistry, Map<string, { key: string; at: number; detail: YoutubeChannelDetail }>>();
 // Handles worth pre-warming: the owner plus anyone whose dashboard was
 // actually visited since boot. Keeps the warm sweep (and its open SQLite
@@ -187,6 +190,25 @@ function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: s
     channelCache.set(id, entry);
   }
   return entry.detail;
+}
+
+function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: ChannelPageRange): YoutubeChannelSummary[] {
+  let cache = channelDirectoryCaches.get(registry);
+  if (!cache) {
+    cache = new Map();
+    channelDirectoryCaches.set(registry, cache);
+  }
+  const repository = registry.repositoryFor(user);
+  const key = validityFor(repository.youtubeCounts(), processingFor(repository));
+  const id = `${user.id}:${range}`;
+  const now = Date.now();
+  let entry = cache.get(id);
+  if (!entry || entry.key !== key || now - entry.at > CACHE_TTL_MS) {
+    entry = { key, at: now, channels: repository.youtubeChannelTotals(range) };
+    if (cache.size >= 128) cache.delete(cache.keys().next().value!);
+    cache.set(id, entry);
+  }
+  return entry.channels;
 }
 
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeCrystal {
@@ -854,6 +876,38 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const query = new URL(c.req.url).search;
     return query || '';
   };
+
+  app.get('/channel', (c) => c.redirect(`/channel/${querySuffix(c)}`, 308));
+  app.get('/channel/', (c) => {
+    c.header('Cache-Control', 'private, no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    const me = sessionUser(c);
+    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path + querySuffix(c))}`);
+    const range = channelPageRange(c.req.query('range'));
+    const sort = channelPageSort(c.req.query('sort'));
+    const query = (c.req.query('q') ?? '').trim().slice(0, 100);
+    const mine = cachedChannelTotalsFor(registry, me, range);
+    let community: Array<YoutubeChannelSummary & { viewers: number }> | null = null;
+    if (me.matchingOptIn) {
+      const channels = new Map<string, YoutubeChannelSummary & { viewers: number }>();
+      // Re-read membership on every request, even when per-user totals are cached.
+      for (const member of registry.listMatchingMembers()) {
+        const totals = member.id === me.id ? mine : cachedChannelTotalsFor(registry, member, range);
+        for (const channel of totals) {
+          if (!channel.channelId || !YOUTUBE_CHANNEL_ID_PATTERN.test(channel.channelId)) continue;
+          const total = channels.get(channel.channelId) ?? { ...channel, watches: 0, estimatedWatchSeconds: 0, viewers: 0 };
+          total.watches += channel.watches;
+          total.estimatedWatchSeconds += channel.estimatedWatchSeconds;
+          total.viewers += 1;
+          if (!total.name && channel.name) total.name = channel.name;
+          if (!total.thumbnailUrl && channel.thumbnailUrl) total.thumbnailUrl = channel.thumbnailUrl;
+          channels.set(channel.channelId, total);
+        }
+      }
+      community = [...channels.values()];
+    }
+    return c.html(channelDirectoryPage(me, { range, sort, query, mine, community }, langOf(c)));
+  });
 
   // The channel page: the signed-in person's own history for one YouTube
   // channel, plus member rankings across everyone who joined matching.

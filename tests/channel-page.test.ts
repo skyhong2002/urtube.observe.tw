@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { load } from 'cheerio';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -210,5 +211,71 @@ test('channel identity survives an empty range before metadata enrichment', () =
     assert.equal(detail.rank.time, null);
   } finally {
     repository.close();
+  }
+});
+
+test('channel directory supports discovery, search, sorting and immediate membership withdrawal', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-channel-directory-'));
+  const registry = new UserRegistry(join(root, 'users.sqlite'), join(root, 'users'));
+  try {
+    const alice = registry.createUser('alice-directory', 'Alice');
+    const bob = registry.createUser('bob-directory', 'Bob');
+    const privateUser = registry.createUser('private-directory', 'Private');
+    for (const user of [alice, bob]) join_(registry, user);
+    registry.setMatchingPreferences(privateUser.handle, false, 'topics_and_channel');
+    seed(registry.repositoryFor(alice), 'directory-alice', [
+      watch('da1', 'AAAAAAAAAA1', CHANNEL_A, '2026-09-01T00:00:00Z', 900),
+      watch('da2', 'BBBBBBBBBB1', CHANNEL_B, '2026-09-02T00:00:00Z', 100),
+      watch('da3', 'BBBBBBBBBB1', CHANNEL_B, '2026-09-03T00:00:00Z', 100),
+    ]);
+    seed(registry.repositoryFor(bob), 'directory-bob', [watch('db1', 'BBBBBBBBBB1', CHANNEL_B, '2026-09-02T00:00:00Z', 3000)]);
+    const hiddenChannel = 'UCcccccccccccccccccccccc';
+    seed(registry.repositoryFor(privateUser), 'directory-private', [{
+      ...watch('dp1', 'CCCCCCCCCC1', hiddenChannel, '2026-09-02T00:00:00Z', 9999), channelTitle: 'Private channel',
+    }]);
+    const app = createApp(registry);
+    const headers = { cookie: `urtube_session=${registry.createSession(alice)}` };
+    const response = await app.request('/channel/?range=all', { headers });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.equal(response.headers.get('x-robots-tag'), 'noindex');
+    const markup = await response.text();
+    const $ = load(markup);
+    const names = (label: string) => $(`.ch-rows[aria-label="${label}"] .ch-main strong a`).map((_, el) => $(el).text()).get();
+    assert.deepEqual(names('Your most watched channels'), ['Channel A', 'Channel B']);
+    assert.deepEqual(names('Popular channels among members'), ['Channel B', 'Channel A']);
+    assert.doesNotMatch(markup, /Private channel|UCcccccccccccccccccccccc/);
+    assert.equal($('.site-nav a[aria-current="page"]').attr('href'), '/channel/');
+    const href = $('.ch-main strong a').first().attr('href')!;
+    assert.equal((await app.request(href, { headers })).status, 200, 'directory opens working detail links');
+    const counts = load(await (await app.request('/channel/?range=all&sort=watches', { headers })).text());
+    assert.equal(counts('.ch-rows[aria-label="Your most watched channels"] .ch-main strong a').first().text(), 'Channel B');
+    const filtered = await (await app.request('/channel/?range=all&q=Channel%20B', { headers })).text();
+    assert.doesNotMatch(filtered, />Channel A</);
+    assert.match(filtered, />Channel B</);
+    const byId = await (await app.request(`/channel/?range=all&q=${CHANNEL_A}`, { headers })).text();
+    assert.match(byId, />Channel A</);
+    assert.doesNotMatch(byId, />Channel B</);
+    const empty = await (await app.request('/channel/?q=%22%3E%3Cscript%3E', { headers })).text();
+    assert.match(empty, /No channels found/);
+    assert.match(empty, /value="&quot;&gt;&lt;script&gt;"/);
+    const redirect = await app.request('/channel?range=all&sort=watches', { headers });
+    assert.equal(redirect.status, 308);
+    assert.equal(redirect.headers.get('location'), '/channel/?range=all&sort=watches');
+    const anonymous = await app.request('/channel/?range=all&q=Channel');
+    assert.equal(anonymous.status, 302);
+    assert.equal(anonymous.headers.get('location'), '/auth/google?next=%2Fchannel%2F%3Frange%3Dall%26q%3DChannel');
+
+    registry.setMatchingPreferences(bob.handle, false, 'topics_and_channel');
+    const after = load(await (await app.request('/channel/?range=all', { headers })).text());
+    assert.equal(after('.ch-rows[aria-label="Popular channels among members"] .ch-main strong a').first().text(), 'Channel A', 'cached totals stop contributing when a member leaves');
+    assert.doesNotMatch(after.html(), /2 viewers/);
+    registry.setMatchingPreferences(alice.handle, false, 'topics_and_channel');
+    const optedOut = load(await (await app.request('/channel/?range=all', { headers })).text());
+    assert.equal(optedOut('.ch-rows[aria-label="Popular channels among members"]').length, 0);
+    assert.equal(optedOut('.ch-rows[aria-label="Your most watched channels"] .ch-row').length, 2);
+  } finally {
+    registry.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
