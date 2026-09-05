@@ -408,8 +408,9 @@ function topicDynamics(data: YoutubeDashboardData, t: Messages): string {
     channels: model.topics,
     frames: model.frames.map((frame) => ({
       period: frame.month,
-      note: frame.coverage === null ? t.topicTrendNoCoverage
-        : t.topicTrendCoverage(Math.round(frame.coverage * 100)) + (frame.provisional ? ` · ${t.provisional}` : ''),
+      empty: frame.empty,
+      note: frame.label + ' · ' + (frame.coverage === null ? t.topicTrendNoCoverage
+        : t.topicTrendCoverage(Math.round(frame.coverage * 100)) + (frame.provisional ? ` · ${t.provisional}` : '')),
       entries: frame.values.map((value, index) => [index, value.share] as const)
         .filter((pair): pair is readonly [number, number] => pair[1] !== null && pair[1] > 0)
         .sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 8)

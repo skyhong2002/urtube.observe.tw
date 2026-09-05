@@ -1078,7 +1078,7 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
   }
 });
 
-test('topic trend uses exact-time events, current classifications, and weighted moving shares', () => {
+test('topic trend uses dated events, current classifications, and weighted moving shares', () => {
   const repository = new Repository(':memory:');
   const now = new Date('2026-05-15T00:00:00Z');
   const watch = (
@@ -1139,10 +1139,10 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     assert.equal(march.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.4);
     assert.equal(march.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.6);
     const april = trend.find((month) => month.month === '2026-04')!;
-    assert.equal(april.classifiableWatchEvents, 1);
-    assert.equal(april.classifiedWatchSeconds, 100);
-    assert.equal(april.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.2);
-    assert.equal(april.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.8);
+    assert.equal(april.classifiableWatchEvents, 2);
+    assert.equal(april.classifiedWatchSeconds, 1000);
+    assert.equal(april.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 1 / 14);
+    assert.equal(april.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 13 / 14);
 
     const sevenDays = repository.youtubeTopicTrend('7d', now);
     assert.equal(sevenDays.length, 8);
@@ -1160,7 +1160,7 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     assert.match(html, /依頁面範圍/);
     assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);
-    assert.match(html, /只納入精確時間紀錄/);
+    assert.match(html, /納入精確時間與只有日期的觀看紀錄/);
     assert.match(html, /\.yt-short-absolute\{[^}]*overflow:hidden/,
       'dense history columns stay contained instead of widening the mobile page');
   } finally {

@@ -270,6 +270,8 @@ export interface YoutubeTopicTrendTopic {
 
 export interface YoutubeTopicTrendMonth {
   month: string;
+  watchEvents: number;
+  partialPeriod: boolean;
   classifiableWatchEvents: number;
   processedWatchEvents: number;
   classifiedWatchEvents: number;

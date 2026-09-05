@@ -146,11 +146,11 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
 function selectedTrendWindow(
   range: YoutubeRange,
   now: Date,
-  firstExactWatchAt: string | null,
+  firstWatchAt: string | null,
 ): { start: string; end: string; periods: string[]; format: '%Y-%m' | '%Y-%m-%d'; smoothing: number } {
   const monthly = range === '365d' || range === 'all';
   const start = range === 'all'
-    ? firstExactWatchAt ?? now.toISOString()
+    ? firstWatchAt ?? now.toISOString()
     : youtubeCutoff(range, now)!;
   const format = monthly ? '%Y-%m' : '%Y-%m-%d';
   const startTaipei = new Date(Date.parse(start) + 8 * 3600_000);
@@ -1779,19 +1779,21 @@ export class Repository {
     }));
   }
 
+  // Calendar dates suffice for daily/monthly trends; hourly rhythm remains exact-only.
   youtubeTopicTrend(range: YoutubeRange = 'all', now = new Date()): YoutubeTopicTrendMonth[] {
     this.ensureEstimatedEvents();
-    const firstExact = this.db.prepare(`
+    const firstWatch = this.db.prepare(`
       SELECT MIN(w.watched_at) first_at
       FROM youtube_watch_events w
       JOIN activities a ON a.id=w.activity_id
-      WHERE w.activity_type='video' AND a.occurred_precision='exact'
+      WHERE w.activity_type='video' AND a.occurred_precision IN ('exact', 'day')
     `).get() as { first_at: string | null };
-    const selectedWindow = selectedTrendWindow(range, now, firstExact?.first_at ?? null);
+    const selectedWindow = selectedTrendWindow(range, now, firstWatch?.first_at ?? null);
     const periodExpression = `strftime('${selectedWindow.format}', e.watched_at, '+8 hours')`;
     const monthlyRows = this.db.prepare(`
       ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
       SELECT ${periodExpression} month,
+        COUNT(*) watch_events,
         COUNT(CASE WHEN e.video_id IS NOT NULL THEN 1 END) classifiable_watch_events,
         COUNT(CASE WHEN t.id IS NOT NULL THEN 1 END) processed_watch_events,
         COUNT(CASE WHEN t.id IS NOT NULL AND vt.decision='accepted' AND t.slug<>'unknown'
@@ -1808,7 +1810,7 @@ export class Repository {
         ON vt.video_id=e.video_id AND vt.rank=1 AND vt.metadata_hash=v.metadata_hash
       LEFT JOIN youtube_topics t ON t.id=vt.topic_id
         AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
-      WHERE a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
+      WHERE a.occurred_precision IN ('exact', 'day') AND e.watched_at>=? AND e.watched_at<?
       GROUP BY month ORDER BY month
     `).all(selectedWindow.start, selectedWindow.end) as Array<Record<string, string | number>>;
     const topicRows = this.db.prepare(`
@@ -1823,7 +1825,7 @@ export class Repository {
       JOIN youtube_topics t ON t.id=vt.topic_id
         AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
       WHERE vt.decision='accepted' AND t.slug<>'unknown'
-        AND a.occurred_precision='exact' AND e.watched_at>=? AND e.watched_at<?
+        AND a.occurred_precision IN ('exact', 'day') AND e.watched_at>=? AND e.watched_at<?
       GROUP BY month, t.id ORDER BY month, t.name
     `).all(selectedWindow.start, selectedWindow.end) as Array<Record<string, string | number>>;
     const monthly = new Map(monthlyRows.map((row) => [String(row.month), row]));
@@ -1846,6 +1848,9 @@ export class Repository {
       const classifiedWatchSeconds = Number(row?.classified_watch_seconds ?? 0);
       return {
         month,
+        watchEvents: Number(row?.watch_events ?? 0),
+        partialPeriod: (month === selectedWindow.periods[0] && selectedWindow.start > new Date(`${month}${month.length === 7 ? '-01' : ''}T00:00:00+08:00`).toISOString())
+          || month === selectedWindow.periods.at(-1),
         classifiableWatchEvents,
         processedWatchEvents,
         classifiedWatchEvents,
