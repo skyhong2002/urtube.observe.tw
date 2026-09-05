@@ -167,6 +167,16 @@ day and weekday rhythm as their own share (no counts). Members see each
 other's handles in these addresses; it never exposes emails, crystals,
 histories, raw shares, full vectors, introductions, contacts, or candidate
 dashboards (a dashboard keeps its own visibility setting).
+Every channel with a YouTube channel id has a page at `/channel/<id>`
+(session only, never indexed): the signed-in person's own watches, hours,
+share, rank, first and last watch, top videos, and a monthly series for that
+channel, with range and watch-time/watch-count switches (one year and time by
+default). Members who joined matching also see a reciprocal community view:
+the members who watch that channel most (linking to the pairwise comparison
+when eligible) and the channel's most watched
+videos across members. Video totals are combined before the top 50 are selected.
+Non-members neither contribute to nor see that view; opting out removes their
+contribution on the next page load. Account settings describe this sharing.
 When at least three of the ten nearest eligible people contribute the same
 unseen item, `/matches` may also show up to five broad topics and five channels
 as a group signal. It never names contributors or exposes their values, videos,

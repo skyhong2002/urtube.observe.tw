@@ -14,6 +14,7 @@ import type {
   YoutubeScanEndReason,
   YoutubeCapturedWatch,
   YoutubeCaptureResult,
+  YoutubeChannelDetail,
   YoutubeComparisonProfile,
   YoutubeImportResult,
   YoutubeOAuthCredential,
@@ -2407,6 +2408,121 @@ export class Repository {
       classifiedWatchSeconds: Number(totals.classified_watch_seconds ?? 0),
       topics: topicRows.map((row) => ({
         key: String(row.topic_key),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+    };
+  }
+
+  // One channel through one person's history: totals, rank among their
+  // channels, their top videos from it, and a monthly series.
+  youtubeChannelDetail(channelId: string, range: YoutubeRange = '365d', now = new Date()): YoutubeChannelDetail {
+    this.ensureEstimatedEvents();
+    const cutoff = youtubeCutoff(range, now);
+    const where = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
+    const params = cutoff ? [cutoff] : [];
+    const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_VIEW;
+    const channelIdExpr = 'COALESCE(e.channel_id, v.channel_id)';
+    const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
+    const known = this.db.prepare(`
+      SELECT name, thumbnail_url FROM youtube_channels WHERE channel_id=?
+    `).get(channelId) as { name: string; thumbnail_url: string } | undefined;
+    const totals = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COUNT(*) watches,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
+        COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
+        MIN(e.watched_at) first_watched_at, MAX(e.watched_at) last_watched_at,
+        MAX(${channelName}) name
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_channels c ON c.channel_id=${channelIdExpr}
+      ${where} AND ${channelIdExpr}=?
+    `).get(...params, channelId) as Record<string, number | string | null>;
+    const overall = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e ${where}
+    `).get(...params) as Record<string, number>;
+    const rankRow = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT ${channelIdExpr} channel_id,
+          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        ${where} AND ${channelIdExpr} IS NOT NULL
+        GROUP BY ${channelIdExpr}
+      ), ranked AS (
+        SELECT channel_id,
+          ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, channel_id) time_rank,
+          ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, channel_id) watch_rank,
+          COUNT(*) OVER () channels
+        FROM aggregated
+      )
+      SELECT time_rank, watch_rank, channels FROM ranked WHERE channel_id=?
+    `).get(...params, channelId) as Record<string, number> | undefined;
+    const channelCount = rankRow ? Number(rankRow.channels) : Number((this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COUNT(DISTINCT ${channelIdExpr}) channels
+      FROM estimated_events e LEFT JOIN youtube_videos v ON v.video_id=e.video_id ${where}
+    `).get(...params) as Record<string, number>).channels ?? 0);
+    const videoRows = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT e.video_id, COALESCE(NULLIF(v.title, ''), e.raw_title) title,
+        COALESCE(v.thumbnail_url, '') thumbnail_url,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      ${where} AND ${channelIdExpr}=? AND e.video_id IS NOT NULL
+      GROUP BY e.video_id
+      ORDER BY estimated_watch_seconds DESC, watches DESC, e.video_id
+    `).all(...params, channelId) as Array<Record<string, string | number | null>>;
+    const monthlyRows = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT strftime('%Y-%m', e.watched_at, '+8 hours') month,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      ${where} AND ${channelIdExpr}=?
+      GROUP BY month ORDER BY month
+    `).all(...params, channelId) as Array<Record<string, string | number>>;
+    const watches = Number(totals.watches ?? 0);
+    const seconds = Number(totals.estimated_watch_seconds ?? 0);
+    // Metadata may not exist yet and a narrower range may contain no watches.
+    const historic = !known?.name && !totals.name ? this.db.prepare(`
+      SELECT COALESCE(NULLIF(e.channel_title, ''), NULLIF(v.channel_title, '')) name
+      FROM youtube_watch_events e LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      WHERE COALESCE(e.channel_id, v.channel_id)=?
+      ORDER BY e.watched_at DESC LIMIT 1
+    `).get(channelId) as { name: string | null } | undefined : undefined;
+    const name = known?.name || (totals.name ? String(totals.name) : historic?.name) ||
+      (known || historic || watches ? channelId : '');
+    return {
+      range,
+      channel: name ? { channelId, name, thumbnailUrl: known?.thumbnail_url ?? '' } : null,
+      stats: {
+        watches,
+        estimatedWatchSeconds: seconds,
+        uniqueVideos: Number(totals.unique_videos ?? 0),
+        firstWatchedAt: totals.first_watched_at ? String(totals.first_watched_at) : null,
+        lastWatchedAt: totals.last_watched_at ? String(totals.last_watched_at) : null,
+        share: Number(overall.estimated_watch_seconds) > 0 ? seconds / Number(overall.estimated_watch_seconds) : 0,
+      },
+      rank: {
+        time: rankRow ? Number(rankRow.time_rank) : null,
+        watches: rankRow ? Number(rankRow.watch_rank) : null,
+        channels: channelCount,
+      },
+      videos: videoRows.map((row) => ({
+        videoId: String(row.video_id),
+        title: String(row.title),
+        thumbnailUrl: String(row.thumbnail_url ?? ''),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      monthly: monthlyRows.map((row) => ({
+        month: String(row.month),
         watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),

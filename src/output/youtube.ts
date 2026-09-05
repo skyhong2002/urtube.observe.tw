@@ -827,7 +827,7 @@ export function youtubeDashboardPage(
         <span class="yt-channel-rank">${index + 1}</span>
         ${channelAvatar(channel)}
         <div class="yt-channel-main">
-          <span class="yt-channel-name">${channel.channelId ? `<a href="https://www.youtube.com/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
+          <span class="yt-channel-name">${channel.channelId ? `<a href="/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
           <div class="yt-channel-track"><i style="width:${Math.max(1, Math.round(metric / maxChannel * 100))}%"></i></div>
         </div>
         <div class="yt-channel-nums"><strong>${hours(channel.estimatedWatchSeconds)}</strong><span>${t.plays(channel.watches)}</span></div>

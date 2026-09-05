@@ -17,6 +17,7 @@ import {
 import { messages, type Lang, type Messages } from './i18n.js';
 import { hours, html, primaryNav, shell, trustSignals } from './pages.js';
 import { radialClock, rhythmClockStyles } from './youtube.js';
+import { YOUTUBE_CHANNEL_ID_PATTERN } from './channel.js';
 
 export type MatchesPageState =
   | { kind: 'opt_in_required' }
@@ -176,11 +177,11 @@ function topicRow(names: ComparisonPair<string>, t: Messages) {
     `<div class="mt-row">${rankCell(topic[metric], 'a', metric, topic.valuesVisible, names.a, t)}<div class="mt-row-main"><strong>${html(topic.name)}</strong></div>${rankCell(topic[metric], 'b', metric, topic.valuesVisible, names.b, t)}</div>`;
 }
 
-// Channels keyed by a YouTube channel id link straight to the channel;
+// Channels keyed by a YouTube channel id open the urtube channel page;
 // name-only keys (older capture rows) fall back to a YouTube search.
 export function channelHref(channel: { key: string; name: string }): string {
-  return /^UC[A-Za-z0-9_-]{22}$/.test(channel.key)
-    ? `https://www.youtube.com/channel/${channel.key}`
+  return YOUTUBE_CHANNEL_ID_PATTERN.test(channel.key)
+    ? `/channel/${channel.key}`
     : `https://www.youtube.com/results?search_query=${encodeURIComponent(channel.name)}`;
 }
 
@@ -189,7 +190,8 @@ function channelRow(names: ComparisonPair<string>, t: Messages) {
     const avatar = channel.thumbnailUrl
       ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="36" height="36">`
       : `<span class="mt-row-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
-    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${avatar}<strong><a href="${html(channelHref(channel))}" rel="noopener" target="_blank">${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
+    const href = channelHref(channel);
+    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${avatar}<strong><a href="${html(href)}"${href.startsWith('/') ? '' : ' rel="noopener" target="_blank"'}>${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
   };
 }
 

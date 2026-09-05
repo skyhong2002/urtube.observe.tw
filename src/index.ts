@@ -14,6 +14,15 @@ import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import { matchesPage, matchingCandidatePage } from './output/matches.js';
 import {
+  YOUTUBE_CHANNEL_ID_PATTERN,
+  channelPage,
+  channelPageRange,
+  channelPageSort,
+  type ChannelCommunityVideo,
+  type ChannelMemberRow,
+  type ChannelPageRange,
+} from './output/channel.js';
+import {
   accountPage, dashboardSetupSection, extensionSetupPage, guidedOnboardingPage,
   signupCompletePage, signupStartPage,
   type AccountPageState,
@@ -62,6 +71,7 @@ import { MATCHING_TAXONOMY } from './youtube/matching.js';
 import type { TagListSnapshot } from './youtube/taglists.js';
 import {
   YOUTUBE_RANGES,
+  type YoutubeChannelDetail,
   type YoutubeComparisonProfile,
   type YoutubeDashboardData,
   type YoutubeRange,
@@ -105,6 +115,7 @@ const CACHE_TTL_MS = 300_000;
 const dashboardCache = new Map<string, { key: string; at: number; data: YoutubeDashboardData }>();
 const crystalCache = new Map<string, { key: string; at: number; crystal: YoutubeCrystal }>();
 const comparisonCache = new Map<string, { key: string; at: number; profile: YoutubeComparisonProfile }>();
+const channelCaches = new WeakMap<UserRegistry, Map<string, { key: string; at: number; detail: YoutubeChannelDetail }>>();
 // Handles worth pre-warming: the owner plus anyone whose dashboard was
 // actually visited since boot. Keeps the warm sweep (and its open SQLite
 // handles) proportional to traffic, not to total signups.
@@ -158,6 +169,24 @@ function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: C
     comparisonCache.set(id, entry);
   }
   return entry.profile;
+}
+
+function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: string, range: ChannelPageRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeChannelDetail {
+  const now = Date.now();
+  let channelCache = channelCaches.get(registry);
+  if (!channelCache) {
+    channelCache = new Map();
+    channelCaches.set(registry, channelCache);
+  }
+  const id = `${user.id}:${channelId}:${range}`;
+  let entry = channelCache.get(id);
+  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+    entry = { key: validity, at: now, detail: repository.youtubeChannelDetail(channelId, range) };
+    // Keep arbitrary channel/range navigation from growing the cache forever.
+    if (channelCache.size >= 128) channelCache.delete(channelCache.keys().next().value!);
+    channelCache.set(id, entry);
+  }
+  return entry.detail;
 }
 
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeCrystal {
@@ -825,6 +854,66 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const query = new URL(c.req.url).search;
     return query || '';
   };
+
+  // The channel page: the signed-in person's own history for one YouTube
+  // channel, plus member rankings across everyone who joined matching.
+  // Community data is reciprocal: only members contribute and only members
+  // see it.
+  app.get('/channel/:channelId', (c) => {
+    const channelId = c.req.param('channelId');
+    if (!YOUTUBE_CHANNEL_ID_PATTERN.test(channelId)) return notFoundPage(c);
+    const me = sessionUser(c);
+    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
+    c.header('Cache-Control', 'private, no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    const range = channelPageRange(c.req.query('range'));
+    const sort = channelPageSort(c.req.query('sort'));
+    const mine = cachedChannelDetailFor(registry, me, channelId, range);
+    let community: Parameters<typeof channelPage>[1]['community'] = null;
+    let channel = mine.channel;
+    if (me.matchingOptIn) {
+      const comparable = new Set(registry.listMatchingCandidatesFor(me, 499).map((member) => member.handle));
+      const members: ChannelMemberRow[] = [];
+      const videos = new Map<string, ChannelCommunityVideo>();
+      for (const member of registry.listMatchingMembers()) {
+        const detail = member.id === me.id ? mine : cachedChannelDetailFor(registry, member, channelId, range);
+        channel ??= detail.channel;
+        if (!detail.stats.watches) continue;
+        members.push({
+          handle: member.handle,
+          displayName: member.displayName,
+          isViewer: member.id === me.id,
+          canCompare: comparable.has(member.handle),
+          watches: detail.stats.watches,
+          estimatedWatchSeconds: detail.stats.estimatedWatchSeconds,
+          rank: detail.rank,
+        });
+        for (const video of detail.videos) {
+          const entry = videos.get(video.videoId) ?? {
+            videoId: video.videoId, title: video.title, thumbnailUrl: video.thumbnailUrl,
+            watches: 0, estimatedWatchSeconds: 0, viewers: 0,
+          };
+          entry.watches += video.watches;
+          entry.estimatedWatchSeconds += video.estimatedWatchSeconds;
+          entry.viewers += 1;
+          if (!entry.thumbnailUrl && video.thumbnailUrl) entry.thumbnailUrl = video.thumbnailUrl;
+          videos.set(video.videoId, entry);
+        }
+      }
+      community = {
+        members,
+        videos: [...videos.values()],
+        memberCount: members.length,
+      };
+    }
+    // Nobody who can be shown has ever seen this channel: nothing to render.
+    if (!channel) return notFoundPage(c);
+    return c.html(channelPage(
+      { handle: me.handle, displayName: me.displayName },
+      { channel, range, sort, mine, community },
+      langOf(c),
+    ));
+  });
 
   // Legacy token links (20-minute lifetime) forward to the stable URL while
   // they are still valid. Registered before the handle route because

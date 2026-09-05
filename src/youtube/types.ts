@@ -325,6 +325,32 @@ export interface YoutubeComparisonWatch {
   watchedAt: string;
 }
 
+// One person's view of one channel, for the /channel/<id> page.
+export interface YoutubeChannelDetail {
+  range: YoutubeRange;
+  channel: { channelId: string; name: string; thumbnailUrl: string } | null;
+  stats: {
+    watches: number;
+    estimatedWatchSeconds: number;
+    uniqueVideos: number;
+    firstWatchedAt: string | null;
+    lastWatchedAt: string | null;
+    // Fraction of this person's watch time in the range, 0..1.
+    share: number;
+  };
+  // 1-based position among this person's channels in the range; null when
+  // the channel does not appear.
+  rank: { time: number | null; watches: number | null; channels: number };
+  videos: Array<{
+    videoId: string;
+    title: string;
+    thumbnailUrl: string;
+    watches: number;
+    estimatedWatchSeconds: number;
+  }>;
+  monthly: Array<{ month: string; watches: number; estimatedWatchSeconds: number }>;
+}
+
 export interface YoutubeComparisonProfile {
   range: YoutubeRange;
   stats: {

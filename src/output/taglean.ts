@@ -141,7 +141,7 @@ function axisSection(
     <h3><span class="tl-dot" style="background:${colorOf(group.key)}"></span>${html(t.tagGroups[group.key])}<span class="tl-group-meta">${t.tagLeanGroupMeta(group.watches, group.watchedChannels)}</span></h3>
     ${group.topChannels.length ? group.topChannels.map((channel) => `<div class="tl-channel">
       ${channelAvatar(channel)}
-      <span class="tl-channel-name">${channel.channelId ? `<a href="https://www.youtube.com/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
+      <span class="tl-channel-name">${channel.channelId ? `<a href="/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
       <span class="tl-channel-hours">${hours(channel.estimatedWatchSeconds)}</span>
     </div>`).join('') : `<span class="tl-empty">${t.nothingHere}</span>`}
   </div>`).join('');
