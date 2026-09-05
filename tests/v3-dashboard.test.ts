@@ -147,3 +147,25 @@ test('Insights restores all channel groups and keywords alongside v3, and isolat
     assert.equal(calls, 3, 'overview does not wait on the external channel-label API');
   } finally { f.registry.close(); }
 });
+
+test('cached preview displays actual clusters without confusing provisional status with absent data', async () => {
+  const { v3DashboardSection } = await import('../src/output/v3-dashboard.js');
+  const f = fixture();
+  try {
+    const profile = structuredClone(f.profile);
+    profile.complete = false;
+    for (const item of Object.values(profile.genres)) item.status = 'insufficient';
+    profile.genres.Music!.retainedCoverage = 0.42;
+    profile.genres.Sport!.clusters = [];
+    delete profile.genres['channel type'];
+    for (const lang of ['zh', 'en'] as const) {
+      const $ = load(v3DashboardSection(profile, { enabled: true, currentVersion: profile.version, backfillVideoLimit: 2000, genres: GENRES.slice(), lang }));
+      const cards = $('.yt-v3-genre');
+      assert.match(cards.eq(1).text(), lang === 'zh' ? /已建立 1 個興趣群.*暫定分析.*核心興趣涵蓋較少/ : /1 interest clusters.*Provisional analysis.*limited portion/);
+      assert.doesNotMatch(cards.eq(1).text(), /資料不足|Limited data/);
+      assert.match(cards.eq(2).text(), /資料不足|Limited data/);
+      assert.match(cards.eq(8).text(), /尚未建立|Pending/);
+      assert.doesNotMatch($.text(), /private-profile-tag/);
+    }
+  } finally { f.registry.close(); }
+});
