@@ -181,7 +181,7 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
   const users = registry.listUsers();
   const allGenres = { genres: [...GENRES], topics: [] };
   for (const user of users) {
-    const source = registry.repositoryFor(user).matchingV3Source();
+    const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
     store.schedule(user.id, sourceKey(source.fingerprint, allGenres), version(s));
   }
   let calls = 0;
@@ -206,7 +206,7 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
     try {
       const user = users.find(u => u.id === job.userId);
       if (!user) { store.defer(job, 'User no longer opted in', true); continue; }
-      const source = registry.repositoryFor(user).matchingV3Source();
+      const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
       if (sourceKey(source.fingerprint, allGenres) !== job.fingerprint) {
         store.schedule(user.id, sourceKey(source.fingerprint, allGenres), version(s));
         continue;
@@ -219,7 +219,7 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
         calls++;
       }, value => store.progress(job, value));
       const currentUser = registry.listUsers().find(u => u.id === user.id);
-      const current = registry.repositoryFor(user).matchingV3Source();
+      const current = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
       if (!currentUser || sourceKey(current.fingerprint, allGenres) !== job.fingerprint) {
         if (currentUser) store.schedule(user.id, sourceKey(current.fingerprint, allGenres), version(s));
         else store.defer(job, 'user_deleted', true);

@@ -51,9 +51,9 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
       return { id: user.id, handle: user.handle, job: store.status(user.id), currentVersion,
         usable: Boolean(currentVersion && p && Object.values(p.genres).some(g => g.status === 'ready')),
         profile: p ? { builtAt: p.builtAt, totalVideos: p.totalVideos, processedVideos: p.processedVideos,
-          genres: Object.fromEntries(Object.entries(p.genres).map(([genre, value]) => [genre, { status: value.status }])) } : null };
+          genres: Object.fromEntries(Object.entries(p.genres).map(([genre, value]) => [genre, { status: value.status, clusterCount: value.clusters.length }])) } : null };
     });
-    return c.json({ ...store.monitoring(), now: Date.now(), dailyLimit: s.dailyApiCalls, concurrency: s.concurrency, batchSize: s.classificationBatchSize, classificationModel: s.classificationModel, reasoningEffort: 'low', genres: GENRES, users });
+    return c.json({ ...store.monitoring(), now: Date.now(), backfillVideoLimit: s.backfillVideoLimit, dailyLimit: s.dailyApiCalls, concurrency: s.concurrency, batchSize: s.classificationBatchSize, classificationModel: s.classificationModel, reasoningEffort: 'low', genres: GENRES, users });
   });
   app.post('/api/matching-v3/admin/retry/:id', c => {
     const id = Number(c.req.param('id'));
@@ -86,7 +86,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
   app.post('/api/matching-v3/rebuild', c => {
     const user = c.get('user'), prefs = store.preferences(user.id);
     if (!user.matchingOptIn || !prefs.genres.length) return c.json({ error: 'opt_in_required' }, 403);
-    const source = registry.repositoryFor(user).matchingV3Source();
+    const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
     store.schedule(user.id, sourceKey(source.fingerprint, { genres: [...GENRES], topics: [] }), version(s));
     store.retry(user.id);
     return c.json({ queued: true }, 202);
@@ -103,7 +103,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
     try {
       const candidates = [];
       for (const other of registry.listUsers()) {
-        if (other.id === user.id || !other.matchingOptIn) continue;
+        if (other.id === user.id || !other.matchingOptIn || !other.dashboardPublic) continue;
         const consent = store.preferences(other.id).genres;
         if (selected.some(g => !consent.includes(g))) continue;
         const right = store.profile(other.id);
@@ -113,15 +113,20 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
           { ...right, complete: right.complete && store.status(other.id)?.state === 'done' }, selected, compute);
         // Recheck consent after async computation; opt-out must apply immediately.
         const freshOther = registry.userByHandle(other.handle);
-        if (!freshOther?.matchingOptIn || selected.some(g => !store.preferences(other.id).genres.includes(g))) continue;
+        if (!freshOther?.matchingOptIn || !freshOther.dashboardPublic || selected.some(g => !store.preferences(other.id).genres.includes(g))) continue;
         if (store.profile(other.id)?.builtAt !== right.builtAt) continue;
-        candidates.push({ id: randomUUID(), ...result });
+        candidates.push({ id: randomUUID(), user: { handle: freshOther.handle, displayName: freshOther.displayName || freshOther.handle,
+          avatarUrl: freshOther.avatarUrl?.startsWith('https://') ? freshOther.avatarUrl : null }, ...result });
       }
       if (!registry.userByHandle(user.handle)?.matchingOptIn || selected.some(g => !store.preferences(user.id).genres.includes(g))) return c.json({ error: 'opt_in_required' }, 403);
       if (store.profile(user.id)?.builtAt !== left.builtAt) return c.json({ error: 'profile_changed' }, 409);
-      candidates.sort((a, b) => Number(a.provisional) - Number(b.provisional) || (b.score ?? -1) - (a.score ?? -1));
-      // Preserve anonymous discovery. No handles, raw watch rows or vectors.
-      return c.json({ candidates, selected, scoreMeaning: 'selected_genres_equal_weight_distribution_similarity' });
+      const visibleCandidates = candidates.filter(candidate => {
+        const current = registry.userByHandle(candidate.user.handle);
+        return current?.matchingOptIn && current.dashboardPublic && selected.every(g => store.preferences(current.id).genres.includes(g));
+      });
+      visibleCandidates.sort((a, b) => Number(a.provisional) - Number(b.provisional) || (b.score ?? -1) - (a.score ?? -1));
+      // Return the requested display identity after consent checks; never expose raw watch rows, credentials or vectors.
+      return c.json({ candidates: visibleCandidates, selected, scoreMeaning: 'selected_genres_equal_weight_distribution_similarity' });
     } catch { return c.json({ error: 'matching_unavailable' }, 503); }
     finally { busy.delete(user.id); }
   });

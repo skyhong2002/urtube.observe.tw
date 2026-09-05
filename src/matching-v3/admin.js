@@ -15,7 +15,7 @@ function renderUsers() {
     if (user.profile) {
       profile.append(node('small', `${number(user.profile.processedVideos)} / ${number(user.profile.totalVideos)} 部影片 · ${user.currentVersion ? '目前版本' : '舊版本'}`));
       const detail = node('details'); detail.append(node('summary', '查看九類狀態'));
-      for (const genre of data.genres) detail.append(node('small', `${genre}：${labels[user.profile.genres[genre]?.status] || '尚未建立'}`));
+      for (const genre of data.genres) detail.append(node('small', `${genre}：${labels[user.profile.genres[genre]?.status] || '尚未建立'} · ${user.profile.genres[genre]?.clusterCount ?? 0} 個 cluster`));
       profile.append(detail, node('small', `建立於 ${date(user.profile.builtAt)}`));
     }
     const error = node('div', `${job?.attempts || 0} 次失敗`);
@@ -39,7 +39,7 @@ function render() {
     ['尚待完成工作', data.users.filter(u => u.job?.state !== 'done').length, '包含排程、處理中與失敗'],
   ]) { const card = node('div', label, 'card'); card.append(node('strong', number(value), 'value'), node('small', note)); $('cards').append(card); }
   const fresh = data.heartbeat && data.now - data.heartbeat < 60000;
-  $('worker').textContent = `Worker：${fresh ? '心跳正常' : '尚無近期心跳，請檢查服務'} · 最後心跳 ${date(data.heartbeat)} · ${data.concurrency} 個並行工作 · 分類最多 ${data.batchSize} 部／批 · 請求模型 ${data.classificationModel} / effort ${data.reasoningEffort}`;
+  $('worker').textContent = `Worker：${fresh ? '心跳正常' : '尚無近期心跳，請檢查服務'} · 最後心跳 ${date(data.heartbeat)} · ${data.concurrency} 個並行工作 · 每人 backfill 最新 ${number(data.backfillVideoLimit || 2000)} 部 · 分類最多 ${data.batchSize} 部／批 · 請求模型 ${data.classificationModel} / effort ${data.reasoningEffort}`;
   $('worker').className = fresh ? 'good' : 'warn';
   $('budget').textContent = `今日操作 ${number(data.budget.calls)} · ${data.dailyLimit ? `每日上限 ${number(data.dailyLimit)}` : '目前未設每日上限（暫時開放）'} · 日界線為台灣時間上午 8 點`;
   $('providers').replaceChildren();

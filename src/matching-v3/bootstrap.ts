@@ -14,7 +14,7 @@ export function bootstrapMatching(registry: UserRegistry, s: Settings) {
         topics: [{ id: randomUUID(), name: '探索共同興趣', genres: [...GENRES] }] });
       initialized++;
     }
-    const source = registry.repositoryFor(user).matchingV3Source();
+    const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
     store.schedule(user.id, sourceKey(source.fingerprint, { genres: [...GENRES], topics: [] }), version(s));
     scheduled++;
   }

@@ -13,7 +13,7 @@ test('public-only aggregates deduplicate members and revoke visibility without w
     read.push(u.id);
     assert.notEqual(u.id, 3);
     return { youtubeChannelTotals: (range, now) => {
-      assert.equal(range, '28d');
+      assert.equal(range, '90d');
       assert.equal(now.toISOString(), '2026-09-05T00:00:00.000Z');
       return u.id === 1 ? [row(id, 2), row(id, 3), row(null, 4)] : [row(id, 1), row(otherId, 100)];
     } };
@@ -58,9 +58,40 @@ test('channel names are escaped and empty/unavailable states do not invent metri
   const page = landingContent('zh', '', stats);
   assert.ok(page.includes('&lt;script&gt;'));
   assert.ok(!page.includes('<script>alert'));
-  assert.ok(page.includes('近 28 天觀看紀錄'));
-  assert.ok(landingContent('en', '', stats).includes('Public members'));
+  assert.ok(page.includes('近 90 天'));
+  assert.ok(landingContent('en', '', stats).includes('Public dashboard members'));
   const unavailable = landingContent('zh', '', { ...stats, status: 'unavailable' });
   assert.ok(unavailable.includes('社群統計暫時無法載入'));
   assert.ok(!unavailable.includes('class="lp-stat"'));
+});
+
+
+test('duration and watch-count shelves rank independently and revoke both projections', () => {
+  const member = { id: 1, dashboardPublic: true };
+  const provider = communityStatsProvider({ listUsers: () => [member], repositoryFor: () => ({ youtubeChannelTotals: () => [
+    { ...row(id, 2), estimatedWatchSeconds: 7200 },
+    { ...row(otherId, 100), estimatedWatchSeconds: 600 },
+  ] }) });
+  const value = provider();
+  assert.equal(value.topDurationChannels?.[0].id, id);
+  assert.equal(value.topWatchedChannels?.[0].id, otherId);
+  assert.equal(value.topDurationChannels?.[0].estimatedWatchSeconds, 7200);
+  member.dashboardPublic = false;
+  assert.deepEqual(provider().topDurationChannels, []);
+  assert.deepEqual(provider().topWatchedChannels, []);
+});
+
+test('public profile projection reflects renames and revokes private identities', () => {
+  const users = [
+    { id: 1, dashboardPublic: true, handle: 'alice', displayName: 'Alice' },
+    { id: 2, dashboardPublic: false, handle: 'private-user', displayName: 'Private Person' },
+  ];
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: () => ({ youtubeChannelTotals: () => [] }) });
+  assert.deepEqual(provider().profiles, [{ handle: 'alice', displayName: 'Alice' }]);
+  assert.ok(!landingContent('zh', '', provider()).includes('private-user'));
+  users[0].displayName = 'New Alice';
+  assert.equal(provider().profiles?.[0].displayName, 'New Alice');
+  users[0].dashboardPublic = false;
+  assert.deepEqual(provider().profiles, []);
+  assert.ok(!landingContent('zh', '', provider()).includes('class="lp-member"'));
 });

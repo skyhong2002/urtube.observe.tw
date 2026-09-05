@@ -19,6 +19,10 @@ export class MatchingStore {
       CREATE TABLE IF NOT EXISTS matching_v3_cache (
         key TEXT PRIMARY KEY, value_json TEXT NOT NULL, created_at INTEGER NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS matching_v3_cache_stats ON matching_v3_cache (
+        CASE WHEN json_type(value_json)='array' THEN 'embedding'
+          WHEN json_type(value_json,'$.assignments')='array' THEN 'classification' ELSE 'channel' END,
+        created_at);
       CREATE TABLE IF NOT EXISTS matching_v3_api_budget (
         day TEXT PRIMARY KEY, calls INTEGER NOT NULL
       );
@@ -130,6 +134,15 @@ export class MatchingStore {
   heartbeat(job: Job): void {
     const result = this.db.prepare("UPDATE matching_v3_jobs SET lease_until=? WHERE user_id=? AND token=? AND state='running'").run(Date.now() + 180_000, job.userId, job.token);
     if (!result.changes) throw new Error('Job superseded');
+  }
+  publishPreview(userId: number, profile: Profile): boolean {
+    if (profile.complete) throw new Error('Preview must be provisional');
+    // Never replace a current profile published by the worker during computation.
+    const result = this.db.prepare(`INSERT INTO matching_v3_profiles(user_id,profile_json) VALUES (?,?)
+      ON CONFLICT(user_id) DO UPDATE SET profile_json=excluded.profile_json
+      WHERE json_extract(matching_v3_profiles.profile_json,'$.version') != json_extract(excluded.profile_json,'$.version')`)
+      .run(userId, JSON.stringify(profile));
+    return Boolean(result.changes);
   }
   finish(job: Job, profile: Profile): boolean {
     this.db.exec('BEGIN IMMEDIATE');

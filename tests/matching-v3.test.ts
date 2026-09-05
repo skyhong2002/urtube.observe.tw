@@ -178,10 +178,10 @@ test('v3 Gemini missing key does not fall back to GPT; malformed vectors are rej
   await assert.rejects(matchingProvider({ ...s, embeddingApiKey: 'gemini-key', dimensions: 3 }, '', fakeFetch).embed(['羽球']));
 });
 
-test('v3 API enforces authentication, origin, genre consent and anonymous output', async () => {
+test('v3 API enforces authentication, origin, genre consent and limited display identity', async () => {
   const registry = new UserRegistry(':memory:');
   try {
-    registry.createUser('v3left', 'Left'); registry.createUser('v3right', 'Right');
+    registry.createUser('v3left', 'Left'); registry.createUser('v3right', 'Right', { dashboardPublic: true, avatarUrl: 'https://example.com/avatar.png', googleEmail: 'private@example.com' });
     registry.setMatchingOptIn('v3left', true); registry.setMatchingOptIn('v3right', true);
     const left = registry.userByHandle('v3left')!, right = registry.userByHandle('v3right')!;
     const store = registry.matchingV3Store();
@@ -197,8 +197,17 @@ test('v3 API enforces authentication, origin, genre consent and anonymous output
     assert.equal((await post(['Custom'])).status, 400);
     assert.equal((await post(['Music'])).status, 403);
     const response = await post(['Sport']); assert.equal(response.status, 200);
-    const body = await response.text(); assert.ok(!/v3right|centroid|testvideo01/.test(body));
+    const body = await response.text(); assert.ok(!/private@example.com|googleEmail|keySeed|centroid|testvideo01/.test(body));
     assert.equal(JSON.parse(body).candidates.length, 1);
+    assert.deepEqual(JSON.parse(body).candidates[0].user, { handle: 'v3right', displayName: 'Right', avatarUrl: 'https://example.com/avatar.png' });
+    registry.setDashboardPublic('v3right', false);
+    assert.equal((await (await post(['Sport'])).json() as { candidates: unknown[] }).candidates.length, 0);
+    registry.setDashboardPublic('v3right', true);
+    const closingCompute: Compute = { ...compute, compare: async (a,b) => { registry.setDashboardPublic('v3right',false); return compute.compare(a,b); } };
+    const closingApp = matchingRoutes(registry, s, 'http://localhost:3000', closingCompute);
+    const closed = await closingApp.request('/api/matching-v3/match', { method:'POST', headers, body:JSON.stringify({genres:['Sport']}) });
+    assert.equal((await closed.json() as { candidates:unknown[] }).candidates.length,0);
+    registry.setDashboardPublic('v3right', true);
     registry.setMatchingOptIn('v3right', false);
     assert.equal((await (await post(['Sport'])).json() as { candidates: unknown[] }).candidates.length, 0);
     const all = ['Politic', 'Music', 'Sport', 'Education', 'Video gaming', 'Streaming', 'News', 'Podcast', 'channel type'];
@@ -582,4 +591,77 @@ test('v3 Gemini dispatch is not blocked by a saturated GPT queue', async () => {
     await Promise.race([second, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Gemini blocked behind GPT')), 1000); })]);
     assert.equal(embedded, true);
   } finally { clearTimeout(timer); release(); await Promise.allSettled([first, ...(second ? [second] : [])]); db.close(); }
+});
+
+test('v3 backfill defaults to 2000 and only selects latest distinct watched videos', () => {
+  assert.equal(settings({}).backfillVideoLimit, 2000);
+  for (const value of ['0', '-1', '1.5', 'bad']) assert.throws(() => settings({ MATCHING_V3_BACKFILL_VIDEO_LIMIT: value }));
+  const registry = new UserRegistry(':memory:');
+  try {
+    registry.createUser('limitfixture', 'Limit Fixture');
+    const repo = registry.repositoryFor(registry.userByHandle('limitfixture')!);
+    const add = (id: string, hour: number) => repo.upsertYoutubeCapture(normalizeYoutubeCapture({ sessionId: `limit-session-${id}-${hour}`, videoId: id,
+      title: id, url: `https://www.youtube.com/watch?v=${id}`, watchedAt: `2026-09-04T${String(hour).padStart(2,'0')}:00:00Z`, actualWatchedSeconds: 30, durationSeconds: 60 }, new Date('2026-09-05T12:00:00Z')));
+    add('V3FIXTURE01', 1); add('V3FIXTURE02', 2); add('V3FIXTURE03', 3);
+    assert.deepEqual(repo.matchingV3Source(2).videos.map(v => v.id), ['V3FIXTURE02','V3FIXTURE03']);
+    const before = repo.matchingV3Source(2).fingerprint;
+    add('V3FIXTURE03', 4);
+    assert.equal(repo.matchingV3Source(2).fingerprint, before);
+    add('V3FIXTURE01', 5);
+    assert.deepEqual(repo.matchingV3Source(2).videos.map(v => v.id), ['V3FIXTURE01','V3FIXTURE03']);
+    assert.equal(repo.matchingV3Source().videos.length, 3);
+  } finally { registry.close(); }
+});
+
+test('cached preview uses real vectors only, stays provisional and preserves background job', async () => {
+  const { cachedPreview } = await import('../src/matching-v3/preview.js');
+  const { classificationKey, embeddingKey } = await import('../src/matching-v3/pipeline.js');
+  const { db, store } = storeFixture();
+  try {
+    store.putCache(classificationKey(s, video), { tagSource: 'original', tags: ['ready','pending'], assignments: [{ genre:'Sport', tags:['ready','pending'] }] });
+    store.putCache(embeddingKey(s,'ready'), [1,0]);
+    store.schedule(1,'original-job',version(s));
+    const before = store.status(1);
+    const p = await cachedPreview({ videos:[video], complete:true, fingerprint:'bounded' },store,s,compute);
+    assert.equal(p.complete,false);
+    assert.equal(p.genres.Sport?.retainedCoverage,0.5);
+    assert.equal(p.genres.Sport?.status,'insufficient');
+    assert.equal(p.genres.Sport?.clusters.length,1);
+    assert.equal(store.publishPreview(1,p),true);
+    assert.deepEqual(store.status(1),before);
+    assert.equal(store.publishPreview(1,{...p,builtAt:'replacement'}),false);
+    const result=await compareProfiles(p,p,['Sport'],compute);
+    assert.equal(result.provisional,true);
+    assert.notEqual(result.score,null);
+  } finally { db.close(); }
+});
+
+test('v3 comparison uses independent endpoint while clustering stays on background endpoint', async () => {
+  const original = globalThis.fetch, urls: string[] = [];
+  globalThis.fetch = (async url => { urls.push(String(url)); return new Response('{}'); }) as typeof fetch;
+  try {
+    const client = computeClient({ ...s, computeUrl:'http://background:8090', compareUrl:'http://interactive:8090' });
+    const g=profile().genres.Sport!; const multi={...g,clusters:[{...g.clusters[0],share:0.5},{...g.clusters[0],share:0.5}]};
+    await client.cluster([]); await client.compare(multi,multi);
+    assert.deepEqual(urls,['http://background:8090/cluster','http://interactive:8090/compare']);
+  } finally { globalThis.fetch=original; }
+});
+
+test('v3 singleton transport uses the exact cosine formula without remote solver', async () => {
+  const client = computeClient({...s, computeUrl:'http://unreachable.invalid',similarityFloor:0.7});
+  const g=profile().genres.Sport!;
+  const one=(vector:number[])=>({...g,clusters:[{...g.clusters[0],centroid:vector,share:1}]});
+  assert.equal((await client.compare(one([2,0]),one([4,0]))).score,1);
+  assert.equal((await client.compare(one([1,0]),one([0,1]))).score,0);
+  assert.ok(Math.abs((await client.compare(one([1,0]),one([0.8,0.6]))).score-1/3)<1e-12);
+});
+
+test('v3 cache monitoring can use the compact statistics index', () => {
+  const {db}=storeFixture();
+  try {
+    const plan=db.prepare(`EXPLAIN QUERY PLAN SELECT CASE WHEN json_type(value_json)='array' THEN 'embedding'
+      WHEN json_type(value_json,'$.assignments')='array' THEN 'classification' ELSE 'channel' END kind,
+      count(*) count,max(created_at) latest FROM matching_v3_cache GROUP BY kind`).all();
+    assert.ok(plan.some(row=>String(row.detail).includes('matching_v3_cache_stats')));
+  } finally { db.close(); }
 });

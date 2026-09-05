@@ -10,8 +10,9 @@ let state, selectedId, editId, mode, requestNumber = 0;
 const messages = { login_required: '登入已過期，請重新登入。', opt_in_required: '請先在「我的帳號」開啟參與配對。', profile_pending: '興趣輪廓尚未建立，請等待背景處理完成。', profile_changed: '輪廓剛更新，請重新配對。', matching_unavailable: '配對服務暫時無法使用，請稍後再試。', matching_in_progress: '配對仍在計算中。' };
 async function api(path = '', method = 'GET', body) {
   const response = await fetch('/api/matching-v3' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
-  const data = await response.json();
-  if (!response.ok) throw new Error(messages[data.error] || '操作未完成，請稍後再試。');
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(messages[data?.error] || `服務暫時無法回應（HTTP ${response.status}），請稍後重試。`);
+  if (!data) throw new Error('服務回應不完整，請重新嘗試配對。');
   return data;
 }
 function error(err) { $('message').textContent = err.message; $('message').className = 'error'; }
@@ -23,7 +24,7 @@ async function load() {
     const link = element('a', '我的帳號'); link.href = '/account'; $('status').append(link, element('span', ' 開啟參與配對，再選擇興趣。'));
   } else {
     const profile = state.profile;
-    $('status').append(element('span', profile ? `已建立 ${profile.processedVideos.toLocaleString()} 部不同影片的輪廓 · ${profile.complete ? '已有完整掃描紀錄' : '掃描覆蓋尚未完整，配對為暫定'}${profile.currentVersion ? '' : ' · 演算法更新中'}` : '正在預先建立所有類別的配對輪廓，不需要先選擇興趣。'));
+    $('status').append(element('span', profile ? `已建立 ${profile.processedVideos.toLocaleString()} 部不同影片的輪廓 · ${profile.complete ? '已有完整掃描紀錄' : '資料尚未齊全，配對為暫定'}${profile.currentVersion ? '' : ' · 演算法更新中'}` : '正在預先建立所有類別的配對輪廓，不需要先選擇興趣。'));
     if (state.job) $('status').append(element('p', `處理狀態：${({ queued: '排程中', running: '處理中', done: '完成', failed: '需重試' })[state.job.state] || state.job.state}`, 'small muted'));
     if (state.job?.progress && state.job.state !== 'done') {
       const p = state.job.progress;
@@ -68,11 +69,23 @@ function renderDetail() {
       const data = await api('/match', 'POST', { genres: topic.genres });
       if (number !== requestNumber) return;
       result.replaceChildren();
-      if (!data.candidates.length) { result.append(element('p', '還沒有同意參與這些類別、且已完成輪廓處理的使用者。', 'empty')); return; }
+      if (!data.candidates.length) { result.append(element('p', '還沒有公開個人檔案、同意參與這些類別，且已建立配對輪廓的使用者。', 'empty')); return; }
       const cards = element('div', undefined, 'cards');
-      data.candidates.forEach((candidate, i) => {
-        const card = element('article', undefined, 'card'); card.append(element('h3', '配對使用者 ' + (i + 1)), element('div', candidate.score === null ? '資料不足，尚無總分' : (candidate.score * 100).toFixed(1) + ' 分', 'score'));
-        card.append(element('p', candidate.provisional ? '暫定結果 · 部分資料不足或掃描未完成' : '所選類別分布相似度', 'muted small'));
+      data.candidates.forEach(candidate => {
+        const card = element('article', undefined, 'card');
+        const person = candidate.user || {}, name = person.displayName || person.handle || '使用者';
+        const identity = element('div', undefined, 'match-person');
+        const avatar = element('div', [...name].slice(0, 1).join('').toLocaleUpperCase(), 'match-avatar');
+        avatar.setAttribute('aria-hidden', 'true');
+        if (person.avatarUrl && person.avatarUrl.startsWith('https://')) {
+          const img = document.createElement('img'); img.alt = ''; img.width = 56; img.height = 56;
+          img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+          img.onerror = () => img.remove(); img.src = person.avatarUrl; avatar.append(img);
+        }
+        const names = element('div', undefined, 'match-names'); names.append(element('h3', name));
+        if (person.handle) names.append(element('div', '@' + person.handle, 'muted small'));
+        identity.append(avatar, names); card.append(identity, element('div', candidate.score === null ? '資料不足，尚無總分' : (candidate.score * 100).toFixed(1) + ' 分', 'score'));
+        card.append(element('p', candidate.provisional ? '暫定結果 · 部分資料仍在處理或掃描未完成' : '所選類別分布相似度', 'muted small'));
         const why = element('div', undefined, 'reason'); why.append(element('h4', '為什麼匹配給你'));
         if (!candidate.reasons.length) why.append(element('p', '目前沒有足夠的相似核心興趣可作為推薦依據。'));
         candidate.reasons.forEach(reason => why.append(element('p', reason.text)));

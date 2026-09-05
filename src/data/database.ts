@@ -1501,13 +1501,16 @@ export class Repository {
     };
   }
 
-  // Read-only, all available history; DISTINCT prevents replays/rescans from
-  // changing matching weights. No watch timestamps leave this repository.
-  matchingV3Source(): MatchingSourceSnapshot {
-    const rows = this.db.prepare(`SELECT DISTINCT v.video_id, v.title, v.tags_json,
+  // Bound the unique-video source before classification, embedding and channel work.
+  // Watch times remain private; stable ID ordering avoids churn for unchanged membership.
+  matchingV3Source(backfillLimit = 2000): MatchingSourceSnapshot {
+    if (!Number.isSafeInteger(backfillLimit) || backfillLimit < 1) throw new Error('Invalid matching backfill limit');
+    const rows = this.db.prepare(`SELECT v.video_id, v.title, v.tags_json,
       v.description, v.channel_id, v.channel_title
       FROM youtube_videos v JOIN youtube_watch_events w ON w.video_id=v.video_id
-      WHERE w.activity_type='video' ORDER BY v.video_id`).all();
+      WHERE w.activity_type='video' GROUP BY v.video_id
+      ORDER BY MAX(w.watched_at) DESC, v.video_id ASC LIMIT ?`).all(backfillLimit);
+    rows.sort((a, b) => String(a.video_id).localeCompare(String(b.video_id)));
     const videos = rows.map(row => {
       const parsed: unknown = JSON.parse(String(row.tags_json));
       const original = Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
