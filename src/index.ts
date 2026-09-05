@@ -44,6 +44,7 @@ import {
 } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
 import { processingNotice } from './output/processing.js';
+import { popularitySection } from './output/popularity.js';
 import {
   describeYoutubeProcessing,
   youtubeProcessingCapabilities,
@@ -393,7 +394,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       // Every visitor, not just the owner: a public reader deserves to know
       // the figures are still settling.
       processingHtml: hasData ? processingNotice(processing, lang) : '',
-      insightsHtml: crystalHtml + leaningsHtml,
+      insightsHtml: crystalHtml + leaningsHtml
+        + (page === 'insights' ? popularitySection(repository.youtubePopularity(range), lang) : ''),
       history,
       showRecent,
       showPrivatePages: showRecent,

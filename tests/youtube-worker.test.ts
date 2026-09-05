@@ -26,6 +26,7 @@ test('YouTube worker enriches every user while keeping portability owner-only', 
       },
       metadata: step('metadata'),
       channelMetadata: step('channels'),
+      statistics: async () => 0,
       matchingClassification: step('matching'),
       classification: step('classification'),
     };
@@ -38,8 +39,8 @@ test('YouTube worker enriches every user while keeping portability owner-only', 
       assert.deepEqual(calls.filter((call) => call.endsWith(`:${user}`)), [
         ...(user === owner.handle ? [`portability:${user}`] : []),
         `metadata:${user}`,
-        `channels:${user}`,
         `matching:${user}`,
+        `channels:${user}`,
         `classification:${user}`,
       ]);
     }
@@ -67,6 +68,7 @@ test('YouTube worker starts independent user archives concurrently', async () =>
         return 1;
       },
       channelMetadata: async () => 0,
+      statistics: async () => 0,
       matchingClassification: async () => 0,
       classification: async () => 0,
     };
@@ -98,6 +100,7 @@ test('one user failure is recorded without preventing later users from running',
         return 0;
       },
       channelMetadata: async () => 0,
+      statistics: async () => 0,
       matchingClassification: async () => 0,
       classification: async (_repository, user) => {
         classified.push(user.handle);
@@ -133,4 +136,37 @@ test('canonical matching catch-up remains actionable when private AI topics are 
   } finally {
     registry.close();
   }
+});
+
+test('statistics and classification failures leave the other stage and its progress intact', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    registry.createUser('statistics-down', 'Statistics down');
+    registry.createUser('topics-down', 'Topics down');
+    registry.createUser('channels-down', 'Channels down');
+    const results = await runYoutubeWorkerCycle(registry, {
+      portability: async () => 'idle', metadata: async () => 0,
+      channelMetadata: async (_repository, user) => {
+        if (user.handle === 'channels-down') throw new Error('channels unavailable');
+        return 0;
+      },
+      matchingClassification: async () => 0,
+      statistics: async (_repository, user) => {
+        if (user.handle === 'statistics-down') throw new Error('statistics unavailable');
+        return 2;
+      },
+      classification: async (_repository, user) => {
+        if (user.handle === 'topics-down') throw new Error('topics unavailable');
+        return 1;
+      },
+    });
+    assert.equal(results[0].classified, 1);
+    assert.match(results[0].error!, /statistics unavailable/);
+    assert.equal(results[1].statistics, 2);
+    assert.match(results[1].error!, /topics unavailable/);
+    assert.match(results[2].error!, /channels unavailable/);
+    assert.equal(results[2].statistics, 2);
+    assert.equal(results[2].classified, 1);
+    assert.equal(youtubeWorkerMadeProgress(results), true);
+  } finally { registry.close(); }
 });

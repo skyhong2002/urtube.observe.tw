@@ -179,8 +179,18 @@ history. Compact image rows use the available page width, with controls beside
 the headings. Channel headers include YouTube subscriber counts (rounded by
 YouTube), public video/view counts, creation dates, and official topic labels.
 Missing or hidden counts remain unavailable, never zero. Public statistics
-refresh on channel visits after a day and in the worker after seven days;
+refresh on channel visits and in the worker after a day;
 failed lookups keep cached information and back off for five minutes.
+Insights also show watched-video distributions by channel subscriber count
+and public video view count. Each identified video counts once in the selected
+range; unknown/hidden values remain in the coverage denominator. The five
+versioned buckets begin at 0, 1,000, 10,000, 100,000 and 1,000,000. The displayed
+snapshot dates describe current public counts, not popularity when watched.
+With `YOUTUBE_API_KEY` configured, the worker refreshes watched video counts in
+batches of 50 after 24 hours. These counters have independent timestamps and
+never invalidate semantic metadata hashes or feed matching scores. Counter
+and classification failures are isolated. Schema 14 adds the video snapshot
+columns and preserves existing archives; no additional service is required.
 Channel, video, viewer, and personal-stat cards run in single horizontal rows;
 card rows support arrow buttons, touch scrolling, and keyboard navigation.
 Every channel with a YouTube channel id has a page at `/channel/<id>`

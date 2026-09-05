@@ -200,6 +200,7 @@ test('worker publishes the queued matching crystal after successful processing',
       portability: async () => 'idle',
       metadata: async () => 0,
       channelMetadata: async () => 0,
+      statistics: async () => 0,
       matchingClassification: async () => 0,
       classification: async () => 0,
     };

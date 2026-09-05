@@ -8,7 +8,7 @@ import {
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
 import { buildYoutubeCrystal } from './youtube/crystal.js';
-import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata } from './youtube/metadata.js';
+import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata, enrichYoutubeVideoStatistics } from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
@@ -28,6 +28,7 @@ export interface YoutubeWorkerSteps {
   portability(repository: Repository, user: User): Promise<YoutubePortabilityResult>;
   metadata(repository: Repository, user: User): Promise<number>;
   channelMetadata(repository: Repository, user: User): Promise<number>;
+  statistics(repository: Repository, user: User): Promise<number>;
   matchingClassification(repository: Repository, user: User): Promise<number>;
   classification(repository: Repository, user: User): Promise<number>;
 }
@@ -37,6 +38,7 @@ export interface YoutubeWorkerUserResult {
   portability?: YoutubePortabilityResult | 'not_applicable';
   metadata?: number;
   channelMetadata?: number;
+  statistics?: number;
   matchingClassified?: number;
   classified?: number;
   error?: string;
@@ -49,6 +51,7 @@ const defaultSteps: YoutubeWorkerSteps = {
   // API requests and prevents a new account from waiting days for enrichment.
   metadata: (repository) => enrichYoutubeMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   channelMetadata: (repository) => enrichYoutubeChannelMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
+  statistics: (repository) => enrichYoutubeVideoStatistics(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   matchingClassification: async (repository) =>
     classifyYoutubeVideosForMatching(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   // A deep extension backfill can also contain tens of thousands of videos.
@@ -82,22 +85,29 @@ export async function runYoutubeWorkerCycle(
         ? await steps.portability(repository, user)
         : 'not_applicable';
       const metadata = await steps.metadata(repository, user);
-      const channelMetadata = await steps.channelMetadata(repository, user);
       const matchingClassified = await steps.matchingClassification(repository, user);
       // The matching projection only needs metadata and the category-based
       // matching topics. Publish it before the optional AI step so a model
       // outage cannot leave a stale crystal in the registry.
       const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
       registry.upsertMatchingCrystal(user, crystal);
-      const classified = await steps.classification(repository, user);
-      repository.setYoutubeSyncState('last_error', '');
+      // Public counters and private topics are independent; an outage in
+      // either service must leave the other's progress intact.
+      const [channelMetadata, statistics, classification] = await Promise.allSettled([
+        steps.channelMetadata(repository, user), steps.statistics(repository, user), steps.classification(repository, user),
+      ]);
+      const errors = [channelMetadata, statistics, classification].flatMap(result => result.status === 'rejected' ? [errorMessage(result.reason)] : []);
+      const error = errors.join('\n');
+      repository.setYoutubeSyncState('last_error', error.slice(0, 2000));
       return {
         user: user.handle,
         portability,
         metadata,
-        channelMetadata,
+        channelMetadata: channelMetadata.status === 'fulfilled' ? channelMetadata.value : 0,
         matchingClassified,
-        classified,
+        statistics: statistics.status === 'fulfilled' ? statistics.value : 0,
+        classified: classification.status === 'fulfilled' ? classification.value : 0,
+        ...(error ? { error } : {}),
       };
     } catch (error) {
       const message = errorMessage(error);
@@ -110,7 +120,7 @@ export async function runYoutubeWorkerCycle(
 export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
   return results.some((result) =>
     (result.metadata ?? 0) + (result.channelMetadata ?? 0)
-      + (result.matchingClassified ?? 0) + (result.classified ?? 0) > 0);
+      + (result.statistics ?? 0) + (result.matchingClassified ?? 0) + (result.classified ?? 0) > 0);
 }
 
 export function youtubeWorkerShouldContinue(
@@ -147,6 +157,7 @@ export function youtubeWorkPending(
   return registry.listUsers().some((user) => {
     const repository = registry.repositoryFor(user);
     return youtubeMatchingWorkPending(repository)
+      || (capabilities.metadata && repository.youtubeVideosNeedingStatistics(1).length > 0)
       || describeYoutubeProcessing(repository.youtubeProcessingCounts(), capabilities).pending > 0;
   });
 }

@@ -70,8 +70,8 @@ test('version 11 channel metadata upgrades without losing history and refreshes 
       assert.equal(upgraded.youtubeChannelDetail(ID, 'all').channel?.statistics?.subscriberCount, 3680000);
       assert.deepEqual(upgraded.youtubeChannelsNeedingMetadata(10, new Date('2026-09-06T00:00:00Z')), []);
       assert.equal(upgraded.youtubeProcessingCounts(new Date('2026-09-06T00:00:00Z')).channelsPendingMetadata, 0);
-      assert.deepEqual(upgraded.youtubeChannelsNeedingMetadata(10, new Date('2026-09-13T00:00:00Z')), [ID]);
-      assert.equal(upgraded.youtubeProcessingCounts(new Date('2026-09-13T00:00:00Z')).channelsPendingMetadata, 1);
+      assert.deepEqual(upgraded.youtubeChannelsNeedingMetadata(10, new Date('2026-09-06T00:01:00Z')), [ID]);
+      assert.equal(upgraded.youtubeProcessingCounts(new Date('2026-09-06T00:01:00Z')).channelsPendingMetadata, 1);
       upgraded.upsertYoutubeChannelMetadata([{ channelId: ID, name: 'Updated avatar', thumbnailUrl: '' }]);
       assert.equal(upgraded.youtubeChannelMetadata(ID)?.statistics?.subscriberCount, 3680000, 'older avatar-only writes preserve statistics');
     } finally { upgraded.close(); }
