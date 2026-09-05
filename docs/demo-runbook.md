@@ -44,30 +44,36 @@ proposed recruitment and observed user outcomes separate when presenting.
 ## Recording sequence
 
 1. Open Alice's URL and show the candidate directory.
-2. Open Bob's VS page from Alice's candidate card. Before consent, show the
-   rounded match/topic/channel percentages and broad topic ranks; do not show
-   any single video, absolute count, or exact timestamp.
-3. Select **Want to meet** as Alice. Reload the page and show that it says
-   Alice wants to meet without unlocking the deeper comparison.
-4. Open Bob's URL in the other browser context, open Alice's comparison, and
-   select **Want to meet too**.
-5. Reload both sides. Show the mutually unlocked comparison, then disconnect
-   from either side and confirm it returns to the bounded state.
+2. Open Bob's basic profile from Alice's candidate card. Before friendship,
+   there is no Blend link or percentage. A direct comparison URL redirects
+   back to this gated profile.
+3. Select **Add friend** as Alice. Reload the page and show that it says
+   the friend invitation is pending without unlocking Blend.
+4. Open Bob's URL in the other browser context, open Alice's profile, and
+   select **Accept friend request**.
+5. Reload both sides. Open the newly available Blend and show its percentages
+   and shared content, then disconnect and confirm it returns to the gated profile.
+
+This sequence uses private demo accounts. Current main also allows signed-in
+members to Blend directly with a public profile, independently of matching
+opt-in. Accepted friends can see Overview and Insights; History and Recap
+remain owner/key-only. Keep the demo profiles private when recording withdrawal:
+switching matching off does not change the separate public visibility setting.
 
 ## Record the privacy proof
 
 Restart the demo first so no earlier relationship affects the clip. Keep
 Alice's candidate directory open, then use Bob's **Account** page to turn
 matching off. Reload Alice: Bob disappears immediately. A bookmarked Bob VS
-address also returns to the safe not-found page, and any earlier action token
-is invalidated server-side. This is the recommended 8–10 second trust clip.
+address also loses access to Blend and redirects to the profile gate; any
+earlier action token is invalidated server-side. This is the recommended 8–10 second trust clip.
 
 Account deletion can be rehearsed in the same disposable environment: delete
 Bob by retyping `bob-demo`, then confirm the Bob session no longer opens the
 account page. Restart `npm run demo:matching` to recreate both users.
 
-The automated counterpart is the test named `candidate directory keeps every
-relationship in one comparison-first flow` in
+The automated counterpart is the test named `private candidates become friends
+before Overview, Insights and Blend are available` in
 [`tests/match-requests.test.ts`](../tests/match-requests.test.ts). It asserts
 the two independent cookies, locked one-sided state, mutual unlock, disclosure
 allowlist, unforgeable actions, and replayable withdrawal flow.
