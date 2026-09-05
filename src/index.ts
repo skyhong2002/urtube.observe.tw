@@ -429,7 +429,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       insightsHtml: crystalHtml + leaningsHtml,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
-        genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done',
+        genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done', ownerDetails: viewerOwns,
       }),
       history,
       showRecent,
