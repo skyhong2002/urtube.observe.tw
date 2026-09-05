@@ -16,15 +16,15 @@
       </div>
     </header>
     <form id="settings">
-      <label for="endpoint" data-i18n="endpointLabel">Capture endpoint</label>
+      <label for="endpoint" data-i18n="endpointLabel">Server URL</label>
       <input id="endpoint" name="endpoint" type="url" required>
-      <label for="token" data-i18n="tokenLabel">Capture token</label>
+      <label for="token" data-i18n="tokenLabel">Connection code</label>
       <input id="token" name="token" type="password" minlength="32" autocomplete="off" required>
       <label for="google-account" data-i18n="googleAccountLabel">Google account (optional — set this when Chrome is signed into several accounts)</label>
       <input id="google-account" name="googleAccount" type="email" autocomplete="off" placeholder="you@gmail.com">
       <label class="toggle">
         <input id="enabled" name="enabled" type="checkbox">
-        <span data-i18n="captureToggle">Capture viewing sessions</span>
+        <span data-i18n="captureToggle">Record watch time</span>
       </label>
       <label class="toggle">
         <input id="auto-sync" name="autoSync" type="checkbox">
@@ -36,7 +36,7 @@
       </div>
       <p id="result" role="status"></p>
     </form>
-    <p class="privacy" data-i18n="privacy">The token and pending captures stay in this Chrome profile. Daily sync reads the signed-in Google My Activity YouTube page; search terms are encrypted by urtube before storage.</p>
+    <p class="privacy" data-i18n="privacy">Sync reads your YouTube watch and search history and sends it to urtube. Search terms are encrypted before storage.</p>
   </main>
   <script src="i18n.js"></script>
   <script src="options.js"></script>

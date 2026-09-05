@@ -58,18 +58,18 @@ const data = {
 };
 function descendants(element: Element): Element[] { return [element, ...element.children.flatMap(descendants)]; }
 
-test('personal monitor displays failed job details and category gaps without claiming active processing', async () => {
+test('personal monitor reports failure without exposing job diagnostics or batch denominators', async () => {
   const f = fixture(data); await f.tick();
-  assert.match(f.label.textContent, /處理失敗，目前未在執行/);
-  assert.match(f.content.textContent, /失敗次數：3/);
-  assert.match(f.content.textContent, /最後回報階段：標籤向量/);
-  assert.match(f.content.textContent, /15 \/ 30 tags/);
+  assert.match(f.label.textContent, /分析暫停/);
+  assert.doesNotMatch(f.content.textContent, /失敗次數/);
+  assert.doesNotMatch(f.content.textContent, /標籤向量/);
+  assert.doesNotMatch(f.content.textContent, /15 \/ 30 tags/);
   assert.match(f.content.textContent, /2,000 \/ 2,000/);
   assert.doesNotMatch(f.content.textContent, /九類處理結果|資料不足|下方各類別狀態/);
   assert.match(f.content.textContent, /18:38:52/);
   assert.equal(descendants(f.content).filter(el => el.tag === 'dt').length, 0);
   assert.equal(descendants(f.content).filter(el => el.tag === 'img').length, 0, 'errors stay literal text');
-  assert.match(f.content.textContent, /<img src=x onerror=bad\(\)>/);
+  assert.doesNotMatch(f.content.textContent, /<img src=x onerror=bad\(\)>/);
   assert.equal(f.snapshot.hidden, true);
   assert.equal(f.requests[0].url, '/api/processing');
   assert.equal(f.requests[0].options.cache, 'no-store');
@@ -83,11 +83,11 @@ test('monitor refreshes phases, stops in hidden tabs and after navigation, and p
     progress: { phase: 'channels', processed: 0, total: 2000 } } });
   await f.button.events.click();
   assert.equal(f.label.textContent, '處理中');
-  assert.match(f.content.textContent, /來源影片 2,000/);
+  assert.match(f.content.textContent, /2,000 \/ 2,000/);
   assert.equal(descendants(f.content).filter(el => el.tag === 'progress').length, 0);
   f.update(null, 503); await f.button.events.click();
   assert.match(f.connection.textContent, /上次資料/);
-  assert.match(f.content.textContent, /來源影片 2,000/);
+  assert.match(f.content.textContent, /2,000 \/ 2,000/);
   assert.equal([...f.timers.values()][0].delay, 60000);
   f.document.hidden = true; f.document.events.visibilitychange();
   assert.equal(f.timers.size, 0);
@@ -133,11 +133,11 @@ test('all pipeline bars stay visible for completed, disabled, waiting and runnin
   const stages = descendants(f.content).filter(el => el.dataset.pipelineStage);
   assert.equal(stages.length, 6);
   assert.ok(stages.every(el => descendants(el).some(child => child.tag === 'progress')));
-  assert.match(f.content.textContent, /主題動態分類|常見關鍵字來源/);
+  assert.match(f.content.textContent, /觀看主題|常見關鍵字/);
   assert.match(f.content.textContent, /估計約 2 分鐘/);
-  assert.match(f.content.textContent, /沒有獨立的 AI 排程/);
-  assert.match(f.content.textContent, /剩餘時間：0 分鐘/);
-  assert.match(f.content.textContent, /不以來源影片數冒充頻道完成率/);
+  assert.doesNotMatch(f.content.textContent, /AI 排程/);
+  assert.doesNotMatch(f.content.textContent, /剩餘時間：0 分鐘/);
+  assert.doesNotMatch(f.content.textContent, /來源影片數|冒充/);
 });
 
 

@@ -139,9 +139,9 @@ test('tagLeanPage renders governed channel distributions without assigning the v
   assert.match(zh, /67%/); // 3600 of 5400 politically tagged seconds
   assert.match(zh, /綠媒新聞/);
   assert.match(zh, /標籤描述頻道內容傾向，不代表你的政治立場/);
-  assert.match(zh, /政策 2026-09-05/);
-  assert.match(zh, /清單 sha256:0123456789ab/);
-  assert.match(zh, /來源時間 2026-09-05 01:58:34/);
+  assert.doesNotMatch(zh, /政策 2026-09-05/);
+  assert.doesNotMatch(zh, /清單 sha256:0123456789ab/);
+  assert.match(zh, /更新於 2026-09-05 01:58:34/);
   assert.match(zh, /docs\/channel-tag-policy\.md/);
   assert.match(zh, /issues\/new/);
   assert.match(zh, /不會用於配對/);

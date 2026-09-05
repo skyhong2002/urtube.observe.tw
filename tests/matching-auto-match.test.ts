@@ -9,6 +9,7 @@ test('topic switches serialize requests, coalesce pending selections and discard
   const requests: { genres: string[]; resolve: (data: unknown) => void }[] = [];
   const rendered: unknown[] = [];
   const context: any = {
+    t: (zh: string, _en: string) => zh,
     api: (_: string, __: string, body: { genres: string[] }) => new Promise(resolve => requests.push({ ...body, resolve })),
     renderMatches: (data: unknown) => rendered.push(data),
   };
@@ -38,6 +39,7 @@ test('ranked cards label only the top three scored people and preserve Blend wit
   });
   const result: any = { children: [], replaceChildren() { this.children = []; }, append(child: unknown) { this.children.push(child); } };
   const context: any = {
+    t: (zh: string, _en: string) => zh,
     lang: 'zh',
     element: (tag: string, text?: string, cls?: string) => ({ tag, text, cls, children: [] as unknown[], append(child: unknown) { this.children.push(child); } }),
     document: { createElement: () => ({ innerHTML: '', get content(): any { const id = this.innerHTML; return { querySelector: () => cards.get(id) }; } }) },

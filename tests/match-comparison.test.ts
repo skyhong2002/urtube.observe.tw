@@ -274,7 +274,8 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     const unlockedHtml = await (await app.request(`${comparePath}?range=all`, {
       headers: { cookie: aliceCookie },
     })).text();
-    assert.match(unlockedHtml, /You are friends/);
+    assert.doesNotMatch(unlockedHtml, /You are friends|More shared interests unlocked/);
+    assert.match(unlockedHtml, /Remove friend/);
     // Stats block: Alice 4 events, Bob 3; distinct channels 2 and 2.
     assert.match(unlockedHtml, /<div class="mt-stat-row"><strong>4<\/strong><span>Watch events<\/span><strong>3<\/strong><\/div>/);
     assert.match(unlockedHtml, /<strong>2<\/strong><span>Distinct channels<\/span><strong>2<\/strong>/);

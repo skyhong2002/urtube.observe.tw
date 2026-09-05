@@ -1,9 +1,7 @@
-import { config } from '../config.js';
 import type { GuidedOnboardingState, GuidedScanStatus } from '../onboarding-flow.js';
 import { DEFAULT_HANDLE, type User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
 import type { YoutubeProcessingStatus } from '../youtube/processing.js';
-import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
 import { html, primaryNav, shell } from './pages.js';
 import { processingVisibilitySetting } from './processing-visibility.js';
@@ -54,6 +52,12 @@ const googleButton = (label: string) => `
   <a class="ob-google" href="/auth/google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>${label}</a>`;
 
 // Step 1: a verified Google identity is the only way in.
+// Keep the store connection path prominent; manual installation remains available as advanced help.
+function extensionInstallInstructions(lang: Lang): string {
+  const t = messages(lang);
+  return `<ol class="ob-steps"><li>${t.onboardingInstallSteps[0]}</li></ol><details><summary>${lang === 'zh' ? '手動安裝說明' : 'Manual installation'}</summary><p>${t.onboardingInstallSteps[1]}</p></details>`;
+}
+
 export function signupStartPage(error = '', lang: Lang = 'en'): string {
   const t = messages(lang);
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupTitle}</h1>
@@ -76,16 +80,16 @@ export function signupCompletePage(
     <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
     <form class="ob-form" method="post" action="/signup">
       <label for="handle">${t.signupHandle} <span id="handle-hint" style="font-weight:400"></span></label>
-      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="dad" autocomplete="off">
+      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="alex" autocomplete="off">
       <label for="displayName">${t.signupName}</label>
-      <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(pending.email.split('@')[0] ?? '')}" placeholder="Sky's Dad">
+      <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(pending.email.split('@')[0] ?? '')}" placeholder="Alex">
       <button type="submit">${t.signupSubmit}</button>
     </form>
     <details style="margin-top:18px"><summary style="cursor:pointer;color:var(--ink-2);font-size:13px">${t.signupClaimSummary}</summary>
     <form class="ob-form" method="post" action="/signup" style="margin-top:10px">
       <p style="margin:0">${t.signupClaimPara}</p>
       <label for="claimHandle">${t.signupClaimHandle}</label>
-      <input id="claimHandle" name="claimHandle" type="text" maxlength="32" placeholder="skyhong.tw">
+      <input id="claimHandle" name="claimHandle" type="text" maxlength="32" placeholder="alex">
       <label for="claimKey">${t.signupClaimKey}</label>
       <input id="claimKey" name="claimKey" type="text" maxlength="128" autocomplete="off">
       <button type="submit">${t.signupClaimSubmit}</button>
@@ -200,9 +204,9 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       ${group('settings-sync', t.settingsSync, `
       <h2>${t.accountExtension}</h2>
       <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
-      <ol class="ob-steps">
+      <details><summary>${lang === 'zh' ? '手動安裝版本的更新方式' : 'Update a manually installed extension'}</summary><ol class="ob-steps">
         ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
-      </ol>
+      </ol></details>
       `)}
       ${group('settings-data', t.settingsData, `
       ${takeout}
@@ -284,7 +288,7 @@ export function guidedOnboardingPage(
     content = `<h2>${t.onboardingSetupTitle}</h2><p>${t.onboardingSetupPara}</p>
       <div class="go-note">${t.onboardingDesktopOnly}</div>
       ${scan ? `<div class="go-note${state.scanStatus === 'running' ? '' : ' warn'}">${scan}</div>` : ''}
-      <ol class="ob-steps">${t.onboardingInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+      ${extensionInstallInstructions(lang)}
       <div class="go-actions"><a class="go-primary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="/onboarding">${t.onboardingRefresh}</a></div>`;
   } else if (state.step === 'processing') {
     const notice = v3ProcessingNotice(processingStatus, lang, { dashboardHref, ownerDetails: true, alwaysShow: true });
@@ -324,7 +328,7 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
     <div class="ob-card" data-urtube-provision>
       <div id="es-waiting">
         <p>${t.esWaiting}</p>
-        <ol class="ob-steps">${t.onboardingInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+        ${extensionInstallInstructions(lang)}
       </div>
       <div id="es-ready" hidden>
         <p>${t.esAuthorizePara}</p>

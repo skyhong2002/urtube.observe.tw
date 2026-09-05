@@ -27,10 +27,10 @@ function values() {
     || url.hostname !== 'urtube.observe.tw'
     || url.pathname !== '/api/ingest/youtube/capture'
   ) {
-    throw new Error('Endpoint must be https://urtube.observe.tw/api/ingest/youtube/capture');
+    throw new Error('connection-settings');
   }
   const tokenValue = token.value.trim();
-  if (tokenValue.length < 32) throw new Error('Capture token must contain at least 32 characters');
+  if (tokenValue.length < 32) throw new Error('connection-settings');
   const googleAccountValue = googleAccount.value.trim();
   if (googleAccountValue && !googleAccountValue.includes('@')) {
     throw new Error(urtubeT.googleAccountInvalid);
@@ -51,7 +51,7 @@ form.addEventListener('submit', async (event) => {
     result.textContent = urtubeT.saved;
     await chrome.runtime.sendMessage({ type: 'settings-updated' });
   } catch (error) {
-    result.textContent = error instanceof Error ? error.message : String(error);
+    result.textContent = urtubeErrorMessage(error);
   }
 });
 
@@ -75,7 +75,7 @@ document.querySelector('#test').addEventListener('click', async () => {
       } catch { /* already running */ }
     }
   } catch (error) {
-    result.textContent = error instanceof Error ? error.message : String(error);
+    result.textContent = urtubeErrorMessage(error);
   }
 });
 

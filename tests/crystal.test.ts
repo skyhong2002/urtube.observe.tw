@@ -180,8 +180,8 @@ test('crystal.json and /compare enforce dashboard access', async () => {
     const compareHtml = await compared.text();
     assert.match(compareHtml, /Alice × Bob/);
     assert.match(compareHtml, /channel similarity/);
-    assert.match(compareHtml, /pending · using channels only/);
-    assert.match(compareHtml, /More recent history is needed/);
+    assert.match(compareHtml, /Topic data is not yet complete/);
+    assert.match(compareHtml, /incomplete recent history/);
     assert.doesNotMatch(compareHtml, /<strong>\d+%<\/strong>/);
     assert.equal((await app.request('/compare?a=alice&b=alice')).status, 400);
   } finally {

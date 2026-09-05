@@ -92,7 +92,7 @@ test('matching settings are session-only and independent from dashboard visibili
 
     const account = await (await app.request('/account', { headers: { cookie: session } })).text();
     assert.match(account, /action="\/account\/matching"/);
-    assert.match(account, /Matching and dashboard visibility are independent/);
+    assert.match(account, /A public profile stays public/);
     assert.match(account, /name="matchingOptIn" value="1" checked/);
     assert.doesNotMatch(account, /matchingTopics|matchingChannels|matchingRhythm|selectedTopicKeys|<select/);
     assert.doesNotMatch(await (await app.request('/signup')).text(), /Join matching/);
@@ -146,19 +146,19 @@ test('privacy page explains optional matching and withdrawal in both languages',
   const app = createApp(registry);
   try {
     const english = await (await app.request('/privacy')).text();
-    assert.match(english, /New accounts enable matching and public Overview and Insights by default/);
-    assert.match(english, /Accepted friendships grant Overview, Insights and Blend access/);
-    assert.match(english, /turning matching off withdraws requests and friendships/);
-    assert.match(english, /independently of matching opt-in/);
-    assert.match(english, /History and Recap require the owner session or dashboard key/);
-    assert.match(english, /Searches, email addresses, full histories and contact details are not shared/);
+    assert.match(english, /New accounts enable friend discovery and public Overview and Insights by default/);
+    assert.match(english, /Friends can view your Overview, Insights and Blend/);
+    assert.match(english, /Turning it off removes requests and friendships/);
+    assert.match(english, /A public profile stays public until you change its sharing setting/);
+    assert.match(english, /History and Recap require your signed-in account or private access key/);
+    assert.match(english, /Your sign-in email and search terms are not provided to other members/);
     const chinese = await (await app.request('/privacy?lang=zh')).text();
-    assert.match(chinese, /新帳號預設開啟配對/);
-    assert.match(chinese, /接受後即可查看總覽、洞察與 Blend/);
-    assert.match(chinese, /關閉配對會撤銷邀請與好友關係/);
-    assert.match(chinese, /不受配對開關影響/);
-    assert.match(chinese, /觀看紀錄與回顧需要本人登入或儀表板 key/);
-    assert.match(chinese, /不分享搜尋詞、電子郵件、完整觀看紀錄或聯絡資訊/);
+    assert.match(chinese, /新帳號預設開啟好友探索/);
+    assert.match(chinese, /好友可查看你的總覽、洞察與 Blend/);
+    assert.match(chinese, /關閉好友探索會撤銷邀請與好友關係/);
+    assert.match(chinese, /已公開的頁面仍會保持公開/);
+    assert.match(chinese, /觀看紀錄與回顧需要登入本人帳號或持有私人存取金鑰/);
+    assert.match(chinese, /登入電子郵件與搜尋詞不會提供給其他成員/);
   } finally {
     registry.close();
   }

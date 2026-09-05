@@ -41,7 +41,7 @@ test('topic trend views share one 12-month, 20-topic model', () => {
   assert.match(output, /All topics/);
   assert.match(output, /Other/);
   assert.match(output, /Select up to 3 topics to compare/);
-  assert.match(output, /follows the page range/);
+  assert.match(output, /Uses the selected date range/);
   assert.match(output, /data-trend-smoothing="raw"/);
   assert.match(output, /data-trend-smoothing="smoothed"/);
   assert.match(output, /rawShare/);
@@ -49,7 +49,7 @@ test('topic trend views share one 12-month, 20-topic model', () => {
   assert.match(output, /cell\.setAttribute\('aria-label',detail\)/);
   assert.match(output, /data-trend-summary/);
   assert.match(output, /data-trend-table-body/);
-  assert.match(output, /current taxonomy/);
+  assert.doesNotMatch(output, /current taxonomy/);
   assert.match(output, /prefers-reduced-motion:reduce/);
   assert.match(output, /play\.hidden=true;play\.disabled=true/);
   assert.match(output, /data-race-previous/);

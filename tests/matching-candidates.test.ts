@@ -195,12 +195,12 @@ test('/matches requires a session and explicit matching opt-in', async () => {
     registry.setMatchingPreferences(user.handle, false, 'topics_only');
     const optedOut = await app.request('/matches', { headers: { cookie } });
     assert.equal(optedOut.status, 403);
-    assert.match(await optedOut.text(), /Matching is off/);
+    assert.match(await optedOut.text(), /Friend discovery is off/);
 
     registry.setMatchingPreferences(user.handle, true, 'topics_only');
     const pending = await app.request('/matches', { headers: { cookie } });
     assert.equal(pending.status, 200);
-    assert.match(await pending.text(), /recent signal is not ready/);
+    assert.match(await pending.text(), /recent viewing history is not yet complete/);
   } finally {
     registry.close();
   }
@@ -243,7 +243,7 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.match(first, /action="\/matches\/request"/);
     assert.equal((first.match(/class="mt-percent">\d+%/g) ?? []).length, 20);
     assert.match(first, /Add friend/);
-    assert.match(first, /Public members are ready for Blend/);
+    assert.doesNotMatch(first, /Public members are ready for Blend/);
     // Member handles open profiles; raw private data stays out of the directory.
     assert.doesNotMatch(first, /Private Channel|\/compare\?|\/u\//);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);
@@ -273,7 +273,7 @@ test('/matches keeps quality thresholds and shows a clear no-candidate state', a
     const empty = await app.request('/matches?page=999999', { headers: { cookie } });
     assert.equal(empty.status, 200);
     const body = await empty.text();
-    assert.match(body, /No eligible candidates right now/);
+    assert.match(body, /No matching suggestions yet/);
     assert.doesNotMatch(body, /<article class="mt-card">/);
 
     assert.deepEqual(matchingCandidateBatch([], Number.POSITIVE_INFINITY), {

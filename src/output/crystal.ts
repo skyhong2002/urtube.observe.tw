@@ -101,8 +101,8 @@ export function comparePage(
     <div class="cx-columns">
       ${list(t.sharedChannels, comparison.sharedChannels, sharedRow)}
       ${list(t.sharedTopics, comparison.sharedTopics, sharedRow)}
-      ${list(t.onlyList(comparison.a.displayName, comparison.b.displayName), comparison.onlyA, onlyRow)}
-      ${list(t.onlyList(comparison.b.displayName, comparison.a.displayName), comparison.onlyB, onlyRow)}
+      ${list(t.onlyList(comparison.a.displayName), comparison.onlyA, onlyRow)}
+      ${list(t.onlyList(comparison.b.displayName), comparison.onlyB, onlyRow)}
     </div>`;
   return shell(
     `${comparison.a.displayName} × ${comparison.b.displayName} · ${t.crystalCompare}`,

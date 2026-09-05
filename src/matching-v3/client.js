@@ -8,6 +8,10 @@ const element = (tag, text, cls) => {
 };
 let state, selectedId, editId, mode, requestNumber = 0;
 const lang = document.documentElement.lang.startsWith('zh') ? 'zh' : 'en';
+// Localize presentation labels only: API genre values and saved preferences remain unchanged.
+const t = (zh, en) => lang === 'zh' ? zh : en;
+const genreNames = JSON.parse(document.querySelector('.mv-workspace').dataset.genreLabels);
+const genreName = genre => genreNames[genre];
 const showView = view => {
   for (const [id, value] of [['mv-directory','all'],['mv-invitations','invites'],['mv-topic','topics']]) $(id).hidden = view !== value;
   $('mv-all').setAttribute('aria-current', String(view === 'all'));
@@ -18,22 +22,24 @@ const showView = view => {
 };
 $('mv-all').onclick = () => { requestNumber++; selectedId = null; showView('all'); renderTopics(); };
 $('mv-invites').onclick = () => { requestNumber++; selectedId = null; showView('invites'); renderTopics(); };
-const messages = { login_required: '登入已過期，請重新登入。', opt_in_required: '請先在「我的帳號」開啟參與配對。', profile_pending: '興趣輪廓尚未建立，請等待背景處理完成。', profile_changed: '輪廓剛更新，請重新配對。', matching_unavailable: '配對服務暫時無法使用，請稍後再試。', matching_in_progress: '配對仍在計算中。' };
+const messages = { login_required: t('登入已過期，請重新登入。', 'Your sign-in expired. Please sign in again.'), opt_in_required: t('請先到設定開啟好友探索。', 'Enable friend discovery in Settings first.'), profile_pending: t('興趣分析尚未完成。', 'Interest analysis is not yet complete.'), profile_changed: t('興趣資料已更新，請再試一次。', 'Your interests have been updated. Please try again.'), matching_unavailable: t('配對暫時無法使用，請稍後再試。', 'Matching is unavailable. Please try again later.'), matching_in_progress: t('正在尋找合拍的人…', 'Finding people on your wavelength…') };
 async function api(path = '', method = 'GET', body) {
   const response = await fetch('/api/matching-v3' + path + '?lang=' + lang, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(messages[data?.error] || `服務暫時無法回應（HTTP ${response.status}），請稍後重試。`);
-  if (!data) throw new Error('服務回應不完整，請重新嘗試配對。');
+  if (!response.ok) throw new Error(messages[data?.error] || t('暫時無法完成操作，請稍後重試。', 'This action could not be completed. Please try again later.'));
+  if (!data) throw new Error(t('暫時無法取得結果，請再試一次。', 'Results are unavailable. Please try again.'));
   return data;
 }
-function error(err) { showView('topics'); $('message').textContent = err.message; $('message').className = 'error'; }
+// Network failures use a stable recovery message; API errors already have localized labels.
+function userError(err) { return Object.values(messages).includes(err.message) ? err.message : t('暫時無法完成操作，請稍後重試。', 'This action could not be completed. Please try again later.'); }
+function error(err) { showView('topics'); $('message').textContent = userError(err); $('message').className = 'error'; }
 async function load() {
   state = await api();
   $('status').replaceChildren();
   $('status').hidden = state.optedIn;
   if (!state.optedIn) {
-    $('status').append(element('span', '尚未開啟配對。請至 '));
-    const link = element('a', '我的帳號'); link.href = '/account'; $('status').append(link, element('span', ' 開啟參與配對，再選擇興趣。'));
+    $('status').append(element('span', t('請至 ', 'Open ')));
+    const link = element('a', t('設定', 'Settings')); link.href = '/account'; $('status').append(link, element('span', t(' 開啟好友探索，再選擇興趣。', ' to enable friend discovery, then choose your interests.')));
   }
   if (!state.preferences.topics.some(t => t.id === selectedId)) selectedId = null;
   const view = new URL(location.href).searchParams.get('view') || 'all';
@@ -42,26 +48,26 @@ async function load() {
 }
 function renderTopics() {
   const query = $('search').value.toLowerCase(); $('topics').replaceChildren();
-  for (const topic of state.preferences.topics.filter(t => (t.name + t.genres.join(' ')).toLowerCase().includes(query))) {
+  for (const topic of state.preferences.topics.filter(t => (t.name + t.genres.map(genreName).join(' ')).toLowerCase().includes(query))) {
     const button = element('button', undefined, 'topic'); button.setAttribute('aria-current', String(topic.id === selectedId));
-    button.append(element('strong', topic.name), element('small', topic.genres.join(' · ')));
+    button.append(element('strong', topic.name), element('small', topic.genres.map(genreName).join(' · ')));
     button.onclick = () => { selectedId = topic.id; requestNumber++; showView('topics'); renderTopics(); renderDetail(); };
     $('topics').append(button);
   }
 }
 function renderDetail() {
   const topic = state.preferences.topics.find(t => t.id === selectedId); $('detail').replaceChildren();
-  if (!topic) { $('detail').append(element('p', '先選擇興趣，再建立你的第一個配對主題。', 'empty')); return; }
+  if (!topic) { $('detail').append(element('p', t('選擇興趣，建立你的第一個配對主題。', 'Choose your interests to create your first matching topic.'), 'empty')); return; }
   const top = element('div', undefined, 'detail-top'); top.append(element('h2', topic.name));
   const actions = element('div');
-  const edit = element('button', '編輯'); edit.onclick = () => openEditor('topic', topic);
-  const remove = element('button', '刪除'); remove.onclick = async () => {
-    if (!confirm('刪除「' + topic.name + '」？')) return;
+  const edit = element('button', t('編輯', 'Edit')); edit.onclick = () => openEditor('topic', topic);
+  const remove = element('button', t('刪除', 'Delete')); remove.onclick = async () => {
+    if (!confirm(t('刪除「' + topic.name + '」？', 'Delete “' + topic.name + '”?'))) return;
     try { await save({ ...state.preferences, topics: state.preferences.topics.filter(t => t.id !== topic.id) }); } catch (err) { error(err); }
   };
   actions.append(edit, remove); top.append(actions); $('detail').append(top);
-  const chips = element('div', undefined, 'chips'); topic.genres.forEach(g => chips.append(element('span', g, 'chip'))); $('detail').append(chips);
-  $('detail').append(element('p', '依所選類別的合拍度排序，前三名為最佳拍檔。', 'muted'));
+  const chips = element('div', undefined, 'chips'); topic.genres.forEach(g => chips.append(element('span', genreName(g), 'chip'))); $('detail').append(chips);
+  $('detail').append(element('p', t('依共同興趣的合拍程度排序', 'Sorted by compatibility across your chosen interests'), 'muted'));
   const result = element('div'); result.setAttribute('aria-live', 'polite');
   $('detail').append(result);
   queueMatch(topic, result);
@@ -71,7 +77,7 @@ function renderDetail() {
 let pendingMatch = null, matching = false;
 function queueMatch(topic, result) {
   const number = ++requestNumber;
-  result.textContent = '正在尋找合拍的人…';
+  result.textContent = t('正在尋找合拍的人…', 'Finding people on your wavelength…');
   pendingMatch = { genres: [...topic.genres], result, number };
   void drainMatches();
 }
@@ -88,8 +94,8 @@ async function drainMatches() {
         renderMatches(data, job.result);
       } catch (err) {
         if (job.number !== requestNumber) continue;
-        job.result.replaceChildren(element('p', err.message));
-        const retry = element('button', '重試配對');
+        job.result.replaceChildren(element('p', userError(err)));
+        const retry = element('button', t('重試配對', 'Try matching again'));
         retry.onclick = () => queueMatch({ genres: job.genres }, job.result);
         job.result.append(retry);
       }
@@ -99,7 +105,7 @@ async function drainMatches() {
 function renderMatches(data, result) {
   result.replaceChildren();
   if (!data.candidates.length) {
-    result.append(element('p', '還沒有同意參與這些類別、且已完成輪廓處理的使用者。', 'empty')); return;
+    result.append(element('p', t('這個主題目前還沒有配對結果，試試其他興趣組合。', 'No results for this topic yet. Try a different combination of interests.'), 'empty')); return;
   }
   const cards = element('div', undefined, 'mt-grid');
   const ranked = data.candidates.flatMap(candidate => {
@@ -126,7 +132,7 @@ function openEditor(kind, topic) {
   if (!state) return;
   mode = kind; editId = topic?.id;
   if (kind === 'topic' && !state.preferences.genres.length) return openEditor('interests');
-  $('editor-title').textContent = kind === 'interests' ? '我的興趣與配對類別' : topic ? '編輯配對主題' : '新增配對主題';
+  $('editor-title').textContent = kind === 'interests' ? t('選擇興趣', 'Choose interests') : topic ? t('編輯配對主題', 'Edit matching topic') : t('新增配對主題', 'New matching topic');
   $('name-label').classList.toggle('hidden', kind === 'interests'); $('consent').classList.toggle('hidden', kind !== 'interests');
   $('topic-name').value = topic?.name || ''; $('topic-name').required = kind !== 'interests';
   $('form-error').textContent = ''; $('choices').replaceChildren();
@@ -134,14 +140,25 @@ function openEditor(kind, topic) {
   const options = kind === 'interests' ? state.genres : state.preferences.genres;
   options.forEach(genre => {
     const label = element('label'), input = document.createElement('input'); input.type = 'checkbox'; input.value = genre; input.checked = checked.includes(genre); input.onchange = count;
-    label.append(input, document.createTextNode(genre)); $('choices').append(label);
+    label.append(input, document.createTextNode(genreName(genre)));
+    if (genre === 'Politic') label.append(element('small', t('依觀看內容分類，不代表個人立場。', 'Describes viewing topics, not personal political views.'))); $('choices').append(label);
   }); count(); $('editor').showModal();
 }
 function chosen() { return [...$('choices').querySelectorAll('input:checked')].map(input => input.value); }
-function count() { $('selection-count').textContent = '已選 ' + chosen().length + ' 個分類' + (mode === 'interests' ? '；取消全部可撤回新版類別授權。' : '；至少 1 個，最多全部 9 個。'); }
+function count() {
+  const genres = chosen();
+  $('selection-count').textContent = t('已選 ' + genres.length + ' 項', genres.length + ' selected');
+  // Removing interests can delete saved topics; surface that consequence at the actual edit.
+  const removed = mode === 'interests' ? state.preferences.topics.filter(topic => !topic.genres.some(g => genres.includes(g))) : [];
+  const changed = mode === 'interests' && state.preferences.topics.some(topic => topic.genres.some(g => !genres.includes(g)));
+  $('selection-impact').textContent = removed.length
+    ? t('儲存後將刪除沒有剩餘興趣的主題：', 'Saving will delete topics with no remaining interests: ') + removed.map(topic => topic.name).join('、')
+    : changed ? t('取消的興趣也會從既有主題中移除。', 'Deselected interests will also be removed from existing topics.')
+    : mode === 'interests' && !genres.length ? t('儲存後將停止主題配對。', 'Saving will turn off topic matching.') : '';
+}
 $('editor-form').onsubmit = async event => {
   event.preventDefault(); const genres = chosen();
-  if (mode === 'topic' && !genres.length) { $('form-error').textContent = '請至少選擇一個分類。'; return; }
+  if (mode === 'topic' && !genres.length) { $('form-error').textContent = t('請至少選擇一項興趣。', 'Choose at least one interest.'); return; }
   const prefs = structuredClone(state.preferences);
   if (mode === 'interests') {
     prefs.genres = genres; prefs.topics = prefs.topics.map(t => ({ ...t, genres: t.genres.filter(g => genres.includes(g)) })).filter(t => t.genres.length);
@@ -151,7 +168,7 @@ $('editor-form').onsubmit = async event => {
     prefs.topics = editId ? prefs.topics.map(t => t.id === editId ? topic : t) : [...prefs.topics, topic]; selectedId = topic.id; showView('topics');
   }
   const submit = $('editor-form').querySelector('button[type=submit]'); submit.disabled = true;
-  try { await save(prefs); $('editor').close(); } catch (err) { $('form-error').textContent = err.message; }
+  try { await save(prefs); $('editor').close(); } catch (err) { $('form-error').textContent = userError(err); }
   finally { submit.disabled = false; }
 };
 $('cancel').onclick = () => $('editor').close(); $('interests').onclick = () => openEditor('interests'); $('add').onclick = () => openEditor('topic'); $('search').oninput = renderTopics;
@@ -201,7 +218,7 @@ document.addEventListener('submit', async event => {
     const updated = visibleCards.find(card => !card.closest('[hidden]') && card.querySelector('.mt-person-link')?.getAttribute('href') === cardHref);
     (updated?.querySelector('[data-friendship-tools] button') || $('mv-invites')).focus({ preventScroll: true });
   } catch {
-    feedback.textContent = lang === 'zh' ? '無法確認邀請狀態，請稍後再試；若登入已過期，請重新登入。' : 'Could not confirm the request. Try again later, or sign in if your session expired.';
+    feedback.textContent = lang === 'zh' ? '無法確認邀請狀態，請稍後再試。若登入已過期，請重新登入。' : 'Could not confirm the request. Try again later, or sign in if your session expired.';
   } finally {
     controls.forEach((button, index) => { button.disabled = originallyDisabled[index]; });
     friendshipPending = false;

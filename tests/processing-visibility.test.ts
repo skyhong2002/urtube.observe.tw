@@ -33,7 +33,7 @@ test('processing display defaults on, persists per account across pages and can 
   assert.equal(f.input.checked, true);
   assert.equal(f.root.dataset.processingVisibility, 'shown');
   f.toggle(false);
-  assert.equal(f.status.textContent, '簡潔模式已開啟');
+  assert.equal(f.status.textContent, '已隱藏處理進度');
   const next = fixture('/alice', f.storage);
   assert.equal(next.root.dataset.processingVisibility, 'hidden');
   assert.equal(next.input.checked, false);
@@ -69,7 +69,7 @@ test('settings keeps the default-on control outside processing blocks and shell 
     assert.equal(control.attr('role'), 'switch');
     assert.equal(control.closest('#processing,[data-processing-status],.yt-v3-processing').length, 0);
     assert.equal($('html').attr('data-processing-account'), '/display-fixture');
-    assert.match($('.processing-display-setting').text(), /目前瀏覽器依帳號儲存/);
+    assert.match($('.processing-display-setting').text(), /在頁面上顯示資料整理進度/);
     assert.ok(markup.indexOf('urtube:show-processing:') < markup.indexOf('<body>'));
     assert.match(processingVisibilityStyles, /yt-v3-processing.*yt-processing.*yt-provisional.*mt-provisional/);
     const otherProfile = load(shell('Other profile', '', primaryNav('en', { dashboardHref: '/viewer' })));

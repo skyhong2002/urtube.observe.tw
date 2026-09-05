@@ -190,8 +190,9 @@ function safeJson(value: unknown): string {
 
 export function topicTrendSection(data: YoutubeDashboardData, t: Messages): string {
   const model = buildTopicTrendModel(data.topicTrend, t);
-  const rawLabel = t.topicTrendOther === '其他' ? '原始' : 'Raw';
-  const smoothedLabel = t.topicTrendOther === '其他' ? '平滑' : 'Smoothed';
+  // View labels describe what changes visually, without classification-version terminology.
+  const rawLabel = t.topicTrendOther === '其他' ? '每日／每月' : 'Daily / monthly';
+  const smoothedLabel = t.topicTrendOther === '其他' ? '趨勢' : 'Trend';
   if (!model.frames.length) {
     return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div><p class="muted">${t.topicTrendEmpty}</p><p class="yt-topic-trend-method">${t.topicTrendMethod}</p></section>`;
   }
@@ -224,7 +225,7 @@ export function topicTrendSection(data: YoutubeDashboardData, t: Messages): stri
     <div data-trend-panel="heatmap" hidden><div class="yt-trend-heat-controls"><label>${t.topicTrendSort}<select data-topic-sort><option value="latest">${t.topicTrendSortLatest}</option><option value="growth">${t.topicTrendSortGrowth}</option><option value="average">${t.topicTrendSortAverage}</option></select></label><span>${t.topicTrendSelectHelp}</span></div>
       <div class="yt-trend-heat-wrap" style="--trend-periods:${model.frames.length};--trend-width:${Math.max(600, model.frames.length * 50)}px"><div class="yt-trend-heat-head"><span>${t.topics}</span><div>${model.frames.map((frame) => `<span>${html(frame.label)}</span>`).join('')}</div><span>${t.topicTrendLatest}</span><span>${t.topicTrendChange}</span></div><div data-heat-rows>${heatmapRows(model, t)}</div></div>
       <div class="yt-trend-focus" data-topic-focus>${comparisonSvg(model, selected, t)}</div></div>
-    <p class="yt-topic-trend-method">${t.topicTrendMethod} ${t.topicTrendTaxonomyNote}</p>
+    <p class="yt-topic-trend-method">${t.topicTrendMethod}</p>
     <details class="viz-table"><summary>${t.tableView}</summary><table><thead><tr><th>${t.colMonth}</th><th>${t.colCoverage}</th><th>${t.colTopicShares}</th></tr></thead><tbody data-trend-table-body>${tableRows}</tbody></table></details>
     <script type="application/json" data-topic-trend-data>${safeJson(model)}</script>
     <script>(()=>{const root=document.currentScript?.closest('[data-topic-trend]');if(!root)return;const model=JSON.parse(root.querySelector('[data-topic-trend-data]').textContent);const text=${safeJson({

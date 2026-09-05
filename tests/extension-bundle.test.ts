@@ -30,7 +30,7 @@ test('local extension targets the local proxy and provisions on localhost', () =
   for (const url of ['http://localhost:19081/api/ingest/youtube/capture',
     'https://urtube.observe.tw/api/ingest/youtube/capture', 'http://localhost:19080/wrong']) {
     endpoint.value = url;
-    assert.throws(() => vm.runInContext('values()', context), /Endpoint must be/);
+    assert.throws(() => vm.runInContext('values()', context), /connection-settings/);
   }
 });
 

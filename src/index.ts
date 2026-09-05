@@ -1,3 +1,4 @@
+import { presentationError } from './output/presentation-errors.js';
 import { normalizeSocialUrl } from './social-links.js';
 import { createHash } from 'node:crypto';
 import { ProfileError, validHandle, type ProfileInput } from './profile.js';
@@ -599,7 +600,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     try {
       return c.redirect(googleLoginUrl(registry, c.req.query('next') ?? ''));
     } catch (error) {
-      return c.text(error instanceof Error ? error.message : String(error), 503);
+      return c.text(presentationError(error, langOf(c), 'login'), 503);
     }
   });
 
@@ -608,7 +609,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (c.req.query('error')) return c.redirect('/signup');
     const code = c.req.query('code');
     const state = c.req.query('state');
-    if (!code || !state) return c.text('Missing OAuth code or state', 400);
+    if (!code || !state) return c.text(presentationError(null, langOf(c), 'login'), 400);
     try {
       const identity = await completeGoogleLogin(registry, code, state);
       const existing = registry.userByGoogleSub(identity.sub);
@@ -626,7 +627,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       });
       return c.redirect('/signup');
     } catch (error) {
-      return c.text(error instanceof Error ? error.message : String(error), 400);
+      return c.text(presentationError(error, langOf(c), 'login'), 400);
     }
   });
 
@@ -665,7 +666,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         finish(linked);
         return c.redirect(onboardingDestinationFor(linked));
       } catch (error) {
-        return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 409);
+        return c.html(signupCompletePage(pageInput, presentationError(error, lang, 'signup'), lang), 409);
       }
     }
 
@@ -694,7 +695,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       c.header('Cache-Control', 'no-store');
       return c.redirect('/onboarding');
     } catch (error) {
-      return c.html(signupCompletePage(pageInput, error instanceof Error ? error.message : String(error), lang), 400);
+      return c.html(signupCompletePage(pageInput, presentationError(error, lang, 'signup'), lang), 400);
     }
   });
 
@@ -710,13 +711,13 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
     if (onboardingStateFor(me).step !== 'consent') {
-      return c.text('Onboarding step is no longer available', 409);
+      return c.text(presentationError(null, langOf(c), 'settings'), 409);
     }
     const form = await c.req.parseBody();
     if (form.preferencesSubmitted !== '1'
       || (form.matchingOptIn !== undefined && form.matchingOptIn !== '1')
       || (form.dashboardPublic !== undefined && form.dashboardPublic !== '1')) {
-      return c.text('Invalid sharing preferences', 400);
+      return c.text(presentationError(null, langOf(c), 'settings'), 400);
     }
     try {
       const updated = registry.completeOnboarding(
@@ -724,7 +725,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       );
       return c.redirect(updated.matchingOptIn ? '/matches' : `/${updated.handle}`);
     } catch {
-      return c.text('Matching choice is invalid', 400);
+      return c.text(presentationError(null, langOf(c), 'settings'), 400);
     }
   });
 
@@ -777,7 +778,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     app.post(path, c => {
       if (!sessionUser(c)) return c.redirect('/signup');
       c.header('Cache-Control', 'no-store');
-      return c.text(langOf(c) === 'zh' ? '舊版主題審核已停用，請至帳號頁查看 v3 處理進度。' : 'Legacy topic review is retired. View v3 processing progress on your account page.', 410);
+      return c.text(langOf(c) === 'zh' ? '這個操作已無法使用，請返回設定頁。' : 'This action is no longer available. Return to Settings.', 410);
     });
   }
 
@@ -1151,7 +1152,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.post('/account/profile', async (c) => {
     c.header('Cache-Control', 'no-store');
     const me = sessionUser(c);
-    if (!me) return c.text('Unauthorized', 401);
+    if (!me) return c.text(langOf(c) === 'zh' ? '請重新登入後再試。' : 'Please sign in again and retry.', 401);
     const lang = langOf(c), t = profileMessages(lang);
     if (c.req.header('sec-fetch-site') === 'cross-site' ||
         (c.req.header('origin') && c.req.header('origin') !== new URL(config.publicBaseUrl).origin)) {
@@ -1202,7 +1203,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     } catch (error) {
       const current = registry.userByHandle(me.handle) ?? me;
       return c.html(accountPage(current, accountStateFor(current, {
-        error: error instanceof Error ? error.message : String(error),
+        error: presentationError(error, langOf(c), 'settings'),
       }), langOf(c)), 400);
     }
   });
@@ -1262,7 +1263,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         takeoutResult: result,
       }), lang));
     } catch (error) {
-      return renderError(error instanceof Error ? error.message : String(error));
+      return renderError(presentationError(error, lang, 'takeout'));
     }
   });
 
@@ -1317,7 +1318,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       registry.deleteUser(me.handle);
     } catch (error) {
       return c.html(accountPage(me, accountStateFor(me, {
-        error: error instanceof Error ? error.message : String(error),
+        error: presentationError(error, lang, 'delete'),
       }), lang), 500);
     }
     clearReadCaches();

@@ -136,7 +136,7 @@ test('the channel page shows your history and reciprocal member rankings', async
 
     // A non-member sees only their own history and an invitation to join.
     const lonerPage = await (await app.request(`/channel/${CHANNEL_A}`, { headers: { cookie: lonerCookie } })).text();
-    assert.match(lonerPage, /join matching to see who else watches/);
+    assert.match(lonerPage, /Turn on friend discovery to see who else enjoys/);
     assert.doesNotMatch(lonerPage, /Alice|Bob|Most watched by members/);
 
     // Common channels remain gated by mutual consent on the comparison.

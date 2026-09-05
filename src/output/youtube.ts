@@ -12,7 +12,8 @@ import {
   PERSONAL_TOPICS,
 } from '../youtube/personal-taxonomy.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { duration, hours, html, shell, timeAgo, trustSignals, type ShellNavItem } from './pages.js';
+import { isVisibleKeyword } from './keyword-display.js';
+import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
 import { v3ProcessingStyles } from './v3-processing.js';
 import { buildTopicTrendModel, topicTrendSection, topicTrendStyles } from './topic-trend.js';
@@ -151,7 +152,7 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
       <span>${t.rhythmSub(t.ranges[data.range])}</span></div></div>
       <div class="yt-rhythm-quality yt-rhythm-quality-blocking" role="note">
         <span class="yt-rhythm-quality-mark" aria-hidden="true">!</span><div><strong>${t.rhythmUnavailableTitle}</strong>
-        <p>${t.rhythmUnavailable(exactWatches, dateOnlyWatches)}</p></div>
+        <p>${t.rhythmUnavailable}</p></div>
       </div></section>`;
   }
   const quality = dateOnlyWatches > 0
@@ -216,8 +217,8 @@ function watchTimeSection(data: YoutubeDashboardData, t: Messages): string {
   if (!rhythm.length) return '';
   const zh = t.htmlLang === 'zh-Hant';
   const labels = zh
-    ? { total: '總觀看時間', regular: '一般影片', short: '短影音（推估）', live: '直播／回放', unknown: '片長未知', method: '短影音以片長 ≤ 3 分鐘推估；直播／回放依 YouTube 標記辨識，包含首播，無法判定觀看當時是否正在直播。舊資料會陸續補齊辨識。' }
-    : { total: 'Total watch time', regular: 'Regular videos', short: 'Short-form (estimated)', live: 'Livestreams / replays', unknown: 'Unknown duration', method: 'Short-form uses duration ≤ 3 minutes. YouTube broadcast metadata identifies streams/replays, including premieres; it does not show whether you watched live. Older metadata is being refreshed.' };
+    ? { total: '總觀看時間', regular: '一般影片', short: '短影音（推估）', live: '直播／回放', unknown: '片長未知', method: '短影音以片長 3 分鐘內推估。直播／回放包含首播，觀看時不一定正在直播。' }
+    : { total: 'Total watch time', regular: 'Regular videos', short: 'Short-form (estimated)', live: 'Livestreams / replays', unknown: 'Unknown duration', method: 'Short-form is estimated from videos up to 3 minutes long. Livestreams / replays include premieres and may have been watched after the live broadcast.' };
   const bars = rhythm.map((bar) => ({ ...bar, short: 0, live: 0, regular: 0 }));
   const byKey = new Map(bars.map((bar) => [bar.key, bar]));
   for (const day of data.shortFormDaily) {
@@ -275,19 +276,19 @@ function shortFormSection(
   const delta = recent.share - previous.share;
   const isZh = t.htmlLang === 'zh-Hant';
   const copy = isZh ? {
-    stacked: '方案 A · 100% 組成趨勢',
+    stacked: '觀看占比趨勢',
     absolute: 'Shorts 與一般影片時間',
-    dual: '方案 A2 · 組成＋總時數',
-    compare: '方案 B · 前後期比較',
-    heatmap: '方案 C · 年月熱圖',
+    dual: '觀看占比與總時數',
+    compare: '前後期比較',
+    heatmap: '逐月觀看占比',
     short: 'Shorts', other: '一般影片', previous: '前半段', recent: '近期半段',
     delta: '占比變化', coverage: '片長涵蓋率', months: '月份', total: '總觀看時間',
   } : {
-    stacked: 'Option A · 100% composition trend',
+    stacked: 'Viewing share over time',
     absolute: 'Shorts and regular-video time',
-    dual: 'Option A2 · composition + total time',
-    compare: 'Option B · period comparison',
-    heatmap: 'Option C · year/month heatmap',
+    dual: 'Viewing share and total time',
+    compare: 'Period comparison',
+    heatmap: 'Monthly viewing share',
     short: 'Shorts', other: 'Regular videos', previous: 'Earlier half', recent: 'Recent half',
     delta: 'Share change', coverage: 'Duration coverage', months: 'Months', total: 'Total watch time',
   };
@@ -396,7 +397,7 @@ function shortFormSection(
 function channelChase(data: YoutubeDashboardData, t: Messages): string {
   return rankRaceSection({
     ...data.channelRace, kind: 'channels', title: t.momentum,
-    subtitle: t.momentumSub(data.channelRace.halfLifeDays), format: 'hours',
+    subtitle: t.momentumSub, format: 'hours',
     playLabel: t.playHistory, pauseLabel: t.pauseHistory, empty: t.topicTrendEmpty,
   });
 }
@@ -726,7 +727,7 @@ export function youtubeDashboardPage(
   }).replace(/</g, '\\u003c');
   const importControl = `<div class="yt-import-control" data-youtube-import-control hidden>
     <button type="button">${t.syncNow}</button><span aria-live="polite"></span>
-  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=value.lastError||L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>`;
+  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>`;
   const heroHours = data.stats.estimatedWatchSeconds === null ? null : Math.round(data.stats.estimatedWatchSeconds / 3600);
   const hero = `<section class="card yt-hero">
     <div class="yt-hero-figure">
@@ -739,7 +740,7 @@ export function youtubeDashboardPage(
       <div class="yt-stat"><strong>${compact(data.stats.uniqueChannels)}</strong><span>${t.statChannels}</span></div>
       <div class="yt-stat"><strong>${hours(data.stats.actualWatchedSeconds)}</strong><span>${t.statMeasured}</span></div>
     </div>
-    <div class="yt-hero-foot">${t.heroFoot(Math.round(data.stats.metadataCoverage * 100), Math.round(data.stats.progressCoverage * 100))}</div>
+    <details class="yt-hero-foot"><summary>${lang === 'zh' ? '觀看時間如何估算' : 'How watch time is estimated'}</summary><p>${t.heroFoot}</p></details>
   </section>`;
   const channels = [...data.topChannels].sort((a, b) =>
     sort === 'duration'
@@ -781,31 +782,33 @@ export function youtubeDashboardPage(
   const distribution = `<section class="section"><div class="section-head"><h2>${t.lengthMix}</h2><span>${t.uniqueVideos}</span></div><div class="yt-mix">${orderedBuckets.map((bucket) =>
     `<div class="yt-mix-row"><span>${html(t.buckets[bucket.label] ?? bucket.label)}</span><div class="yt-mix-track"><i style="background:${LENGTH_RAMP[bucket.label] ?? '#55534e'};width:${Math.round(bucket.videos / maxLength * 100)}%"></i></div><span>${bucket.videos}</span></div>`
   ).join('')}</div></section>`;
-  const maxKeywordScore = Math.max(0.001, ...data.keywords.map((item) => item.score));
+  const visibleKeywords = data.keywords.filter(keyword => isVisibleKeyword(keyword.term));
+  const maxKeywordScore = Math.max(0.001, ...visibleKeywords.map((item) => item.score));
   const trustedTopics = data.stats.topicCoverage >= PERSONAL_TAXONOMY_TRUSTED_COVERAGE;
   const localizedTopicName = (slug: string, fallback: string) => {
     const definition = PERSONAL_TOPICS.find((topic) => topic.slug === slug);
     return definition ? lang === 'zh' ? definition.nameZh : definition.name : fallback;
   };
+  // Show useful coverage without exposing classification quality gates.
   const topicCoverage = lang === 'zh'
-    ? `已處理 ${Math.round(data.stats.topicProcessedCoverage * 100)}% · 有效 ${Math.round(data.stats.topicCoverage * 100)}% · Unknown ${Math.round(data.stats.topicUnknownCoverage * 100)}%`
-    : `Processed ${Math.round(data.stats.topicProcessedCoverage * 100)}% · effective ${Math.round(data.stats.topicCoverage * 100)}% · Unknown ${Math.round(data.stats.topicUnknownCoverage * 100)}%`;
+    ? `已分類 ${Math.round(data.stats.topicCoverage * 100)}%`
+    : `${Math.round(data.stats.topicCoverage * 100)}% classified`;
   const topicPending = lang === 'zh'
-    ? '有效覆蓋未達 80%，暫不顯示主題排名。'
-    : 'Effective coverage is below 80%, so topic ranking is hidden for now.';
+    ? '主題資料尚未齊全，暫時無法顯示排名。'
+    : 'Topic data is not yet complete enough to show rankings.';
   const stableTopics = `<section class="section yt-stable-topics"><div class="section-head"><h2>${t.topics}</h2><span>${topicCoverage}</span></div>
     <div class="yt-topic-list">${trustedTopics && data.topics.length ? data.topics.map((topic) =>
       `<div class="yt-topic"><strong>${html(localizedTopicName(topic.slug, topic.name))}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
     ).join('') : `<span class="muted">${topicPending}</span>`}</div></section>`;
   const keywords = `<section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub(data.keywordCoverage.sampledVideos, data.keywordCoverage.eligibleVideos)}</span></div>
-    <div class="yt-keywords">${data.keywords.length ? data.keywords.map((keyword, index) => {
+    <div class="yt-keywords">${visibleKeywords.length ? visibleKeywords.map((keyword, index) => {
       // Size follows the commonness score; the tooltip states the distinct
       // video count, channel spread and which metadata sources contributed.
       const size = 12 + Math.round(Math.sqrt(keyword.score / maxKeywordScore) * 18);
       // Keywords are text, so they wear ink tokens; size carries the weight.
       const colors = ['#f4f2ee', '#b8b5ad', '#8a877f'];
       const query = encodeURIComponent(keyword.term);
-      const tip = `${keyword.term} · ${t.keywordTip(keyword.channels, keyword.sources.title, keyword.sources.tag, keyword.sources.description)}`;
+      const tip = `${keyword.term} · ${t.keywordTip(keyword.channels)}`;
       return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(tip)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
     }).join('') : `<span class="muted">${t.keywordsEmpty}</span>`}</div></section>`;
   const pageLabels: Record<YoutubeDashboardPageKind, string> = {
@@ -854,11 +857,9 @@ export function youtubeDashboardPage(
     + distribution + keywords : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
-  const insightTrust = page === 'insights' && options.dashboardPrivate
-    ? trustSignals([t.trustPrivateDefault], t.trustSignalsLabel)
-    : '';
+  // A private page is not a private default, and friends may still have access.
   const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview
-    : page === 'insights' ? insightTrust + insights
+    : page === 'insights' ? insights
       : page === 'history' ? history : recap);
   return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + content,
     options.nav ?? [], '', lang, basePath);

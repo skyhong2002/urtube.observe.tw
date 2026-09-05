@@ -391,8 +391,8 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: true,
     });
-    assert.match(insightsPage, /預設私密/);
-    assert.match(insightsPage, /aria-label="信任與資料界線"/);
+    assert.doesNotMatch(insightsPage, /預設私密/);
+    assert.doesNotMatch(insightsPage, /aria-label="信任與資料界線"/);
     assert.match(insightsPage, /data-rhythm-panel="watches"/);
     assert.match(insightsPage, /data-rhythm-panel="estimatedWatchSeconds"/);
     assert.match(insightsPage, /data-rhythm-metric="watches"/);
@@ -409,12 +409,12 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     const partialRhythmPage = youtubeDashboardPage('Fixture', {
       ...dashboard, rhythmCoverage: { exactWatches: 2, dateOnlyWatches: 1 },
     }, 'duration', { lang: 'zh', profilePath: '/fixture', page: 'insights' });
-    assert.match(partialRhythmPage, /已排除只有日期的紀錄/);
+    assert.match(partialRhythmPage, /依完整時間紀錄分析/);
     assert.match(partialRhythmPage, /data-rhythm-panel="watches"/);
     const blockedRhythmPage = youtubeDashboardPage('Fixture', {
       ...dashboard, rhythmCoverage: { exactWatches: 1, dateOnlyWatches: 2 },
     }, 'duration', { lang: 'zh', profilePath: '/fixture', page: 'insights' });
-    assert.match(blockedRhythmPage, /12:00 是佔位值，不是真實習慣/);
+    assert.match(blockedRhythmPage, /部分紀錄只有日期，暫時無法分析一天中的觀看時段/);
     assert.doesNotMatch(blockedRhythmPage, /data-rhythm-panel=/);
     const recapPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'recap',
@@ -426,19 +426,19 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     }
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'stacked',
-    }), /方案 A · 100% 組成趨勢/);
+    }), /觀看占比趨勢/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'compare',
-    }), /方案 B · 前後期比較/);
+    }), /前後期比較/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'heatmap',
-    }), /方案 C · 年月熱圖/);
+    }), /逐月觀看占比/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'absolute',
     }), /觀看時間趨勢/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'dual',
-    }), /方案 A2 · 組成＋總時數/);
+    }), /觀看占比與總時數/);
   } finally {
     repository.close();
   }
@@ -1048,8 +1048,8 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
     const partialPage = youtubeDashboardPage('Fixture', partial, 'duration', {
       lang: 'en', page: 'overview',
     });
-    assert.match(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
-    assert.match(partialPage, /Effective coverage is below 80%/);
+    assert.match(partialPage, /50% classified/);
+    assert.match(partialPage, /Topic data is not yet complete enough/);
     assert.doesNotMatch(partialPage, /<div class="yt-topic"><strong>Recent topic/);
 
     const sample = samplePersonalTaxonomy(repository.youtubePersonalTaxonomyCandidates(), 2);
@@ -1157,10 +1157,10 @@ test('topic trend uses dated events, current classifications, and weighted movin
       lang: 'zh', page: 'overview',
     });
     assert.match(html, /主題動態/);
-    assert.match(html, /依頁面範圍/);
+    assert.match(html, /日期範圍沿用上方選擇/);
     assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);
-    assert.match(html, /納入精確時間與只有日期的觀看紀錄/);
+    assert.match(html, /依已分類的估計觀看時間計算占比/);
     assert.match(html, /\.yt-short-absolute\{[^}]*overflow:hidden/,
       'dense history columns stay contained instead of widening the mobile page');
   } finally {

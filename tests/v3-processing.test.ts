@@ -36,7 +36,7 @@ test('v3 processing distinguishes queued, failed, retry, missing, disabled and s
   assert.equal(stale.progress, null, 'old-version phase must not describe current work');
 });
 
-test('v3 notice separates archive metadata, bounded video classification, tag batches and channel source counts', () => {
+test('v3 notice separates archive metadata, bounded video classification, withholds internal tag batches and channel source counts', () => {
   const render = (progress: V3JobStatus['progress']) => v3ProcessingNotice(describeV3Processing({ ...input,
     job: { ...job, state: 'running', progress } }), 'en', { ownerDetails: true }).replace(/<script>[\s\S]*?<\/script>/g, '');
   const classification = render({ phase: 'classification', processed: 125, total: 2000 });
@@ -44,14 +44,14 @@ test('v3 notice separates archive metadata, bounded video classification, tag ba
   assert.match(classification, /125 \/ 2,000 videos/);
   assert.doesNotMatch(classification, /125 \/ 19,000|\bETA\b|estimated|120 minutes|taxonomy/i);
   const embedding = render({ phase: 'embedding', processed: 64, total: 64 });
-  assert.match(embedding, /current batch/);
-  assert.match(embedding, /64 \/ 64 tags/);
-  assert.match(embedding, /not completion across all videos/);
+  assert.doesNotMatch(embedding, /current batch/);
+  assert.doesNotMatch(embedding, /64 \/ 64 tags/);
+  assert.doesNotMatch(embedding, /not completion across all videos/);
   const genre = render({ phase: 'embedding', genre: 'Sport', processed: 30, total: 80 });
-  assert.match(genre, /Sport tag embeddings/);
+  assert.doesNotMatch(genre, /Sport tag embeddings/);
   const channels = render({ phase: 'channels', processed: 0, total: 2000 });
-  assert.match(channels, /Channel-type analysis/);
-  assert.match(channels, /2,000 source videos/);
+  assert.match(channels, /Interest analysis in progress/);
+  assert.doesNotMatch(channels, /2,000 source videos/);
   assert.doesNotMatch(channels, /analysis: 0 \/ 2,000|<progress/);
 });
 
@@ -60,10 +60,10 @@ test('v3 notice is bilingual, hides private details and optional completed notic
     progress: { phase: 'embedding', genre: '<script>bad</script>' as Genre, processed: 2, total: 5 } } });
   const owner = v3ProcessingNotice(status, 'zh', { ownerDetails: true });
   assert.match(owner, /興趣分析進行中/);
-  assert.match(owner, /v3 興趣分析/);
-  assert.match(owner, /最近輪廓更新/);
-  assert.match(owner, /目前分析階段/);
-  assert.match(owner, /&lt;script&gt;/);
+  assert.doesNotMatch(owner, /v3 興趣分析/);
+  assert.match(owner, /分析更新於/);
+  assert.doesNotMatch(owner, /目前分析階段/);
+  assert.doesNotMatch(owner, /&lt;script&gt;/);
   assert.doesNotMatch(owner, /<script>bad|120 分鐘|分類審核/);
   const visitor = v3ProcessingNotice(status, 'en');
   assert.match(visitor, /Interest analysis in progress/);
@@ -71,14 +71,14 @@ test('v3 notice is bilingual, hides private details and optional completed notic
   assert.equal(v3ProcessingNotice(describeV3Processing(input)), '');
   assert.match(v3ProcessingNotice(describeV3Processing(input), 'en', { ownerDetails: true }), /data-processing-monitor/, 'owners can still monitor completed jobs');
   assert.doesNotMatch(visitor, /data-processing-monitor|api\/matching-v3/);
-  assert.match(v3ProcessingNotice(describeV3Processing(input), 'en', { alwaysShow: true }), /Interest profile ready/);
+  assert.match(v3ProcessingNotice(describeV3Processing(input), 'en', { alwaysShow: true }), /Interest analysis ready/);
   assert.equal(v3ProcessingNotice(describeV3Processing({ ...input, enabled: false })), '');
   const metadata = describeV3Processing({ ...input, metadata: { ...input.metadata, videosPendingMetadata: 4 } });
-  assert.match(v3ProcessingNotice(metadata, 'en'), /Video metadata or the interest profile/);
+  assert.match(v3ProcessingNotice(metadata, 'en'), /Video information or interest analysis/);
   const previous = describeV3Processing({ ...input, profile: { ...profile, version: 'previous' } });
-  assert.match(v3ProcessingNotice(previous, 'zh', { ownerDetails: true }), /前次 v3 輪廓/);
+  assert.doesNotMatch(v3ProcessingNotice(previous, 'zh', { ownerDetails: true }), /前次 v3 輪廓/);
   const invalidDate = describeV3Processing({ ...input, profile: { ...profile, builtAt: 'invalid' } });
-  assert.doesNotMatch(v3ProcessingNotice(invalidDate, 'en', { alwaysShow: true, ownerDetails: true }), /Invalid Date|Profile last updated/);
+  assert.doesNotMatch(v3ProcessingNotice(invalidDate, 'en', { alwaysShow: true, ownerDetails: true }), /Invalid Date|Analysis updated/);
 });
 
 test('metadata display counts remain available without legacy taxonomy tables and do not migrate or update data', () => {

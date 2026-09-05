@@ -20,7 +20,7 @@ export const processingVisibilityScript = String.raw`
     for (const status of document.querySelectorAll('[data-processing-preference-status]')) {
       const zh = status.dataset.lang === 'zh';
       status.textContent = shown ? (zh ? '處理狀態已開啟' : 'Processing status is on')
-        : (zh ? '簡潔模式已開啟' : 'Simple mode is on');
+        : (zh ? '已隱藏處理進度' : 'Processing progress is hidden');
     }
     window.dispatchEvent(new Event('urtube:processing-visibility'));
   }
@@ -34,8 +34,8 @@ export const processingVisibilityScript = String.raw`
     try { localStorage.setItem(key, String(shown)); } catch { saved = false; }
     apply();
     if (!saved) for (const status of document.querySelectorAll('[data-processing-preference-status]')) {
-      status.textContent += status.dataset.lang === 'zh' ? '；瀏覽器無法儲存，下次開啟可能需要重新設定。'
-        : '; browser storage is unavailable. You may need to set this again next time.';
+      status.textContent += status.dataset.lang === 'zh' ? '。瀏覽器無法儲存，下次開啟可能需要重新設定。'
+        : '. Browser storage is unavailable. You may need to set this again next time.';
     }
   });
   window.addEventListener('storage', event => {
@@ -46,7 +46,8 @@ export const processingVisibilityScript = String.raw`
   });
 })();`;
 
+// This control changes display only; browser storage mechanics do not belong in its help text.
 export function processingVisibilitySetting(lang: 'zh' | 'en'): string {
   const zh = lang === 'zh';
-  return `<section class="processing-display-setting" id="processing-display"><label><input type="checkbox" role="switch" checked data-processing-visibility-toggle aria-describedby="processing-display-help"><span>${zh ? '顯示處理狀態' : 'Show processing status'}</span></label><p id="processing-display-help">${zh ? '預設開啟，可查看處理進度。關閉後進入簡潔模式，所有頁面隱藏背景處理提示與進度；背景工作仍會繼續。此偏好在目前瀏覽器依帳號儲存。' : 'On by default so you can see processing progress. Turn off for simple mode: hide background processing notices and progress across pages while work continues. Saved per account in this browser.'}</p><p data-processing-preference-status data-lang="${lang}" role="status">${zh ? '處理狀態已開啟' : 'Processing status is on'}</p></section>`;
+  return `<section class="processing-display-setting" id="processing-display"><label><input type="checkbox" role="switch" checked data-processing-visibility-toggle aria-describedby="processing-display-help"><span>${zh ? '顯示處理狀態' : 'Show processing status'}</span></label><p id="processing-display-help">${zh ? '在頁面上顯示資料整理進度。' : 'Show data preparation progress on pages.'}</p><p data-processing-preference-status data-lang="${lang}" role="status">${zh ? '處理狀態已開啟' : 'Processing status is on'}</p></section>`;
 }

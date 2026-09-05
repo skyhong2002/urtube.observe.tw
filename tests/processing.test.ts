@@ -202,8 +202,8 @@ test('processing notice renders progress and disappears when nothing is pending'
   assert.match(en, /AI topics<em>not started<\/em>/);
   assert.match(en, /style="width:60%"/);
   assert.match(en, /about 10 min to go/);
-  assert.match(en, /last processed/);
-  assert.match(en, /retries automatically/);
+  assert.match(en, /Updated/);
+  assert.match(en, /try again later/);
   assert.match(en, /href="\/sky"/);
   const zh = processingNotice(status, 'zh');
   assert.match(zh, /資料還在整理中/);
@@ -233,7 +233,7 @@ test('dashboard and account pages carry the notice while work is pending', () =>
       takeoutResult: { archiveHash: 'x', watchesSeen: 1, watchesInserted: 1, searchesSeen: 0, searchesInserted: 0 },
       v3Processing: status,
     }, 'zh');
-    assert.match(afterUpload, /紀錄已經存好/);
+    assert.match(afterUpload, /紀錄已儲存/);
     assert.equal(afterUpload.match(/class="yt-v3-processing"/g)?.length, 1);
     const laterVisit = accountPage(user, { v3Processing: status }, 'en');
     assert.equal(laterVisit.match(/class="yt-v3-processing"/g)?.length, 1);

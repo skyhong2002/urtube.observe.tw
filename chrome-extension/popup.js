@@ -37,7 +37,7 @@ async function render() {
   const captureError = configured && status.lastError === 'Capture token is not configured'
     ? ''
     : status.lastError ?? '';
-  document.querySelector('#error').textContent = captureError;
+  document.querySelector('#error').textContent = urtubeErrorMessage(captureError);
   const latest = stored.latestExtensionVersion ?? '';
   const installed = chrome.runtime.getManifest().version;
   const updateDue = isNewerVersion(latest, installed);
@@ -65,8 +65,6 @@ async function render() {
     ? history.mode === 'deep'
       ? urtubeT.deepHistoryProgress(
         Number(history.events ?? 0) + Number(history.currentEvents ?? 0),
-        history.segments ?? 0,
-        (history.ranges?.length ?? 0) + (history.activeRange ? 1 : 0),
       )
       : urtubeT.videos(history.videos ?? 0)
     : history.state === 'complete'
@@ -74,7 +72,7 @@ async function render() {
       : history.state === 'error'
         ? urtubeT.historyResult(history.endReason, history.events ?? history.videos ?? 0)
         : urtubeT.notImported;
-  if (history.lastError) document.querySelector('#error').textContent = history.lastError;
+  if (history.lastError) document.querySelector('#error').textContent = urtubeErrorMessage(history.lastError);
   const lifelogRunning = lifelog.state === 'running';
   document.querySelector('#sync').textContent = lifelogRunning ? urtubeT.cancelSync : urtubeT.syncNow;
   document.querySelector('#lifelog-state').textContent = lifelogRunning
@@ -86,7 +84,7 @@ async function render() {
       : lifelog.state === 'error'
         ? urtubeT.syncFailed
         : urtubeT.notSynced;
-  if (lifelog.lastError) document.querySelector('#error').textContent = lifelog.lastError;
+  if (lifelog.lastError) document.querySelector('#error').textContent = urtubeErrorMessage(lifelog.lastError);
 }
 
 document.querySelector('#sync').addEventListener('click', async () => {

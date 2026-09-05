@@ -167,10 +167,10 @@ test('cached preview displays actual clusters without confusing provisional stat
     for (const lang of ['zh', 'en'] as const) {
       const $ = load(v3DashboardSection(profile, { enabled: true, currentVersion: profile.version, backfillVideoLimit: 2000, genres: GENRES.slice(), lang }));
       const cards = $('.yt-v3-genre');
-      assert.match(cards.eq(1).text(), lang === 'zh' ? /已建立 1 個興趣群/ : /1 interest clusters/);
+      assert.match(cards.eq(1).text(), lang === 'zh' ? /已完成分析/ : /Analysis complete/);
       assert.doesNotMatch(cards.eq(1).text(), /資料不足|Limited data/);
       assert.match(cards.eq(2).text(), /資料不足|Limited data/);
-      assert.match(cards.eq(8).text(), /尚未建立|Pending/);
+      assert.match(cards.eq(8).text(), /等待分析|Pending/);
       assert.doesNotMatch($.text(), /private-profile-tag/);
     }
   } finally { f.registry.close(); }
@@ -192,5 +192,32 @@ test('cached preview displays actual clusters without confusing provisional stat
     assert.doesNotMatch(owner('.yt-v3-cloud').text(), /generated-only/);
     assert.equal(owner('.yt-v3-cloud span').attr('title'),'4 部不同影片');
     assert.equal(render(false)('.yt-v3-cloud').length,0);
+  } finally { f.registry.close(); }
+});
+
+test('keyword filtering preserves source tags and fills the cloud from meaningful terms before sizing', async () => {
+  const { v3DashboardSection } = await import('../src/output/v3-dashboard.js');
+  const f = fixture();
+  try {
+    const rejected = ['category:music', '類別：音樂', 'label=music', '標籤＝音樂', ' Sport ', 'SPORTS', '運動'];
+    const accepted = ['sports science', 'C++', ...Array.from({ length: 18 }, (_, i) => `training ${i}`)];
+    const tags = [
+      ...rejected.map(text => ({ text, count: 10000, generatedCount: 0 })),
+      ...accepted.map((text, i) => ({ text, count: 50 - i, generatedCount: 0 })),
+    ];
+    f.profile.genres.Sport!.clusters[0].tags = tags;
+    const source = structuredClone(f.profile);
+    const render = (lang: 'zh' | 'en') => load(v3DashboardSection(f.profile, {
+      enabled: true, currentVersion: f.profile.version, backfillVideoLimit: 2000,
+      genres: ['Sport'], lang, ownerDetails: true,
+    }));
+    for (const lang of ['zh', 'en'] as const) {
+      const $ = render(lang);
+      assert.deepEqual($('.yt-v3-cloud span').map((_, el) => $(el).text()).get(), accepted.slice(0, 18));
+      assert.equal($('.yt-v3-cloud span').first().attr('style'), 'font-size:28.0px');
+    }
+    assert.deepEqual(f.profile, source, 'display filtering must not change cached matching evidence');
+    f.profile.genres.Sport!.clusters[0].tags = tags.slice(0, rejected.length);
+    assert.equal(render('zh')('.yt-v3-cloud').length, 0, 'all-filtered tags retain the existing empty presentation');
   } finally { f.registry.close(); }
 });

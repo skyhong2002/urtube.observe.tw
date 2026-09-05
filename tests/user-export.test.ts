@@ -182,7 +182,7 @@ test('export requires the current user session and explicit confirmation', async
     const account = await app.request('/account', { headers: { cookie } });
     assert.equal(account.headers.get('cache-control'), 'no-store');
     assert.match(await account.text(), /Export my data/);
-    assert.match(await (await app.request('/privacy')).text(), /export your saved data/);
+    assert.match(await (await app.request('/privacy')).text(), /export your data/);
   } finally {
     registry.close();
   }

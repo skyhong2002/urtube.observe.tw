@@ -277,12 +277,12 @@ test('/matches removes governed channels and recomputes an anonymous cohort afte
     const cookie = `urtube_session=${registry.createSession(viewer)}`;
     const first = await (await app.request('/matches', { headers: { cookie } })).text();
     const section = first.match(/<section class="mt-cohort">[\s\S]*?<\/section>/)?.[0] ?? '';
-    assert.match(section, /Popular around your circle/);
+    assert.match(section, /Popular with people who share your interests/);
     assert.match(section, /Gaming/);
     assert.match(section, /Discovery Channel/);
     assert.doesNotMatch(section, /Blocked Politics Channel/);
     assert.doesNotMatch(section, /Seen Outside Projection/);
-    assert.doesNotMatch(section, /Neighbor|private-|contributors|similarity|share/);
+    assert.doesNotMatch(section, /Neighbor|private-|contributors|similarity|"share"/);
 
     tagListsAvailable = false;
     const degradedResponse = await app.request('/matches', { headers: { cookie } });
@@ -293,7 +293,7 @@ test('/matches removes governed channels and recomputes an anonymous cohort afte
 
     registry.setMatchingPreferences(neighbors[0]!.handle, false, 'topics_only');
     const afterOptOut = await (await app.request('/matches', { headers: { cookie } })).text();
-    assert.doesNotMatch(afterOptOut, /Popular around your circle|Discovery Channel|>Gaming</);
+    assert.doesNotMatch(afterOptOut, /Popular with people who share your interests|Discovery Channel|>Gaming</);
 
     assert.match(matchesPage(
       { handle: 'viewer', displayName: 'Viewer' },
@@ -302,7 +302,7 @@ test('/matches removes governed channels and recomputes an anonymous cohort afte
       'zh',
       false,
       { topics: ['Gaming'], channels: [] },
-    ), /同溫層最近常看/);
+    ), /興趣相近的人最近常看/);
   } finally {
     registry.close();
   }

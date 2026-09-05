@@ -6,61 +6,22 @@ import type { CommunityStats } from '../youtube/community.js';
 
 export function landingContent(lang: Lang, primaryAction: string, stats: CommunityStats): string {
   const zh = lang === 'zh';
+  // Refresh screenshots alongside UI copy; clearly labeled sample data avoids exposing personal histories.
+  // Public launch copy reflects current sharing defaults; implementation history belongs in project docs.
   const copy = zh ? {
     eyebrow: 'YOUR YOUTUBE, REMEMBERED',
     title: '你的 YouTube 人生，<br><span class="lp-title-accent">都記得。</span>',
     intro: '把 YouTube 觀看紀錄，變成自己的興趣檔案。回顧喜歡的影片、探索常看的頻道，遇見和你合拍的人。',
-    explore: '先看看能做什麼 ↓', label: '從觀看，到連結',
-    input: '你選擇匯入的觀看紀錄', process: '公開影片資訊 → AI 興趣整理', output: '私人洞察 → 自願參與配對',
-    seal: '先看懂自己，再決定分享多少。',
-    whyTitle: '看過的不只是一支影片，<br>也是你生活的一部分。',
-    why: '追了一整年的創作者、反覆聽的現場演出，還有突然著迷的新領域。把觀看紀錄匯入 urtube，就能一起回顧常看的內容、觀看時間與興趣變化，不必自己翻找和整理。',
-    featureTitle: '從熟悉的頻道，發現更多共同點。',
-    features: [
-      ['01', '認識自己', '把零散紀錄整理成興趣地圖', '觀看趨勢、常看的頻道與 AI 主題，幫你回顧注意力去了哪裡。'],
-      ['02', '找到合拍的人', '從共同興趣，開始一段對話', '主動開啟配對、選擇面向，查看相似度與共同點。資料不足或仍在處理時，結果會標明狀態。'],
-      ['03', '掌握自己的資料', '分享多少，由你決定', '儀表板可設為私人或公開，配對可關閉；也能匯出資料或刪除帳號。搜尋文字加密保存。'],
-    ],
-    stepsTitle: '三個步驟，開始你的觀看回顧。',
-    steps: [ ['登入與匯入', '使用 Google 登入，透過 Chrome 擴充功能同步，或匯入 Takeout 歷史檔案。'], ['整理與探索', '查看處理進度，探索頻道、觀看趨勢與私人 AI 洞察。'], ['選擇與連結', '開啟配對並選擇面向，從可解釋的共同點認識彼此。'] ],
-    aiTitle: '你的紀錄，你決定怎麼分享。',
-    ai: '你可以讓儀表板保持私人，或主動公開給大家看。配對也由你選擇是否參加，隨時能關閉；想帶走自己的紀錄，可以匯出資料，也能刪除帳號。',
-    aiNote: 'AI 會根據公開影片資訊協助整理興趣，不會讀取你的私人搜尋文字。配對分數代表興趣相似程度；資料還在處理時，畫面會告訴你。',
-    community: '大家最近，都在看什麼？',
-    communityIntro: '來自公開儀表板的真實活動，看看這個小社群共同關注的頻道。',
-    metrics: ['公開儀表板成員', '近 90 天有觀看的成員', '近 90 天觀看紀錄', '近 90 天已辨識頻道'],
-    ranking: '成員熱門頻道', rankingNote: '依看過的不同成員數排序；同分時依觀看次數排序。',
-    members: '位成員看過', watches: '次觀看',
-    empty: '目前沒有可顯示的頻道。公開成員匯入近期紀錄、完成頻道辨識後，就會出現在這裡。',
     unavailable: '社群統計暫時無法載入，請稍後重新整理。',
-    method: '只納入目前公開的儀表板，不含私人成員。以已匯入紀錄計算，未匯入不代表沒有觀看；同一影片重看可計入多次。頻道以 YouTube ID 去重，尚未辨識的頻道不計入頻道總數與排行。統計最多快取 5 分鐘，改為私人後即退出下一次頁面統計。',
-    updated: '統計更新', outro: '把看過的日常，<br>留成自己的興趣檔案。',
-    github: '閱讀原始碼與架構 ↗', privacy: '了解資料與隱私 →',
-    origin: '以既有 Infovore 的 YouTube 紀錄模組為基礎，延伸私人興趣洞察與配對體驗。開源範圍與實作限制詳見 README。',
+    method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
+    updated: '統計更新', github: '查看原始碼 ↗', privacy: '資料與隱私 →',
   } : {
     eyebrow: 'YOUR YOUTUBE, REMEMBERED',
     title: 'Your YouTube life,<br><span class="lp-title-accent">remembered.</span>',
     intro: 'Turn your YouTube history into a personal interest archive. Revisit favorite videos, explore your channels and find people on your wavelength.',
-    explore: 'See what you can do ↓', label: 'FROM WATCHING TO CONNECTING',
-    input: 'The watch history you choose to import', process: 'Public video metadata → AI interests', output: 'Private insights → opt-in matching', seal: 'Understand yourself. Choose what to share.',
-    whyTitle: 'More than a video.<br>A little piece of your life.',
-    why: 'The creators you followed all year, the concert you played on repeat, the topic you suddenly fell in love with. Import your history to revisit your favorite content, viewing time and changing interests in one place.',
-    featureTitle: 'Start with familiar channels. Find common ground.',
-    features: [ ['01', 'UNDERSTAND YOURSELF', 'Turn scattered history into an interest map', 'Explore viewing trends, favorite channels and AI topics to see where your attention goes.'], ['02', 'FIND YOUR PEOPLE', 'Start with something in common', 'Opt in, choose dimensions and explore similarity and shared interests. Incomplete data and processing results are labeled.'], ['03', 'STAY IN CONTROL', 'Choose how much to share', 'Keep your dashboard private or make it public. Leave matching, export your data or delete your account. Search text is encrypted.'] ],
-    stepsTitle: 'Your viewing recap starts in three steps.',
-    steps: [ ['Sign in & import', 'Use Google sign-in, sync with the Chrome extension or import a Takeout archive.'], ['Process & explore', 'Follow processing progress and explore channels, viewing trends and private AI insights.'], ['Choose & connect', 'Opt into matching, choose dimensions and discover explainable common ground.'] ],
-    aiTitle: 'Your history. Your choice to share.',
-    ai: 'Keep your dashboard private or choose to make it public. Join matching only if you want to, and turn it off anytime. You can also export your history or delete your account.',
-    aiNote: 'AI organizes interests using public video information, without reading your private search text. Matching scores describe interest similarity. The page tells you when your data is still processing.',
-    community: 'What are we watching lately?', communityIntro: 'Real activity from public dashboards. Discover the channels this small community shares.',
-    metrics: ['Public members', 'Members watching in 90 days', 'Watch records in 90 days', 'Identified channels in 90 days'],
-    ranking: 'Popular community channels', rankingNote: 'Ranked by distinct viewers, then by watch count.', members: 'members watched', watches: 'watches',
-    empty: 'No channels to show yet. Recent imports from public members will appear once their channels are identified.',
-    unavailable: 'Community statistics are temporarily unavailable. Please refresh later.',
-    method: 'Only currently public dashboards contribute. Private members are excluded. Counts reflect imported records, not all viewing; repeated views count separately. Channels are deduplicated by YouTube ID; unresolved channels are excluded from channel counts and rankings. Data is cached for up to 5 minutes. A privacy change removes that member on the next page request.',
-    updated: 'Updated', outro: 'Give your everyday viewing<br>a place to call home.',
-    github: 'Explore the code & architecture ↗', privacy: 'Data & privacy →',
-    origin: 'Built on the YouTube archive module extracted from Infovore, extending it with private interest insights and matching. See the README for scope and limitations.',
+    unavailable: 'Community statistics are unavailable. Please refresh later.',
+    method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
+    updated: 'Statistics updated', github: 'View source code ↗', privacy: 'Data and privacy →',
   };
   return `<style>
   .lp{--lp-gold:#e7c694;position:relative;isolation:isolate}
@@ -104,21 +65,21 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   ${contributorStyles}
   </style><div class="lp">
   <section class="lp-hero" id="welcome"><div class="lp-hero-grid"><div class="lp-title-block"><div class="lp-kicker">${copy.eyebrow}</div><h1>${copy.title}</h1><p class="lp-intro">${copy.intro}</p><div class="lp-actions"><a class="lp-secondary" href="#community">${zh ? '看看大家在看什麼 ↓' : 'Explore the community ↓'}</a></div></div>
-  <figure class="lp-hero-shot"><div class="lp-device"><div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Sky Hong / urtube</span><span aria-hidden="true">↗</span></div><a class="lp-screen lp-sky-screen" href="/skyhong.tw" aria-label="${zh ? '開啟 Sky Hong 範例儀表板' : 'Open Sky Hong’s example dashboard'}"><img src="/landing-assets/dashboard.png" width="1500" height="1520" fetchpriority="high" alt="${zh ? 'Sky Hong 的 urtube 儀表板，顯示觀看時數與熱門頻道' : 'Sky Hong’s urtube dashboard with viewing hours and favorite channels'}"></a></div><figcaption>${zh ? 'Sky Hong 的實際畫面 · 點圖進入範例儀表板' : 'Sky Hong’s actual dashboard · Click to explore the example'}</figcaption></figure></div></section>
-  <section class="lp-section lp-gallery" id="product-screens"><div class="lp-kicker">INSIDE URTUBE</div><h2>${zh ? '看看 urtube，實際長什麼樣。' : 'See urtube in action.'}</h2><p class="lp-shot-note">${zh ? '儀表板、頻道與配對，都是實際操作畫面。點圖即可進入對應頁面；配對需先登入。' : 'Actual dashboards, channels and matching. Click to explore the corresponding page. Matching requires sign-in.'}</p>
+  <figure class="lp-hero-shot"><div class="lp-device"><div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Dashboard / urtube</span><span aria-hidden="true">↗</span></div><a class="lp-screen lp-sky-screen" href="/skyhong.tw" aria-label="${zh ? '開啟 Sky Hong 範例儀表板' : 'Open Sky Hong’s example dashboard'}"><img src="/landing-assets/dashboard.png" width="1500" height="1520" fetchpriority="high" alt="${zh ? 'urtube 儀表板示意，顯示範例觀看時數與熱門頻道' : 'Sample urtube dashboard showing viewing hours and favorite channels'}"></a></div><figcaption>${zh ? '介面示意 · 範例資料 · 點圖探索公開儀表板' : 'Sample data · Click to explore a public dashboard'}</figcaption></figure></div></section>
+  <section class="lp-section lp-gallery" id="product-screens"><div class="lp-kicker">INSIDE URTUBE</div><h2>${zh ? '看看 urtube，實際長什麼樣。' : 'See urtube in action.'}</h2><p class="lp-shot-note">${zh ? '使用範例資料展示儀表板、頻道與興趣配對。' : 'Explore dashboards, channels and interest matching with sample data.'}</p>
   <div class="lp-gallery-grid">${[
     ['channel', zh ? '頻道探索' : 'Channel exploration', zh ? '常看的創作者與大家的共同喜好。' : 'Favorite creators and shared interests.', 1422, 1506],
-    ['matching', zh ? '興趣配對' : 'Interest matching', zh ? '從共同主題，多認識一點彼此。' : 'Get to know each other through shared topics.', 1480, 1636],
+    ['matching', zh ? '興趣配對 · 登入後探索' : 'Interest matching · Sign in to explore', zh ? '從共同主題，多認識一點彼此。' : 'Get to know each other through shared topics.', 1480, 1636],
   ].map(([file, title, description, width, height]) => `<figure class="lp-gallery-window"><div class="lp-device"><div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${title} / urtube</span><span aria-hidden="true">↗</span></div><a class="lp-gallery-image" href="${file === 'channel' ? '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d' : '/matches'}" aria-label="${title}"><img src="/landing-assets/${file}.png" width="${width}" height="${height}" loading="lazy" alt="${title} — ${description}"></a></div><figcaption><strong>${title}</strong><span>${description}</span></figcaption></figure>`).join('')}</div>
   </section>
   <section class="lp-section lp-story" id="your-story"><div class="lp-kicker">MADE FOR YOUR CURIOSITY</div><h2>${zh ? '看懂自己，也找到共同點。' : 'Understand yourself. Find common ground.'}</h2><div class="lp-use-cases">
   <a class="lp-use-card" href="#product-screens"><span class="lp-use-symbol" aria-hidden="true">↺</span><span class="lp-kicker">01 / ${zh ? '回顧' : 'REVISIT'}</span><h3>${zh ? '最近，又迷上了什麼？' : 'What are you into lately?'}</h3><p>${zh ? '從觀看時間、常看頻道與興趣主題，回顧自己的注意力去了哪裡。' : 'Explore viewing time, favorite channels and interest topics to revisit where your attention went.'}</p><span class="lp-use-link">${zh ? '看看實際畫面 ↗' : 'See the product ↗'}</span></a>
   <a class="lp-use-card" href="#community"><span class="lp-use-symbol" aria-hidden="true">◉</span><span class="lp-kicker">02 / ${zh ? '探索' : 'EXPLORE'}</span><h3>${zh ? '大家都在看哪個頻道？' : 'Which creators are people watching?'}</h3><p>${zh ? '用觀看時間與次數探索成員的熱門頻道，點進去看看熟悉或全新的創作者。' : 'Explore popular channels by viewing time and count. Open a channel to discover a familiar or new creator.'}</p><span class="lp-use-link">${zh ? '探索熱門頻道 ↓' : 'Explore channels ↓'}</span></a>
-  <a class="lp-use-card" href="#features"><span class="lp-use-symbol" aria-hidden="true">⇄</span><span class="lp-kicker">03 / ${zh ? '連結' : 'CONNECT'}</span><h3>${zh ? '原來，我們都喜歡。' : 'Something we both love.'}</h3><p>${zh ? '選擇參與配對，從共同主題多認識一點彼此。分享多少、是否繼續，都由你決定。' : 'Choose to join matching and discover shared topics. Decide how much to share and whether to connect.'}</p><span class="lp-use-link">${zh ? '從自己的紀錄開始 ↓' : 'Start with your history ↓'}</span></a>
-  </div><p class="lp-trust-note">${zh ? '你的資料由你掌握：可保持私人、關閉配對、匯出紀錄或刪除帳號。' : 'You stay in control: keep your dashboard private, leave matching, export your history or delete your account.'} <a href="/privacy">${zh ? '了解隱私設定 →' : 'Privacy details →'}</a></p></section>
+  <a class="lp-use-card" href="#features"><span class="lp-use-symbol" aria-hidden="true">⇄</span><span class="lp-kicker">03 / ${zh ? '連結' : 'CONNECT'}</span><h3>${zh ? '原來，我們都喜歡。' : 'Something we both love.'}</h3><p>${zh ? '從共同主題多認識一點彼此，並隨時調整好友探索與分享設定。' : 'Discover shared topics and get to know each other. Adjust friend discovery and sharing anytime.'}</p><span class="lp-use-link">${zh ? '從自己的紀錄開始 ↓' : 'Start with your history ↓'}</span></a>
+  </div><p class="lp-trust-note">${zh ? '你的資料由你掌握：可調整分享設定、關閉好友探索、匯出紀錄或申請刪除帳號。' : 'You stay in control: adjust sharing, turn off friend discovery, export your history or request account deletion.'} <a href="/privacy">${zh ? '了解隱私設定 →' : 'Privacy details →'}</a></p></section>
   <section id="community" class="lp-section lp-community"><div class="lp-kicker">COMMUNITY / 90 DAYS</div><p class="lp-community-scope">${zh ? '近 90 天 · 僅計入公開儀表板成員 · 觀看時間為估計值' : 'Last 90 days · Public dashboard members only · Viewing time is estimated'}</p>
   ${stats.status === 'ready' ? `${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang)}<details class="lp-more-stats"><summary>${zh ? '統計範圍與計算方式' : 'Scope & methodology'}</summary><p class="lp-method">${copy.method}</p><p class="lp-updated">${copy.updated} <time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time></p></details>` : `<p class="lp-empty" role="status">${copy.unavailable}</p>`}</section>
-  <section class="lp-section lp-start" id="features"><div class="lp-kicker">START YOUR ARCHIVE</div><h2>${zh ? '先登入，讓看過的日常有個家。' : 'Give your watch history a home.'}</h2><p class="lp-start-intro">${zh ? '使用 Google 建立自己的 urtube。登入後，系統會帶你匯入觀看紀錄。' : 'Start your urtube with Google. Once signed in, we will guide you through importing your watch history.'}</p><div class="lp-actions">${primaryAction.replace(zh ? '註冊／登入 →' : 'Sign up / sign in →', zh ? '使用 Google 開始 →' : 'Start with Google →').replace(zh ? '註冊 / 登入 →' : 'Sign up / sign in →', zh ? '使用 Google 開始 →' : 'Start with Google →')}</div><div class="lp-start-path"><div><span>1</span><strong>${zh ? 'Google 登入' : 'Sign in with Google'}</strong><p>${zh ? '先建立你的私人檔案。' : 'Create your own archive.'}</p></div><i aria-hidden="true">→</i><div><span>2</span><strong>${zh ? '選擇匯入方式' : 'Choose an import method'}</strong><p>${zh ? '用擴充功能同步，或上傳 Takeout 檔案。' : 'Sync with the extension or upload a Takeout archive.'}</p></div><i aria-hidden="true">→</i><div><span>3</span><strong>${zh ? '打開你的回顧' : 'Explore your recap'}</strong><p>${zh ? '看見興趣，再決定要不要參與配對。' : 'Explore your interests, then choose whether to join matching.'}</p></div></div></section>
+  <section class="lp-section lp-start" id="features"><div class="lp-kicker">START YOUR ARCHIVE</div><h2>${zh ? '先登入，讓看過的日常有個家。' : 'Give your watch history a home.'}</h2><p class="lp-start-intro">${zh ? '使用 Google 建立自己的 urtube。登入後，系統會帶你匯入觀看紀錄。' : 'Start your urtube with Google. Once signed in, we will guide you through importing your watch history.'}</p><div class="lp-actions">${primaryAction.replace(zh ? '註冊／登入 →' : 'Sign up / sign in →', zh ? '使用 Google 開始 →' : 'Start with Google →').replace(zh ? '註冊 / 登入 →' : 'Sign up / sign in →', zh ? '使用 Google 開始 →' : 'Start with Google →')}</div><div class="lp-start-path"><div><span>1</span><strong>${zh ? 'Google 登入' : 'Sign in with Google'}</strong><p>${zh ? '建立你的興趣檔案。' : 'Create your own archive.'}</p></div><i aria-hidden="true">→</i><div><span>2</span><strong>${zh ? '選擇匯入方式' : 'Choose an import method'}</strong><p>${zh ? '用擴充功能同步，或上傳 Takeout 檔案。' : 'Sync with the extension or upload a Takeout archive.'}</p></div><i aria-hidden="true">→</i><div><span>3</span><strong>${zh ? '打開你的回顧' : 'Explore your recap'}</strong><p>${zh ? '查看興趣，調整分享設定。' : 'Explore your interests and adjust sharing settings.'}</p></div></div></section>
   ${contributorSection(stats.profiles ?? [], lang)}
-  <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div><p class="lp-origin">${copy.origin}</p></div>${landingShelfScript}${contributorScript}`;
+  <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div></div>${landingShelfScript}${contributorScript}`;
 }

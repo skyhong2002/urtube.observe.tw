@@ -112,7 +112,7 @@ function referenceSection(reference: ReferencePopulation, t: Messages): string {
     <p>${t.tagLeanReferencePara}</p>
     ${referenceAxis(t.tagLeanContent, reference.content, t)}
     ${referenceAxis(t.tagLeanPolitics, reference.political, t)}
-    <p class="tl-foot">${t.tagLeanReferenceMeta(updated, reference.version, reference.methodVersion)} · <a href="${REFERENCE_POPULATION_POLICY_URL}">${t.tagLeanReferenceMethodLink}</a></p>
+    <p class="tl-foot">${t.tagLeanReferenceMeta(updated)} · <a href="${REFERENCE_POPULATION_POLICY_URL}">${t.tagLeanReferenceMethodLink}</a></p>
   </section>`;
 }
 
@@ -210,14 +210,12 @@ export function tagLeanSection(
   );
 
   const coverage = `<p class="tl-coverage">${t.tagLeanCoverage(Math.round(matchedShare))}</p>`;
+  // Retain source and update date for interpretation; version identifiers belong in methodology.
   const provenance = data.provenance;
   const sourceHost = provenance.sourceUrl.replace(/^https?:\/\//, '').split('/')[0];
   const foot = `<p class="tl-foot">${t.tagLeanSource(
     html(sourceHost),
-    html(provenance.policyVersion),
-    html(provenance.membershipVersion),
     html(provenance.sourceUpdatedAt),
-    html(provenance.fetchedAt),
   )} · <a href="${html(provenance.policyUrl)}">${t.tagLeanPolicyLink}</a> · <a href="${html(provenance.reportUrl)}">${t.tagLeanReportLink}</a></p>
     <p class="tl-foot">${t.tagLeanCaveat}</p>`;
   return `<style>${tagLeanStyles}</style>${hero}${coverage}${politics}${content}${reference ? referenceSection(reference, t) : ''}${foot}`;

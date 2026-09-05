@@ -14,10 +14,11 @@ export function profileMessages(lang: Lang) {
     website: '個人網站', custom: '自訂連結', choose: '新增社群連結',
     linkName: '連結名稱', url: '網址（http / https）', add: '新增連結', remove: '刪除', up: '上移', down: '下移',
     save: '儲存變更', cancel: '取消', saved: '個人檔案已儲存。', remaining: '剩餘字數：',
-    hint: '2–32 字元，以小寫英文字母或數字開頭，可含小寫英文字母、數字、點及連字號；不可使用保留字。',
-    warning: '修改 ID 會改變個人頁面網址。舊網址會轉到新網址，舊 ID 會為你保留；登入與紀錄不受影響。',
-    confirm: '我了解個人頁面網址將變更，並同意保留舊網址轉址。', privacy: '沿用帳號目前的公開／私人設定，不會公開額外的觀看或搜尋紀錄。',
-    errors: { displayName: '請填寫 1–80 字的顯示名稱。', handle: 'ID 格式不正確或為保留字。', bio: '個人簡介不可超過 300 字。', socialLinks: '最多 5 筆連結；每筆需有 1–40 字名稱及有效的 http/https 網址（最多 2048 字元，不可含帳密）。', taken: '此 ID 已被使用或保留，請選擇其他 ID。', confirm: '儲存前請勾選網址變更確認。', failed: '儲存失敗，請重試。', csrf: '表單已失效，請重新整理後再試。' },
+    // Explain user-visible URL changes, not reservation or redirect implementation.
+    hint: '2–32 字元，以小寫英文字母或數字開頭，可含小寫英文字母、數字、點及連字號。',
+    warning: '修改 ID 會改變個人頁面網址，舊連結仍可使用。',
+    confirm: '我了解個人頁面網址將變更。',
+    errors: { displayName: '請填寫 1–80 字的顯示名稱。', handle: 'ID 格式不正確或為保留字。', bio: '個人簡介不可超過 300 字。', socialLinks: '請使用有效的網址與簡短名稱，最多可新增 5 筆連結。網址不可包含帳號密碼。', taken: '此 ID 已被使用或保留，請選擇其他 ID。', confirm: '儲存前請勾選網址變更確認。', failed: '儲存失敗，請重試。', csrf: '表單已失效，請重新整理後再試。' },
   } : {
     title: 'Edit profile', name: 'Display name', handle: 'User ID', bio: 'Bio', links: 'Social links',
     help: 'Choose a platform and enter your username or @ID. For websites and custom links, enter a URL. Up to 5 links.',
@@ -25,10 +26,10 @@ export function profileMessages(lang: Lang) {
     website: 'Website', custom: 'Custom link', choose: 'Add social link',
     linkName: 'Link name', url: 'URL (http / https)', add: 'Add link', remove: 'Remove', up: 'Move up', down: 'Move down',
     save: 'Save changes', cancel: 'Cancel', saved: 'Profile saved.', remaining: 'Characters remaining: ',
-    hint: '2–32 lowercase letters, digits, dots or dashes; start with a letter or digit. Reserved names are unavailable.',
-    warning: 'Changing your ID changes your profile URL. Old URLs redirect to the new URL and your old ID stays reserved. Login and records stay intact.',
-    confirm: 'I understand my profile URL will change and agree to keep the old URL redirect.', privacy: 'Your current public/private setting still applies. No additional watch or search records will be made public.',
-    errors: { displayName: 'Enter a display name of 1–80 characters.', handle: 'Invalid or reserved ID.', bio: 'Bio must be 300 characters or fewer.', socialLinks: 'Use at most 5 links, each with a 1–40 character name and valid http/https URL (up to 2048 characters, without credentials).', taken: 'This ID is already used or reserved. Choose another ID.', confirm: 'Confirm the URL change before saving.', failed: 'Could not save. Please try again.', csrf: 'This form has expired. Reload and try again.' },
+    hint: '2–32 lowercase letters, digits, dots or dashes. Start with a letter or digit.',
+    warning: 'Changing your ID changes your profile URL. Existing links will still work.',
+    confirm: 'I understand my profile URL will change.',
+    errors: { displayName: 'Enter a display name of 1–80 characters.', handle: 'Invalid or reserved ID.', bio: 'Bio must be 300 characters or fewer.', socialLinks: 'Use valid URLs and short names for up to 5 links. URLs must not contain passwords or sign-in details.', taken: 'This ID is already used or reserved. Choose another ID.', confirm: 'Confirm the URL change before saving.', failed: 'Could not save. Please try again.', csrf: 'This form has expired. Reload and try again.' },
   };
 }
 
@@ -69,7 +70,7 @@ export function profileEditPage(user: User, csrf: string, lang: Lang, value: Pro
     .profile-presets{display:flex;flex-wrap:wrap;gap:6px}.profile-form .profile-presets button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:34px;margin:0;padding:6px 10px;background:var(--raised);border:1px solid var(--line-strong);border-radius:10px;color:var(--ink);font-size:13px}.profile-presets button:hover{background:var(--surface);border-color:var(--accent-text)}.profile-link legend{padding:0 6px;font-size:13px;color:var(--ink-2)}
     .profile-presets .social-icon{width:16px;height:16px}.profile-form .profile-link .profile-actions button{display:inline-flex;align-items:center;justify-content:center;width:32px;min-height:32px;padding:0;border:1px solid var(--line-strong);background:var(--raised);color:var(--ink-2);font-size:18px;font-weight:400}.profile-form .profile-link .profile-actions button:hover{border-color:var(--accent-text);color:var(--ink)}
     @media(max-width:600px){.profile-form{padding:18px}.profile-actions button{flex:0 0 auto}.site-nav{flex-wrap:wrap}}
-    </style><section class="ob-intro"><h1>${t.title}</h1><p>${t.privacy}</p></section>
+    </style><section class="ob-intro"><h1>${t.title}</h1></section>
     <div class="ob-card profile-form">
     ${error ? `<div class="ob-error" role="alert" tabindex="-1" id="profile-error">${html(error)}</div>` : ''}
     ${saved ? `<div class="ob-success" role="status">${t.saved}</div>` : ''}

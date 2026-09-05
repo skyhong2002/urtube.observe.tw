@@ -195,22 +195,22 @@ test('reference consent is separate, owner-only, withdrawable, and rendered with
     const page = await (await app.request(`/${viewer.handle}/insights?range=all`, {
       headers: { cookie },
     })).text();
-    assert.match(page, /This site’s reference population/);
+    assert.match(page, /Community reference/);
     assert.match(page, /5 consenting accounts/);
-    assert.match(page, /Reference mean/);
-    assert.match(page, /Reference median/);
+    assert.match(page, /Community mean/);
+    assert.match(page, /Community median/);
     assert.match(page, /Lift/);
     assert.match(page, /\.tl-reference-scroll\{overflow-x:auto\}/);
     assert.doesNotMatch(page, /\.tl-reference-detail\{display:none\}/);
-    assert.match(page, /method channel-tags-equal-user-v1/);
-    assert.match(page, /version sha256:[a-f0-9]{12}/);
+    assert.doesNotMatch(page, /method channel-tags-equal-user-v1/);
+    assert.doesNotMatch(page, /version sha256:[a-f0-9]{12}/);
     for (const contributor of contributors) {
       assert.ok(!page.includes(contributor.displayName));
       assert.ok(!page.includes(contributor.handle));
     }
 
     const account = await (await app.request('/account', { headers: { cookie } })).text();
-    assert.match(account, /Anonymous reference population/);
+    assert.match(account, /Contribute to anonymous statistics/);
     assert.doesNotMatch(account, /name="referenceOptIn" value="1" checked/);
     assert.equal((await app.request('/account/reference-population', { method: 'POST' })).status, 302);
 
@@ -238,12 +238,12 @@ test('reference consent is separate, owner-only, withdrawable, and rendered with
     const insufficient = await (await app.request(`/${viewer.handle}/insights?range=all`, {
       headers: { cookie },
     })).text();
-    assert.match(insufficient, /No reliable reference population yet/);
-    assert.doesNotMatch(insufficient, /Reference mean/);
+    assert.match(insufficient, /Community comparisons appear once at least 5 members qualify/);
+    assert.doesNotMatch(insufficient, /Community mean/);
 
     const privacy = await (await app.request('/privacy')).text();
-    assert.match(privacy, /separate opt-in/);
-    assert.match(privacy, /at least five consenting accounts/);
+    assert.match(privacy, /may separately contribute/);
+    assert.match(privacy, /at least five consenting members/);
   } finally {
     registry.close();
   }

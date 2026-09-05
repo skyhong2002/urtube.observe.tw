@@ -4,7 +4,6 @@ import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/c
 import type { CohortRecommendations } from '../youtube/cohort-recommendations.js';
 import type { MatchRelationship } from '../users.js';
 import {
-  COMPARISON_LOCKED_TOPIC_LIMIT,
   COMPARISON_RANGES,
   type CommonChannel,
   type CommonItemMeasures,
@@ -310,16 +309,14 @@ export function matchingCandidatePage(
     : `<p>${t.matchesNoProfileTopics}</p>`;
   const metrics = `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
   const actions = friendshipActions(card, viewer.handle, t, `/${card.handle}`, false);
-  const consentNote = card.targetPublic ? t.matchesPublicBlendNote : connected ? t.matchesConsentConnectedNote : t.matchesConsentPendingNote;
+  // Access is enforced before rendering; repeating its rules obscures the shared content.
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
   const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
-  const gate = card.targetPublic ? '' : connected
-    ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p></section>`
-    : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p></section>`;
+
   const topicsSubtitle = comparison.topics.state === 'locked'
-    ? t.matchesLockedTopics(COMPARISON_LOCKED_TOPIC_LIMIT)
+    ? t.matchesLockedTopics
     : t.matchesInCommon(comparison.topics.total, card.displayName);
   const sections = [
     statsSection(comparison, t),
@@ -331,10 +328,10 @@ export function matchingCandidatePage(
     weekdaySection(comparison, t),
     comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
-    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p><p class="mt-version">${t.matchesFormulaVersion(card.percentageVersion)}</p></section>`,
+    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary><p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p></details></section>`,
   ].join('');
   const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
-  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${metricToggle}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div>${ranges}${metricToggle}${sections}</div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
@@ -403,7 +400,8 @@ export function matchesPage(
   }
   content += cohortSection(recommendations, lang);
   if (workspace) content = matchingWorkspace(content, workspace.invitations, workspace.admin, lang);
-  const body = `<style>${matchesStyles}${v3ProcessingStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${processingHtml}${content}`;
+  // Introduce the experience, not its disclosure policy; sharing controls explain consequences.
+  const body = `<style>${matchesStyles}${v3ProcessingStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara}</p></section>${processingHtml}${content}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
