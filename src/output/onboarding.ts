@@ -162,38 +162,29 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <p>${t.accountMatchingPara}</p>
       <form method="post" action="/account/matching" class="ob-form">
         <div class="ob-switches">
-          <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong><small>${t.accountMatchingOptInHelp}</small></span></label>
+          <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong></span></label>
         </div>
-        <p class="ob-help">${t.accountMatchingFriends}</p>
+        <details><summary>${t.settingsSharingDetails}</summary><p>${t.accountMatchingOptInHelp}</p><p>${t.accountMatchingFriends}</p></details>
         <button type="submit">${t.accountMatchingSave}</button>
       </form>`;
-  const body = `<style>${formStyles}${processingStyles}</style><section class="ob-intro ob-profile"><img class="ob-avatar" src="/avatar/${html(user.handle)}" alt="" width="64" height="64"><div><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
-    <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></div></section>
-    <div class="ob-card">
-      ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
-      <h2>${t.accountDashboard}</h2>
-      <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
-      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
+  const group = (id: string, title: string, content: string, open = false) =>
+    `<details class="st-group" id="${id}"${open ? ' open' : ''}><summary>${title}</summary><div class="st-content">${content}</div></details>`;
+  const body = `<style>${formStyles}${processingStyles}
+    .st-page{max-width:680px;margin:0 auto}.st-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}.st-heading .ob-intro{margin:0}.st-heading a{font-size:13px}
+    .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
+    @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
+    </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
+      ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
       ${state.takeoutResult ? '' : processing}
+      ${group('settings-profile', t.settingsProfile, `
+      <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p>
       <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
         <label for="displayName">${t.signupName}</label>
         <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">
         <button type="submit">${t.accountNameSave}</button>
       </form>
-      <h2>${t.accountExtension}</h2>
-      <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
-      <ol class="ob-steps">
-        ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
-      </ol>
-      ${takeout}
-      <section id="account-export">
-        <h2>${t.accountExportTitle}</h2>
-        <p>${t.accountExportPara}</p>
-        <form method="post" action="/account/export" class="ob-form">
-          <label class="ob-check"><input type="checkbox" name="confirmExport" value="1" required> ${t.accountExportConfirm}</label>
-          <button type="submit">${t.accountExportButton}</button>
-        </form>
-      </section>
+      `)}
+      ${group('settings-privacy', t.settingsPrivacy, `
       ${matchingSettings}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
@@ -207,18 +198,52 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
         <button type="submit">${t.accountReferenceSave}</button>
       </form>
+      `)}
+      ${group('settings-sync', t.settingsSync, `
+      <h2>${t.accountExtension}</h2>
+      <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
+      <ol class="ob-steps">
+        ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
+      </ol>
+      `)}
+      ${group('settings-data', t.settingsData, `
+      ${takeout}
+      <section id="account-export">
+        <h2>${t.accountExportTitle}</h2>
+        <p>${t.accountExportPara}</p>
+        <form method="post" action="/account/export" class="ob-form">
+          <label class="ob-check"><input type="checkbox" name="confirmExport" value="1" required> ${t.accountExportConfirm}</label>
+          <button type="submit">${t.accountExportButton}</button>
+        </form>
+      </section>
+      `, !!takeoutFeedback)}
+      ${group('settings-advanced', t.settingsAdvanced, `
+      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
       ${rotatedHtml}
       <h2>${t.accountRotate}</h2>
       <p>${t.accountRotatePara}</p>
       <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
-      <form method="post" action="/logout" class="ob-form" style="margin-top:10px"><button type="submit" style="background:var(--raised);border-color:var(--line-strong);color:var(--ink)">${t.accountLogout}</button></form>
       <details style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
       <form method="post" action="/account/delete" class="ob-form" style="margin-top:10px">
         <p style="margin:0">${t.accountDeletePara(html(user.handle))}</p>
         <input name="confirmHandle" type="text" autocomplete="off" placeholder="${html(user.handle)}">
         <button type="submit">${t.accountDeleteButton}</button>
       </form></details>
-    </div>`;
+      `, !!state.rotated || !!state.error)}
+      <div class="st-footer"><a href="/privacy">${t.privacyLink}</a><form method="post" action="/logout" class="ob-form"><button type="submit">${t.accountLogout}</button></form></div>
+    </div>
+    <script>(() => {
+      const revealTarget = () => {
+        const target = document.getElementById(location.hash.slice(1));
+        if (!target) return;
+        for (let element = target; element; element = element.parentElement) {
+          if (element instanceof HTMLDetailsElement) element.open = true;
+        }
+        target.scrollIntoView();
+      };
+      addEventListener('hashchange', revealTarget);
+      revealTarget();
+    })();</script>`;
   return shell(t.accountTitle, body, primaryNav(lang, {
     active: 'account', dashboardHref,
     languageHref: `/account?lang=${lang === 'zh' ? 'en' : 'zh'}`,
