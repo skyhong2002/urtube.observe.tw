@@ -1464,7 +1464,7 @@ export class Repository {
       WITH work_run AS (
         SELECT * FROM youtube_taxonomy_runs
         WHERE definition_version='${PERSONAL_TAXONOMY_DEFINITION_VERSION}'
-          AND status IN ('candidate', 'active')
+          AND status IN ('candidate', 'active', 'ready')
         ORDER BY CASE status WHEN 'candidate' THEN 0 ELSE 1 END, taxonomy_version DESC
         LIMIT 1
       )
@@ -1526,6 +1526,31 @@ export class Repository {
     return { readiness, run: run ? { taxonomyVersion: run.taxonomyVersion,
       definitionVersion: run.definitionVersion, status: run.status } : null,
       processed, total: readiness.availableVideos + readiness.totalVideos - readiness.metadataReadyVideos };
+  }
+
+  youtubeProcessingWindow(range: YoutubeRange, now = new Date()) {
+    const metadata = this.youtubeMetadataProcessingCounts(now);
+    const topics = this.youtubeTopicProcessingProgress();
+    const cutoff = youtubeCutoff(range, now);
+    const row = this.db.prepare(`
+      SELECT COUNT(*) videos,
+        SUM(v.metadata_fetched_at IS NULL) pending_metadata,
+        SUM(v.metadata_fetched_at IS NULL OR v.availability='available') topic_total,
+        SUM(v.metadata_fetched_at IS NOT NULL AND v.availability='available' AND EXISTS (
+          SELECT 1 FROM youtube_video_topics vt JOIN youtube_topics t ON t.id=vt.topic_id
+          WHERE vt.video_id=v.video_id AND vt.metadata_hash=v.metadata_hash AND t.taxonomy_version=?
+        )) processed
+      FROM youtube_videos v WHERE EXISTS (
+        SELECT 1 FROM youtube_watch_events w JOIN activities a ON a.id=w.activity_id
+        WHERE w.video_id=v.video_id AND w.activity_type='video'
+          AND a.occurred_precision IN ('exact','day')
+          AND (? IS NULL OR w.watched_at>=?) AND w.watched_at<?
+      )
+    `).get(topics.run?.taxonomyVersion ?? -1, cutoff, cutoff, now.toISOString())!;
+    return {
+      metadata: { ...metadata, videos: Number(row.videos), videosPendingMetadata: Number(row.pending_metadata ?? 0) },
+      topics: { ...topics, processed: Number(row.processed ?? 0), total: Number(row.topic_total ?? 0) },
+    };
   }
 
   youtubeHistoryStatus(): YoutubeHistoryStatus {
@@ -2426,13 +2451,14 @@ export class Repository {
   youtubeVideosForPersonalClassification(
     run: PersonalTaxonomyRun,
     limit = 250,
+    now = new Date(),
   ): Array<YoutubeVideoMetadata> {
     if (run.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION
-      || !['candidate', 'active'].includes(run.status)) {
+      || !['candidate', 'active', 'ready'].includes(run.status)) {
       throw new Error('Personal taxonomy run is not open for classification');
     }
     const rows = this.db.prepare(`
-      SELECT v.* FROM youtube_videos v
+      SELECT v.*, watched.latest_watched_at FROM youtube_videos v
       LEFT JOIN (
         SELECT video_id, MAX(watched_at) latest_watched_at
         FROM youtube_watch_events WHERE activity_type='video'
@@ -2455,7 +2481,12 @@ export class Repository {
       run.promptVersion,
       Math.max(1, Math.min(1000, Math.floor(limit))),
     ) as Array<Record<string, unknown>>;
-    return this.youtubeMetadataRows(rows);
+    // Finish the newest tier before dispatching older-history batches.
+    const tier = (row: Record<string, unknown>) => {
+      const age = (now.getTime() - Date.parse(String(row.latest_watched_at))) / 86_400_000;
+      return age <= 28 ? 0 : age <= 90 ? 1 : age <= 365 ? 2 : 3;
+    };
+    return this.youtubeMetadataRows(rows.filter(row => tier(row) === tier(rows[0])));
   }
 
   youtubeVideosForMatchingClassification(
@@ -3106,7 +3137,7 @@ export class Repository {
     classifiedAt = new Date().toISOString(),
   ): void {
     if (run.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION
-      || !['candidate', 'active'].includes(run.status)) {
+      || !['candidate', 'active', 'ready'].includes(run.status)) {
       throw new Error('Personal taxonomy run is not open for classification');
     }
     const topic = this.db.prepare(`

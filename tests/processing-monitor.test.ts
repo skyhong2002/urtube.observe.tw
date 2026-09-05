@@ -27,7 +27,7 @@ function fixture(initial: unknown, shown = true, withButton = true) {
   const content = new Element(), connection = new Element(), button = new Element('button');
   const snapshot = new Element(), label = new Element();
   const page = new AbortController();
-  const panel = { dataset: {}, querySelector: (selector: string) => selector === '[data-v3-snapshot]' ? snapshot : label };
+  const panel = { dataset: {} as Record<string, string>, querySelector: (selector: string) => selector === '[data-v3-snapshot]' ? snapshot : label };
   const root = { dataset: { lang: 'zh' }, closest: () => panel,
     querySelector: (selector: string) => selector === '[data-monitor-content]' ? content : selector === 'button' ? (withButton ? button : null) : connection };
   const document = { documentElement: { dataset: { processingVisibility: shown ? 'shown' : 'hidden' } }, hidden: false, currentScript: { previousElementSibling: root },
@@ -37,7 +37,7 @@ function fixture(initial: unknown, shown = true, withButton = true) {
   const timers = new Map<number, { callback: () => void; delay: number }>();
   let id = 0, data = initial, status = 200;
   const windowEvents: Record<string, () => void> = {};
-  runInNewContext(processingMonitorScript, { document, window: { urtubePageController: page, addEventListener: (name: string, fn: () => void) => { windowEvents[name] = fn; } }, AbortController, Date,
+  runInNewContext(processingMonitorScript, { URL, location: {origin:'https://example.test', href:'https://example.test/person?range=28d', pathname:'/person'}, document, window: { urtubePageController: page, addEventListener: (name: string, fn: () => void) => { windowEvents[name] = fn; } }, AbortController, Date,
     setTimeout(callback: () => void, delay: number) { timers.set(++id, { callback, delay }); return id; },
     clearTimeout(key: number) { timers.delete(key); },
     fetch: async (url: string, options: { cache: string; signal: AbortSignal }) => {
@@ -71,7 +71,7 @@ test('personal monitor reports failure without exposing job diagnostics or batch
   assert.equal(descendants(f.content).filter(el => el.tag === 'img').length, 0, 'errors stay literal text');
   assert.doesNotMatch(f.content.textContent, /<img src=x onerror=bad\(\)>/);
   assert.equal(f.snapshot.hidden, true);
-  assert.equal(f.requests[0].url, '/api/processing');
+  assert.equal(f.requests[0].url, '/api/processing?range=28d');
   assert.equal(f.requests[0].options.cache, 'no-store');
   assert.equal([...f.timers.values()][0].delay, 30000);
   f.page.abort(); assert.equal(f.timers.size, 0);
@@ -148,4 +148,19 @@ test('monitor automatically refreshes without a manual refresh button', async ()
   [...f.timers.values()][0].callback(); await f.tick();
   assert.equal(f.requests.length, 2);
   f.page.abort();
+});
+
+
+test('completed current range hides the monitor despite older backlog and new work reveals it again', async () => {
+  const f = fixture({ ...data, range: '28d', complete: true, history: [
+    {id:'topics', state:'running', done:10, total:100, estimatedMinutes:9},
+  ] });
+  await f.tick();
+  assert.equal(f.panel.dataset.processingComplete, 'true');
+  assert.equal(f.panel.dataset.processingLoading, 'false');
+  assert.ok(f.timers.size, 'polling continues while the completed panel is hidden');
+  f.update({ ...data, range:'28d', complete:false });
+  f.windowEvents['urtube:processing-visibility']();
+  await f.tick();
+  assert.equal(f.panel.dataset.processingComplete, 'false');
 });

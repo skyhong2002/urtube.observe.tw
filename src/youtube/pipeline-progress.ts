@@ -39,10 +39,12 @@ export class ProgressEstimator {
     return Math.max(1, Math.ceil((stage.total - stage.done) / prior.rate / 60000));
   }
 }
-const estimators = new WeakMap<Repository, ProgressEstimator>();
-export function estimatePipeline(repository: Repository, stages: PipelineProgress[], now: number): PipelineProgress[] {
-  let estimator = estimators.get(repository);
-  if (!estimator) { estimator = new ProgressEstimator(); estimators.set(repository, estimator); }
+const estimators = new WeakMap<Repository, Map<string, ProgressEstimator>>();
+export function estimatePipeline(repository: Repository, stages: PipelineProgress[], now: number, scope = 'default'): PipelineProgress[] {
+  let scopes = estimators.get(repository);
+  if (!scopes) { scopes = new Map(); estimators.set(repository, scopes); }
+  let estimator = scopes.get(scope);
+  if (!estimator) { estimator = new ProgressEstimator(); scopes.set(scope, estimator); }
   return stages.map(stage => ({ ...stage, estimatedMinutes: estimator!.estimate(stage, now) }));
 }
 
@@ -51,6 +53,7 @@ export function describePipeline(input: {
   topics: ReturnType<Repository['youtubeTopicProcessingProgress']>;
   capabilities: { metadata: boolean; topics: boolean };
   worker: WorkerOpsStatus | null; workerStage: string | null;
+  selectedRange?: string;
   v3Enabled: boolean; job: ReturnType<MatchingStore['status']>; profile: Profile | null;
   profileVersion: string; now: number;
 }): PipelineProgress[] {
@@ -61,7 +64,7 @@ export function describePipeline(input: {
     : fresh && input.workerStage === phase ? 'running' : 'queued';
   const row = (id: PipelineProgress['id'], state: PipelineState, done: number | null, total: number | null, detail: string, basis: string = id): PipelineProgress =>
     ({ id, state, done, total, detail, basis, estimatedMinutes: null });
-  const metadataState: PipelineState = !m.videos ? 'waiting' : !m.videosPendingMetadata ? 'done'
+  const metadataState: PipelineState = !m.videos ? input.selectedRange ? 'done' : 'waiting' : !m.videosPendingMetadata ? 'done'
     : !input.capabilities.metadata ? 'disabled' : workState('metadata');
   let topicState: PipelineState;
   let topicDetail = 'topic-classification';
@@ -74,9 +77,10 @@ export function describePipeline(input: {
   } else if (!input.capabilities.topics) topicState = 'disabled';
   else if (!topics.run && !topics.readiness.ready) { topicState = 'waiting'; topicDetail = 'readiness'; }
   else topicState = workState('topics');
+  if (input.selectedRange && topics.processed >= topics.total && topics.run?.status !== 'blocked') topicState = 'done';
   const rows = [
     row('metadata', metadataState, m.videos - m.videosPendingMetadata, m.videos, 'video-metadata'),
-    row('topics', topicState, topics.processed, topics.total, topicDetail, `topics:${topics.run?.taxonomyVersion ?? 'new'}`),
+    row('topics', topicState, topics.processed, topics.total, topicDetail, `topics:${topics.run?.taxonomyVersion ?? 'new'}:${input.selectedRange ?? 'all'}`),
     row('keywords', metadataState, m.videos - m.videosPendingMetadata, m.videos, 'keyword-source'),
   ];
   const p = job?.progress;
@@ -94,4 +98,8 @@ export function describePipeline(input: {
       `${phase}:${p?.genre ?? ''}:${job?.attempts ?? 0}:${input.profileVersion}`));
   }
   return rows;
+}
+
+export function processingComplete(stages: PipelineProgress[]): boolean {
+  return stages.length > 0 && stages.every(stage => stage.state === 'done' || stage.state === 'disabled');
 }

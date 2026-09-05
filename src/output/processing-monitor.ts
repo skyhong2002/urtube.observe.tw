@@ -23,6 +23,8 @@ export const processingMonitorScript = String.raw`
     missing: t('等待分析', 'Awaiting analysis'),
   };
   function render(data) {
+    panel.dataset.processingComplete = data.complete === true ? 'true' : 'false';
+    panel.dataset.processingLoading = 'false';
     const job = data.job, profile = data.profile, progress = job?.progress;
     const state = job?.state || 'missing';
     const label = states[state] || t('暫時無法確認進度', 'Progress is unavailable');
@@ -56,17 +58,30 @@ export const processingMonitorScript = String.raw`
       if (progress?.phase === 'classification') output.append(node('p', number(progress.processed) + ' / ' + number(progress.total) + t(' 部影片', ' videos')));
     }
     if (state === 'failed') output.append(node('p', t('分析暫時遇到問題，已完成的結果仍可查看。', 'Analysis encountered a problem. Completed results remain available.')));
-    if (profile) {
+    if (profile || (data.history && data.range !== 'all')) {
       const details = node('details'); details.className = 'yt-monitor-details'; details.open = detailsOpen;
       details.addEventListener('toggle', () => { detailsOpen = details.open; });
       details.append(node('summary', t('分析資料', 'Analysis data')));
-      details.append(node('p', number(profile.processedVideos) + ' / ' + number(profile.totalVideos) + t(' 部影片已分類', ' videos classified')));
-      if (date(profile.builtAt) !== '—') details.append(node('p', t('更新於 ', 'Updated ') + date(profile.builtAt)));
+      if (profile) details.append(node('p', number(profile.processedVideos) + ' / ' + number(profile.totalVideos) + t(' 部影片已分類', ' videos classified')));
+      if (profile && date(profile.builtAt) !== '—') details.append(node('p', t('更新於 ', 'Updated ') + date(profile.builtAt)));
+      if (data.history && data.range !== 'all') {
+        details.append(node('h3', t('全部歷史背景進度', 'Full history progress')));
+        for (const stage of data.history) {
+          const name = stage.id === 'topics' ? t('觀看主題', 'Viewing topics') : t('影片資訊', 'Video information');
+          const label = name + ' · ' + number(stage.done) + ' / ' + number(stage.total);
+          details.append(node('p', label));
+          const meter = node('progress'); meter.max = Math.max(1, stage.total); meter.value = stage.done;
+          meter.setAttribute('aria-label', label); details.append(meter);
+          details.append(node('p', stage.state === 'done' ? t('已完成', 'Complete')
+            : stage.estimatedMinutes !== null ? t('估計剩餘 ', 'Estimated remaining ') + number(stage.estimatedMinutes) + t(' 分鐘', ' minutes')
+            : t('時間待估；較早歷史不影響目前範圍的完成狀態。', 'ETA pending; older history does not affect completion of the current range.')));
+        }
+      }
       output.append(details);
     }
     content.replaceChildren(output);
     panel.querySelector('[data-v3-snapshot]').hidden = true;
-    panel.querySelector('[data-v3-state-label]').textContent = data.pipeline ? t('整理進度', 'Preparation progress') : label;
+    panel.querySelector('[data-v3-state-label]').textContent = data.pipeline && data.range ? (data.range === 'all' ? t('全部歷史', 'All history') : t('最近 ', 'Last ') + parseInt(data.range, 10) + t(' 天', ' days')) : label;
     panel.dataset.v3Processing = state;
   }
   async function refresh() {
@@ -79,7 +94,9 @@ export const processingMonitorScript = String.raw`
     controller.signal.addEventListener('abort', abort, { once: true });
     const timeout = setTimeout(() => { timedOut = true; request.abort(); }, 15000);
     try {
-      const response = await fetch('/api/processing', { cache: 'no-store', signal: request.signal });
+      const url = new URL('/api/processing', location.origin);
+      url.searchParams.set('range', new URL(location.href).searchParams.get('range') || (/^\/(account|matches)(\/|$)/.test(location.pathname) ? 'all' : '365d'));
+      const response = await fetch(url.pathname + url.search, { cache: 'no-store', signal: request.signal });
       if (response.status === 401 || response.status === 403) {
         stopped = true; content.replaceChildren(); panel.querySelector('[data-v3-snapshot]').hidden = true;
         panel.querySelector('[data-v3-state-label]').textContent = t('登入狀態已變更', 'Session changed');
@@ -92,6 +109,7 @@ export const processingMonitorScript = String.raw`
       connection.textContent = t('更新於 ', 'Updated ') + date(Date.now());
     } catch (error) {
       if (controller.signal.aborted) return;
+      panel.dataset.processingLoading = 'false';
       retry = Math.min(retry * 2, 120000);
       connection.textContent = (timedOut ? t('讀取進度逾時。', 'Progress request timed out.') : stopped ? t('請重新登入以查看進度。', 'Sign in again to view progress.') : t('暫時無法更新進度。', 'Progress could not be updated.'))
         + (stopped ? '' : t(' 顯示內容可能是上次資料，稍後自動重試。', ' Displayed data may be stale. Retrying automatically.'));

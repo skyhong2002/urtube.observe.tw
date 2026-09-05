@@ -176,7 +176,7 @@ function workRun(repository: Repository, client: YoutubeAiClient): PersonalTaxon
     client.model,
     PERSONAL_TAXONOMY_PROMPT_VERSION,
   );
-  return run && (run.status === 'candidate' || run.status === 'active') ? run : null;
+  return run && (run.status === 'candidate' || run.status === 'active' || run.status === 'ready') ? run : null;
 }
 
 export async function classifyYoutubeVideosWithClient(
@@ -206,12 +206,9 @@ export async function classifyYoutubeVideosWithClient(
     + 'from its declared public metadata source, with a score above 0 and at most 1. '
     + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.';
   const classifyBatch = async (batch: YoutubeVideoMetadata[]): Promise<void> => {
-    let validated: Array<{
-      video: YoutubeVideoMetadata;
-      decision: ReturnType<typeof decidePersonalClassification>;
-    }> | null = null;
+    let pending = [...batch];
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 3 && !validated; attempt += 1) {
+    for (let attempt = 1; attempt <= 3 && pending.length; attempt += 1) {
       try {
         // Tell the model why the previous answer was rejected; blind retries
         // of a strict verbatim-evidence contract rarely converge.
@@ -222,7 +219,7 @@ export async function classifyYoutubeVideosWithClient(
           system,
           {
             taxonomy: topics.map(({ slug, name, description }) => ({ slug, name, description })),
-            videos: batch.map(youtubePublicMetadata),
+            videos: pending.map(youtubePublicMetadata),
           },
           client,
           feedback,
@@ -231,59 +228,57 @@ export async function classifyYoutubeVideosWithClient(
           throw new Error('AI classification response must contain a videos array');
         }
         const responseById = new Map<string, Record<string, unknown>>();
+        const duplicates = new Set<string>();
         for (const raw of (response as any).videos as unknown[]) {
-          if (!raw || typeof raw !== 'object') throw new Error('AI classification entries must be objects');
+          if (!raw || typeof raw !== 'object') continue;
           const item = raw as Record<string, unknown>;
           const videoId = String(item.videoId ?? '');
-          if (!batch.some((video) => video.videoId === videoId) || responseById.has(videoId)) {
-            throw new Error('AI classification returned an unknown or duplicate videoId');
-          }
+          if (!pending.some((video) => video.videoId === videoId)) continue;
+          if (responseById.has(videoId)) duplicates.add(videoId);
           responseById.set(videoId, item);
         }
-        if (responseById.size !== batch.length) {
-          throw new Error('AI classification must return every supplied videoId');
+        const remaining: YoutubeVideoMetadata[] = [];
+        for (const video of pending) {
+          try {
+            if (duplicates.has(video.videoId)) throw new Error('AI classification returned a duplicate videoId');
+            const item = responseById.get(video.videoId);
+            if (!item) throw new Error('AI classification must return every supplied videoId');
+            const evidence = Array.isArray(item.evidence)
+              ? item.evidence.map((raw): PersonalClassificationEvidence => {
+                  if (!raw || typeof raw !== 'object') throw new Error('AI evidence entries must be objects');
+                  const value = raw as Record<string, unknown>;
+                  return {
+                    text: String(value.text ?? ''),
+                    source: String(value.source ?? '') as PersonalClassificationEvidence['source'],
+                    score: Number(value.score),
+                  };
+                })
+              : [];
+            const decision = decidePersonalClassification(video, {
+                slug: String(item.slug ?? '').trim().toLocaleLowerCase('en-US'),
+                confidence: Number(item.confidence),
+                alternativeSlug: item.alternativeSlug == null
+                  ? null : String(item.alternativeSlug).trim().toLocaleLowerCase('en-US'),
+                alternativeConfidence: item.alternativeConfidence == null
+                  ? null : Number(item.alternativeConfidence),
+                evidence,
+              });
+            repository.savePersonalYoutubeVideoTopic(run, video, decision);
+            classified += 1;
+          } catch (error) { remaining.push(video); lastError = error; }
         }
-        validated = batch.map((video) => {
-          const item = responseById.get(video.videoId)!;
-          const evidence = Array.isArray(item.evidence)
-            ? item.evidence.map((raw): PersonalClassificationEvidence => {
-                if (!raw || typeof raw !== 'object') throw new Error('AI evidence entries must be objects');
-                const value = raw as Record<string, unknown>;
-                return {
-                  text: String(value.text ?? ''),
-                  source: String(value.source ?? '') as PersonalClassificationEvidence['source'],
-                  score: Number(value.score),
-                };
-              })
-            : [];
-          return {
-            video,
-            decision: decidePersonalClassification(video, {
-              slug: String(item.slug ?? '').trim().toLocaleLowerCase('en-US'),
-              confidence: Number(item.confidence),
-              alternativeSlug: item.alternativeSlug == null
-                ? null : String(item.alternativeSlug).trim().toLocaleLowerCase('en-US'),
-              alternativeConfidence: item.alternativeConfidence == null
-                ? null : Number(item.alternativeConfidence),
-              evidence,
-            }),
-          };
-        });
+        pending = remaining;
       } catch (error) {
         lastError = error;
       }
     }
-    if (!validated) {
+    if (pending.length) {
       // One stubborn batch must not stall every other video for this
       // archive; it is retried on the next cycle.
       failedBatches += 1;
       firstFailure ??= lastError;
       console.warn(`personal classification batch skipped after 3 attempts: ${errorText(lastError)}`);
       return;
-    }
-    for (const { video, decision } of validated) {
-      repository.savePersonalYoutubeVideoTopic(run, video, decision);
-      classified += 1;
     }
   };
   // Batches of one archive fan out up to the shared limiter width; the

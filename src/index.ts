@@ -55,7 +55,7 @@ import {
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
 import { v3ProcessingNotice } from './output/v3-processing.js';
 import { describeV3Processing } from './youtube/v3-processing.js';
-import { describePipeline, estimatePipeline } from './youtube/pipeline-progress.js';
+import { describePipeline, estimatePipeline, processingComplete } from './youtube/pipeline-progress.js';
 import { v3DashboardSection } from './output/v3-dashboard.js';
 import {
   describeYoutubeProcessing,
@@ -239,19 +239,25 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.json({ error: 'login_required' }, 401);
     const repository = registry.repositoryFor(me);
     const now = Date.now();
-    const summary = cachedRead(repository, 'pipeline-progress', () => ({
-      metadata: repository.youtubeMetadataProcessingCounts(),
-      topics: repository.youtubeTopicProcessingProgress(),
+    const range = requestedRange(c.req.query('range'));
+    const summary = cachedRead(repository, `pipeline-progress:${range}`, () => repository.youtubeProcessingWindow(range, new Date()), 10000);
+    const history = cachedRead(repository, 'pipeline-history', () => ({
+      metadata: repository.youtubeMetadataProcessingCounts(), topics: repository.youtubeTopicProcessingProgress(),
     }), 10000);
     const store = v3.enabled ? registry.matchingV3Store() : null;
     const job = store?.status(me.id) ?? null;
     const profile = store?.profile(me.id) ?? null;
-    const pipeline = estimatePipeline(repository, describePipeline({ ...summary,
+    const pipeline = estimatePipeline(repository, describePipeline({ ...summary, selectedRange: range,
       capabilities: youtubeProcessingCapabilities(), worker: readOpsStatus<WorkerOpsStatus>('worker'),
       workerStage: repository.youtubeSyncState('worker_stage'), v3Enabled: v3.enabled,
       job, profile, profileVersion: matchingV3Version(v3), now,
-    }), now);
-    return c.json({ pipeline, sampledAt: now, genres: GENRES, job,
+    }), now, range);
+    const historyPipeline = estimatePipeline(repository, describePipeline({ ...history,
+      capabilities: youtubeProcessingCapabilities(), worker: readOpsStatus<WorkerOpsStatus>('worker'),
+      workerStage: repository.youtubeSyncState('worker_stage'), v3Enabled: v3.enabled,
+      job, profile, profileVersion: matchingV3Version(v3), now,
+    }), now, 'history');
+    return c.json({ pipeline, range, complete: processingComplete(pipeline), history: historyPipeline.filter(stage => ['topics', 'metadata'].includes(stage.id)), sampledAt: now, genres: GENRES, job,
       profile: profile ? { builtAt: profile.builtAt, complete: profile.complete,
         totalVideos: profile.totalVideos, processedVideos: profile.processedVideos,
         currentVersion: profile.version === matchingV3Version(v3),

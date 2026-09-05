@@ -1,5 +1,6 @@
 // Display preference only: scoped to the signed-in account in this browser.
 export const processingVisibilityStyles = `
+[data-processing-complete="true"],[data-processing-loading="true"]{display:none!important}
 html[data-processing-visibility="hidden"] :is([data-processing-status],.yt-v3-processing,.yt-processing,.yt-provisional,.mt-provisional){display:none!important}
 .processing-display-setting{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:16px;padding:18px 22px}
 .processing-display-setting label{align-items:center;display:flex;gap:12px;min-height:44px;cursor:pointer;font-size:15px;font-weight:700}

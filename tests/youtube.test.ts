@@ -1735,3 +1735,71 @@ test('OAuth state is single-use and expires', () => {
     repository.close();
   }
 });
+
+test('classification saves valid siblings and retries only invalid videos', async () => {
+  const repository = new Repository(':memory:');
+  try {
+    const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
+      videoId: `RTRYVID${String(index).padStart(4, "0")}`,
+      title: `Technical Video ${index + 1}`,
+      channelId: `channel-${index % 12 + 1}`,
+      channelTitle: `Channel ${index % 12 + 1}`,
+      description: 'A public description about software and culture.',
+      tags: ['software', 'culture'],
+      thumbnailUrl: '',
+      durationSeconds: 1200,
+      publishedAt: '2026-07-01T00:00:00Z',
+      categoryId: '28',
+      availability: 'available',
+      metadataHash: `hash-${index + 1}`,
+    }));
+    for (const [index, video] of metadata.entries()) {
+      repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+        sessionId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        videoId: video.videoId,
+        title: video.title,
+        url: `https://www.youtube.com/watch?v=${video.videoId}`,
+        channelTitle: video.channelTitle,
+        watchedAt: `2026-07-${String(index % 24 + 1).padStart(2, '0')}T00:00:00.000Z`,
+        actualWatchedSeconds: 300,
+        durationSeconds: 1200,
+      }, new Date('2026-07-28T00:00:00Z')));
+    }
+    repository.upsertYoutubeVideoMetadata(metadata, '2026-07-28T00:00:00Z');
+
+    const requests: string[][] = [];
+    const client: YoutubeAiClient = { baseUrl: 'https://ai.example.test/v1', apiKey: 'test-key', model: 'test-model',
+      fetchImpl: (async (_input, init) => {
+        const request = JSON.parse(String(init?.body));
+        const payload = JSON.parse(request.messages.find((m: { role: string }) => m.role === 'user').content);
+        const ids = payload.videos.map((v: { videoId: string }) => v.videoId);
+        requests.push(ids);
+        const response = { videos: payload.videos.map((video: { videoId: string }) => ({
+          videoId: video.videoId, slug: 'technology', confidence: 0.9,
+          alternativeSlug: null, alternativeConfidence: null,
+          evidence: [{ text: video.videoId === metadata[0].videoId ? 'Invalid evidence' : 'Technical Video', source: 'title', score: 0.9 }],
+        })) };
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(response) } }] }), { status: 200 });
+      }) as typeof fetch,
+    };
+    await ensureYoutubeTaxonomyWithClient(repository, false, client);
+    const run = repository.youtubeTaxonomyRuns()[0];
+    const recent = repository.youtubeVideosForPersonalClassification(run, 100, new Date('2026-07-30T00:00:00Z'));
+    assert.equal(recent.length, 23, 'older tier is not dispatched alongside the latest 28 days');
+    assert.equal(recent.some(video => video.videoId === metadata[0].videoId), false);
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 23);
+    for (const video of metadata.slice(1)) assert.equal(requests.flat().filter(id => id === video.videoId).length, 1);
+    assert.equal(requests.flat().filter(id => id === metadata[0].videoId).length, 3);
+    const remaining = repository.youtubeVideosForPersonalClassification(repository.youtubeTaxonomyRuns()[0], 100);
+    assert.deepEqual(remaining.map(video => video.videoId), [metadata[0].videoId]);
+    // A quality-approved candidate can still save its remaining classifications.
+    const ready = { ...repository.youtubeTaxonomyRuns()[0], status: 'ready' as const };
+    assert.doesNotThrow(() => repository.savePersonalYoutubeVideoTopic(ready, metadata[1], { slug:'technology', confidence:0.9, alternativeSlug:null, alternativeConfidence:null, decision:'accepted', evidence:[] }));
+    const selected = repository.youtubeProcessingWindow('28d', new Date('2026-07-30T00:00:00Z'));
+    assert.equal(selected.topics.total, 23);
+    assert.equal(selected.topics.processed, 23);
+    const all = repository.youtubeProcessingWindow('all', new Date('2026-07-30T00:00:00Z'));
+    assert.equal(all.topics.total, 24);
+    assert.equal(all.topics.processed, 23);
+  } finally { repository.close(); }
+});

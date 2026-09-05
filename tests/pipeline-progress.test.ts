@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createApp } from '../src/index.js';
 import { UserRegistry } from '../src/users.js';
-import { describePipeline, ProgressEstimator, type PipelineProgress } from '../src/youtube/pipeline-progress.js';
+import { describePipeline, processingComplete, ProgressEstimator, type PipelineProgress } from '../src/youtube/pipeline-progress.js';
 import { personalTaxonomyReadiness } from '../src/youtube/personal-taxonomy.js';
 
 const input: Parameters<typeof describePipeline>[0] = {
@@ -55,7 +55,7 @@ test('processing endpoint is session-only, read-only, and works before import an
     assert.match(response.headers.get('cache-control')!, /private, no-store/);
     const data = await response.json() as { pipeline: PipelineProgress[] };
     assert.equal(data.pipeline.length, 6);
-    assert.equal(data.pipeline.find((row: PipelineProgress) => row.id === 'topics')?.state, 'waiting');
+    assert.equal(data.pipeline.find((row: PipelineProgress) => row.id === 'topics')?.state, 'done');
     assert.doesNotMatch(JSON.stringify(data), /pipeline-bob|Alice|Bob|apiKey|keySeed|googleEmail/);
     assert.deepEqual(repository.youtubeTaxonomyRuns(), [], 'monitoring must not start a classification');
     const page = await (await app.request('/pipeline-alice', {
@@ -63,4 +63,15 @@ test('processing endpoint is session-only, read-only, and works before import an
     })).text();
     assert.match(page, /data-processing-monitor/, 'new accounts see progress before any data arrives');
   } finally { registry.close(); }
+});
+
+
+test('current completion is independent of older history but failed enabled work remains visible', () => {
+  const complete = describePipeline({ ...input, selectedRange:'28d', topics:{...input.topics,processed:24,total:24} });
+  assert.equal(processingComplete(complete), true);
+  assert.equal(processingComplete(describePipeline(input)), false);
+  assert.equal(processingComplete(describePipeline({ ...input, selectedRange:'28d',
+    topics:{...input.topics,processed:24,total:24}, v3Enabled:true,
+    job:{state:'failed',attempts:5,error:'processing_failed',retry_at:0,progress:null},
+  })), false);
 });
