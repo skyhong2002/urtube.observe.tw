@@ -352,6 +352,18 @@ export class UserRegistry {
         ON match_requests(sender_user_id, recipient_user_id) WHERE status='pending';
       CREATE INDEX IF NOT EXISTS match_requests_participants
         ON match_requests(recipient_user_id, sender_user_id, status, updated_at DESC);
+      -- Public labels and vectors only. Owner relations stay in their archive.
+      CREATE TABLE IF NOT EXISTS embedding_cache (
+        contract TEXT NOT NULL,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('processing','ready','error')),
+        vector_json TEXT CHECK(vector_json IS NULL OR json_valid(vector_json)),
+        lease_token TEXT,
+        retry_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(contract, label),
+        CHECK((status='ready') = (vector_json IS NOT NULL))
+      );
     `);
     const profileColumns = this.db.prepare("SELECT name FROM pragma_table_info('matching_profiles')")
       .all() as Array<{ name: string }>;
@@ -376,6 +388,37 @@ export class UserRegistry {
         SELECT 1 FROM matching_profiles p WHERE p.user_id=users.id
       )
     `);
+  }
+
+  embeddingCacheStates(contract: string, labels: string[]): Map<string, { status: 'processing' | 'ready' | 'error'; retryAt: string }> {
+    const rows = this.db.prepare(`SELECT label, status, retry_at retryAt FROM embedding_cache
+      WHERE contract=? AND label IN (SELECT value FROM json_each(?))`)
+      .all(contract, JSON.stringify(labels)) as Array<{ label: string; status: 'processing' | 'ready' | 'error'; retryAt: string }>;
+    return new Map(rows.map(row => [row.label, { status: row.status, retryAt: row.retryAt }]));
+  }
+
+  embeddingVector(contract: string, label: string): number[] | null {
+    const row = this.db.prepare(`SELECT vector_json FROM embedding_cache
+      WHERE contract=? AND label=? AND status='ready'`).get(contract, label) as { vector_json: string } | undefined;
+    return row ? JSON.parse(row.vector_json) : null;
+  }
+
+  claimEmbedding(contract: string, label: string, token: string, leaseUntil: string, at: string): boolean {
+    return this.db.prepare(`INSERT INTO embedding_cache
+      (contract, label, status, vector_json, lease_token, retry_at, updated_at)
+      VALUES (?, ?, 'processing', NULL, ?, ?, ?)
+      ON CONFLICT(contract, label) DO UPDATE SET status='processing', vector_json=NULL,
+        lease_token=excluded.lease_token, retry_at=excluded.retry_at, updated_at=excluded.updated_at
+      WHERE embedding_cache.status<>'ready' AND embedding_cache.retry_at<=excluded.updated_at
+    `).run(contract, label, token, leaseUntil, at).changes > 0;
+  }
+
+  finishEmbedding(contract: string, label: string, token: string, vector: number[] | null, at: string, retryAt: string): boolean {
+    return this.db.prepare(`UPDATE embedding_cache SET status=?, vector_json=?,
+      lease_token=NULL, updated_at=?, retry_at=?
+      WHERE contract=? AND label=? AND lease_token=? AND status='processing'
+    `).run(vector ? 'ready' : 'error', vector ? JSON.stringify(vector) : null,
+      at, retryAt, contract, label, token).changes > 0;
   }
 
   private expireLoginState(): void {

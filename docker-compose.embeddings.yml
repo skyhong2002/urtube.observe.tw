@@ -1,0 +1,25 @@
+# Optional GPU service. See docs/semantic-matching.md before enabling.
+services:
+  embeddings:
+    image: vllm/vllm-openai:v0.28.0
+    gpus: all
+    restart: unless-stopped
+    environment:
+      VLLM_API_KEY: ${EMBEDDING_API_KEY:?Set a dedicated embedding API key}
+    command:
+      - --model
+      - BAAI/bge-m3
+      - --revision
+      - ${EMBEDDING_MODEL_REVISION:?Set the immutable BGE-M3 weights revision}
+      - --runner
+      - pooling
+      - --hf-overrides
+      - '{"architectures":["BgeM3EmbeddingModel"]}'
+      - --pooler-config
+      - '{"task":"embed"}'
+      - --max-model-len
+      - '512'
+    volumes:
+      - embeddings-model-cache:/root/.cache/huggingface
+volumes:
+  embeddings-model-cache:

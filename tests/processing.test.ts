@@ -142,6 +142,7 @@ test('processing notice counts fall across catch-up cycles and disappear when se
       },
       matchingClassification: async (archive) => classifyYoutubeVideosForMatching(archive, 2),
       semanticTags: async () => 0,
+      embeddings: async () => 0,
       classification: async (archive) => {
         const videos = archive.youtubeVideosForPersonalClassification(run, 2);
         for (const video of videos) {
@@ -261,6 +262,7 @@ test('worker stamps each archive and reports pending work only for configured st
       channelMetadata: async () => 0,
       matchingClassification: async () => 0,
       semanticTags: async () => 0,
+      embeddings: async () => 0,
       classification: async () => { throw new Error('boom'); },
     };
     await runYoutubeWorkerCycle(registry, steps, () => new Date('2026-09-04T10:00:00Z'));

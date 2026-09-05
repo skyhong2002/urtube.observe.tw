@@ -202,6 +202,7 @@ test('worker publishes the queued matching crystal after successful processing',
       channelMetadata: async () => 0,
       matchingClassification: async () => 0,
       semanticTags: async () => 0,
+      embeddings: async () => 0,
       classification: async () => 0,
     };
     await runYoutubeWorkerCycle(

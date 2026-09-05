@@ -28,6 +28,7 @@ test('YouTube worker enriches every user while keeping portability owner-only', 
       channelMetadata: step('channels'),
       matchingClassification: step('matching'),
       semanticTags: step('semantic'),
+      embeddings: async () => 0,
       classification: step('classification'),
     };
 
@@ -71,6 +72,7 @@ test('YouTube worker starts independent user archives concurrently', async () =>
       channelMetadata: async () => 0,
       matchingClassification: async () => 0,
       semanticTags: async () => 0,
+      embeddings: async () => 0,
       classification: async () => 0,
     };
 
@@ -103,6 +105,7 @@ test('one user failure is recorded without preventing later users from running',
       channelMetadata: async () => 0,
       matchingClassification: async () => 0,
       semanticTags: async () => 0,
+      embeddings: async () => 0,
       classification: async (_repository, user) => {
         classified.push(user.handle);
         return user.handle === bob.handle ? 1 : 0;
@@ -152,6 +155,7 @@ test('a failed semantic batch is isolated from other accounts and private taxono
         if (user.id === alice.id) throw new Error('semantic fixture failure');
         return 1;
       },
+      embeddings: async () => 0,
       classification: async (_archive, user) => { privateCalls.push(user.handle); return 0; },
     });
     assert.match(results.find(result => result.user === alice.handle)?.error ?? '', /semantic fixture failure/);

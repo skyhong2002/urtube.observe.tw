@@ -2466,6 +2466,16 @@ export class Repository {
       input.videoId, input.metadataHash).changes > 0;
   }
 
+  youtubeSemanticLabels(contract: string): string[] {
+    return (this.db.prepare(`
+      SELECT DISTINCT json_extract(tag.value, '$.label') label
+      FROM youtube_semantic_tags s JOIN youtube_videos v ON v.video_id=s.video_id,
+        json_each(s.tags_json) tag
+      WHERE s.contract=? AND s.metadata_hash=v.metadata_hash AND s.status='ready'
+      ORDER BY label
+    `).all(contract) as Array<{ label: string }>).map(row => row.label);
+  }
+
   youtubeSemanticTagResult(videoId: string, contract: string): SemanticTagResult | null {
     const row = this.db.prepare(`
       SELECT s.* FROM youtube_semantic_tags s JOIN youtube_videos v ON v.video_id=s.video_id
