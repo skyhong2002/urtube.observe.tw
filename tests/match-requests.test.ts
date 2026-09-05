@@ -72,12 +72,48 @@ test('mutual consent is required before self-authored profile details are return
     });
 
     const candidates = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    const bobCard = candidates.match(/<h2>Bob<\/h2>[\s\S]*?name="actionToken" value="([A-Za-z0-9_-]+)"/);
+    const bobCard = candidates.match(/<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/matches\/profile\/([A-Za-z0-9_-]+)"/);
     assert.ok(bobCard);
     assert.doesNotMatch(candidates, /@bob-private|bob-match|candidateUserId/);
+    assert.match(candidates, />100%<small>match<\/small>/);
+    assert.doesNotMatch(candidates, /Strong fit|Aligned|Some overlap|Different/);
     for (const script of candidates.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
       assert.doesNotThrow(() => Function(script[1]));
     }
+
+    const profile = await app.request(`/matches/profile/${bobCard[1]}`, {
+      headers: { cookie: aliceCookie },
+    });
+    assert.equal(profile.status, 200);
+    assert.equal(profile.headers.get('cache-control'), 'no-store');
+    const profileHtml = await profile.text();
+    assert.match(profileHtml, /Bounded candidate profile/);
+    assert.match(profileHtml, /100%/);
+    assert.match(profileHtml, /action="\/matches\/request"/);
+    assert.match(profileHtml, new RegExp(`href="/matches/compare/${bobCard[1]}"`));
+    assert.doesNotMatch(profileHtml, /@bob-private|bob-match|alice-match|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
+
+    const comparison = await app.request(`/matches/compare/${bobCard[1]}`, {
+      headers: { cookie: aliceCookie },
+    });
+    assert.equal(comparison.status, 200);
+    const comparisonHtml = await comparison.text();
+    assert.match(comparisonHtml, /Alice/);
+    assert.match(comparisonHtml, /Bob/);
+    assert.match(comparisonHtml, /100%/);
+    assert.match(comparisonHtml, /Topic intersection/);
+    assert.match(comparisonHtml, /Channel intersection/);
+    assert.doesNotMatch(comparisonHtml, /@bob-private|bob-match|alice-match|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
+    assert.equal((await app.request(`/avatar/match/${bobCard[1]}/viewer`, {
+      headers: { cookie: aliceCookie },
+    })).status, 200);
+    assert.equal((await app.request(`/matches/profile/${bobCard[1]}`, {
+      headers: { cookie: carolCookie },
+    })).status, 404);
+    assert.equal((await app.request('/dashboard', { headers: { cookie: aliceCookie } })).headers.get('location'),
+      '/alice-match');
+    assert.equal((await app.request('/dashboard')).headers.get('location'),
+      '/auth/google?next=%2Fdashboard');
 
     const unscoped = await app.request('/matches/request', {
       ...form({ actionToken: bobCard[1] }),
@@ -101,6 +137,9 @@ test('mutual consent is required before self-authored profile details are return
     });
     assert.equal(duplicate.status, 302);
     assert.equal(registry.matchingInboxFor(alice).sent.length, 1);
+    assert.equal((await app.request(`/matches/profile/${bobCard[1]}`, {
+      headers: { cookie: aliceCookie },
+    })).status, 404, 'sending a request revokes the browse token');
 
     const request = registry.matchingInboxFor(bob).incoming[0];
     assert.ok(request);
@@ -176,6 +215,8 @@ test('decline, withdrawal, opt-out, and deletion revoke request access', () => {
     const outgoing = registry.matchingInboxFor(alice).sent[0];
     registry.withdrawMatchRequest(alice, outgoing.requestToken);
     assert.equal(registry.matchingInboxFor(carol).incoming.length, 0);
+    assert.equal(registry.matchingCandidateForAction(alice, aliceToCarol), null);
+    assert.throws(() => registry.createMatchRequest(alice, aliceToCarol), /no longer valid/);
 
     const aliceToDave = registry.issueMatchActionToken(alice, dave.id, ['Music']);
     registry.createMatchRequest(alice, aliceToDave);
@@ -199,6 +240,35 @@ test('decline, withdrawal, opt-out, and deletion revoke request access', () => {
     assert.equal(registry.matchingInboxFor(alice).connections.length, 0);
   } finally {
     registry.close();
+  }
+});
+
+test('expired discovery tokens revoke profiles, comparisons, avatars, and requests', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-match-expiry-'));
+  const path = join(root, 'users.sqlite');
+  const registry = new UserRegistry(path, join(root, 'users'));
+  const app = createApp(registry);
+  try {
+    const alice = registry.createUser('expiry-alice', 'Alice');
+    const bob = registry.createUser('expiry-bob', 'Bob');
+    publish(registry, alice);
+    publish(registry, bob);
+    const cookie = `urtube_session=${registry.createSession(alice)}`;
+    const token = registry.issueMatchActionToken(alice, bob.id, ['Music']);
+    assert.equal((await app.request(`/matches/profile/${token}`, { headers: { cookie } })).status, 200);
+    assert.equal((await app.request(`/matches/compare/${token}`, { headers: { cookie } })).status, 200);
+
+    const direct = new DatabaseSync(path);
+    direct.prepare("UPDATE match_action_tokens SET expires_at='2000-01-01T00:00:00.000Z'").run();
+    direct.close();
+
+    assert.equal((await app.request(`/matches/profile/${token}`, { headers: { cookie } })).status, 404);
+    assert.equal((await app.request(`/matches/compare/${token}`, { headers: { cookie } })).status, 404);
+    assert.equal((await app.request(`/avatar/match/${token}`, { headers: { cookie } })).status, 404);
+    assert.throws(() => registry.createMatchRequest(alice, token), /no longer valid/);
+  } finally {
+    registry.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

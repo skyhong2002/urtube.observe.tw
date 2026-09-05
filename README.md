@@ -75,8 +75,13 @@ Both channel and canonical-topic comparisons use that 90-day window, so old
 history cannot dominate a current match. Pool eligibility is controlled by
 the constants in `src/youtube/matching.ts` (initially 200 recent watch events
 across 14 active days); incomplete topic coverage falls back to channels.
-User-facing comparisons show qualitative bands and a sync/processing next
-step instead of exposing exact scores or the activity cutoff.
+User-facing matching results are whole percentages from 0–100. Formula version
+`cosine-equal-v1` computes cosine similarity over the mutually allowed
+canonical-topic vector and the aggregate channel vector, then gives each
+available dimension equal weight. If only one dimension is available it is
+used alone. Values are clamped and rounded to the nearest integer; raw shares,
+vectors, event counts, and the activity cutoff never enter the presentation
+model. A processing notice identifies provisional ordering.
 Matching is off by default and independent of `dashboard_public`. After data
 setup, guided onboarding and the account page suggest up to five leading
 canonical interests from the eligible 90-day projection. A signed-in user can
@@ -90,19 +95,24 @@ channel only when both people allow it. Turning matching off removes the user
 from new candidate queries immediately; it does not change or publish the
 personal dashboard.
 `/matches` is session-only and requires that opt-in. It ranks at most 250
-eligible profiles using equal internal topic/channel weight and renders five
-cards per finite batch. Cards contain only a display name, qualitative band,
-up to two allowed canonical topics, an optional mutually allowed channel, and
-a generic icebreaker; the service-to-template model omits exact scores and
-never exposes handles, crystals, histories, shares, or candidate dashboards.
+eligible profiles using equal topic/channel weight and renders five cards per
+finite batch. Cards contain only a display name, rounded match percentage, up
+to two allowed canonical topics, an optional mutually allowed channel, and a
+generic icebreaker. Each card opens a bounded candidate profile and a
+split-screen VS comparison without first sending a request. Those pages use
+the same short-lived, session-bound opaque token and add at most five broad
+interest names plus rounded topic/channel percentages; they never expose
+handles, emails, crystals, histories, raw shares, full vectors, introductions,
+contacts, or candidate dashboards.
 When at least three of the ten nearest eligible people contribute the same
 unseen item, `/matches` may also show up to five broad topics and five channels
 as a group signal. It never names contributors or exposes their values, videos,
 or source details. Channels from people who allow topic-only disclosure are not
 used. Governed news, editorial, and political channels are excluded. If those
 labels cannot be verified, channel recommendations stay hidden.
-“Want to meet” uses a short-lived opaque action token, so candidate handles and
-internal ids never enter the page. A request reveals nothing new. The recipient
+“Want to meet” is a separate action on the profile/VS pages and uses their
+short-lived opaque token, so candidate handles and internal ids never enter
+the page. A request reveals nothing new. The recipient
 can accept, skip locally, or decline, and the sender can withdraw while it is
 pending. A decline hides that pair; either person can disconnect after acceptance.
 Only acceptance creates a connection. Every connection read checks the
