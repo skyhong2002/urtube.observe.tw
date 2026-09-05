@@ -25,6 +25,8 @@ export function settings(env = process.env) {
   return {
     enabled: env.MATCHING_V3_ENABLED === 'true',
     adminHandles: (env.MATCHING_V3_ADMIN_HANDLES ?? '').split(',').map(v => v.trim()).filter(Boolean),
+    adminUsername: env.MATCHING_V3_ADMIN_USERNAME || '',
+    adminPassword: env.MATCHING_V3_ADMIN_PASSWORD || '',
     baseUrl, apiKey, embeddingBaseUrl, embeddingApiKey, embeddingApiKeys,
     classificationCacheNamespace: env.MATCHING_V3_CLASSIFICATION_CACHE_NAMESPACE || baseUrl,
     classificationModel: env.MATCHING_V3_CLASSIFICATION_MODEL || 'gpt-5.6-luna',
