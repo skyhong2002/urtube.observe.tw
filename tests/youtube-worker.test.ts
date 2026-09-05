@@ -11,7 +11,7 @@ import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
 test('YouTube worker enriches every user while keeping portability owner-only', async () => {
   const registry = new UserRegistry(':memory:');
   try {
-    const owner = registry.ensureDefaultUser();
+    const owner = registry.renameUser(registry.ensureDefaultUser().handle, 'renamed-owner');
     const alice = registry.createUser('alice', 'Alice');
     const bob = registry.createUser('bob', 'Bob');
     const calls: string[] = [];

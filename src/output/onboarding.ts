@@ -9,7 +9,7 @@ import { html, primaryNav, shell } from './pages.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 
-const formStyles = `
+export const formStyles = `
   .ob-intro{margin:14px 0 26px}
   .ob-profile{align-items:center;display:flex;gap:16px}.ob-profile .ob-avatar{border-radius:50%;flex:0 0 64px;height:64px;object-fit:cover;width:64px}.ob-profile h1{margin-top:3px}
   .ob-intro h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.08;margin:7px 0 10px}
@@ -180,11 +180,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <div id="processing">${state.takeoutResult ? '' : processing}</div>
       ${group('settings-profile', t.settingsProfile, `
       <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p>
-      <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
-        <label for="displayName">${t.signupName}</label>
-        <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">
-        <button type="submit">${t.accountNameSave}</button>
-      </form>
+      <p><a class="ob-google" href="/account/profile">${lang === 'zh' ? '編輯個人檔案' : 'Edit profile'}</a></p>
       `)}
       ${group('settings-privacy', t.settingsPrivacy, `
       ${matchingSettings}

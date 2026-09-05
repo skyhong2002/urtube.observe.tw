@@ -122,15 +122,18 @@ export function createFullBackup(options: FullBackupOptions): BackupManifest {
     add(options.registryPath, 'users.sqlite');
     const registryBackup = new DatabaseSync(join(partialDir, 'databases', 'users.sqlite'), { readOnly: true });
     let users: string[];
+    let storageNames: string[];
     try {
-      users = (registryBackup.prepare('SELECT handle FROM users ORDER BY id').all() as Array<{ handle: string }>)
-        .map(({ handle }) => handle);
+      const hasStorageName = registryBackup.prepare("SELECT name FROM pragma_table_info('users') WHERE name='storage_name'").get();
+      const rows = registryBackup.prepare(`SELECT handle, ${hasStorageName ? 'COALESCE(storage_name, handle)' : 'handle'} AS storage_name FROM users ORDER BY id`).all() as Array<{ handle: string; storage_name: string }>;
+      users = rows.map(row => row.handle);
+      storageNames = rows.map(row => row.storage_name);
     } finally {
       registryBackup.close();
     }
 
     add(options.databasePath, 'urtube.sqlite');
-    for (const handle of users) {
+    for (const handle of storageNames) {
       if (handle === options.ownerHandle) continue;
       const source = join(options.dataDir, `${handle}.sqlite`);
       // A just-created account may not have opened its data database yet.

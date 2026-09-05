@@ -100,10 +100,18 @@ const styles = `
   details.viz-table table{border-collapse:collapse;margin-top:8px}
   details.viz-table td,details.viz-table th{border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;padding:4px 14px 4px 0;text-align:left}
 
-  .yt-profile{align-items:center;display:flex;gap:18px;margin:14px 0 22px}
+  .yt-profile{align-items:flex-start;display:flex;gap:18px;margin:14px 0 22px}
   .yt-avatar{background:linear-gradient(140deg,#e66767,#a92f2f);border-radius:50%;display:block;flex:0 0 70px;height:70px;object-fit:cover;width:70px}
+  .yt-profile-copy{min-width:0}.profile-details li{overflow-wrap:anywhere;max-width:100%}
+  .profile-social-buttons{display:flex;flex-wrap:wrap;gap:10px;list-style:none;padding:0;margin:16px 0}
+  .profile-icon-button,.profile-edit-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;border:1px solid var(--line-strong);background:var(--raised);color:var(--ink);text-decoration:none;transition:background .15s,border-color .15s}
+  .profile-icon-button{width:44px;height:44px;border-radius:50%}.profile-edit-button{border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700}
+  .profile-icon-button:hover,.profile-edit-button:hover{border-color:var(--accent-text);background:var(--surface)}
+  .site-nav a[href="/account/profile"]{border:1px solid var(--line-strong);background:var(--raised);color:var(--ink)}
+  .site-nav a[href="/account/profile"][aria-current=page]{background:var(--ink);color:#111}
+
   .yt-profile-copy h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.05;margin:2px 0 4px}
-  .yt-profile-meta{color:var(--muted);font-size:12px}.yt-profile-meta a{color:var(--ink-2)}
+  .yt-profile-meta{color:var(--muted);font-size:12px}.yt-profile-meta a{color:var(--ink-2);display:inline-flex;align-items:center;min-height:44px;padding:9px 16px;margin-top:8px;border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);text-decoration:none;font-weight:600}
   h1 .h1-scope{color:var(--muted);font-size:.42em;font-style:normal;font-weight:600;letter-spacing:0;margin-left:8px;vertical-align:.22em;white-space:nowrap}
   .yt-range{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding:2px 0}
   .yt-range a{background:var(--surface);border:1px solid var(--line);border-radius:999px;color:var(--ink-2);font-size:12px;font-weight:600;padding:7px 14px;text-decoration:none;white-space:nowrap}
