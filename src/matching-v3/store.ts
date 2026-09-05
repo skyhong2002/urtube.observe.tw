@@ -171,6 +171,16 @@ export class MatchingStore {
       FROM matching_v3_jobs WHERE state IN ('queued','running')`).get();
     return row?.ready_at == null ? idlePollMs : Math.min(idlePollMs, Math.max(0, Number(row.ready_at) - now));
   }
+  resumeRecoverableFailures(now = Date.now()): number {
+    // Resume old jobs that exhausted the former five-attempt limit. Keep
+    // provider authentication/configuration errors and deleted users stopped.
+    return Number(this.db.prepare(`UPDATE matching_v3_jobs SET state='queued', token=NULL, lease_until=0
+      WHERE state='failed' AND retry_at<=? AND error IN (
+        'processing_failed','partial_classification_retry','invalid_provider_json',
+        'invalid_provider_schema','invalid_provider_tag_index','provider_replaced_tags','provider_timeout'
+      ) AND EXISTS (SELECT 1 FROM users WHERE users.id=matching_v3_jobs.user_id)`)
+      .run(now).changes);
+  }
   retry(userId: number): void {
     this.db.prepare("UPDATE matching_v3_jobs SET state='queued', attempts=0, retry_at=0, error=NULL WHERE user_id=? AND state IN ('failed','done','queued')").run(userId);
   }

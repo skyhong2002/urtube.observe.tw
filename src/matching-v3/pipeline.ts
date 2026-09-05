@@ -179,6 +179,7 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
   if (!s.enabled) return;
   const store = registry.matchingV3Store();
   const users = registry.listUsers();
+  store.resumeRecoverableFailures();
   const allGenres = { genres: [...GENRES], topics: [] };
   for (const user of users) {
     const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
@@ -235,7 +236,7 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
       if (error instanceof CycleBudgetReached) { store.defer(job, null); break; }
       const transient = error instanceof ProviderError && error.retryable
         || error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
-      const permanent = !transient && (error instanceof ProviderError || job.attempts >= 4);
+      const permanent = !transient && error instanceof ProviderError;
       // Provider bodies may contain inputs or credentials: persist only safe codes.
       store.defer(job, error instanceof ProviderError ? `provider_http_${error.status}`
         : error instanceof PartialClassificationError ? 'partial_classification_retry'

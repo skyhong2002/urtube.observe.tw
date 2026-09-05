@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { Repository } from '../src/data/database.js';
 import { UserRegistry, type User } from '../src/users.js';
 import {
-  runYoutubeWorkerCycle, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
+  runYoutubeWorkerCycle, youtubeRetryDelay, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
   type YoutubeWorkerSteps,
 } from '../src/youtube-worker.js';
 import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
@@ -133,4 +133,38 @@ test('canonical matching catch-up remains actionable when private AI topics are 
   } finally {
     registry.close();
   }
+});
+
+
+test('failed accounts retry after their own backoff while another account is still running', async () => {
+  const registry = new UserRegistry(':memory:');
+  let release!: () => void;
+  const slow = new Promise<void>(resolve => { release = resolve; });
+  try {
+    const a = registry.createUser('retry-a','Retry A');
+    const b = registry.createUser('retry-b','Retry B');
+    const activeUsers = new Set<number>();
+    let attempts = 0;
+    const steps: YoutubeWorkerSteps = {
+      portability: async () => 'idle', metadata: async () => 0, channelMetadata: async () => 0,
+      matchingClassification: async () => 0,
+      classification: async (_repo, user) => {
+        if (user.id === b.id) { await slow; return 0; }
+        if (++attempts === 1) throw new Error('Invalid model output');
+        return 1;
+      },
+    };
+    const first = runYoutubeWorkerCycle(registry, steps, () => new Date(100000), {activeUsers});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(activeUsers.has(b.id), true);
+    assert.equal(registry.repositoryFor(a).youtubeSyncState('worker_retry_at'), '130000');
+    await runYoutubeWorkerCycle(registry, steps, () => new Date(129999), {userIds:[a.id],activeUsers});
+    assert.equal(attempts, 1);
+    const result = await runYoutubeWorkerCycle(registry, steps, () => new Date(130000), {userIds:[a.id,b.id],activeUsers});
+    assert.equal(result.find(r => r.user === a.handle)?.classified, 1);
+    assert.equal(activeUsers.has(b.id), true, 'no duplicate run or wait for the slow account');
+    assert.equal(registry.repositoryFor(a).youtubeSyncState('worker_retry_at'), '0');
+    assert.equal(youtubeRetryDelay(30), 3600000);
+    release(); await first;
+  } finally { release(); registry.close(); }
 });

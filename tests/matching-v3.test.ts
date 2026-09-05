@@ -769,3 +769,23 @@ test('admin password gate protects page, script and API without bypassing sessio
     assert.equal((await app.request('/matching-v3/admin',{headers:{...headers,Authorization}})).status,503);
   } finally {registry.close();}
 });
+
+
+test('old recoverable failures resume automatically but provider authorization errors stay stopped', () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('retryable-v3', 'Retryable');
+    const blocked = registry.createUser('blocked-v3', 'Blocked');
+    const store = registry.matchingV3Store();
+    store.schedule(user.id, 'source', 'version');
+    store.defer(store.claim()!, 'processing_failed', true, 200000);
+    store.schedule(blocked.id, 'source', 'version');
+    store.defer(store.claim()!, 'provider_http_401', true, 0);
+    assert.equal(store.resumeRecoverableFailures(199999), 0);
+    assert.equal(store.resumeRecoverableFailures(200000), 1);
+    assert.equal(store.status(user.id)?.state, 'queued');
+    assert.equal(store.status(blocked.id)?.state, 'failed');
+    assert.equal(store.resumeRecoverableFailures(300000), 0);
+    assert.equal(store.claim(200000)?.userId, user.id);
+  } finally { registry.close(); }
+});

@@ -68,12 +68,15 @@ export async function runYoutubeWorkerCycle(
   registry: UserRegistry,
   steps: YoutubeWorkerSteps = defaultSteps,
   now = () => new Date(),
+  options: { userIds?: number[]; activeUsers?: Set<number> } = {},
 ): Promise<YoutubeWorkerUserResult[]> {
   // Repositories are independent SQLite files. Start every archive together;
   // the external-service limiters provide bounded, FIFO backpressure. Promise
   // ordering keeps logs and tests stable even though the work overlaps.
-  return Promise.all(registry.listUsers().map(async (user): Promise<YoutubeWorkerUserResult> => {
+  return Promise.all(registry.listUsers().filter(user => !options.userIds || options.userIds.includes(user.id)).map(async (user): Promise<YoutubeWorkerUserResult> => {
     const repository = registry.repositoryFor(user);
+    if (options.activeUsers?.has(user.id) || !youtubeRetryDue(repository, now().getTime())) return { user: user.handle };
+    options.activeUsers?.add(user.id);
     // Stamped before the steps run so the processing notice can say when
     // this archive was last looked at, even when a step fails midway.
     repository.setYoutubeSyncState('worker_cycle_at', now().toISOString());
@@ -94,6 +97,8 @@ export async function runYoutubeWorkerCycle(
       registry.upsertMatchingCrystal(user, crystal);
       repository.setYoutubeSyncState('worker_stage', 'topics');
       const classified = await steps.classification(repository, user);
+      repository.setYoutubeSyncState('worker_retry_at', '0');
+      repository.setYoutubeSyncState('worker_retry_attempts', '0');
       repository.setYoutubeSyncState('last_error', '');
       repository.setYoutubeSyncState('worker_stage', 'idle');
       return {
@@ -105,12 +110,23 @@ export async function runYoutubeWorkerCycle(
         classified,
       };
     } catch (error) {
+      const attempts = Number(repository.youtubeSyncState('worker_retry_attempts') ?? 0) + 1;
+      repository.setYoutubeSyncState('worker_retry_attempts', String(attempts));
+      repository.setYoutubeSyncState('worker_retry_at', String(now().getTime() + youtubeRetryDelay(attempts)));
       repository.setYoutubeSyncState('worker_stage', 'failed');
       const message = errorMessage(error);
       repository.setYoutubeSyncState('last_error', message.slice(0, 2000));
       return { user: user.handle, error: message };
-    }
+    } finally { options.activeUsers?.delete(user.id); }
   }));
+}
+
+// Persisted per-account backoff survives CD restarts and does not hold a lane.
+export function youtubeRetryDelay(attempts: number): number {
+  return Math.min(3600_000, 30_000 * 2 ** Math.min(7, Math.max(0, attempts - 1)));
+}
+export function youtubeRetryDue(repository: Repository, now = Date.now()): boolean {
+  return Number(repository.youtubeSyncState('worker_retry_at') ?? 0) <= now;
 }
 
 export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
@@ -170,6 +186,7 @@ if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
   let running = false;
+  const activeUsers = new Set<number>();
 
   const recordStatus = (value: Partial<WorkerOpsStatus>) => {
     try {
@@ -196,7 +213,7 @@ if (process.env.NODE_ENV !== 'test') {
       recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
     }, WORKER_HEARTBEAT_INTERVAL_MS);
     try {
-      const users = await runYoutubeWorkerCycle(registry);
+      const users = await runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { activeUsers });
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
       const failedUsers = users.filter((result) => result.error).length;
       for (const result of users) {
@@ -246,11 +263,33 @@ if (process.env.NODE_ENV !== 'test') {
     await run();
   };
 
+  // Check failed accounts independently of a slow account's full-cycle work.
+  // The shared in-flight set prevents overlapping writes for the same account.
+  const retryInterval = setInterval(() => {
+    if (stopping) return;
+    if (activeUsers.size) recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
+    const userIds = registry.listUsers().filter(user => {
+      const repository = registry.repositoryFor(user);
+      return !activeUsers.has(user.id) && repository.youtubeSyncState('worker_stage') === 'failed'
+        && youtubeRetryDue(repository);
+    }).map(user => user.id);
+    if (userIds.length) {
+      recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
+      void runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { userIds, activeUsers })
+      .then(results => {
+        if (!running && !activeUsers.size) recordStatus({ running: false, lastCompletedAt: new Date().toISOString(),
+          failedUsers: results.filter(result => result.error).length });
+      })
+      .catch(() => console.error('Account retry sweep failed; will check again.'));
+    }
+  }, 30_000);
+
   void run();
   const interval = setInterval(() => { void tick(); }, CATCHUP_MS);
   process.once('SIGTERM', () => {
     stopping = true;
     clearInterval(interval);
+    clearInterval(retryInterval);
     recordStatus({
       heartbeatAt: new Date().toISOString(),
       running: false,
