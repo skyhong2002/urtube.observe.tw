@@ -7,7 +7,7 @@ branch is an output of main, not a development branch. Do not edit it manually.
 An obsolete CI run cannot publish after main has advanced.
 
 Komodo's native `Deploy urtube main` Procedure runs `DeployStackIfChanged` every
-five minutes. An unchanged release does nothing. Deployments use `--no-build
+minute. An unchanged release does nothing. Deployments use `--no-build
 --wait --wait-timeout 180`; the host does not compile application code.
 
 ## Operator access
