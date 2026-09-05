@@ -77,7 +77,7 @@ function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: stri
     connected: t.matchesConnectedStatus,
   }[card.relationship.status];
   return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="${comparisonHref}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
@@ -305,7 +305,7 @@ export function matchingCandidatePage(
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
-  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${candidateInterests}</section></div>`;
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
   const gate = connected
     ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p></section>`
     : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p></section>`;
@@ -332,6 +332,7 @@ export function matchingCandidatePage(
 }
 
 const comparisonStyles = `
+  .mt-profile-link{color:inherit;text-decoration:none}.mt-profile-link:hover h2{color:var(--accent-text)}
   .mt-profile{max-width:960px}.mt-profile .mt-profile-back{display:block;margin-inline:auto;text-align:center;width:fit-content}.mt-profile .mt-panel-head{justify-content:center;text-align:center}.mt-profile .mt-panel>h2,.mt-profile .mt-panel>p,.mt-profile .mt-privacy,.mt-profile .mt-more summary,.mt-profile .mt-edge{text-align:center}.mt-profile .mt-row-main{justify-content:center;text-align:center}.mt-profile .mt-metrics{margin-inline:auto;max-width:560px}.mt-range{flex-wrap:wrap;justify-content:center;margin:18px 0 6px}
   .mt-metric-bar{align-items:center;display:flex;flex-direction:column;gap:8px;margin:6px 0 16px;text-align:center}.mt-metric-bar .mt-gate{max-width:560px}[data-metric-panel][hidden]{display:none}
   .mt-consent-note{color:var(--muted);font-size:11px;margin:9px auto 14px;max-width:620px;text-align:center}

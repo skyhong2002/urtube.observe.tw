@@ -16,6 +16,7 @@ import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import { matchesPage, matchingCandidatePage } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
+import { memberProfilePage } from './output/member-profile.js';
 import {
   YOUTUBE_CHANNEL_ID_PATTERN,
   channelPage,
@@ -1495,7 +1496,29 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/:handle', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
     if (!user) return notFoundPage(c);
-    if (!dashboardAccess(c, user)) return notFoundPage(c);
+    if (!dashboardAccess(c, user)) {
+      const me = sessionUser(c);
+      if (!me) return notFoundPage(c);
+      // Every signed-in member has a browsable identity page. Interests use
+      // the same reciprocal disclosure as Blend; private archives stay gated.
+      const candidate = registry.matchingCandidateByHandle(me, user.handle);
+      const crystal = registry.matchingCrystalFor(me.handle);
+      const card = candidate && crystal && registryCrystalEligible(crystal)
+        ? rankedMatchingCandidateCards({
+          userId: me.id, handle: me.handle, displayName: me.displayName,
+          disclosureLevel: 'topics_and_channel', crystal,
+          dimensions: registry.matchingDimensionsFor(me),
+        }, [candidate])[0] : null;
+      c.header('Cache-Control', 'private, no-store');
+      c.header('X-Robots-Tag', 'noindex');
+      const lang = langOf(c);
+      return c.html(memberProfilePage(me.handle, {
+        handle: user.handle, displayName: user.displayName,
+        avatarVisible: Boolean(registry.avatarUserForMember(me, user.handle)),
+        interests: card?.interests.slice(0, 3) ?? [],
+        comparisonHref: card ? `${comparisonPath(me, user.handle)}?lang=${lang}` : null,
+      }, lang));
+    }
     return dashboardResponse(c, user, `/${user.handle}`);
   });
 
