@@ -375,6 +375,9 @@ test('v3 admin monitoring requires allowlisted session and reveals no raw profil
       assert.equal((await app.request(path, { headers: viewerHeaders })).status, 403);
       assert.equal((await app.request(path, { headers })).status, 200);
     }
+    registry.renameUser(admin.handle, 'renamed-monitor-admin');
+    assert.equal((await app.request('/api/matching-v3/admin', { headers })).status, 200);
+    assert.throws(() => registry.renameUser(viewer.handle, admin.handle));
     const response = await app.request('/api/matching-v3/admin', { headers });
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const text = await response.text(); assert.ok(!/centroid|apiKey|preferences_json|value_json/.test(text));

@@ -48,6 +48,7 @@ test('full backup and restore cover registry, owner, and every materialized user
       alice,
       registryMatchingCrystal(buildYoutubeCrystal(aliceRepository, alice)),
     );
+    registry.renameUser('alice', 'alice-renamed');
     new Repository(ownerPath).close();
   } finally {
     registry.close();
@@ -62,7 +63,7 @@ test('full backup and restore cover registry, owner, and every materialized user
       ownerHandle: 'sky',
       privateDataKey: SECRET,
     });
-    assert.deepEqual(manifest.users, ['sky', 'alice']);
+    assert.deepEqual(manifest.users, ['sky', 'alice-renamed']);
     assert.deepEqual(manifest.files.map(({ target }) => target).sort(), [
       'urtube.sqlite', 'users.sqlite', 'users/alice.sqlite',
     ]);
