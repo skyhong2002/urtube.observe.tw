@@ -245,11 +245,11 @@ function statsSection(comparison: WatchComparison, t: Messages): string {
   return `<section class="mt-panel"><div class="mt-panel-head"><h2>${t.matchesWatchStats}</h2></div><div class="mt-stats">${rows}</div></section>`;
 }
 
-function clockSection(comparison: WatchComparison, names: ComparisonPair<string>, t: Messages): string {
+function clockSection(comparison: WatchComparison, names: ComparisonPair<string>, t: Messages, lang: Lang): string {
   const share = comparison.clock.mode === 'share';
   const figure = (side: 'a' | 'b', metric: ComparisonMetric) => {
     const data = comparison.clock[side];
-    if (!data.reliable) return `<div class="mt-clock-empty"><span>${html(names[side])}</span><p>${t.matchesClockUnreliable}</p></div>`;
+    if (!data.reliable) return `<div class="mt-clock-empty"><span>${html(names[side])}</span><p>${side === 'a' ? t.matchesClockUnreliable : t.matchesClockOtherUnreliable}</p>${side === 'a' ? `<div class="mt-actions"><a class="mt-secondary-link" href="/account?lang=${lang}#account-takeout">${t.matchesClockImport}</a></div>` : ''}</div>`;
     const values = metric === 'watches' ? data.watches : data.seconds;
     const tip = (_hour: number, value: number) => {
       if (share) return metric === 'watches' ? t.matchesClockShare(percent(value)) : t.matchesClockShareTime(percent(value));
@@ -337,7 +337,7 @@ export function matchingCandidatePage(
     listSection(t.matchesCommonChannels, comparison.channels.state === 'unlocked' ? t.matchesInCommon(comparison.channels.total, card.displayName) : '', comparison.channels, channelRow(names, t), t),
     listSection(t.matchesCommonShorts, comparison.shortsChannels.state === 'unlocked' ? t.matchesInCommon(comparison.shortsChannels.total, card.displayName) : '', comparison.shortsChannels, channelRow(names, t), t),
     listSection(t.matchesCommonVideos, comparison.videos.state === 'unlocked' ? t.matchesInCommon(comparison.videos.total, card.displayName) : '', comparison.videos, videoRow(names, t), t),
-    clockSection(comparison, names, t),
+    clockSection(comparison, names, t, lang),
     weekdaySection(comparison, t),
     comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
