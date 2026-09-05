@@ -68,8 +68,11 @@ import {
 } from './youtube/types.js';
 import { PERSONAL_TAXONOMY_DEFINITION_VERSION } from './youtube/personal-taxonomy.js';
 
+// A year is the default view everywhere; shorter ranges are one click away.
+export const DEFAULT_YOUTUBE_RANGE: YoutubeRange = '365d';
+
 function requestedRange(value: string | undefined): YoutubeRange {
-  return YOUTUBE_RANGES.includes(value as YoutubeRange) ? value as YoutubeRange : '28d';
+  return YOUTUBE_RANGES.includes(value as YoutubeRange) ? value as YoutubeRange : DEFAULT_YOUTUBE_RANGE;
 }
 
 function requestedSort(value: string | undefined): 'watches' | 'duration' {
@@ -1240,7 +1243,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/api/youtube/recent.json', (c) => {
     const user = registry.ensureDefaultUser();
     if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    const data = registry.repositoryFor(user).youtubeDashboard('28d');
+    const data = registry.repositoryFor(user).youtubeDashboard(DEFAULT_YOUTUBE_RANGE);
     return c.json({
       range: data.range,
       generatedAt: data.generatedAt,

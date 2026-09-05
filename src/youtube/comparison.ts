@@ -10,7 +10,7 @@ import type {
 
 export const COMPARISON_RANGES = ['28d', '90d', '365d', 'all'] as const satisfies readonly YoutubeRange[];
 export type ComparisonRange = typeof COMPARISON_RANGES[number];
-export const DEFAULT_COMPARISON_RANGE: ComparisonRange = '28d';
+export const DEFAULT_COMPARISON_RANGE: ComparisonRange = '365d';
 
 export function comparisonRange(value: string | undefined): ComparisonRange {
   return (COMPARISON_RANGES as readonly string[]).includes(value ?? '')
