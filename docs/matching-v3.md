@@ -244,3 +244,63 @@ Gemini 依使用者最新要求不設本機並行上限。
 每次 event-loop turn 派送最多 32 個新操作，再以 setImmediate 讓網路回應及心跳執行，
 沒有固定毫秒等待或 RPM 節流。监控紀錄清理每 256 個新操作執行一次，保留最近五分鐘的
 完成紀錄及所有執行中紀錄，減少 SQLite 同步工作阻塞請求回應。
+
+### 2026-09-06 備份檢查
+
+新增 Gemini key 後輪換池共六把（秘密值僅放 ignored env）。
+確認 dev matching worker、正式 app、backup 都掛載 `urtube_urtube-data`。
+完整備份：`/home/deck/Backups/urtube/nightly/manual-matching-2026-09-06-six-keys`。
+備份完成時間 2026-09-06 00:03:55（Asia/Taipei），16 位使用者、17 個 SQLite 檔，
+合計 1,636,806,656 bytes；registry 快照含 183,478 筆 matching cache。
+專案備份工具對每個輸出檔執行 integrity_check 並保存 SHA-256 manifest；
+這是同主機備份，尚未執行還原演練或建立異地副本。
+
+### Backfill 影片範圍上限
+
+`MATCHING_V3_BACKFILL_VIDEO_LIMIT=2000`（預設）：每位使用者依最後觀看時間，
+只取最新 2000 部不同影片，所有種類合計，非每類 2000 部。相同時間用影片 ID 穩定排序。
+分類、tag embedding、頻道分析與最終 profile 共用此來源；worker、bootstrap、手動 rebuild
+皆套用同一設定。上限必須為正整數。這限制來源影片數，並非 API RPM 或 tag 數上限。
+調整上限會使 profile 重新聚合，但不清除原始歷史或成功分類／embedding 快取；
+範圍外快取保留供之後使用。profile.totalVideos 表示這次受限範圍的影片數，
+complete 仍表示來源掃描完整性，不代表整段歷史全部納入 matching。
+
+### 暫定測試輪廓
+
+`publishCachedPreviews` 從每人最新 2000 部（依 backfill 設定）中已提交的分類、tag 向量
+建立暫定輪廓，不呼叫 GPT/Gemini，不補假向量；缺少向量的 tag 不參與叢集。
+所有類別標示 insufficient、整份 complete=false，配對既有 provisional 邏輯會標示暫定。
+只建立有實際叢集的輪廓，不覆蓋目前版本輪廓、不改工作狀態、不擴大配對公開同意。
+背景原工作繼續補全，最終結果仍由原子 finish 發布。此工具用於開發預覽，
+不可把暫定比例／分數當作完整 2000 部的最終分布。
+
+### 配對身分與公開條件
+
+歷史分支的「只列出公開 profile」限制與本討論串衝突，整合時沿用正式站規則：
+候選須開啟 matchingOptIn 並同意所有選定類別；私密成員仍能出現身分、合拍度與好友按鈕。
+詳細理由與 tags 僅對好友或公開 profile 顯示，完成所有非同步計算後重新驗證授權。
+API 沿用 handle、displayName、detailsVisible、memberHtml，頭像經既有 avatar 路由；
+不回傳 email、密鑰或原始觀看資料。首頁成員展示仍只列出公開 profile。
+
+### 即時配對計算隔離
+
+cluster 由背景 worker 計算後存入 matching_v3_profiles；點擊配對不呼叫 GPT/Gemini，
+也不重新分群，只比較已儲存的 cluster 質心及權重。
+`MATCHING_V3_COMPARE_URL` 可指定獨立即時比較服務；未指定則相容原 computeUrl。
+開發部署以 matching-compare 容器處理 compare，原 matching-compute 專做背景分群，
+避免 Python 單執行緒 HTTPServer 讓即時配對排在大批次 DBSCAN 後面。
+
+### 配對延遲與 502 修正
+
+監控快取分類统计使用 expression index，避免每五秒解析／掃描整張向量快取表。
+單 cluster 對單 cluster 使用與 1x1 transport 相同的 cosine／floor 公式直接計算；
+多 cluster 仍走獨立 compare 服務。前端對空白或非 JSON 的 HTTP 錯誤提供可讀訊息。
+2026-09-06 修正後在背景 worker 恢復狀態，經 Caddy 實測 Music+Sport 兩次
+HTTP 200，60ms／20ms，各回傳 7 位公開候選（僅為當次量測，不是延遲保證）。
+
+### 歷史修復（2026-09-06）
+
+`feature/dev-matching-local-backup-20260906` 的舊祖先已由 #64、#65、#67 等整合。
+本次從最新 main 接回尚未合併的監控索引、獨立 compare、暫定快取輪廓與 HTTP 錯誤處理；
+保留正式 `/matches`、Profile／好友／Blend 可見性，以及 `/landing-assets/` 與站內相對連結。
+不把歷史分支的匿名／僅公開帳號列表及開發用圖片路徑帶回正式站。

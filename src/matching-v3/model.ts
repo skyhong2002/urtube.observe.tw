@@ -36,6 +36,7 @@ export function settings(env = process.env) {
     minShare: number('MATCHING_V3_MIN_SHARE', 0.05, 0, 1),
     similarityFloor: number('MATCHING_V3_SIMILARITY_FLOOR', 0.7, 0, 0.999),
     computeUrl: env.MATCHING_V3_COMPUTE_URL ?? 'http://matching-compute:8090',
+    compareUrl: env.MATCHING_V3_COMPARE_URL ?? '',
     computeToken: env.MATCHING_V3_COMPUTE_TOKEN ?? '',
     backfillVideoLimit: (() => { const n = number('MATCHING_V3_BACKFILL_VIDEO_LIMIT', 2000, 1, 1000000); if (!Number.isInteger(n)) throw new Error('Invalid MATCHING_V3_BACKFILL_VIDEO_LIMIT'); return n; })(),
     concurrency: Math.trunc(number('MATCHING_V3_CONCURRENCY', 4, 1, 10000)),

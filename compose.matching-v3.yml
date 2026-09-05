@@ -9,9 +9,20 @@ services:
     environment:
       MATCHING_V3_ENABLED: "true"
       MATCHING_V3_COMPUTE_URL: http://matching-compute:8090
+      MATCHING_V3_COMPARE_URL: http://matching-compare:8090
     depends_on:
       matching-compute:
         condition: service_started
+      matching-compare:
+        condition: service_started
+  matching-compare:
+    build: ./services/matching-compute
+    image: urtube-matching-compute:dev
+    restart: unless-stopped
+    env_file: .env.matching-v3
+    mem_limit: 1g
+    cpus: 1
+    # Dedicated comparison process; no background cluster jobs are routed here.
   matching-compute:
     build: ./services/matching-compute
     image: urtube-matching-compute:dev

@@ -54,7 +54,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
       return { id: user.id, handle: user.handle, job: store.status(user.id), currentVersion,
         usable: Boolean(currentVersion && p && Object.values(p.genres).some(g => g.status === 'ready')),
         profile: p ? { builtAt: p.builtAt, totalVideos: p.totalVideos, processedVideos: p.processedVideos,
-          genres: Object.fromEntries(Object.entries(p.genres).map(([genre, value]) => [genre, { status: value.status }])) } : null };
+          genres: Object.fromEntries(Object.entries(p.genres).map(([genre, value]) => [genre, { status: value.status, clusterCount: value.clusters.length }])) } : null };
     });
     return c.json({ ...store.monitoring(), now: Date.now(), backfillVideoLimit: s.backfillVideoLimit, dailyLimit: s.dailyApiCalls, concurrency: s.concurrency, batchSize: s.classificationBatchSize, classificationModel: s.classificationModel, reasoningEffort: 'low', genres: GENRES, users });
   });
