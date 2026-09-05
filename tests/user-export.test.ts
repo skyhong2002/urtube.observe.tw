@@ -130,7 +130,7 @@ test('signed-in owner receives a streamed, readable, privacy-bounded ZIP', async
       files: Array<{ name: string; rowCount: number; fields: unknown[] }>;
       excluded: string[];
     };
-    assert.equal(manifest.schemaVersion, 12);
+    assert.equal(manifest.schemaVersion, 13);
     assert.ok(manifest.files.every((file) => file.fields.length > 0 || file.name === 'matching-crystal.json'));
     for (const file of manifest.files.filter((entry) => entry.name.startsWith('data/'))) {
       assert.equal(readJson(file.name).length, file.rowCount, `${file.name} row count`);

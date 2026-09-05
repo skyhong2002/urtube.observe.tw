@@ -92,7 +92,7 @@ const en = {
   plays: (n: number) => `${n} plays`,
   lengthMix: 'Length mix',
   uniqueVideos: 'unique videos',
-  shortForm: 'Short-form time share',
+  shortForm: 'Watch time over time',
   shortFormSub: (share: number, delta: number, coverage: number) =>
     `${share}% in the recent half · ${delta >= 0 ? '+' : ''}${delta} pp · ${coverage}% duration coverage`,
   shortFormMethod: 'duration ≤ 3 min proxy',
@@ -653,7 +653,7 @@ const zh: typeof en = {
   plays: (n: number) => `${n} 次播放`,
   lengthMix: '影片長度分布',
   uniqueVideos: '不重複影片',
-  shortForm: '短影音時間占比',
+  shortForm: '觀看時間趨勢',
   shortFormSub: (share: number, delta: number, coverage: number) =>
     `近期半段 ${share}% · ${delta >= 0 ? '+' : ''}${delta} 個百分點 · 片長涵蓋率 ${coverage}%`,
   shortFormMethod: '以片長 ≤ 3 分鐘推估',

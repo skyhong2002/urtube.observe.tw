@@ -560,6 +560,20 @@ export class Repository {
         throw error;
       }
     }
+    const afterChannelStatistics = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterChannelStatistics.user_version < 13) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const columns = this.db.prepare('PRAGMA table_info(youtube_videos)').all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'is_livestream')) {
+          this.db.exec('ALTER TABLE youtube_videos ADD COLUMN is_livestream INTEGER CHECK (is_livestream IN (0, 1))');
+        }
+        this.db.exec('PRAGMA user_version = 13; COMMIT;');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
   }
 
   private migrateYoutube(): void {
@@ -1884,8 +1898,12 @@ export class Repository {
     const shortFormDaily = this.db.prepare(`
       ${estimatedEvents}
       SELECT strftime('%Y-%m-%d', e.watched_at, '+8 hours') day,
-        COALESCE(SUM(CASE WHEN v.duration_seconds<=180
+        COALESCE(SUM(CASE WHEN v.duration_seconds<=180 AND COALESCE(v.is_livestream, 0)=0
           THEN e.estimated_watch_seconds ELSE 0 END), 0) short_watch_seconds,
+        COALESCE(SUM(CASE WHEN v.is_livestream=1
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) live_watch_seconds,
+        COALESCE(SUM(CASE WHEN v.duration_seconds>180 AND COALESCE(v.is_livestream, 0)=0
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) regular_watch_seconds,
         COALESCE(SUM(CASE WHEN v.duration_seconds IS NOT NULL
           THEN e.estimated_watch_seconds ELSE 0 END), 0) known_duration_watch_seconds
       FROM estimated_events e
@@ -2090,6 +2108,8 @@ export class Repository {
       shortFormDaily: shortFormDaily.map((row) => ({
         day: String(row.day),
         shortWatchSeconds: Number(row.short_watch_seconds),
+        liveWatchSeconds: Number(row.live_watch_seconds),
+        regularWatchSeconds: Number(row.regular_watch_seconds),
         knownDurationWatchSeconds: Number(row.known_duration_watch_seconds),
       })),
       lengthBuckets: lengthBuckets.map((row) => ({ label: String(row.label), videos: Number(row.videos) })),
@@ -2228,8 +2248,8 @@ export class Repository {
     const safeLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
     const rows = this.db.prepare(`
       SELECT video_id FROM youtube_videos
-      WHERE metadata_fetched_at IS NULL
-      ORDER BY video_id LIMIT ?
+      WHERE metadata_fetched_at IS NULL OR (availability='available' AND is_livestream IS NULL)
+      ORDER BY metadata_fetched_at IS NOT NULL, video_id LIMIT ?
     `).all(safeLimit) as Array<{ video_id: string }>;
     return rows.map((row) => row.video_id);
   }
@@ -2239,8 +2259,8 @@ export class Repository {
       INSERT INTO youtube_videos (
         video_id, title, channel_id, channel_title, description, tags_json,
         thumbnail_url, duration_seconds, published_at, category_id,
-        availability, metadata_hash, metadata_fetched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        availability, metadata_hash, metadata_fetched_at, is_livestream
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(video_id) DO UPDATE SET
         title=CASE WHEN excluded.title='' THEN youtube_videos.title ELSE excluded.title END,
         channel_id=COALESCE(excluded.channel_id, youtube_videos.channel_id),
@@ -2249,7 +2269,8 @@ export class Repository {
         thumbnail_url=CASE WHEN excluded.thumbnail_url='' THEN youtube_videos.thumbnail_url ELSE excluded.thumbnail_url END,
         duration_seconds=excluded.duration_seconds, published_at=excluded.published_at,
         category_id=excluded.category_id, availability=excluded.availability,
-        metadata_hash=excluded.metadata_hash, metadata_fetched_at=excluded.metadata_fetched_at
+        metadata_hash=excluded.metadata_hash, metadata_fetched_at=excluded.metadata_fetched_at,
+        is_livestream=COALESCE(excluded.is_livestream, youtube_videos.is_livestream)
     `);
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -2258,7 +2279,8 @@ export class Repository {
           video.videoId, video.title, video.channelId, video.channelTitle,
           video.description, JSON.stringify(video.tags), video.thumbnailUrl,
           video.durationSeconds, video.publishedAt, video.categoryId,
-          video.availability, video.metadataHash, fetchedAt
+          video.availability, video.metadataHash, fetchedAt,
+          video.isLivestream == null ? null : Number(video.isLivestream)
         );
       }
       this.backfillYoutubeChannelIds(videos.filter((video) => video.channelId).map((video) => video.videoId));
