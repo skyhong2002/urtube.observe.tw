@@ -12,7 +12,7 @@ urtube 在使用者授權後，將 YouTube 觀看紀錄整理成私人興趣洞�
 
 urtube 的目標是讓使用者在掌握揭露範圍的前提下，將既有紀錄轉成可理解、可檢視的個人興趣地圖。即使尚無其他使用者或符合條件的配對者，觀看時間、常看頻道、關鍵字與主題變化仍提供第一次匯入的價值。
 
-**重要影響力（Great Impact）**在於降低理解自身數位生活與找到共同話題的門檻，同時減少為了認識同好而公開私人紀錄的需要。這是待驗證的產品效益；目前未公布使用者規模、留存率或交友成功率。後續可在使用者同意與最少資料蒐集原則下，評估首次洞察完成率、使用者能否辨認自己的近期興趣，以及雙向「想認識」的完成率。配對畫面的百分比是相似度指標，不是相識成功率。
+**重要影響力（Great Impact）**在於降低理解自身數位生活與找到共同話題的門檻，同時減少為了認識同好而公開私人紀錄的需要。影響力評估將在使用者同意與最少資料蒐集原則下，追蹤首次洞察完成率、使用者能否辨認自己的近期興趣，以及雙向「想認識」的完成率。配對畫面的百分比表示近期興趣相似度。
 
 ## 核心功能
 
@@ -33,7 +33,7 @@ urtube 的目標是讓使用者在掌握揭露範圍的前提下，將既有紀�
 4. 依 onboarding 確認配對設定，進入 **Matches**，選擇候選人查看 VS；兩人都選擇「想認識」才解鎖較完整比較。
 5. 在 **Account** 管理資料與配對。新註冊帳號的儀表板預設私人；目前配對開關預設開啟，與儀表板公開設定分開，請在確認步驟檢查自己的選擇。
 
-沒有共用測試帳號。Example dashboard 顯示的是實例擁有者允許公開的頁面；本機合成示範則使用虛構資料，見下方安裝指南。
+請使用自己的 Google 帳號登入。Example dashboard 顯示的是實例擁有者允許公開的頁面；本機合成示範則使用虛構資料，見下方安裝指南。
 
 ## 系統架構
 
@@ -76,7 +76,7 @@ AI 請求只包含公開影片中繼資料（public video metadata）：標題�
 | 維運 | Docker Compose、Cloudflare Tunnel；自架反向代理可用 Caddy | 分離服務與備份、對外 HTTPS 及路由。 |
 | Sponsor 技術 | 待補 | 待團隊確認需列名的贊助技術及實際用途。 |
 
-亮點在於把語意理解、資料隔離與可重現計分放在不同責任層：AI 協助解讀內容，版本化程式負責跨人比較，權限檢查決定每次可揭露的結果。語意 embedding 與興趣分群仍是後續工作，未列為本版已完成能力。
+亮點在於把語意理解、資料隔離與可重現計分放在不同責任層：AI 協助解讀內容，版本化程式負責跨人比較，權限檢查決定每次可揭露的結果。語意 embedding 與興趣分群規劃於後續版本。
 
 ## 安裝與執行
 
@@ -99,7 +99,7 @@ npm run check
 npm run demo:matching
 ```
 
-終端會輸出 Alice 與 Bob 的本機登入連結，預設 `http://127.0.0.1:4317`。用兩個不同瀏覽器 profile 分別開啟，可操作候選、VS、雙向「想認識」與撤回。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用暫存 SQLite 與人工建立的投影，不驗證 Google 登入、真實匯入或模型輸出。
+終端會輸出 Alice 與 Bob 的本機登入連結，預設 `http://127.0.0.1:4317`。用兩個不同瀏覽器 profile 分別開啟，可操作候選、VS、雙向「想認識」與撤回。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用暫存 SQLite 與人工建立的投影，供體驗配對流程；Google 登入、真實匯入與模型輸出使用下方的實例設定。
 
 ### 3. 設定自己的本機實例
 
@@ -138,7 +138,7 @@ JS
 | `YOUTUBE_API_KEY` | 補齊公開影片／頻道 metadata 時需要；在同一控制台啟用 YouTube Data API v3 並建立適用伺服器呼叫的 API key。沒有 metadata 會限制分類與配對。 |
 | `AI_CLASSIFICATION_ENABLED`、`AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL` | AI 分類需要全部設定；enabled 設為 `true`，base URL 指向服務的 `/v1` 根路徑，model 填該服務實際可用名稱。預設關閉。自架服務亦需符合程式要求的 API key 設定。 |
 | `GOOGLE_DATA_PORTABILITY_CLIENT_ID`、`GOOGLE_DATA_PORTABILITY_CLIENT_SECRET` | 選用的定期匯入；callback 為 `<PUBLIC_BASE_URL>/api/ingest/youtube/oauth/callback`。需要 API 啟用、適用 scopes 與 Google 要求的驗證；現行實作僅供 instance owner 使用。 |
-| `SIGNUP_ENABLED`、`MAX_USERS`、`MAX_USER_DATABASE_MB` | 範例預設關閉註冊、最多 25 人、每人 512 MiB；上方本機初始化開啟註冊。這些是容量設定，並非負載測試結果。 |
+| `SIGNUP_ENABLED`、`MAX_USERS`、`MAX_USER_DATABASE_MB` | 範例預設關閉註冊、最多 25 人、每人 512 MiB；上方本機初始化開啟註冊。可依實例容量調整。 |
 | `DATABASE_PATH`、`USERS_DATABASE_PATH` | 未設定時為 `./data/urtube.sqlite`、`./data/users.sqlite`，其他帳號資料在 `./data/users/`。各服務須從同一專案目錄啟動。 |
 | `AI_TIMEOUT_MS`、`AI_CONCURRENCY` | 預設單次 60 秒、最多 4 個模型請求併發；依實際服務調整並留意用量。 |
 
@@ -221,11 +221,11 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 
 ## 限制與未來工作
 
-- 觀看時間包含估計值；觀看某類內容不代表使用者的政治立場、人格或身分。頻道標籤只描述來源對內容的分類，且不代表整體 YouTube 覆蓋率。
+- 觀看時間包含估計值；頻道標籤描述來源對內容的分類，覆蓋率以使用者所選期間的觀看資料為分母。
 - 配對受最近活動量、分類覆蓋與其他同意參與者數量限制；共通主題需要目前版本至少 80% 覆蓋，未達時依目前程式只使用頻道維度。
 - Google 登入、公開 metadata、AI 分類與 Data Portability 需要外部服務設定；Data Portability 限 instance owner，模型 gateway 原始碼與正式 Tunnel 設定不在本 repository，僅 clone 無法重建這些外部服務。
-- 目前沒有可公布的端到端延遲、每人模型成本或大規模負載結果；應以自己的資料量與供應商用量實測。長歷史的五年／五萬筆、16 GB 裝置實帳號驗收仍由 [#3](https://github.com/skyhong2002/urtube.observe.tw/issues/3) 追蹤。
-- 後續語意標籤、embedding 快取、興趣分群與新配對方式由 [#44](https://github.com/skyhong2002/urtube.observe.tw/issues/44)、[#45](https://github.com/skyhong2002/urtube.observe.tw/issues/45)、[#46](https://github.com/skyhong2002/urtube.observe.tw/issues/46)、[#47](https://github.com/skyhong2002/urtube.observe.tw/issues/47) 追蹤；本版文件不將尚未合併工作列為已交付。
+- 端到端延遲、每人模型成本與大規模負載的量測待完成；部署者可依自己的資料量與供應商用量進行評估。長歷史的五年／五萬筆、16 GB 裝置實帳號驗收仍由 [#3](https://github.com/skyhong2002/urtube.observe.tw/issues/3) 追蹤。
+- 後續語意標籤、embedding 快取、興趣分群與新配對方式由 [#44](https://github.com/skyhong2002/urtube.observe.tw/issues/44)、[#45](https://github.com/skyhong2002/urtube.observe.tw/issues/45)、[#46](https://github.com/skyhong2002/urtube.observe.tw/issues/46)、[#47](https://github.com/skyhong2002/urtube.observe.tw/issues/47) 追蹤。
 - 正式模型識別、外部資料的再利用授權與發布映像的完整元件盤點仍有待確認項目，詳見第三方聲明。
 
 ## 第三方服務、資料與素材
@@ -236,7 +236,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 - Google／YouTube、analysis.tw 頻道清單、Google／Gravatar 頭像與部署服務。
 - 可設定 AI 服務的模型／資料來源揭露狀態，以及專案圖示、OG 圖片與合成示範資料的來源。
 
-使用者提供自己的觀看歷史不會使該資料成為 MIT 開源內容；外部 API 可存取也不代表可自由再散布。請勿將 `.env`、API key、Token、私人 archive 或實帳號畫面放入 repository、issue 或展示素材。
+使用者觀看歷史依本人授權使用；外部資料與素材的使用方式見來源授權表。部署憑證保存在 `.env`，私人 archive 保存在使用者資料庫；準備公開展示時，請使用合成資料。
 
 ## 團隊成員
 
