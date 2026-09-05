@@ -556,7 +556,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const avatar: AvatarImage = await avatarService.avatarFor(user);
     c.header('Content-Type', avatar.contentType);
     c.header('Content-Length', String(avatar.body.byteLength));
-    c.header('Cache-Control', cacheControl);
+    c.header('Cache-Control', avatar.source !== 'google' && cacheControl.startsWith('public') ? 'public, max-age=60' : cacheControl);
     c.header('Cross-Origin-Resource-Policy', 'same-origin');
     return c.body(avatar.body.buffer.slice(
       avatar.body.byteOffset,
@@ -564,8 +564,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     ) as ArrayBuffer);
   };
 
-  // Avatar URLs remain same-origin: neither email hashes nor Google/Gravatar
-  // URLs reach the browser. Matching variants resolve an existing opaque
+  // Avatar URLs remain same-origin: Google image URLs never reach the browser. Matching variants resolve an existing opaque
   // token and re-check consent on every request.
   // Signed-in members can see public profiles, friends and discovery avatars.
   app.get('/avatar/member/:handle', async (c) => {

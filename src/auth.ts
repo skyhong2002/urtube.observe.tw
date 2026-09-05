@@ -2,7 +2,7 @@ import { config } from './config.js';
 import type { UserRegistry } from './users.js';
 import { safeGoogleAvatarUrl } from './avatars.js';
 
-// "Sign in with Google" (openid + email only). The point is account
+// "Sign in with Google" (openid + email + profile). The point is account
 // uniqueness: Google's `sub` claim is a permanent per-account id, so one
 // Google account can never own two urtube users. Email is stored for display;
 // it is NOT the key (emails can change, sub cannot).
@@ -27,7 +27,7 @@ export function googleLoginUrl(registry: UserRegistry, next = ''): string {
   url.searchParams.set('client_id', config.login.googleClientId);
   url.searchParams.set('redirect_uri', config.login.googleRedirectUri);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'openid email');
+  url.searchParams.set('scope', 'openid email profile');
   url.searchParams.set('state', registry.createLoginState(next));
   url.searchParams.set('prompt', 'select_account');
   return url.toString();
@@ -62,12 +62,25 @@ export async function completeGoogleLogin(
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
   const sub = String(claims.sub ?? '');
   if (!sub) throw new Error('Google id_token is missing the sub claim');
+  let avatarUrl = safeGoogleAvatarUrl(claims.picture);
+  if (!avatarUrl && typeof body.access_token === 'string') {
+    try {
+      const infoResponse = await fetchImpl('https://openidconnect.googleapis.com/v1/userinfo', {
+        headers: { authorization: `Bearer ${body.access_token}` },
+        redirect: 'error', signal: AbortSignal.timeout(3_000),
+      });
+      if (infoResponse.ok) {
+        const info = await infoResponse.json() as Record<string, unknown>;
+        if (info.sub === sub) avatarUrl = safeGoogleAvatarUrl(info.picture);
+      }
+    } catch { /* A missing profile image must not prevent sign-in. */ }
+  }
   // Only same-site absolute paths may be continued to after login.
   const next = consumed.next.startsWith('/') && !consumed.next.startsWith('//') ? consumed.next : '';
   return {
     sub,
     email: claims.email ? String(claims.email) : '',
-    avatarUrl: safeGoogleAvatarUrl(claims.picture),
+    avatarUrl,
     next,
   };
 }

@@ -70,7 +70,7 @@ export function profileEditPage(user: User, csrf: string, lang: Lang, value: Pro
     .profile-presets{display:flex;flex-wrap:wrap;gap:6px}.profile-form .profile-presets button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:34px;margin:0;padding:6px 10px;background:var(--raised);border:1px solid var(--line-strong);border-radius:10px;color:var(--ink);font-size:13px}.profile-presets button:hover{background:var(--surface);border-color:var(--accent-text)}.profile-link legend{padding:0 6px;font-size:13px;color:var(--ink-2)}
     .profile-presets .social-icon{width:16px;height:16px}.profile-form .profile-link .profile-actions button{display:inline-flex;align-items:center;justify-content:center;width:32px;min-height:32px;padding:0;border:1px solid var(--line-strong);background:var(--raised);color:var(--ink-2);font-size:18px;font-weight:400}.profile-form .profile-link .profile-actions button:hover{border-color:var(--accent-text);color:var(--ink)}
     @media(max-width:600px){.profile-form{padding:18px}.profile-actions button{flex:0 0 auto}.site-nav{flex-wrap:wrap}}
-    </style><section class="ob-intro"><h1>${t.title}</h1></section>
+    </style><section class="ob-intro"><h1>${t.title}</h1>${user.googleSub && !user.avatarUrl ? `<p>${lang === 'zh' ? '尚未取得 Google 頭貼。' : 'Your Google picture is not available yet.'} <a href="/auth/google?next=%2Faccount%2Fprofile">${lang === 'zh' ? '重新登入以取得 Google 頭貼' : 'Sign in again to get your Google picture'}</a></p>` : ''}</section>
     <div class="ob-card profile-form">
     ${error ? `<div class="ob-error" role="alert" tabindex="-1" id="profile-error">${html(error)}</div>` : ''}
     ${saved ? `<div class="ob-success" role="status">${t.saved}</div>` : ''}

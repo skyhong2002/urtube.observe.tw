@@ -59,7 +59,8 @@ export function buildTopicTrendModel(months: YoutubeTopicTrendMonth[], t: Messag
     .sort((a, b) => a.name.localeCompare(b.name));
   const frames = months.map((month) => ({
     month: month.month,
-    label: monthLabel(month.month, t) + (month.partialPeriod ? ` · ${t.topicTrendPartial}` : ''),
+    label: (month.periodStart && month.periodEnd && month.periodStart !== month.periodEnd
+      ? `${month.periodStart} – ${month.periodEnd}` : monthLabel(month.periodStart ?? month.month, t)) + (month.partialPeriod ? ` · ${t.topicTrendPartial}` : ''),
     empty: !month.watchEvents ? t.topicTrendNoWatches : !month.classifiedWatchEvents ? t.topicTrendUnavailable : t.topicTrendNoTime,
     coverage: month.classifiableWatchEvents ? month.classificationCoverage : null,
     provisional: month.classifiableWatchEvents > 0 && month.classificationCoverage < 0.999,
@@ -191,7 +192,7 @@ function safeJson(value: unknown): string {
 export function topicTrendSection(data: YoutubeDashboardData, t: Messages): string {
   const model = buildTopicTrendModel(data.topicTrend, t);
   // View labels describe what changes visually, without classification-version terminology.
-  const rawLabel = t.topicTrendOther === '其他' ? '每日／每月' : 'Daily / monthly';
+  const rawLabel = t.topicTrendOther === '其他' ? '每日／每週' : 'Daily / weekly';
   const smoothedLabel = t.topicTrendOther === '其他' ? '趨勢' : 'Trend';
   if (!model.frames.length) {
     return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div><p class="muted">${t.topicTrendEmpty}</p><p class="yt-topic-trend-method">${t.topicTrendMethod}</p></section>`;

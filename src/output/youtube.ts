@@ -1,3 +1,5 @@
+import { timelineWindow, timelineBounds } from '../youtube/timeline.js';
+import { dashboardFlatStyles } from './dashboard-flat.js';
 import { popularShelfControls, popularShelfStyles, popularShelfScript } from './popular-shelves.js';
 import { rankRaceSection } from './rank-race.js';
 import {
@@ -394,9 +396,29 @@ function shortFormSection(
     ${details}</section>`;
 }
 
+function raceTimeline(data: YoutubeDashboardData, t: Messages) {
+  const first = data.topicTrend[0]?.periodStart ?? data.channelRace.frames[0]?.period;
+  const window = timelineWindow(data.range, new Date(data.generatedAt), first ? `${first}T00:00:00+08:00` : null);
+  const label = (period: string) => {
+    const bounds = timelineBounds(window, period);
+    return bounds.start === bounds.end ? bounds.start : `${bounds.start} – ${bounds.end}`;
+  };
+  return {
+    label,
+    timeline: {
+      start: timelineBounds(window, window.periods[0]).start,
+      end: timelineBounds(window, window.periods.at(-1)!).end,
+      interval: t.topicTrendOther === '其他' ? (window.weekly ? '每週' : '每日') : (window.weekly ? 'Weekly' : 'Daily'),
+    },
+  };
+}
+
 function channelChase(data: YoutubeDashboardData, t: Messages): string {
+  const timeline = raceTimeline(data, t);
   return rankRaceSection({
     ...data.channelRace, kind: 'channels', title: t.momentum,
+    timeline: timeline.timeline,
+    frames: data.channelRace.frames.map(frame => ({ ...frame, period: timeline.label(frame.period) })),
     subtitle: t.momentumSub, format: 'hours',
     playLabel: t.playHistory, pauseLabel: t.pauseHistory, empty: t.topicTrendEmpty,
   });
@@ -404,12 +426,14 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
 
 function topicDynamics(data: YoutubeDashboardData, t: Messages): string {
   const model = buildTopicTrendModel(data.topicTrend, t);
+  const timeline = raceTimeline(data, t);
   const section = rankRaceSection({
     kind: 'topics', title: t.topicTrendTitle, subtitle: t.topicDynamicsSub, format: 'percent',
+    timeline: timeline.timeline,
     playLabel: t.topicTrendPlay, pauseLabel: t.topicTrendPause, empty: t.topicTrendUnavailable,
     channels: model.topics,
     frames: model.frames.map((frame) => ({
-      period: frame.month,
+      period: timeline.label(frame.month),
       empty: frame.empty,
       note: frame.label + ' · ' + (frame.coverage === null ? t.topicTrendNoCoverage
         : t.topicTrendCoverage(Math.round(frame.coverage * 100)) + (frame.provisional ? ` · ${t.provisional}` : '')),
@@ -524,7 +548,8 @@ const dashboardStyles = `${rhythmClockStyles}
   .yt-overview-dynamics{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.yt-overview-dynamics.yt-channel-dynamics{grid-template-columns:minmax(0,1fr)}.yt-overview-dynamics>.section{margin-top:18px;min-width:0}.yt-overview-dynamics .section-head{align-items:flex-start;flex-direction:column;gap:4px}.yt-chase-note{color:var(--muted);font-size:10px;margin:-6px 0 12px;min-height:16px}.yt-chase-controls :disabled{cursor:default;opacity:.45}.yt-topic-details{margin:18px 0;color:var(--muted);font-size:12px}.yt-topic-details>summary{cursor:pointer}.yt-topic-details>.section{color:var(--ink)}
   @media(max-width:800px){.yt-overview-dynamics{grid-template-columns:1fr}}
   @media(prefers-reduced-motion:reduce){.yt-chase-row,.yt-chase-track i{transition:none}}
-  .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px 92px minmax(0,1fr);margin-bottom:18px}
+  .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px minmax(0,1fr);margin-bottom:8px}
+  .yt-chase-controls input{grid-column:1/-1}.yt-chase-timeline{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);margin-bottom:16px}.yt-chase-period{font-size:12px}
   .yt-chase-controls button{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:50%;color:var(--ink);cursor:pointer;display:flex;font-size:11px;height:34px;justify-content:center;padding:0;width:34px}
   .yt-chase-controls button:hover{border-color:var(--muted)}
   .yt-chase-controls input{accent-color:var(--accent);width:100%}
@@ -802,8 +827,7 @@ export function youtubeDashboardPage(
     ).join('') : `<span class="muted">${topicPending}</span>`}</div></section>`;
   const keywords = `<section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub(data.keywordCoverage.sampledVideos, data.keywordCoverage.eligibleVideos)}</span></div>
     <div class="yt-keywords">${visibleKeywords.length ? visibleKeywords.map((keyword, index) => {
-      // Size follows the commonness score; the tooltip states the distinct
-      // video count, channel spread and which metadata sources contributed.
+      // Size follows the visible keywords’ scores. The tooltip shows video and channel counts.
       const size = 12 + Math.round(Math.sqrt(keyword.score / maxKeywordScore) * 18);
       // Keywords are text, so they wear ink tokens; size carries the weight.
       const colors = ['#f4f2ee', '#b8b5ad', '#8a877f'];
@@ -838,7 +862,7 @@ export function youtubeDashboardPage(
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=false;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
-  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}${popularShelfStyles}
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}${popularShelfStyles}${dashboardFlatStyles}
     .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin-top:16px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
   </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
@@ -847,10 +871,10 @@ export function youtubeDashboardPage(
     ${options.profileHtml ?? ''}
     ${options.blendHref ? `<div class="yt-profile-meta"><a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a></div>` : ''}${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
-  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + topVideos + channelList + (options.v3Html ?? '') + stableTopics
+  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + keywords + channelList + topVideos + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
-    + keywords + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent) : '';
+    + (options.v3Html ?? '') + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
     + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
@@ -861,6 +885,6 @@ export function youtubeDashboardPage(
   const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview
     : page === 'insights' ? insights
       : page === 'history' ? history : recap);
-  return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + content,
+  return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + `<div class="yt-dashboard-content">${content}</div>`,
     options.nav ?? [], '', lang, basePath);
 }

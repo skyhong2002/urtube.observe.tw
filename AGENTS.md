@@ -73,3 +73,10 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
   isolated worktrees for routine work. Preserve unrelated uncommitted changes.
 - Before deployment, verify the integrated `main` includes the existing UI and
   processing features; verify the running container contents as well as Git HEAD.
+
+- User instruction (2026-09-06): deployments are handled by CD. After tests,
+  commit and push to `main`; do not manually build, restart, or deploy services.
+  Observe CI/CD status and report it accurately instead of triggering a manual deployment.
+- Latest avatar instruction: request Google basic profile and obtain the Google
+  login/UserInfo picture. Temporarily use Gravatar if unavailable, then local
+  initials. Keep Google first and retry temporary fallbacks promptly.

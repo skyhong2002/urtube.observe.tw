@@ -107,7 +107,7 @@ const en = {
   topicTrendEmpty: 'No usable topic history for this range yet.',
   topicTrendCoverage: (coverage: number) => `${coverage}% classified`,
   topicTrendMethod: "Shares are based on classified, estimated watch time. Some periods may have incomplete data.",
-  topicTrendRangeNote: "Uses the selected date range. The first and last periods may be incomplete.",
+  topicTrendRangeNote: "Uses the selected date range. The 7- and 28-day views show days. Longer ranges show weeks from Monday to Sunday. The first and last periods may be incomplete.",
   topicTrendView: 'Topic trend view',
   topicTrendRace: 'Rank animation',
   topicTrendHeatmap: 'All topics',
@@ -527,7 +527,7 @@ const en = {
   ],
   [
     "Google sign-in and profile pictures",
-    "We store your Google account identifier and email to recognize your account, and a profile picture if Google already provides one at sign-in. No extra profile permission is requested. Without a Google picture, we ask Gravatar for one using a hash of your email address. If none is available, we display your initial. Pictures are served through urtube, so your email hash is not displayed on the page."
+    "Google sign-in requests your account identifier, email and basic profile to identify your account and retrieve your picture. If the picture is missing at sign-in, we request it from Google. If it is unavailable, we temporarily ask Gravatar for one using a hash of your email address, or display your initial. Pictures are served through urtube, so your email hash is not displayed on the page."
   ],
   [
     "Export and deletion requests",
@@ -689,7 +689,7 @@ const zh: typeof en = {
   topicTrendEmpty: '這段期間尚無可用的主題趨勢。',
   topicTrendCoverage: (coverage: number) => `已分類 ${coverage}%`,
   topicTrendMethod: "依已分類的估計觀看時間計算占比。部分期間的資料可能尚未齊全。",
-  topicTrendRangeNote: "日期範圍沿用上方選擇。首尾可能未滿一天或一個月。",
+  topicTrendRangeNote: "日期範圍沿用上方選擇。7／28 天以每日呈現，較長範圍以每週呈現（週一至週日）。首尾可能未滿完整期間。",
   topicTrendView: '主題趨勢檢視',
   topicTrendRace: '排名動畫',
   topicTrendHeatmap: '全部主題',
@@ -1104,7 +1104,7 @@ const zh: typeof en = {
   ],
   [
     "Google 登入與頭貼",
-    "登入時儲存 Google 帳號識別資訊與電子郵件，用來辨識你的帳號。Google 登入已提供頭貼時會一併保存，不額外要求個人資料權限。若沒有 Google 頭貼，會以電子郵件的雜湊值向 Gravatar 查詢圖片。找不到時顯示名字首字。頭貼透過 urtube 提供，頁面不會顯示你的電子郵件雜湊值。"
+    "Google 登入會要求帳號識別資訊、電子郵件與基本個人資料，用來辨識帳號及取得頭貼。若登入時未提供頭貼，會再向 Google 查詢。無法取得時，暫以電子郵件的雜湊值向 Gravatar 查詢圖片，或顯示名字首字。頭貼透過 urtube 提供，頁面不會顯示你的電子郵件雜湊值。"
   ],
   [
     "資料匯出與刪除申請",

@@ -88,7 +88,7 @@
 
 | 項目／提供者 | 本專案使用方式與來源 | 授權／條款與揭露狀態 |
 | --- | --- | --- |
-| Google OAuth／Google | 以 Google 帳號登入，使用 `openid email`；[來源文件](https://developers.google.com/identity/protocols/oauth2/web-server)。 | 外部服務，依 [Google APIs Terms](https://developers.google.com/terms) 與 [User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)。 |
+| Google OAuth／Google | 以 Google 帳號登入，使用 `openid email profile`；[來源文件](https://developers.google.com/identity/protocols/oauth2/web-server)。 | 外部服務，依 [Google APIs Terms](https://developers.google.com/terms) 與 [User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)。 |
 | Google Takeout、My Activity、YouTube History | 使用者自行提供 ZIP，或擴充功能在本人授權的頁面擷取觀看紀錄；[Takeout](https://takeout.google.com/)、[My Activity](https://myactivity.google.com/)、[YouTube History](https://www.youtube.com/feed/history)。 | 依 [Google 服務條款](https://policies.google.com/terms) 與 [YouTube 條款](https://www.youtube.com/t/terms) 及資料主體授權使用。使用者 archive 儲存於各自的資料庫。 |
 | Google Data Portability API | 可選的 instance owner 定期匯入；[官方資料來源](https://developers.google.com/data-portability)。 | [Data Portability user data and developer policy](https://developers.google.com/data-portability/policy) 與適用 Google API 條款。服務權限與驗證由部署者設定。 |
 | YouTube Data API v3／Google | 取得公開影片、頻道 metadata、圖片 URL 與公開統計；[API 文件](https://developers.google.com/youtube/v3)。 | [YouTube API Services Terms](https://developers.google.com/youtube/terms/api-services-terms-of-service)、[Developer Policies](https://developers.google.com/youtube/terms/developer-policies) 與 [Branding Guidelines](https://developers.google.com/youtube/terms/branding-guidelines)。影片、縮圖與頻道圖片依權利人授權及平台條款使用。 |
@@ -96,7 +96,7 @@
 | OpenAI GPT 5.6 Luna／OpenAI | 團隊採用 GPT 5.6 Luna 處理所有需要語言模型的內容理解與生成工作，包含依公開影片資訊整理興趣主題。分類服務透過 `AI_BASE_URL`、`AI_MODEL` 設定，程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | 模型服務依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。實際部署的 model ID／revision 與可公開的模型及資料來源文件待補充。 |
 | Google Gemini embedding／Google | 團隊採用 Gemini embedding 進行語意分析，理解內容與興趣之間的關聯；[官方來源與使用文件](https://ai.google.dev/gemini-api/docs/embeddings)。 | 服務條款見 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)。實際採用的 embedding model ID／revision 與可公開的模型及資料來源文件待補充。 |
 | Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；shim 原始碼不在本 repository，現行部署版本待確認。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。shim 自身來源與授權亦待部署者補充。 |
-| Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 取得 Google allowlist 圖片或 [Gravatar](https://gravatar.com/) 圖片，經本站同源路徑提供；本機字首頭像由程式生成。 | Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/) 與[隱私政策](https://automattic.com/privacy/)。使用 Gravatar 時伺服器會送出由 Email 產生的 SHA-256 識別值，瀏覽器不直接取得該值。 |
+| Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 優先使用 Google 登入或 UserInfo 提供的 allowlist 圖片；無法取得時暫用 Gravatar，再失敗則使用本機字首頭像。圖片經本站同源路徑提供。 | Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/)。Gravatar 請求使用 email 的 SHA-256 雜湊。 |
 
 模型名稱與用途依團隊提供的實際使用資訊揭露；版本資訊隨正式部署紀錄更新。
 

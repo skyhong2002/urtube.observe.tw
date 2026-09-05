@@ -23,7 +23,7 @@ test('topic history includes dated backfills, preserves estimates and explains e
   ] };
   try {
     repository.ingestYoutubeArchive({ ...archive, archiveHash: 'day-only', watches: archive.watches.slice(0, 1) });
-    assert.equal(repository.youtubeTopicTrend('all', now)[0].month, '2018-11');
+    assert.equal(repository.youtubeTopicTrend('all', now)[0].month, '2018-11-19');
     repository.ingestYoutubeArchive(archive);
     repository.ingestYoutubeArchive(archive);
     repository.upsertYoutubeVideoMetadata(archive.watches.map(w => ({
@@ -40,24 +40,25 @@ test('topic history includes dated backfills, preserves estimates and explains e
     }
     const data = repository.youtubeDashboard('all', now);
     const first = data.topicTrend[0];
-    assert.equal(first.month, '2018-11');
+    assert.equal(first.month, '2018-11-19');
     assert.equal(first.classifiedWatchEvents, 2);
     assert.equal(first.classifiedWatchSeconds, 900);
     assert.equal(first.topics.find(t => t.slug === 'alpha')?.share, 2 / 3);
     assert.equal(data.rhythmCoverage.exactWatches, 2);
     const year = repository.youtubeDashboard('365d', now);
-    assert.equal(year.topicTrend[0].month, '2025-09');
-    assert.equal(year.topicTrend[0].classifiedWatchSeconds, 600);
+    assert.equal(year.topicTrend[0].month, '2025-09-01');
+    assert.equal(year.topicTrend[0].periodStart, '2025-09-06');
+    assert.equal(year.topicTrend[1].classifiedWatchSeconds, 600);
     const model = buildTopicTrendModel(year.topicTrend, messages('zh'));
     assert.match(model.frames[0].label, /部分期間/);
     assert.match(model.frames.at(-1)!.label, /部分期間/);
-    assert.equal(model.frames[1].empty, '本期尚無可用分類');
-    assert.equal(model.frames[2].empty, '缺少可估算的觀看時間');
+    assert.equal(model.frames.find(frame => frame.month === '2025-10-06')!.empty, '本期尚無可用分類');
+    assert.equal(model.frames.find(frame => frame.month === '2025-11-10')!.empty, '缺少可估算的觀看時間');
     assert.equal(model.frames[3].empty, '本期沒有觀看紀錄');
     for (const page of ['overview', 'insights'] as const) {
       const $ = load(youtubeDashboardPage('Synthetic', year, 'duration', { lang: 'zh', page }));
       const race = JSON.parse($('[data-rank-race="topics"] [data-chase-data]').text());
-      assert.equal(race.frames[0].entries[0][1], 1);
+      assert.equal(race.frames[1].entries[0][1], 1);
       assert.equal(race.frames[1].empty, model.frames[1].empty);
       assert.match(race.frames[0].note, /部分期間/);
     }
@@ -67,13 +68,13 @@ test('topic history includes dated backfills, preserves estimates and explains e
     })) };
     const emptyDetails = load(topicTrendSection(emptyData, messages('zh')));
     assert.equal(emptyDetails('[data-race-empty]').text(), '本期沒有觀看紀錄');
-    assert.equal(emptyDetails('[data-race-range]').attr('max'), '12');
+    assert.equal(emptyDetails('[data-race-range]').attr('max'), String(year.topicTrend.length - 1));
     const detail = topicTrendSection(year, messages('zh'));
     assert.match(detail, /本期沒有觀看紀錄/);
     for (const script of detail.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => Function(script[1]));
     // Exact imports replace same-video/day placeholders rather than double-counting.
     repository.ingestYoutubeArchive({ ...archive, archiveHash: 'exact-replacement', source: 'takeout', watches: [watch('SYNTHETIC03', '2025-09-10T06:00:00Z', 'exact', 120)] });
-    const september = repository.youtubeTopicTrend('365d', now)[0];
+    const september = repository.youtubeTopicTrend('365d', now)[1];
     assert.equal(september.classifiedWatchEvents, 1);
     assert.equal(september.classifiedWatchSeconds, 120);
   } finally { repository.close(); }
