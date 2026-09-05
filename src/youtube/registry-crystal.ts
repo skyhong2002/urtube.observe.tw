@@ -4,6 +4,11 @@ import { MATCHING_TOPIC_MIN_COVERAGE, matchingDataEligible } from './matching.js
 // v2 changes pool eligibility from "non-empty" to the #9 activity policy.
 // Older rows stay stored but cannot enter a current-version candidate query.
 export const REGISTRY_CRYSTAL_VERSION = 2;
+// Channel similarity is share-weighted, so a long tail barely moves the
+// percentage, but a channel outside the projection cannot count at all. 200
+// keeps a shared mid-tail channel (rank 50–150 for both people) in play.
+export const REGISTRY_CRYSTAL_CHANNEL_LIMIT = 200;
+export const REGISTRY_CRYSTAL_TOPIC_LIMIT = 20;
 
 export interface RegistryMatchingCrystal {
   kind: 'matching';
@@ -45,8 +50,8 @@ export function registryMatchingCrystal(crystal: YoutubeCrystal): RegistryMatchi
       activeDays: crystal.matching.activeDays,
       topicCoverage: crystal.matching.topicCoverage,
     },
-    topics: projectedItems(crystal.matching.topics, 20),
-    channels: projectedItems(crystal.matching.channels, 40),
+    topics: projectedItems(crystal.matching.topics, REGISTRY_CRYSTAL_TOPIC_LIMIT),
+    channels: projectedItems(crystal.matching.channels, REGISTRY_CRYSTAL_CHANNEL_LIMIT),
   };
 }
 
@@ -99,10 +104,10 @@ export function parseRegistryMatchingCrystal(value: string): RegistryMatchingCry
       || coverage < 0
       || coverage > 1
       || !Array.isArray(parsed.topics)
-      || parsed.topics.length > 20
+      || parsed.topics.length > REGISTRY_CRYSTAL_TOPIC_LIMIT
       || !parsed.topics.every(validItem)
       || !Array.isArray(parsed.channels)
-      || parsed.channels.length > 40
+      || parsed.channels.length > REGISTRY_CRYSTAL_CHANNEL_LIMIT
       || !parsed.channels.every(validItem)
     ) return null;
     return parsed as unknown as RegistryMatchingCrystal;

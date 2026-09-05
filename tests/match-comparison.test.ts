@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -16,7 +17,7 @@ import {
   REGISTRY_CRYSTAL_VERSION,
   type RegistryMatchingCrystal,
 } from '../src/youtube/registry-crystal.js';
-import type { YoutubeComparisonProfile, YoutubeParsedArchive } from '../src/youtube/types.js';
+import type { YoutubeComparisonProfile, YoutubeParsedArchive, YoutubeVideoMetadata } from '../src/youtube/types.js';
 
 const NOW = new Date('2026-09-05T08:00:00.000Z');
 
@@ -326,6 +327,61 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.doesNotMatch(restricted, /Channel A|Video AAAAAAAAAA1|First watch/);
   } finally {
     registry.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function metadata(videoId: string, channelId: string, channelTitle: string): YoutubeVideoMetadata {
+  return {
+    videoId, title: `Video ${videoId}`, channelId, channelTitle, description: '', tags: [],
+    thumbnailUrl: '', durationSeconds: 600, publishedAt: null, categoryId: '10',
+    availability: 'available', metadataHash: `hash-${videoId}`,
+  };
+}
+
+test('channel ids backfill onto capture events so channels key the same way for everyone', () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-channel-backfill-'));
+  const path = join(root, 'archive.sqlite');
+  try {
+    let repository = new Repository(path);
+    // One Takeout-style event with the id, two extension-style events that
+    // only know the title, one with no channel at all.
+    seed(repository, 'mixed', [
+      watch('t1', 'AAAAAAAAAA1', 'a', '2026-09-01T01:00:00Z', 600),
+      { ...watch('x1', 'AAAAAAAAAA1', 'a', '2026-09-02T01:00:00Z', 600), channelId: null, channelUrl: '' },
+      { ...watch('x2', 'AAAAAAAAAA2', 'a', '2026-09-03T01:00:00Z', 600), channelId: null, channelUrl: '' },
+      { ...watch('x3', 'CCCCCCCCCC1', 'c', '2026-09-04T01:00:00Z', 600), channelId: null, channelTitle: null, channelUrl: '' },
+    ]);
+    const before = repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, 'all', NOW);
+    assert.equal(before.stats.uniqueChannels, 2, 'title-only events already collapse onto the id via the video row where possible');
+
+    repository.upsertYoutubeVideoMetadata([
+      metadata('AAAAAAAAAA2', 'channel-a', 'Channel A'),
+      metadata('CCCCCCCCCC1', 'channel-c', 'Channel C'),
+    ]);
+    const db = new DatabaseSync(path, { readOnly: true });
+    const rows = (db.prepare('SELECT event_id, channel_id, channel_title FROM youtube_watch_events ORDER BY event_id').all() as Array<Record<string, unknown>>).map((row) => ({ ...row }));
+    db.close();
+    assert.deepEqual(rows, [
+      { event_id: 't1', channel_id: 'channel-a', channel_title: 'Channel A' },
+      { event_id: 'x1', channel_id: 'channel-a', channel_title: 'Channel A' },
+      { event_id: 'x2', channel_id: 'channel-a', channel_title: 'Channel A' },
+      { event_id: 'x3', channel_id: 'channel-c', channel_title: 'Channel C' },
+    ]);
+    const after = repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, 'all', NOW);
+    assert.deepEqual(after.channels.map((channel) => [channel.key, channel.watches]), [['channel-a', 3], ['channel-c', 1]]);
+    repository.close();
+
+    // Rows that predate the backfill are repaired when the archive is opened.
+    const direct = new DatabaseSync(path);
+    direct.prepare("UPDATE youtube_watch_events SET channel_id=NULL WHERE event_id IN ('x1', 'x3')").run();
+    direct.close();
+    repository = new Repository(path);
+    const reopened = new DatabaseSync(path, { readOnly: true });
+    assert.equal(reopened.prepare('SELECT COUNT(*) n FROM youtube_watch_events WHERE channel_id IS NULL').get()!.n, 0);
+    reopened.close();
+    repository.close();
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
