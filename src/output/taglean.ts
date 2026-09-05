@@ -233,7 +233,7 @@ export function tagLeanPage(ownerName: string, data: TagLeanData, options: TagLe
   // for the same owner, and distinct across every ?range variant.
   const scope = `${t.tagLeanTitle} · ${t.ranges[data.range]}`;
   const intro = `<section class="yt-profile">
-    <span class="yt-avatar" aria-hidden="true">${html([...ownerName][0] ?? '?')}</span>
+    <img class="yt-avatar" src="${html(`/avatar${options.dashboardPath}`)}" alt="" width="70" height="70">
     <div class="yt-profile-copy"><div class="eyebrow">${t.tagLeanEyebrow}</div>
     <h1>${html(ownerName)}<em class="h1-scope">${scope}</em></h1>
     <div class="yt-profile-meta"><a href="${html(options.dashboardPath)}">${t.navBack}</a></div></div></section>`;

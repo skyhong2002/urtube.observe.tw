@@ -265,7 +265,13 @@ test('login states and pending signups are single-use and expire', async () => {
     assert.deepEqual(registry.consumeLoginState(withNext), { valid: true, next: '/extension-setup' });
 
     const pending = registry.createPendingSignup('sub-x', 'x@gmail.com');
-    assert.deepEqual(registry.pendingSignup(pending), { sub: 'sub-x', email: 'x@gmail.com' });
+    assert.deepEqual(registry.pendingSignup(pending), {
+      sub: 'sub-x', email: 'x@gmail.com', avatarUrl: null,
+    });
+    const pictured = registry.createPendingSignup(
+      'sub-picture', 'picture@gmail.com', 'https://lh3.googleusercontent.com/a/picture',
+    );
+    assert.equal(registry.pendingSignup(pictured)?.avatarUrl, 'https://lh3.googleusercontent.com/a/picture');
     registry.consumePendingSignup(pending);
     assert.equal(registry.pendingSignup(pending), null);
   } finally {

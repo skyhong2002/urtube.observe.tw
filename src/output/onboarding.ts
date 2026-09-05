@@ -11,6 +11,7 @@ import { processingNotice, processingStyles } from './processing.js';
 
 const formStyles = `
   .ob-intro{margin:14px 0 26px}
+  .ob-profile{align-items:center;display:flex;gap:16px}.ob-profile .ob-avatar{border-radius:50%;flex:0 0 64px;height:64px;object-fit:cover;width:64px}.ob-profile h1{margin-top:3px}
   .ob-intro h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.08;margin:7px 0 10px}
   .ob-intro p{color:var(--ink-2);margin:0;max-width:640px}
   .ob-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin:0 auto;max-width:560px;padding:28px}
@@ -192,8 +193,8 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       }); })();</script>` : `
       <h2>${t.accountDimensions}</h2>
       <p>${t.accountDimensionsPending}</p>`;
-  const body = `<style>${formStyles}${processingStyles}</style><section class="ob-intro"><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
-    <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></section>
+  const body = `<style>${formStyles}${processingStyles}</style><section class="ob-intro ob-profile"><img class="ob-avatar" src="/avatar/${html(user.handle)}" alt="" width="64" height="64"><div><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
+    <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></div></section>
     <div class="ob-card">
       ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
       <h2>${t.accountDashboard}</h2>
