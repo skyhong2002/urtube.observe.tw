@@ -129,7 +129,7 @@ test('failed public metadata requests back off and leave channel histories usabl
   } finally { registry.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test('membership is rechecked when a public metadata request finishes', async () => {
+for (const preview of [false, true]) test(`membership is rechecked when a public metadata request finishes (preview=${preview})`, async () => {
   const root = mkdtempSync(join(tmpdir(), 'urtube-channel-recheck-'));
   const registry = new UserRegistry(join(root, 'users.sqlite'), join(root, 'users'));
   try {
@@ -140,12 +140,53 @@ test('membership is rechecked when a public metadata request finishes', async ()
     let started!: () => void;
     const startedPromise = new Promise<void>((resolve) => { started = resolve; });
     const app = createApp(registry, { loadChannelMetadata: async () => { started(); return new Promise((resolve) => { release = resolve; }); } });
-    const request = app.request(`/channel/${ID}`, { headers: { cookie: `urtube_session=${registry.createSession(user)}` } });
+    const request = app.request(`/channel/${ID}${preview ? '?preview=1' : ''}`, { headers: { cookie: `urtube_session=${registry.createSession(user)}` } });
     await startedPromise;
     registry.setMatchingPreferences(user.handle, false, 'topics_and_channel');
     release(metadata);
     const response = await request;
     assert.equal(response.status, 200);
     assert.doesNotMatch(await response.text(), /Private Peer|Most watched by members/);
+  } finally { registry.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('channel preview returns an escaped, authenticated fragment and rechecks community opt-in', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-channel-preview-'));
+  const registry = new UserRegistry(join(root, 'users.sqlite'), join(root, 'users'));
+  try {
+    const user = registry.createUser('preview-viewer', 'Viewer');
+    const peer = registry.createUser('preview-peer', 'Peer <script>alert(1)</script>');
+    for (const member of [user, peer]) {
+      registry.setMatchingPreferences(member.handle, true, 'topics_and_channel');
+      seed(registry.repositoryFor(member), member.handle);
+    }
+    const app = createApp(registry, { loadChannelMetadata: async () => metadata });
+    const token = registry.createSession(user);
+    const headers = { cookie: `urtube_session=${token}` };
+    const path = `/channel/${ID}?preview=1&range=28d&sort=watches&lang=zh`;
+    assert.equal((await app.request(path)).status, 401);
+    assert.equal((await app.request('/channel/invalid?preview=1', { headers })).status, 404);
+    const response = await app.request(path, { headers });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-urtube-fragment'), 'channel-preview');
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.equal(response.headers.get('x-robots-tag'), 'noindex');
+    const markup = await response.text();
+    const $ = load(markup);
+    assert.equal($('[data-channel-preview-fragment]').length, 1);
+    assert.equal($('script, style, .site-header, .site-footer').length, 0);
+    assert.match($('.ch-subscribers').text(), /3,680,000/);
+    assert.match($('.cp-note').text(), /最近 28 天.*觀看次數/);
+    assert.match($('.cp-members').text(), /Peer <script>alert\(1\)<\/script>/);
+    assert.ok(markup.indexOf('urtube 成員合計') < markup.indexOf('你的統計'));
+    registry.setMatchingPreferences(peer.handle, false, 'topics_and_channel');
+    const after = await (await app.request(path, { headers })).text();
+    assert.doesNotMatch(after, /preview-peer|Peer/);
+    registry.setMatchingPreferences(user.handle, false, 'topics_and_channel');
+    const left = load(await (await app.request(path, { headers })).text());
+    assert.equal(left('.cp-members, .cp-content>section').length, 0);
+    assert.match(left('.cp-personal').text(), /你的統計/);
+    registry.deleteSession(token);
+    assert.equal((await app.request(path, { headers })).status, 401);
   } finally { registry.close(); rmSync(root, { recursive: true, force: true }); }
 });

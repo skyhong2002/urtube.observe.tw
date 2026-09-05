@@ -18,6 +18,7 @@ import { messages, type Lang, type Messages } from './i18n.js';
 import { hours, html, primaryNav, shell, trustSignals } from './pages.js';
 import { radialClock, rhythmClockStyles } from './youtube.js';
 import { YOUTUBE_CHANNEL_ID_PATTERN } from './channel.js';
+import { channelPreviewDrawer } from './channel-preview.js';
 
 export type MatchesPageState =
   | { kind: 'opt_in_required' }
@@ -191,7 +192,10 @@ function channelRow(names: ComparisonPair<string>, t: Messages) {
       ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="36" height="36">`
       : `<span class="mt-row-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
     const href = channelHref(channel);
-    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${avatar}<strong><a href="${html(href)}"${href.startsWith('/') ? '' : ' rel="noopener" target="_blank"'}>${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
+    const linkedAvatar = href.startsWith('/')
+      ? `<a class="mt-channel-avatar-link" href="${html(href)}" data-channel-preview tabindex="-1" aria-hidden="true">${avatar}</a>`
+      : avatar;
+    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${linkedAvatar}<strong><a href="${html(href)}"${href.startsWith('/') ? ' data-channel-preview aria-haspopup="dialog"' : ' rel="noopener" target="_blank"'}>${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
   };
 }
 
@@ -323,7 +327,7 @@ export function matchingCandidatePage(
     t.trustMutualConsent,
   ], t.trustSignalsLabel);
   const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
-  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${signals}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${metricToggle}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div><script>${metricScript}</script>`;
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${signals}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${metricToggle}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
@@ -340,6 +344,7 @@ const comparisonStyles = `
   .mt-rank{display:flex;flex-direction:column;font-variant-numeric:tabular-nums;line-height:1.2}.mt-rank b{color:var(--accent-text);font-size:14px}.mt-rank small{color:var(--muted);font-size:10px}.mt-row>.mt-rank:last-child{align-items:flex-end;text-align:right}
   .mt-row-main{align-items:center;display:flex;gap:12px;min-width:0}.mt-row-main strong{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mt-row-main strong a{color:var(--ink);text-decoration:none}.mt-row-main strong a:hover{color:var(--accent-text)}.mt-row-main small{color:var(--muted);display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mt-row-main>div{min-width:0}
   .mt-row-main img,.mt-row-avatar{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;flex:0 0 36px;font-size:13px;font-weight:700;height:36px;object-fit:cover;place-items:center;width:36px}
+  .mt-channel-avatar-link{flex:0 0 36px;text-decoration:none}
   .mt-thumb,.mt-row-main img.mt-thumb{border-radius:6px;flex:0 0 64px;height:36px;width:64px}
   .mt-more summary{color:var(--muted);cursor:pointer;font-size:12px;margin:8px 6px 4px}
   .mt-clocks{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.mt-clocks .yt-rhythm-clock svg{max-width:300px}.mt-clock-empty{align-items:center;color:var(--muted);display:flex;flex-direction:column;font-size:12px;justify-content:center;min-height:200px;text-align:center}.mt-clock-empty span{color:var(--ink-2);font-weight:700}.mt-clock-empty[hidden]{display:none}
