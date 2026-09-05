@@ -1,0 +1,22 @@
+# Opt-in overlay: the local app and ingest write to the live production DBs.
+# Run together with compose.local.yml. Production owns worker and backups.
+services:
+  app:
+    env_file:
+      - .env.production-data
+    volumes:
+      - production-data:/data
+  ingest:
+    env_file:
+      - .env.production-data
+    volumes:
+      - production-data:/data
+  worker:
+    profiles: [isolated-only]
+  backup:
+    profiles: [isolated-only]
+
+volumes:
+  production-data:
+    external: true
+    name: urtube_urtube-data
