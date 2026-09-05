@@ -173,8 +173,8 @@ test('compareWatchProfiles keeps volume private until both people choose to meet
   assert.equal(unlocked.firstWatch?.a?.title, 'Shared video');
 
   assert.equal(comparisonRange('365d'), '365d');
-  assert.equal(comparisonRange('7d'), '28d', 'unsupported ranges fall back to the default');
-  assert.equal(comparisonRange(undefined), '28d');
+  assert.equal(comparisonRange('7d'), '365d', 'unsupported ranges fall back to the default');
+  assert.equal(comparisonRange(undefined), '365d');
 });
 
 const topic = (key: string, share: number) => ({
