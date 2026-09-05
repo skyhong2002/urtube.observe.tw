@@ -24,6 +24,7 @@ export function landingChannelShelf(channels: CommunityChannel[], mode: 'duratio
 }
 
 export const landingShelfStyles = `
+  .ch-channel .ch-main strong{min-height:2.8em}
   .site-main{padding-top:14px}
   .ch-page .section{background:none;border:0;border-radius:0;box-shadow:none;margin-top:24px;padding:0}
   .ch-page .section-head{align-items:baseline;gap:6px 14px;justify-content:flex-start;margin-bottom:10px;min-height:28px;padding-right:120px}.ch-page .section-head h2{font-size:19px;letter-spacing:-.025em}.ch-page .section-head span{font-size:12px}
