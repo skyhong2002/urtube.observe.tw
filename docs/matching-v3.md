@@ -314,11 +314,80 @@ HTTP 200，60ms／20ms，各回傳 7 位公開候選（僅為當次量測，不�
 
 移除啟動後與每四分鐘對所有已瀏覽帳號、五種範圍進行的同步總覽預熱，保留依請求填入的 revision-aware 快取。首次開啟或快取失效時，該頁統計仍需要同步計算；本次修正消除的是管理監控與推測性預熱反覆阻塞所有網頁的負擔。
 
+## 2026-09-06: compact-medoid-v1 correction
+
+Content clusters now use deterministic, weighted compact neighborhoods. Every
+pair of tags within a cluster must have cosine distance <=
+`MATCHING_V3_COMPACT_DISTANCE` (default 0.2); neighbor chains cannot merge distant
+endpoints. Pick the highest remaining weighted neighborhood, filter candidates
+by complete pairwise compatibility, and retain at most ten disjoint groups with
+at least `MIN_SAMPLES` total distinct-video/tag count. This is a greedy bounded
+method, not DBSCAN or a globally optimal partition. No 5% relative mass cutoff
+is applied. Ties are deterministic by normalized tag text.
+
+Store both the weighted centroid and an actual weighted cosine medoid (the
+member closest to the weighted mean). Compare the medoids, not normalized means
+of heterogeneous tag sets. The first explanation tag is exactly this medoid;
+other displayed tags are members, not a claim that their top-three strings are
+what the solver compares. No AI-generated rationale is used.
+
+OT marginals are cluster shares times the profile's retained coverage. Add a
+zero-similarity unmatched bucket for all remaining mass, including missing
+embeddings in previews. Unknown mass cannot match unknown mass. Thus even a
+single retained group no longer implies 100% of all genre tag weight. A true
+single-interest fully covered profile can legitimately still have 100% weight.
+Channel-type histograms retain their existing comparison behavior.
+
+The profile version changes; classification and embedding cache keys do not.
+Old and new profiles cannot be compared. Workers and both compute services must
+be upgraded before rebuilding profiles. Cache-only previews require no paid
+API calls. Do not silently activate legacy clusters under the new version.
+
+Scores remain uncalibrated evidence scores, not compatibility probabilities.
+In the two-account snapshot (latest 2,000 distinct videos each), default 0.2
+compact clustering changes Streaming 99.1 -> 48.1 and Podcast 98.4 -> 46.2.
+Coverage is respectively 81.3%/73.7% and 85.1%/61.0%. Music coverage remains low
+(42.0%/30.1%, score 16.0), so these results must stay provisional. This is not an
+independent human relevance benchmark, nor proof the underlying genre/tag
+assignments are accurate. Tag-rich videos and generic/promotional tags still
+need a separate relevance/weighting evaluation. A 0.12 trial retained too little
+mass and was rejected as the default. No re-embedding is needed for this fix.
+
+### Production deployment
+
+Use `urtube-deploy` (alias for `sudo -u deck /home/deck/urtube-ops/deploy.sh`)
+against a committed, fetched ref. Do not patch running containers: recreation
+replaces those files. `compose.matching-v3-app.yml` now owns the numeric services
+and matching worker on the production default network. `MATCHING_V3_COMPARE_URL`
+points to a dedicated compare process. Stop the previous local matching worker
+when switching to this stack, keeping the shared data volume intact.
+
+The numeric-service build context uses `${PWD}/services/matching-compute`.
+Run Compose from the selected source checkout (the existing deploy.sh/up.sh
+already does this), even if `--project-directory` points at a separate runtime
+directory. This avoids modifying the host deployment scripts or taking compute
+code from somebody else's runtime checkout. Deploy an explicit commit produced
+from `/home/urtube/urtube.observe.tw`; do not implicitly deploy another main tip.
+Only the production URL https://urtube.observe.tw/matches is the test endpoint.
+The topic card exposes the uncalibrated score as a percentage for debugging;
+it is not a probability or a claim of validated compatibility.
 
 ### 儀表板與帳號處理狀態（2026-09-06）
 
-儀表板總覽／洞察改為顯示目前版本的 v3 九類摘要；移除舊主題覆蓋率、主題排行／趨勢、crystal 興趣變化、關鍵字雲與外部分類分布。基本觀看統計、頻道、影片、觀看節奏及回顧保留。v3 摘要依配對輪廓的影片上限建立，明示它不跟隨儀表板日期範圍，也不把類別影片數當作觀看時數占比。本人可查看九類；其他有權查看 profile 的訪客僅看到對方已選擇分享的類別，退出配對後不顯示其 v3 摘要。
+儀表板總覽／洞察保留目前版本的 v3 九類摘要，並恢復曾在 `b2042d9` 移除的分析區塊：總覽的舊主題覆蓋率、主題排行與趨勢，以及洞察的 crystal 興趣變化、關鍵字雲、外部頻道分類分布與匿名參考母體。基本觀看統計、頻道、影片、觀看節奏及回顧保留。v3 摘要依配對輪廓的影片上限建立，明示它不跟隨儀表板日期範圍，也不把類別影片數當作觀看時數占比。本人可查看九類；其他有權查看 profile 的訪客僅看到對方已選擇分享的類別，退出配對後不顯示其 v3 摘要。
 
 帳號頁與個人頁的處理提示讀取影片 metadata 數量及 v3 job/profile 摘要，不讀取 v2 主題完成量、不推算剩餘時間。分類顯示本輪影片數；embedding 顯示目前批次／類別的 tags；頻道階段只顯示來源影片範圍，因 worker 尚未回報逐頻道完成量。工作版本不符、失敗、等待重試及暫定結果都有不同狀態；詳細數量和輪廓更新時間僅顯示給本人。metadata-only 查詢共用五秒 revision-aware 快取。
 
 `GET /account/taxonomy` 導向 `/account#processing`，舊審核 POST 回傳 410，不再建立或啟用分類版本。v1/v2 的資料、演算法及背景工作仍保留；這是顯示與進度來源的切換，未停止舊版背景生成，也未重新分類既有 v3 快取。
+
+恢復的頻道分類包含泛藍、泛綠、泛白、泛紅、新聞、個人社論與社論節目，沿用既有來源查詢與觀看時間統計。舊主題排名保留有效覆蓋率 80% 門檻；參考母體仍要求獨立同意、至少五人並隱藏個人身分。外部來源失敗只顯示分類不可用提示，其餘分析保留；等待來源後重新檢查 profile 存取權限。恢復僅讀取既有資料，不啟動重新分類、不變更 worker 或 API 額度，也不重新開啟舊 taxonomy 審核操作。
+
+### 本人處理監控（2026-09-06）
+
+個人首頁與設定頁的本人處理狀態，透過既有 `/api/matching-v3` 每 30 秒讀取工作狀態、最後階段、失敗次數、安全錯誤、重試時間與九類結果。失敗與暫定結果不再被描述成一定正在執行；分類影片數與類別可用性分開呈現。讀取失敗會標示資料可能過期並退避，背景分頁暂停更新，導覽離開後取消請求，登入失效後清除即時資料並停止更新。影片 metadata 數量仍為頁面載入時的快照。此元件僅供本人，不載入全站監控資料、不增加重試或重新分類操作。原管理員面板位於 `/matching-v3/admin`，仍保留全站心跳、API 活動與管理操作。
+
+### 處理提示的簡潔模式
+
+設定頁「顯示處理狀態」預設開啟，關閉後共用版型會在首次繪製前隱藏處理通知、進度區塊與暫定提示；重新開啟立即恢復。此顯示偏好使用 localStorage，依登入帳號保存在目前瀏覽器，不跨裝置同步，也不修改背景排程。各分頁同步切換，切換日期範圍仍沿用偏好。簡潔模式停止本人監控輪詢；設定開關仍可見。
+
+總覽與洞察現在都呈現依日期範圍計算的關鍵字列表、類別動態與趨勢明細。總覽聚合沿用洞察的關鍵字抽樣規則與快取；不重新分類影片。

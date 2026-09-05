@@ -175,13 +175,9 @@ function addViewingData(
   }
 }
 
-test('reference consent remains separate, owner-only and withdrawable without legacy dashboard charts', async () => {
+test('reference consent is separate, owner-only, withdrawable, and rendered with provenance', async () => {
   const registry = new UserRegistry(':memory:');
-  let classificationCalls = 0;
-  const app = createApp(registry, { loadTagLists: async () => {
-    classificationCalls += 1;
-    throw new Error('Insights must not request legacy reference classifications');
-  } });
+  const app = createApp(registry, { loadTagLists: async () => snapshot() });
   try {
     const contributors = Array.from({ length: 5 }, (_, index) => {
       const user = registry.createUser(`reference-${index}`, `Private Contributor ${index}`);
@@ -196,14 +192,18 @@ test('reference consent remains separate, owner-only and withdrawable without le
     assert.equal(registry.listReferencePopulationUsers().length, 5);
 
     const cookie = `urtube_session=${registry.createSession(viewer)}`;
-    const response = await app.request(`/${viewer.handle}/insights?range=all`, {
+    const page = await (await app.request(`/${viewer.handle}/insights?range=all`, {
       headers: { cookie },
-    });
-    assert.equal(response.status, 200);
-    const page = await response.text();
-    assert.doesNotMatch(page, /This site’s reference population|5 consenting accounts|Reference mean|Reference median/);
-    assert.doesNotMatch(page, /class="tl-reference|method channel-tags-equal-user-v1/);
-    assert.equal(classificationCalls, 0);
+    })).text();
+    assert.match(page, /This site’s reference population/);
+    assert.match(page, /5 consenting accounts/);
+    assert.match(page, /Reference mean/);
+    assert.match(page, /Reference median/);
+    assert.match(page, /Lift/);
+    assert.match(page, /\.tl-reference-scroll\{overflow-x:auto\}/);
+    assert.doesNotMatch(page, /\.tl-reference-detail\{display:none\}/);
+    assert.match(page, /method channel-tags-equal-user-v1/);
+    assert.match(page, /version sha256:[a-f0-9]{12}/);
     for (const contributor of contributors) {
       assert.ok(!page.includes(contributor.displayName));
       assert.ok(!page.includes(contributor.handle));
@@ -238,8 +238,8 @@ test('reference consent remains separate, owner-only and withdrawable without le
     const insufficient = await (await app.request(`/${viewer.handle}/insights?range=all`, {
       headers: { cookie },
     })).text();
-    assert.doesNotMatch(insufficient, /No reliable reference population yet|Reference mean|class="tl-reference/);
-    assert.equal(classificationCalls, 0);
+    assert.match(insufficient, /No reliable reference population yet/);
+    assert.doesNotMatch(insufficient, /Reference mean/);
 
     const privacy = await (await app.request('/privacy')).text();
     assert.match(privacy, /separate opt-in/);

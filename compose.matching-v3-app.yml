@@ -1,5 +1,5 @@
-# Serve the integrated matching workspace using an already-running v3 compute
-# service. This overlay never starts another backfill worker.
+# Production matching services are built and deployed with the application.
+# urtube-deploy must not depend on the disposable localhost stack.
 services:
   app:
     env_file:
@@ -7,10 +7,46 @@ services:
     environment:
       MATCHING_V3_ENABLED: "true"
       MATCHING_V3_COMPUTE_URL: http://matching-compute:8090
-    networks:
-      - default
-      - matching-compute
-networks:
+      MATCHING_V3_COMPARE_URL: http://matching-compare:8090
+    depends_on:
+      matching-compute:
+        condition: service_started
+      matching-compare:
+        condition: service_started
   matching-compute:
-    external: true
-    name: ${MATCHING_V3_COMPUTE_NETWORK:-urtube-local_default}
+    # deploy.sh/up.sh cd to the selected checkout; project-directory may differ.
+    build: ${PWD}/services/matching-compute
+    image: urtube-matching-compute:production
+    restart: unless-stopped
+    env_file:
+      - ${MATCHING_V3_ENV_FILE:-.env.matching-v3}
+    mem_limit: 2g
+    cpus: 2
+  matching-compare:
+    # deploy.sh/up.sh cd to the selected checkout; project-directory may differ.
+    build: ${PWD}/services/matching-compute
+    image: urtube-matching-compute:production
+    restart: unless-stopped
+    env_file:
+      - ${MATCHING_V3_ENV_FILE:-.env.matching-v3}
+    mem_limit: 1g
+    cpus: 1
+  matching-worker:
+    image: urtube
+    command: ["npx", "tsx", "src/matching-v3/worker.ts"]
+    restart: unless-stopped
+    env_file:
+      - .env
+      - ${MATCHING_V3_ENV_FILE:-.env.matching-v3}
+    environment:
+      MATCHING_V3_ENABLED: "true"
+      MATCHING_V3_COMPUTE_URL: http://matching-compute:8090
+      DATABASE_PATH: /data/urtube.sqlite
+      USERS_DATABASE_PATH: /data/users.sqlite
+    volumes:
+      - urtube-data:/data
+    depends_on:
+      app:
+        condition: service_healthy
+      matching-compute:
+        condition: service_started

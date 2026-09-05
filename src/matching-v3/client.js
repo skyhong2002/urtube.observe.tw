@@ -30,6 +30,7 @@ function error(err) { showView('topics'); $('message').textContent = err.message
 async function load() {
   state = await api();
   $('status').replaceChildren();
+  $('status').toggleAttribute('data-processing-status', state.optedIn);
   if (!state.optedIn) {
     $('status').append(element('span', '尚未開啟配對。請至 '));
     const link = element('a', '我的帳號'); link.href = '/account'; $('status').append(link, element('span', ' 開啟參與配對，再選擇興趣。'));
@@ -73,40 +74,66 @@ function renderDetail() {
   };
   actions.append(edit, remove); top.append(actions); $('detail').append(top);
   const chips = element('div', undefined, 'chips'); topic.genres.forEach(g => chips.append(element('span', g, 'chip'))); $('detail').append(chips);
-  $('detail').append(element('p', '依整體合拍度排序，探索共同興趣與頻道。', 'muted'));
-  const match = element('button', '開始配對', 'primary');
-  const result = element('div');
-  match.onclick = async () => {
-    const number = ++requestNumber; match.disabled = true; result.textContent = '正在比較核心興趣與比例…';
-    try {
-      const data = await api('/match', 'POST', { genres: topic.genres });
-      if (number !== requestNumber) return;
-      result.replaceChildren();
-      if (!data.candidates.length) { result.append(element('p', '還沒有同意參與這些類別、且已完成輪廓處理的使用者。', 'empty')); return; }
-      const cards = element('div', undefined, 'mt-grid');
-      const rankedCards = data.candidates.flatMap(candidate => {
-        // HTML comes from the same escaped server renderer as the member directory.
-        const template = document.createElement('template');
-        template.innerHTML = candidate.memberHtml || '';
-        const card = template.content.querySelector('.mt-card');
-        return card ? [card] : [];
-      });
-      const compatibility = card => {
-        const score = Number(card.dataset.compatibility ?? -1);
-        return Number.isFinite(score) ? score : -1;
-      };
-      rankedCards.sort((a, b) => compatibility(b) - compatibility(a));
-      rankedCards.forEach((card, index) => {
-        if (index < 3 && compatibility(card) > 70) {
-          card.querySelector('.mt-person-link > div')?.append(element('span', '絕佳拍檔', 'mt-partner'));
-        }
-        cards.append(card);
-      }); result.append(cards);
-    } catch (err) { if (number === requestNumber) result.textContent = err.message; }
-    finally { match.disabled = false; }
-  };
-  $('detail').append(match, result);
+  $('detail').append(element('p', '依所選類別的合拍度排序，前三名為最佳拍檔。', 'muted'));
+  const result = element('div'); result.setAttribute('aria-live', 'polite');
+  $('detail').append(result);
+  queueMatch(topic, result);
 }
+// Keep one request in flight: the server also serializes matching per account.
+// Rapid switches replace the pending selection, never the currently displayed result.
+let pendingMatch = null, matching = false;
+function queueMatch(topic, result) {
+  const number = ++requestNumber;
+  result.textContent = '正在尋找合拍的人…';
+  pendingMatch = { genres: [...topic.genres], result, number };
+  void drainMatches();
+}
+async function drainMatches() {
+  if (matching) return;
+  matching = true;
+  try {
+    while (pendingMatch) {
+      const job = pendingMatch; pendingMatch = null;
+      if (job.number !== requestNumber) continue;
+      try {
+        const data = await api('/match', 'POST', { genres: job.genres });
+        if (job.number !== requestNumber) continue;
+        renderMatches(data, job.result);
+      } catch (err) {
+        if (job.number !== requestNumber) continue;
+        job.result.replaceChildren(element('p', err.message));
+        const retry = element('button', '重試配對');
+        retry.onclick = () => queueMatch({ genres: job.genres }, job.result);
+        job.result.append(retry);
+      }
+    }
+  } finally { matching = false; }
+}
+function renderMatches(data, result) {
+  result.replaceChildren();
+  if (!data.candidates.length) {
+    result.append(element('p', '還沒有同意參與這些類別、且已完成輪廓處理的使用者。', 'empty')); return;
+  }
+  const cards = element('div', undefined, 'mt-grid');
+  const ranked = data.candidates.flatMap(candidate => {
+    // HTML comes from the same escaped server renderer as the member directory.
+    const template = document.createElement('template');
+    template.innerHTML = candidate.memberHtml || '';
+    const card = template.content.querySelector('.mt-card');
+    if (!card) return [];
+    const score = typeof candidate.score === 'number' && Number.isFinite(candidate.score) ? candidate.score : -1;
+    return [{ card, score }];
+  }).sort((a, b) => b.score - a.score);
+  ranked.forEach(({ card, score }, index) => {
+    if (index < 3 && score >= 0) {
+      const name = card.querySelector('.mt-person-link > div');
+      if (name) name.append(element('span', lang === 'zh' ? '最佳拍檔' : 'Top match', 'mt-partner'));
+    }
+    cards.append(card);
+  });
+  result.append(cards);
+}
+
 async function save(preferences) { requestNumber++; await api('/preferences', 'PUT', preferences); await load(); }
 function openEditor(kind, topic) {
   if (!state) return;

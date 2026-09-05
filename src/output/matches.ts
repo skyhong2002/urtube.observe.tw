@@ -398,7 +398,7 @@ export function matchesPage(
   if (state.kind === 'opt_in_required') {
     content = `<section class="mt-empty"><h2>${t.matchesOptInTitle}</h2><p>${t.matchesOptInPara}</p><a href="/account">${t.matchesSettings}</a></section>`;
   } else if (state.kind === 'data_pending') {
-    content = `<section class="mt-empty"><h2>${t.matchesPendingTitle}</h2><p>${t.matchesPendingPara}</p><a href="${html(dashboardHref)}">${t.navDashboard}</a></section>`;
+    content = `<section class="mt-empty" data-processing-status><h2>${t.matchesPendingTitle}</h2><p>${t.matchesPendingPara}</p><a href="${html(dashboardHref)}">${t.navDashboard}</a></section>`;
   } else if (state.kind === 'empty') {
     content = `<section class="mt-empty"><h2>${t.matchesEmptyTitle}</h2><p>${t.matchesEmptyPara}</p><a href="/signup">${t.matchesInvite}</a></section>`;
   } else {

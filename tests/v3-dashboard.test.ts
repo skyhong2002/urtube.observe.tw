@@ -5,6 +5,7 @@ import { createApp } from '../src/index.js';
 import { UserRegistry } from '../src/users.js';
 import { GENRES, settings, version, type Profile } from '../src/matching-v3/model.js';
 import { computeClient } from '../src/matching-v3/compute.js';
+import { TAG_POLICY, type TagListSnapshot } from '../src/youtube/taglists.js';
 
 function fixture() {
   const registry = new UserRegistry(':memory:');
@@ -33,19 +34,21 @@ function fixture() {
   return { registry, user, store, profile, repository, app, headers, s };
 }
 
-test('owner dashboard displays only current v3 interests while preserving basic stats and legacy data', async () => {
+test('owner dashboard keeps v3 interests alongside range-based analysis without exposing invalid legacy topics', async () => {
   const f = fixture();
   try {
     const response = await f.app.request('/v3-dashboard?lang=zh', { headers: f.headers });
     assert.equal(response.status, 200);
     const $ = load(await response.text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 9);
+    assert.equal($('[data-processing-monitor]').length, 1);
     assert.match($('[data-v3-interests]').text(), /v3 興趣分析|2,000/);
     assert.match($('[data-v3-interests]').text(), /不隨上方日期範圍切換/);
-    assert.equal($('.yt-stable-topics,[data-rank-race="topics"],[data-topic-trend]').length, 0);
+    assert.equal($('.yt-stable-topics').length, 1);
+    assert.equal($('.yt-topic-details').length, 1);
     assert.ok($('.yt-stat').length > 0);
     assert.equal($('[data-rank-race="channels"]').length, 1);
-    assert.doesNotMatch($.text(), /Legacy classification|AI 主題涵蓋|120 分鐘|private-profile-tag/);
+    assert.doesNotMatch($.text(), /Legacy classification|120 分鐘|private-profile-tag/);
     assert.equal(f.repository.youtubeTopics()[0]?.name, 'Legacy classification');
   } finally { f.registry.close(); }
 });
@@ -55,6 +58,7 @@ test('public v3 interests respect selected genres, opt-out, profile visibility a
   try {
     let $ = load(await (await f.app.request('/v3-dashboard?lang=en')).text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 1);
+    assert.equal($('[data-processing-monitor]').length, 0, 'visitor cannot load owner monitoring');
     assert.equal($('[data-v3-interests] .yt-v3-genre strong').text(), 'Music');
     assert.doesNotMatch($.text(), /31,337|private-profile-tag/);
     f.store.schedule(f.user.id, 'changed', 'old-v3-version');
@@ -79,6 +83,8 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     f.store.progress(job, { phase: 'classification', processed: 17, total: 250 });
     const $ = load(await (await f.app.request('/account?lang=zh', { headers: f.headers })).text());
     assert.equal($('#processing [data-v3-processing="running"]').length, 1);
+    assert.equal($('#processing [data-processing-monitor]').length, 1);
+    assert.equal($('#processing a[href="/matching-v3/admin"]').length, 1);
     assert.match($('#processing').text(), /17 \/ 250 部影片/);
     assert.doesNotMatch($.text(), /120 分鐘|預計還需|AI 主題|檢查個人主題版本/);
     assert.equal($('a[href="/account/taxonomy"],form[action^="/account/taxonomy"]').length, 0);
@@ -86,5 +92,58 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     assert.equal(f.store.processingStatus(f.user.id)?.state, 'running');
     const dashboard = load(await (await f.app.request('/v3-dashboard?lang=zh', { headers: f.headers })).text());
     assert.equal(dashboard('[data-v3-interests] .section-head span').text(), '暫定結果', 'previous ready profile remains provisional during a rebuild');
+  } finally { f.registry.close(); }
+});
+
+
+test('Insights restores all channel groups and keywords alongside v3, and isolates upstream failure', async () => {
+  const f = fixture();
+  try {
+    const channelId = 'UCaaaaaaaaaaaaaaaaaaaaaa';
+    f.repository.upsertYoutubeVideoMetadata([{
+      videoId: 'AAAAAAAAAA1', title: 'Fixture music lesson', channelId, channelTitle: 'Fixture tagged channel',
+      description: '', tags: ['fixture-music'], thumbnailUrl: '', durationSeconds: 600,
+      publishedAt: null, categoryId: '10', availability: 'available', metadataHash: 'tags-fixture',
+    }]);
+    const snapshot: TagListSnapshot = {
+      lists: {
+        news: new Set([channelId]), editorial: new Set([channelId]), editorialShows: new Set([channelId]),
+        blue: new Set([channelId]), green: new Set([channelId]), white: new Set([channelId]), red: new Set([channelId]),
+      },
+      provenance: {
+        sourceUrl: 'https://example.test/channel-tags', sourceUpdatedAt: '2026-09-05 01:58:34',
+        fetchedAt: '2026-09-05T01:58:35.000Z', membershipVersion: 'sha256:fixture',
+        policyVersion: TAG_POLICY.version, policyUrl: TAG_POLICY.url, reportUrl: TAG_POLICY.reportUrl,
+      },
+    };
+    let fail = false;
+    let calls = 0;
+    const app = createApp(f.registry, {
+      matchingV3: { settings: f.s, compute: computeClient(f.s) },
+      loadTagLists: async () => { calls++; if (fail) throw new Error('fixture source unavailable'); return snapshot; },
+    });
+    for (const range of ['365d', 'all']) {
+      const response = await app.request(`/v3-dashboard/insights?range=${range}&sort=duration&lang=zh`, { headers: f.headers });
+      assert.equal(response.status, 200);
+      const $ = load(await response.text());
+      assert.equal($('[data-v3-interests] .yt-v3-genre').length, 9);
+      assert.equal($('.tl-hero').length, 1);
+      for (const label of ['泛藍', '泛綠', '泛白', '泛紅', '新聞', '個人社論', '社論節目']) {
+        assert.ok($('.tl-groups').text().includes(label), label);
+      }
+      assert.match($('.tl-groups').text(), /Fixture tagged channel/);
+      assert.equal($('.yt-keywords').length, 1);
+    }
+    assert.equal(calls, 2);
+    fail = true;
+    const unavailable = await app.request('/v3-dashboard/insights?range=all&lang=zh', { headers: f.headers });
+    assert.equal(unavailable.status, 200);
+    const $ = load(await unavailable.text());
+    assert.match($('body').text(), /目前無法驗證頻道標籤來源/);
+    assert.equal($('.tl-hero').length, 0);
+    assert.equal($('[data-v3-interests] .yt-v3-genre').length, 9);
+    assert.equal($('.yt-keywords').length, 1);
+    await app.request('/v3-dashboard?range=all', { headers: f.headers });
+    assert.equal(calls, 3, 'overview does not wait on the external channel-label API');
   } finally { f.registry.close(); }
 });
