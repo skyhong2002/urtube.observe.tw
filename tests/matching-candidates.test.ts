@@ -241,7 +241,7 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.doesNotMatch(first, /href="\/matches\/profile\//);
     assert.equal((first.match(/class="mt-person-link" href="\/[a-z0-9.-]+"/g) ?? []).length, 20);
     assert.match(first, /action="\/matches\/request"/);
-    assert.doesNotMatch(first, /class="mt-percent"/);
+    assert.equal((first.match(/class="mt-percent">\d+%/g) ?? []).length, 20);
     assert.match(first, /Add friend/);
     assert.match(first, /Public members are ready for Blend/);
     // Member handles open profiles; raw private data stays out of the directory.

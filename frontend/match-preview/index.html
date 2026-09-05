@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>配對主題 · urtube</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/"
+        ><span class="brand-icon" aria-hidden="true">▶</span
+        ><span>urtube<small>注意力檔案館</small></span></a
+      >
+      <nav aria-label="主要導覽">
+        <a href="/dashboard">儀表板</a><a href="./" aria-current="page">配對</a
+        ><a href="/account">帳戶</a>
+      </nav>
+      <span class="preview-label">INTERACTION PREVIEW</span>
+    </header>
+    <main>
+      <div class="page-intro">
+        <div>
+          <p class="eyebrow">COMMON INTERESTS. NEW CONNECTIONS.</p>
+          <h1>從喜歡的事，找到聊得來的人<span>。</span></h1>
+          <p class="intro-copy">把興趣分成幾個主題，讓每一次認識都有個開始。</p>
+        </div>
+        <button id="interests-button" class="button subtle">
+          我的興趣 <span aria-hidden="true">↗</span>
+        </button>
+      </div>
+      <div class="preview-note">
+        <span class="status-dot"></span><strong>互動原型</strong
+        ><span
+          >名單為示範人物，主題僅存於本機瀏覽器；尚未連接配對計算與聊天。</span
+        >
+      </div>
+      <section class="workspace" aria-label="配對主題工作區">
+        <aside class="sidebar">
+          <div class="sidebar-heading">
+            <div>
+              <p class="eyebrow">YOUR COLLECTION</p>
+              <h2>配對主題 <span id="topic-count">0</span></h2>
+            </div>
+            <button
+              class="icon-button primary-icon"
+              id="create-button"
+              aria-label="建立配對主題"
+            >
+              ＋
+            </button>
+          </div>
+          <label class="search"
+            ><span aria-hidden="true">⌕</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="搜尋主題或分類"
+              aria-label="搜尋配對主題"
+          /></label>
+          <div
+            id="topic-list"
+            class="topic-list"
+            aria-label="我的配對主題"
+          ></div>
+          <div class="sidebar-footer">
+            <span class="small-orbit" aria-hidden="true">✳</span>
+            <p>
+              一個主題，一種認識的可能。<br /><span
+                >每個主題至少選 1 項，也可以全選。</span
+              >
+            </p>
+          </div>
+        </aside>
+        <section
+          id="detail"
+          class="detail"
+          aria-label="主題配對名單"
+          aria-busy="false"
+        ></section>
+      </section>
+      <footer class="page-footer">
+        <span>同樣的興趣，也能有不一樣的視角。</span
+        ><button id="reset-button" class="text-button">
+          重設此瀏覽器的原型
+        </button>
+      </footer>
+    </main>
+    <dialog
+      id="interests-dialog"
+      class="interests-dialog"
+      aria-labelledby="interests-title"
+    >
+      <form id="interests-form" novalidate>
+        <div class="dialog-top">
+          <span class="eyebrow">01 / YOUR INTERESTS</span
+          ><button
+            type="button"
+            class="icon-button"
+            data-close
+            aria-label="關閉興趣選擇"
+          >
+            ×
+          </button>
+        </div>
+        <div class="intro-symbol" aria-hidden="true">✳</div>
+        <h2 id="interests-title">先從你感興趣的事開始。</h2>
+        <p class="dialog-copy">
+          選擇想用來認識別人的分類。之後建立主題時，可以從這裡挑選 1 項至全部分類。
+        </p>
+        <fieldset>
+          <legend class="sr-only">選擇個人興趣，至少一項</legend>
+          <div id="interest-options" class="category-grid"></div>
+        </fieldset>
+        <p class="field-hint">
+          固定 9
+          種分類，不提供自訂分類。主題使用中的分類需先從該主題移除，才能取消興趣。
+        </p>
+        <p id="interests-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <span id="interest-selection-count" class="muted"></span
+          ><button class="button primary" type="submit">
+            進入配對主題 <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="topic-dialog" aria-labelledby="topic-dialog-title">
+      <form id="topic-form" novalidate>
+        <div class="dialog-top">
+          <span class="eyebrow">CURATE A CONNECTION</span
+          ><button
+            type="button"
+            class="icon-button"
+            data-close
+            aria-label="關閉主題編輯"
+          >
+            ×
+          </button>
+        </div>
+        <h2 id="topic-dialog-title">建立配對主題</h2>
+        <p class="dialog-copy">給這份名單一個名字，再選擇你們的共同話題。</p>
+        <label class="field-label" for="topic-name"
+          >主題名稱 <span>最多 30 個字</span></label
+        ><input
+          class="name-input"
+          id="topic-name"
+          maxlength="30"
+          placeholder="例如：下班後的音樂時光"
+          autocomplete="off"
+          required
+        />
+        <div class="field-label category-label">
+          主題分類 <span id="category-count">已選 0／9</span>
+        </div>
+        <fieldset>
+          <legend class="sr-only">選擇一至三個主題分類</legend>
+          <div id="topic-options" class="category-grid"></div>
+        </fieldset>
+        <p class="field-hint" id="category-help">
+          至少選擇 1 個分類，也可以選取全部已確認的興趣。
+        </p>
+        <button
+          type="button"
+          id="edit-interests-from-topic"
+          class="text-button"
+        >
+          調整我的興趣 ↗
+        </button>
+        <p id="topic-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="button subtle" data-close>取消</button
+          ><button type="submit" class="button primary" id="save-topic">
+            建立並查看名單 →
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog
+      id="compare-dialog"
+      class="compare-dialog"
+      aria-labelledby="compare-title"
+    >
+      <div id="compare-content"></div>
+    </dialog>
+    <dialog
+      id="confirm-dialog"
+      class="confirm-dialog"
+      aria-labelledby="confirm-title"
+    >
+      <form id="confirm-form">
+        <span class="eyebrow">CONFIRM ACTION</span>
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-description" class="dialog-copy"></p>
+        <div class="dialog-actions">
+          <button class="button subtle" type="button" data-close>取消</button
+          ><button class="button danger" type="submit">確認刪除</button>
+        </div>
+      </form>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

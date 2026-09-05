@@ -63,15 +63,15 @@ function icebreaker(topics: string[], lang: Lang): string {
     : t.matchesIcebreakerGeneric;
 }
 
-export function friendshipActions(card: ActionableMatchingCandidateCard, viewerHandle: string, t: Messages, returnTo: string): string {
+export function friendshipActions(card: ActionableMatchingCandidateCard, viewerHandle: string, t: Messages, returnTo: string, includeBlend = true): string {
   const canBlend = card.targetPublic || card.relationship.status === 'connected';
-  const blend = canBlend ? `<a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a>` : '';
-  if (card.targetPublic) return blend;
+  const blend = includeBlend && canBlend ? `<a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a>` : '';
+  if (card.targetPublic && card.relationship.status === 'none') return blend;
   const token = `<input type="hidden" name="actionToken" value="${html(card.actionToken ?? '')}"><input type="hidden" name="returnTo" value="${html(returnTo)}">`;
   switch (card.relationship.status) {
     case 'none': return `${blend}<form method="post" action="/matches/request">${token}<button class="mt-want" type="submit">${html(t.matchesAddFriend)}</button></form>`;
-    case 'incoming': return `<form method="post" action="/matches/respond">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-want" name="response" value="accept">${html(t.matchesAcceptFriend)}</button><button class="mt-secondary" name="response" value="decline">${html(t.matchesDecline)}</button></form>`;
-    case 'sent': return `<span class="mt-state sent">${html(t.matchesFriendSent)}</span><form method="post" action="/matches/withdraw">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${html(t.matchesWithdraw)}</button></form>`;
+    case 'incoming': return `${blend}<form method="post" action="/matches/respond">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-want" name="response" value="accept">${html(t.matchesAcceptFriend)}</button><button class="mt-secondary" name="response" value="decline">${html(t.matchesDecline)}</button></form>`;
+    case 'sent': return `${blend}<span class="mt-state sent">${html(t.matchesFriendSent)}</span><form method="post" action="/matches/withdraw">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${html(t.matchesWithdraw)}</button></form>`;
     case 'connected': return `${blend}<form method="post" action="/matches/withdraw">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${html(t.matchesDisconnect)}</button></form>`;
   }
 }
@@ -84,9 +84,8 @@ function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: stri
     : card.disclosure.channel
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
-  const canBlend = card.targetPublic || card.relationship.status === 'connected';
   return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2>${canBlend ? `<div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div>` : ''}</div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
@@ -299,19 +298,7 @@ export function matchingCandidatePage(
     ? interestPills(card.interests.slice(0, connected ? 5 : 3))
     : `<p>${t.matchesNoProfileTopics}</p>`;
   const metrics = `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
-  const actionToken = `<input type="hidden" name="actionToken" value="${html(card.actionToken ?? '')}">`;
-  let actions: string;
-  if (card.targetPublic) {
-    actions = '';
-  } else if (card.relationship.status === 'none') {
-    actions = `<form method="post" action="/matches/request">${actionToken}<button class="mt-want" type="submit">${t.matchesWant}</button></form>`;
-  } else if (card.relationship.status === 'incoming') {
-    actions = `<form method="post" action="/matches/respond">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-want" name="response" value="accept">${t.matchesWantToo}</button><button class="mt-secondary" name="response" value="decline">${t.matchesDecline}</button></form>`;
-  } else if (card.relationship.status === 'sent') {
-    actions = `<span class="mt-state sent">${t.matchesSentStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesWithdraw}</button></form>`;
-  } else {
-    actions = `<span class="mt-state connected">${t.matchesConnectedStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form>`;
-  }
+  const actions = friendshipActions(card, viewer.handle, t, `/${card.handle}`, false);
   const consentNote = card.targetPublic ? t.matchesPublicBlendNote : connected ? t.matchesConsentConnectedNote : t.matchesConsentPendingNote;
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>

@@ -148,3 +148,56 @@ for (const revocation of ['public', 'friendship', 'session'] as const) {
     } finally { registry.close(); }
   });
 }
+
+for (const decision of ['accept', 'decline', 'withdraw'] as const) {
+  test(`private recipients can ${decision} invitations from public profiles without gating public Blend`, async () => {
+    const registry = new UserRegistry(':memory:');
+    try {
+      const sender = registry.createUser('invite-public', 'Public Sender');
+      const recipient = registry.createUser('invite-private', 'Private Recipient');
+      publish(registry, sender); publish(registry, recipient);
+      registry.setDashboardPublic(sender.handle, true);
+      const app = createApp(registry, { loadTagLists: async () => snapshot });
+      const senderHeaders = { cookie: `urtube_session=${registry.createSession(sender)}` };
+      const recipientHeaders = { cookie: `urtube_session=${registry.createSession(recipient)}` };
+      const privateProfile = load(await (await app.request('/invite-private?lang=zh', { headers: senderHeaders })).text());
+      const post = (path: string, values: Record<string, string>, headers: Record<string, string>) => app.request(path, {
+        method: 'POST', headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(values),
+      });
+      const sent = await post('/matches/request', { actionToken: privateProfile('[name=actionToken]').attr('value')!, returnTo: '/invite-private' }, senderHeaders);
+      assert.equal(sent.status, 302);
+      const requestToken = registry.matchingInboxFor(recipient).incoming[0]!.requestToken;
+      const directory = load(await (await app.request('/matches?lang=zh', { headers: recipientHeaders })).text());
+      const card = directory('.mt-card').filter((_, el) => directory(el).find('h2').text() === 'Public Sender');
+      assert.equal(card.find('.mt-actions a').attr('href'), '/invite-private/compare/invite-public');
+      assert.equal(card.find('form[action="/matches/respond"] [name=requestToken]').attr('value'), requestToken);
+      assert.equal(card.find('button[value=accept]').text(), '接受好友邀請');
+      assert.equal(card.find('button[value=decline]').text(), '拒絕');
+      assert.equal(card.find('.mt-percent').text(), '100%合拍度');
+      const blendResponse = await app.request('/invite-private/compare/invite-public', { headers: recipientHeaders });
+      assert.equal(blendResponse.status, 200);
+      const blend = load(await blendResponse.text());
+      assert.equal(blend('form[action="/matches/respond"]').length, 1);
+      assert.equal(blend('.mt-locked').length, 0);
+      const profile = load(await (await app.request('/invite-public?lang=zh', { headers: recipientHeaders })).text());
+      assert.equal(profile('.yt-profile').length, 1);
+      assert.equal(profile('.yt-friendship button[value=accept]').text(), '接受好友邀請');
+      assert.equal(profile('.yt-friendship [name=requestToken]').attr('value'), requestToken);
+      assert.equal(profile('.yt-page-nav a').length, 2);
+      if (decision === 'withdraw') {
+        assert.equal((await post('/matches/withdraw', { requestToken, returnTo: '/matches' }, senderHeaders)).status, 302);
+      } else {
+        const response = await post('/matches/respond', {
+          requestToken, actionToken: profile('.yt-friendship [name=actionToken]').attr('value')!, response: decision, returnTo: '/invite-public',
+        }, recipientHeaders);
+        assert.equal(response.status, 302);
+      }
+      assert.equal(registry.matchingRelationshipFor(recipient, sender.id).status, decision === 'accept' ? 'connected' : 'none');
+      const after = load(await (await app.request('/invite-public', { headers: recipientHeaders })).text());
+      assert.equal(after('form[action="/matches/respond"]').length, 0);
+      assert.equal(after('form[action="/matches/withdraw"]').length, decision === 'accept' ? 1 : 0);
+      assert.equal((await app.request('/invite-private/compare/invite-public', { headers: recipientHeaders })).status, 200);
+      assert.equal((await app.request('/invite-private/insights', { headers: senderHeaders })).status, decision === 'accept' ? 200 : 404);
+    } finally { registry.close(); }
+  });
+}
