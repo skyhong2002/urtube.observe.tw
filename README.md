@@ -15,7 +15,7 @@ matching.
 | Try it | Source and evidence |
 | --- | --- |
 | **Live product:** [urtube.observe.tw](https://urtube.observe.tw) | **Public repository:** [skyhong2002/urtube.observe.tw](https://github.com/skyhong2002/urtube.observe.tw) |
-| **No account:** open **Example dashboard** from the top navigation | [Demo runbook](docs/demo-runbook.md) · [security audit](docs/security-audit.md) · [License](LICENSE) · [system boundary](YOUTUBE_BOUNDARY.md) · [migration disclosure](MIGRATION_PLAN.md) · [operations](CUTOVER_RUNBOOK.md) |
+| **No account:** open **Example dashboard** from the top navigation | [Canonical pitch](docs/pitch.md) · [Demo runbook](docs/demo-runbook.md) · [security audit](docs/security-audit.md) · [License](LICENSE) · [system boundary](YOUTUBE_BOUNDARY.md) · [migration disclosure](MIGRATION_PLAN.md) · [operations](CUTOVER_RUNBOOK.md) |
 
 There is no shared test account. To exercise private import and matching,
 choose **Sign up / sign in** and use your own Google account; new dashboards
