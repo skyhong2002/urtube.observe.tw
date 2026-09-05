@@ -472,6 +472,14 @@ export class UserRegistry {
     return rows.map(rowToUser);
   }
 
+  // Everyone who joined matching. Channel pages aggregate across these
+  // people; nobody outside the pool contributes or can look.
+  listMatchingMembers(): User[] {
+    const rows = this.db.prepare('SELECT * FROM users WHERE matching_opt_in=1 ORDER BY id')
+      .all() as Array<Record<string, unknown>>;
+    return rows.map(rowToUser);
+  }
+
   listReferencePopulationUsers(): User[] {
     const rows = this.db.prepare(`
       SELECT * FROM users WHERE reference_opt_in=1 ORDER BY id
