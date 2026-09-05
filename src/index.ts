@@ -8,6 +8,7 @@ import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHa
 import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
+import { cachedRead, clearReadCaches } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
@@ -112,115 +113,36 @@ function clientIp(c: Context): string {
   return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
 }
 
-// Dashboard aggregates and crystals are pure functions of the event set, so
-// cache them keyed on the table counts (cheap to read) with a short TTL as a
-// backstop for metadata enrichment that changes estimates without new rows.
-const CACHE_TTL_MS = 300_000;
-const dashboardCache = new Map<string, { key: string; at: number; data: YoutubeDashboardData }>();
-const crystalCache = new Map<string, { key: string; at: number; crystal: YoutubeCrystal }>();
-const comparisonCache = new Map<string, { key: string; at: number; profile: YoutubeComparisonProfile }>();
-const channelDirectoryCaches = new WeakMap<UserRegistry, Map<string, { key: string; at: number; channels: YoutubeChannelSummary[] }>>();
-const channelCaches = new WeakMap<UserRegistry, Map<string, { key: string; at: number; detail: YoutubeChannelDetail }>>();
-// Handles worth pre-warming: the owner plus anyone whose dashboard was
-// actually visited since boot. Keeps the warm sweep (and its open SQLite
-// handles) proportional to traffic, not to total signups.
+// Shared revision-aware data cache. Every route still checks the current
+// session, visibility, membership and consent before reading cached data.
 const warmedHandles = new Set<string>();
-
-// Pending enrichment rides along in the key: the worker changes estimates
-// and topics without adding rows, and readers should see that promptly
-// rather than after the TTL.
-function validityFor(
-  counts: { watches: number; searches: number; videos: number; channels: number },
-  processing: { pending: number },
-): string {
-  return `${counts.watches}:${counts.searches}:${counts.videos}:${counts.channels}:${processing.pending}`;
+function countsFor(repository: Repository) {
+  return cachedRead(repository, 'counts', () => repository.youtubeCounts());
 }
-
 function processingFor(repository: Repository): YoutubeProcessingStatus {
-  return describeYoutubeProcessing(repository.youtubeProcessingCounts(), youtubeProcessingCapabilities());
+  // ETA and stale-worker status also depend on the clock.
+  return cachedRead(repository, 'processing', () =>
+    describeYoutubeProcessing(repository.youtubeProcessingCounts(), youtubeProcessingCapabilities()), 5000);
 }
-
 function evictUserCaches(handle: string): void {
-  for (const range of YOUTUBE_RANGES) dashboardCache.delete(`${handle}:${range}`);
-  for (const range of COMPARISON_RANGES) comparisonCache.delete(`${handle}:${range}`);
-  crystalCache.delete(handle);
+  clearReadCaches();
   warmedHandles.delete(handle);
 }
-
-// One cache discipline for every aggregate consumer (dashboard pages,
-// crystal.json, /compare, the warm sweep): entries are keyed on the table
-// counts with a shared TTL. Callers that already computed counts pass them
-// in so a request never runs the COUNT aggregates twice.
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeDashboardData {
-  const now = Date.now();
-  const id = `${user.handle}:${range}`;
-  let entry = dashboardCache.get(id);
-  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-    entry = { key: validity, at: now, data: repository.youtubeDashboard(range) };
-    dashboardCache.set(id, entry);
-  }
-  return entry.data;
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user)): YoutubeDashboardData {
+  return cachedRead(repository, `dashboard:${range}`, () => repository.youtubeDashboard(range));
 }
-
-// One side of a two-person comparison. Same discipline as the dashboard
-// cache; the comparison itself is recomputed per request because it
-// depends on the current relationship and disclosure settings.
-function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeComparisonProfile {
-  const now = Date.now();
-  const id = `${user.handle}:${range}`;
-  let entry = comparisonCache.get(id);
-  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-    entry = { key: validity, at: now, profile: repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, range) };
-    comparisonCache.set(id, entry);
-  }
-  return entry.profile;
+function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): YoutubeComparisonProfile {
+  return cachedRead(repository, `comparison:${range}`, () => repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, range));
 }
-
-function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: string, range: ChannelPageRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeChannelDetail {
-  const now = Date.now();
-  let channelCache = channelCaches.get(registry);
-  if (!channelCache) {
-    channelCache = new Map();
-    channelCaches.set(registry, channelCache);
-  }
-  const id = `${user.id}:${channelId}:${range}`;
-  let entry = channelCache.get(id);
-  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-    entry = { key: validity, at: now, detail: repository.youtubeChannelDetail(channelId, range) };
-    // Keep arbitrary channel/range navigation from growing the cache forever.
-    if (channelCache.size >= 128) channelCache.delete(channelCache.keys().next().value!);
-    channelCache.set(id, entry);
-  }
-  return entry.detail;
+function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: string, range: ChannelPageRange, repository = registry.repositoryFor(user)): YoutubeChannelDetail {
+  return cachedRead(repository, `channel:${channelId}:${range}`, () => repository.youtubeChannelDetail(channelId, range));
 }
-
-function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: ChannelPageRange): YoutubeChannelSummary[] {
-  let cache = channelDirectoryCaches.get(registry);
-  if (!cache) {
-    cache = new Map();
-    channelDirectoryCaches.set(registry, cache);
-  }
+function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange): YoutubeChannelSummary[] {
   const repository = registry.repositoryFor(user);
-  const key = validityFor(repository.youtubeCounts(), processingFor(repository));
-  const id = `${user.id}:${range}`;
-  const now = Date.now();
-  let entry = cache.get(id);
-  if (!entry || entry.key !== key || now - entry.at > CACHE_TTL_MS) {
-    entry = { key, at: now, channels: repository.youtubeChannelTotals(range) };
-    if (cache.size >= 128) cache.delete(cache.keys().next().value!);
-    cache.set(id, entry);
-  }
-  return entry.channels;
+  return cachedRead(repository, `channels:${range}`, () => repository.youtubeChannelTotals(range));
 }
-
-function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeCrystal {
-  const now = Date.now();
-  let entry = crystalCache.get(user.handle);
-  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
-    entry = { key: validity, at: now, crystal: buildYoutubeCrystal(repository, user) };
-    crystalCache.set(user.handle, entry);
-  }
-  return entry.crystal;
+function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystal {
+  return cachedRead(repository, `crystal:${user.handle}:${user.displayName}`, () => buildYoutubeCrystal(repository, user));
 }
 
 interface AppServices {
@@ -348,9 +270,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   ) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
-    const counts = repository.youtubeCounts();
+    const counts = countsFor(repository);
     const processing = processingFor(repository);
-    const validity = validityFor(counts, processing);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
     const shortFormVariant = requestedShortForm === 'stacked'
@@ -359,7 +280,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'absolute'
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
-    const data = cachedDashboardFor(registry, user, range, repository, validity);
+    const data = cachedDashboardFor(registry, user, range, repository);
     const hasData = counts.watches > 0;
     const me = sessionUser(c);
     const viewerOwns = me?.id === user.id;
@@ -367,14 +288,14 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     // the dashboard key may also see individual recent watches.
     const showRecent = viewerOwns || dashboardKeyAccess(c, user);
     const crystalHtml = page === 'insights' && hasData
-      ? shiftsSection(cachedCrystalFor(registry, user, repository, validity), lang) : '';
+      ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
     let leaningsHtml = '';
     if (page === 'insights' && hasData) {
       try {
         const snapshot = await loadTagLists();
         const tagLean = computeTagLean(
           range,
-          repository.youtubeChannelTotals(range),
+          cachedChannelTotalsFor(registry, user, range),
           snapshot,
         );
         const contributions = registry.listReferencePopulationUsers().flatMap((contributor) => {
@@ -388,7 +309,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
               ? tagLean
               : computeTagLean(
                 range,
-                contributorRepository.youtubeChannelTotals(range),
+                cachedChannelTotalsFor(registry, contributor, range),
                 snapshot,
               ),
           }];
@@ -1595,13 +1516,12 @@ function warmDashboards(registry: UserRegistry): void {
         continue;
       }
       const repository = registry.repositoryFor(user);
-      const counts = repository.youtubeCounts();
+      const counts = countsFor(repository);
       if (counts.watches === 0) continue;
-      const validity = validityFor(counts, processingFor(repository));
       for (const range of YOUTUBE_RANGES) {
-        cachedDashboardFor(registry, user, range, repository, validity);
+        cachedDashboardFor(registry, user, range, repository);
       }
-      cachedCrystalFor(registry, user, repository, validity);
+      cachedCrystalFor(registry, user, repository);
     } catch (error) {
       console.error(`dashboard warm failed for ${handle}:`, error instanceof Error ? error.message : error);
     }

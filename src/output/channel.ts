@@ -131,7 +131,9 @@ const shelfScript = `<script>(()=>{
     });
     for(const button of buttons)button.addEventListener('click',()=>rail.scrollBy({left:Number(button.dataset.chScroll)*rail.clientWidth*.85,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'}));
     rail.addEventListener('scroll',update,{passive:true});
-    new ResizeObserver(update).observe(rail);
+    const observer=new ResizeObserver(update);
+    observer.observe(rail);
+    window.urtubePageController.signal.addEventListener('abort',()=>observer.disconnect(),{once:true});
     update();
   }
 })();</script>`;

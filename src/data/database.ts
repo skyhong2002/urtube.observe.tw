@@ -376,6 +376,15 @@ export class Repository {
   private readonly path: string;
   private estimatedEventsKey = '';
   private estimatedEventsBuiltAt = 0;
+  private estimatedEventsRevision = '';
+
+  // data_version observes other connections (ingest/worker); total_changes
+  // observes writes through this connection, including updates with no new rows.
+  readRevision(): string {
+    const version = this.db.prepare('PRAGMA main.data_version').get()!.data_version;
+    const changes = this.db.prepare('SELECT total_changes() AS n').get()!.n;
+    return `${version}:${changes}`;
+  }
 
   constructor(path: string) {
     this.path = path;
@@ -1597,6 +1606,8 @@ export class Repository {
   // window functions. Rebuilt immediately when events, durations, metadata,
   // or saved progress change, and periodically as a final consistency guard.
   private ensureEstimatedEvents(): void {
+    const revision = this.readRevision();
+    if (revision === this.estimatedEventsRevision && Date.now() - this.estimatedEventsBuiltAt < 300_000) return;
     const row = this.db.prepare(`
       SELECT (SELECT COUNT(*) FROM youtube_watch_events) watches,
         (SELECT COUNT(*) FROM youtube_search_events) searches,
@@ -1615,7 +1626,10 @@ export class Repository {
       row.progress, row.progress_seconds, row.progress_latest,
     ].join(':');
     const now = Date.now();
-    if (key === this.estimatedEventsKey && now - this.estimatedEventsBuiltAt < 300_000) return;
+    if (key === this.estimatedEventsKey && now - this.estimatedEventsBuiltAt < 300_000) {
+      this.estimatedEventsRevision = revision;
+      return;
+    }
     this.db.exec(`
       DROP TABLE IF EXISTS temp.youtube_estimated_events;
       CREATE TEMP TABLE youtube_estimated_events AS ${YOUTUBE_ESTIMATED_EVENTS_CTE}
@@ -1625,6 +1639,7 @@ export class Repository {
     `);
     this.estimatedEventsKey = key;
     this.estimatedEventsBuiltAt = now;
+    this.estimatedEventsRevision = this.readRevision();
   }
 
   // Every channel with at least one watch in range, no top-N cut: the

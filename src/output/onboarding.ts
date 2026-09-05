@@ -377,7 +377,7 @@ export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang =
         badge.hidden = false;
         badge.textContent = status.state === 'running' ? syncing(status.events ?? 0) : connected;
       };
-      window.addEventListener('urtube-youtube-import-status', update);
+      window.addEventListener('urtube-youtube-import-status', update, { signal: window.urtubePageController.signal });
       update();
     })();</script>
   </div>`;
