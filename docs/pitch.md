@@ -1,7 +1,8 @@
 # Canonical product pitch
 
 Use these claims consistently in the submission summary, video narration,
-README, live demo, and judge Q&A. They describe the deployed product; do not
+README, live demo, and judge Q&A. They describe source behavior verified at
+main `d082b3a`; production must be checked separately. Do not
 substitute an earlier formula or retired per-topic matching controls.
 
 ## One sentence
@@ -99,11 +100,21 @@ fallback is shown.
 
 ## Disclosure boundary
 
-Before mutual consent, the VS page shows rounded percentages, broad topic
-ranks, and each person's own rhythm as shares. After both people choose
-**Want to meet**, the page may show absolute aggregate statistics, shared
-channels/videos with each person's rank, and first/last watch at calendar-day
-precision. Search history, exact timestamps, raw vectors/shares, introductions,
-contacts, email, and private dashboards are never exchanged. Turning matching
-off immediately removes the account from new discovery and withdraws active
-requests and connections.
+Private accounts first exchange a friend invitation. Once accepted, friends
+can view Overview, Insights and Blend, including allowed aggregate counts,
+shared channels/videos and calendar-day watch dates. History and Recap still
+require the owner session or dashboard key. A public profile's Overview and
+Insights are visible to guests; signed-in members can open its Blend directly,
+without friendship, matching opt-in or discovery eligibility. An unavailable
+score is shown as a dash, not an invented percentage.
+
+Turning matching off removes private discovery and revokes invitations and
+friendships. It does **not** unpublish a public profile: that is a separate
+visibility setting. Search queries, exact timestamps, complete histories,
+raw vectors, email and contacts are not disclosed by Blend. Access is rechecked
+after asynchronous reads. Evidence: `tests/visibility.test.ts`,
+`tests/match-requests.test.ts` and `tests/privacy-lifecycle.test.ts`.
+
+Use [the timed scripts and judge answers](demo-delivery.md) for recording and
+rehearsal. Older issue wording about **Want to meet** is now **Add friend**;
+do not imply that public Blend requires mutual consent.
