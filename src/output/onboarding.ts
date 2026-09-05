@@ -35,8 +35,8 @@ const formStyles = `
   .ob-steps strong{color:var(--ink)}
   .ob-google{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);display:inline-flex;font-size:14px;font-weight:700;gap:10px;padding:11px 20px;text-decoration:none}
   .ob-google:hover{border-color:var(--muted)}
-  .ob-advanced{border-top:1px solid var(--line);padding-top:22px}.ob-advanced>summary{color:var(--accent-text);cursor:pointer;font-size:14px;font-weight:750;list-style-position:outside;margin-left:16px;padding-left:3px}.ob-advanced>summary:hover{color:var(--ink)}
-  .ob-advanced-body{padding-top:18px}.ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
+  .ob-advanced{border-top:1px solid var(--line);padding-top:22px}
+  .ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
   .ob-switches{display:grid;gap:8px;margin:4px 0 10px}.ob-switch{align-items:flex-start;background:var(--raised);border:1px solid var(--line);border-radius:10px;cursor:pointer;display:flex;gap:12px;padding:11px 12px}.ob-switch input{flex:0 0 auto;height:18px;margin:2px 0 0;width:18px}.ob-switch strong{color:var(--ink);display:block;font-size:13px}.ob-switch small{color:var(--ink-2);display:block;font-size:11px;line-height:1.5;margin-top:2px}
 `;
 
@@ -142,20 +142,18 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     : state.takeoutError
       ? `<div class="ob-error" role="alert">${t.accountTakeoutFailed(html(state.takeoutError))}</div>`
       : '';
-  const takeout = `<details class="ob-advanced"${takeoutFeedback ? ' open' : ''}>
-      <summary>${t.accountTakeoutSummary}</summary>
-      <div class="ob-advanced-body">
-        <p>${t.accountTakeoutPara}</p>
-        <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
-        ${takeoutFeedback}
-        <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
-          <label for="takeout">${t.accountTakeoutFile}</label>
-          <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required>
-          <p class="ob-help">${t.accountTakeoutLimit}</p>
-          <button type="submit">${t.accountTakeoutSubmit}</button>
-        </form>
-      </div>
-    </details>`;
+  const takeout = `<section class="ob-advanced" id="account-takeout">
+      <h2>${t.accountTakeoutSummary}</h2>
+      <p>${t.accountTakeoutPara}</p>
+      <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+      ${takeoutFeedback}
+      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
+        <label for="takeout">${t.accountTakeoutFile}</label>
+        <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required>
+        <p class="ob-help">${t.accountTakeoutLimit}</p>
+        <button type="submit">${t.accountTakeoutSubmit}</button>
+      </form>
+    </section>`;
   const matchingSettings = `
       <form method="post" action="/account/matching" class="ob-form">
         <div class="ob-switches">
