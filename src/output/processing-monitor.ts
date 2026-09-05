@@ -68,7 +68,7 @@ export const processingMonitorScript = String.raw`
     if (progress) {
       const phase = progress.phase === 'classification' ? t('影片分類', 'Video classification')
         : progress.phase === 'embedding' ? t('標籤向量（目前批次）', 'Tag embeddings (current batch)')
-        : t('頻道類型處理', 'Channel-type processing');
+        : t('其他類別處理', 'Channel-type processing');
       const prefix = state === 'running' ? t('目前階段：', 'Current phase: ') : t('最後回報階段：', 'Last reported phase: ');
       const counts = progress.phase === 'channels' ? t('來源影片 ', 'Source videos: ') + number(progress.total)
         : number(progress.processed) + ' / ' + number(progress.total) + (progress.phase === 'embedding' ? ' tags' : t(' 部影片', ' videos'));
