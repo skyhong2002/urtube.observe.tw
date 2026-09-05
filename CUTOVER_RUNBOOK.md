@@ -1,26 +1,15 @@
 # CUTOVER_RUNBOOK — urtube.observe.tw
 
-## Current public deployment (verified 2026-09-05)
+## Current public deployment (2026-09-06)
 
-The public hostname now reaches **skyhong-SM** through the `urtube-tunnel`
-Cloudflare Tunnel. Its live checkout is `/home/deck/Projects/urtube`.
-The Mac deployment described below is a legacy instance; updating it alone
-does not update the public website.
+Production on **skyhong-SM** is managed by Komodo. Merge to `main`; GitHub
+Actions tests and publishes both images, then Komodo pulls their immutable
+manifest. See [Komodo operations](deploy/komodo/README.md).
 
-For a routine public release on skyhong-SM:
-
-```sh
-cd /home/deck/Projects/urtube
-git pull --ff-only
-docker compose -f docker-compose.yml -f /home/deck/urtube-ops/docker-compose.tunnel.yml up -d --build app ingest worker backup
-curl -fsS https://urtube.observe.tw/healthz
-curl -fsS https://urtube.observe.tw/readyz
-```
-
-Verify the changed behavior through the public hostname as well as container
-health. A healthy legacy instance does not prove the public release succeeded.
-The tunnel configuration and credentials live outside the repository; a
-routine application release does not recreate the tunnel.
+Do not run the former `urtube-deploy` or host source-build Compose commands for
+routine releases: they can overwrite the image deployment. `urtube-snapshot`
+remains the database backup helper. The historical commands below are not the
+current production release procedure.
 
 ## Historical Mac cutover and migration procedures
 

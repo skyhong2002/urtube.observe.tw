@@ -355,19 +355,12 @@ mass and was rejected as the default. No re-embedding is needed for this fix.
 
 ### Production deployment
 
-Use `urtube-deploy` (alias for `sudo -u deck /home/deck/urtube-ops/deploy.sh`)
-against a committed, fetched ref. Do not patch running containers: recreation
-replaces those files. `compose.matching-v3-app.yml` now owns the numeric services
-and matching worker on the production default network. `MATCHING_V3_COMPARE_URL`
-points to a dedicated compare process. Stop the previous local matching worker
-when switching to this stack, keeping the shared data volume intact.
+Production releases now use [Komodo](../deploy/komodo/README.md): merge to
+`main`, wait for CI to publish both immutable images, and verify the scheduled
+Stack deployment. Do not patch running containers or use the former source-build
+helper. Production environment and named volumes remain host-owned; changes to
+those settings require a coordinated Stack configuration update.
 
-The numeric-service build context uses `${PWD}/services/matching-compute`.
-Run Compose from the selected source checkout (the existing deploy.sh/up.sh
-already does this), even if `--project-directory` points at a separate runtime
-directory. This avoids modifying the host deployment scripts or taking compute
-code from somebody else's runtime checkout. Deploy an explicit commit produced
-from `/home/urtube/urtube.observe.tw`; do not implicitly deploy another main tip.
 Only the production URL https://urtube.observe.tw/matches is the test endpoint.
 The topic card exposes the uncalibrated score as a percentage for debugging;
 it is not a probability or a claim of validated compatibility.
