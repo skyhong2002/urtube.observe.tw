@@ -178,7 +178,7 @@ function foldedRows(rows: string[], t: Messages): string {
   const visible = rows.slice(0, COMPARISON_PREVIEW_ROWS).join('');
   const rest = rows.slice(COMPARISON_PREVIEW_ROWS);
   if (!rest.length) return `<div class="mt-rows">${visible}</div>`;
-  return `<div class="mt-rows">${visible}</div><details class="mt-more"><summary>${html(t.matchesShowMore(rest.length))}</summary><div class="mt-rows">${rest.join('')}</div></details>`;
+  return `<div class="mt-rows">${visible}</div><details class="mt-more"><summary><span class="mt-show-more">${html(t.matchesShowMore(rest.length))}</span><span class="mt-show-less">${html(t.matchesShowLess)}</span></summary><div class="mt-rows">${rest.join('')}</div></details>`;
 }
 
 function listSection<T extends CommonItemMeasures>(
@@ -365,6 +365,7 @@ const comparisonStyles = `
   .mt-channel-avatar-link{flex:0 0 36px;text-decoration:none}
   .mt-thumb,.mt-row-main img.mt-thumb{border-radius:6px;flex:0 0 64px;height:36px;width:64px}
   .mt-more summary{color:var(--muted);cursor:pointer;font-size:12px;margin:8px 6px 4px}
+  .mt-more{position:relative}.mt-more .mt-show-less,.mt-more[open] .mt-show-more{display:none}.mt-more[open] .mt-show-less{display:inline}.mt-more[open]{padding-bottom:44px}.mt-more[open]>summary{position:absolute;bottom:0;left:0;right:0}.mt-more summary{min-height:32px;align-content:center}.mt-more summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .mt-clocks{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.mt-clocks .yt-rhythm-clock svg{max-width:300px}.mt-clock-empty{align-items:center;color:var(--muted);display:flex;flex-direction:column;font-size:12px;justify-content:center;min-height:200px;text-align:center}.mt-clock-empty span{color:var(--ink-2);font-weight:700}.mt-clock-empty[hidden]{display:none}
   .mt-week-sub{color:var(--muted);font-size:11px;margin:-8px 0 14px;text-align:center}.mt-week-note{margin:14px auto 0;max-width:620px}
   .mt-week{display:grid;gap:4px}.mt-week-row{align-items:center;display:grid;gap:10px;grid-template-columns:minmax(0,1fr) 80px minmax(0,1fr)}.mt-week-row>span{color:var(--muted);font-size:11px;text-align:center}
