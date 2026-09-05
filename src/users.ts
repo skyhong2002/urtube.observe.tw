@@ -1,7 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { profileSchema, ProfileError, validHandle, type ProfileInput } from './profile.js';
 import { config } from './config.js';
 import { MatchingStore } from './matching-v3/store.js';
 import { AdminMonitoring } from './matching-v3/monitoring.js';
@@ -34,13 +35,15 @@ import {
 // The instance owner's handle; override with OWNER_HANDLE (e.g. skyhong.tw).
 export const DEFAULT_HANDLE = process.env.OWNER_HANDLE ?? 'sky';
 
-const HANDLE_PATTERN = /^[a-z0-9][a-z0-9.-]{1,31}$/;
 export type { MatchingDisclosureLevel } from './youtube/disclosure.js';
 
 export interface User {
   id: number;
   handle: string;
   displayName: string;
+  bio: string;
+  socialLinks: ProfileInput['socialLinks'];
+  storageName: string;
   dashboardPublic: boolean;
   referenceOptIn: boolean;
   matchingOptIn: boolean;
@@ -189,6 +192,9 @@ function rowToUser(row: Record<string, unknown>): User {
     id: Number(row.id),
     handle: String(row.handle),
     displayName: String(row.display_name),
+    bio: String(row.bio ?? ''),
+    socialLinks: JSON.parse(String(row.social_links ?? '[]')),
+    storageName: String(row.storage_name ?? row.handle),
     dashboardPublic: Number(row.dashboard_public) === 1,
     referenceOptIn: Number(row.reference_opt_in) === 1,
     matchingOptIn: Number(row.matching_opt_in) === 1,
@@ -261,6 +267,13 @@ export class UserRegistry {
       this.db.exec('ALTER TABLE users ADD COLUMN key_seed TEXT');
     }
     this.db.exec('UPDATE users SET key_seed=handle WHERE key_seed IS NULL');
+    for (const [name, definition] of [['bio', "TEXT NOT NULL DEFAULT ''"], ['social_links', "TEXT NOT NULL DEFAULT '[]'"], ['storage_name', 'TEXT']]) {
+      if (!columns.some(column => column.name === name)) this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+    }
+    // Freeze existing filenames; handle edits now only update the registry.
+    this.db.exec('UPDATE users SET storage_name=handle WHERE storage_name IS NULL');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS handle_aliases (handle TEXT PRIMARY KEY, user_id INTEGER NOT NULL)`);
+
     // Google identity: sub is Google's permanent account id (emails can
     // change), unique so one Google account maps to at most one user.
     for (const name of ['google_sub', 'google_email', 'avatar_url']) {
@@ -413,33 +426,40 @@ export class UserRegistry {
       avatarUrl?: string;
     } = {},
   ): CreatedUser {
-    if (!HANDLE_PATTERN.test(handle)) {
+    if (!validHandle(handle)) {
       throw new Error('Handle must be 2-32 chars of lowercase letters, digits, dots, or dashes');
     }
-    const captureToken = newToken();
-    const dashboardToken = newToken();
-    const createdAt = new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO users (
-        handle, display_name, capture_token_hash, dashboard_token_hash,
-        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url,
-        matching_opt_in, matching_disclosure, matching_rhythm
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
-      options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
-      options.googleSub ?? null, options.googleEmail ?? null, options.avatarUrl ?? null,
-      // Matching switches start on; the account page turns each one off.
-      1, 'topics_and_channel', 1,
-    );
-    const user = this.userByHandle(handle)!;
-    return { ...user, captureToken, dashboardToken };
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      if (!this.handleAvailable(handle)) throw new ProfileError('handle', 'taken');
+      const captureToken = newToken();
+      const dashboardToken = newToken();
+      const createdAt = new Date().toISOString();
+      this.db.prepare(`
+        INSERT INTO users (
+          handle, display_name, capture_token_hash, dashboard_token_hash,
+          dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url,
+          matching_opt_in, matching_disclosure, matching_rhythm
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
+        options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
+        options.googleSub ?? null, options.googleEmail ?? null, options.avatarUrl ?? null,
+        // Matching switches start on; the account page turns each one off.
+        1, 'topics_and_channel', 1,
+      );
+      this.db.prepare('UPDATE users SET storage_name=handle WHERE handle=?').run(handle);
+      const user = this.userByHandle(handle)!;
+      this.db.exec('COMMIT');
+      return { ...user, captureToken, dashboardToken };
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   // The instance owner: legacy env tokens and the env data key map here, and
   // the migrated Infovore database is this user's data file.
   ensureDefaultUser(): User {
-    const existing = this.userByHandle(DEFAULT_HANDLE);
+    const ownerRow = this.db.prepare('SELECT * FROM users WHERE storage_name=?').get(DEFAULT_HANDLE) as Record<string, unknown> | undefined;
+    const existing = ownerRow ? rowToUser(ownerRow) : this.userByHandle(DEFAULT_HANDLE);
     if (existing) return existing;
     const {
       captureToken: _discardedCaptureToken,
@@ -1114,10 +1134,11 @@ export class UserRegistry {
     if (handle === DEFAULT_HANDLE) throw new Error('Refusing to delete the instance owner');
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
-    const repository = this.repositories.get(handle);
+    if (user.storageName === DEFAULT_HANDLE) throw new Error('Refusing to delete the instance owner');
+    const repository = this.repositories.get(String(user.id));
     if (repository) {
       repository.close();
-      this.repositories.delete(handle);
+      this.repositories.delete(String(user.id));
     }
     this.db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
     this.db.prepare('DELETE FROM users WHERE handle=?').run(handle);
@@ -1127,30 +1148,44 @@ export class UserRegistry {
     }
   }
 
+  handleAvailable(handle: string, userId?: number): boolean {
+    const owner = this.userByHandle(handle);
+    const alias = this.db.prepare('SELECT user_id FROM handle_aliases WHERE handle=?').get(handle) as { user_id: number } | undefined;
+    return (!owner || owner.id === userId) && (!alias || alias.user_id === userId);
+  }
+
+  userByAlias(handle: string): User | null {
+    const row = this.db.prepare('SELECT users.* FROM handle_aliases JOIN users ON users.id=handle_aliases.user_id WHERE handle_aliases.handle=?').get(handle) as Record<string, unknown> | undefined;
+    return row ? rowToUser(row) : null;
+  }
+
+  updateProfile(userId: number, input: unknown): User {
+    const parsed = profileSchema.safeParse(input);
+    if (!parsed.success) throw new ProfileError(parsed.error.issues[0].path[0] as keyof ProfileInput);
+    const value = parsed.data;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT * FROM users WHERE id=?').get(userId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error('Unknown user');
+      const user = rowToUser(row);
+      // Existing accounts may retain a handle that became reserved later.
+      if (value.handle !== user.handle && !validHandle(value.handle)) throw new ProfileError('handle');
+      if (!this.handleAvailable(value.handle, userId)) throw new ProfileError('handle', 'taken');
+      if (user.handle !== value.handle) {
+        this.db.prepare('INSERT OR IGNORE INTO handle_aliases(handle,user_id) VALUES (?,?)').run(user.handle, userId);
+        this.db.prepare('DELETE FROM handle_aliases WHERE handle=? AND user_id=?').run(value.handle, userId);
+      }
+      this.db.prepare('UPDATE users SET handle=?, display_name=?, bio=?, social_links=? WHERE id=?')
+        .run(value.handle, value.displayName, value.bio, JSON.stringify(value.socialLinks), userId);
+      this.db.exec('COMMIT');
+      return this.userByHandle(value.handle)!;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
   renameUser(oldHandle: string, newHandle: string): User {
-    if (!HANDLE_PATTERN.test(newHandle)) {
-      throw new Error('Handle must be 2-32 chars of lowercase letters, digits, dots, or dashes');
-    }
     const user = this.userByHandle(oldHandle);
     if (!user) throw new Error(`Unknown user: ${oldHandle}`);
-    if (this.userByHandle(newHandle)) throw new Error(`Handle already taken: ${newHandle}`);
-    const repository = this.repositories.get(oldHandle);
-    if (repository) {
-      repository.close();
-      this.repositories.delete(oldHandle);
-    }
-    // key_seed intentionally stays put: the encryption key must survive
-    // renames. Only per-user data files move.
-    const oldPath = this.databasePathFor(user);
-    this.db.prepare('UPDATE users SET handle=? WHERE handle=?').run(newHandle, oldHandle);
-    const renamed = this.userByHandle(newHandle)!;
-    const newPath = this.databasePathFor(renamed);
-    if (oldPath !== ':memory:' && newPath !== ':memory:' && oldPath !== newPath && existsSync(oldPath)) {
-      for (const suffix of ['', '-wal', '-shm']) {
-        if (existsSync(`${oldPath}${suffix}`)) renameSync(`${oldPath}${suffix}`, `${newPath}${suffix}`);
-      }
-    }
-    return renamed;
+    return this.updateProfile(user.id, { ...user, handle: newHandle });
   }
 
   userByGoogleSub(sub: string): User | null {
@@ -1308,8 +1343,8 @@ export class UserRegistry {
     if (this.dataDir === ':memory:') return ':memory:';
     // The default user uses the main database path (the migrated Infovore
     // data); everyone else gets their own file under data/users/.
-    if (user.handle === DEFAULT_HANDLE) return config.databasePath;
-    return join(this.dataDir, `${user.handle}.sqlite`);
+    if (user.storageName === DEFAULT_HANDLE) return config.databasePath;
+    return join(this.dataDir, `${user.storageName}.sqlite`);
   }
 
   databaseBytesFor(user: User): number {
@@ -1322,7 +1357,7 @@ export class UserRegistry {
   }
 
   repositoryFor(user: User): Repository {
-    const key = user.handle;
+    const key = String(user.id);
     let repository = this.repositories.get(key);
     if (!repository) {
       repository = new Repository(this.databasePathFor(user));

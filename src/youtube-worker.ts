@@ -78,7 +78,7 @@ export async function runYoutubeWorkerCycle(
     // this archive was last looked at, even when a step fails midway.
     repository.setYoutubeSyncState('worker_cycle_at', now().toISOString());
     try {
-      const portability = user.handle === DEFAULT_HANDLE
+      const portability = user.storageName === DEFAULT_HANDLE
         ? await steps.portability(repository, user)
         : 'not_applicable';
       const metadata = await steps.metadata(repository, user);

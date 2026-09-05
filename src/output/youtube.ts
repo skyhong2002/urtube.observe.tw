@@ -671,6 +671,7 @@ function recapSection(data: YoutubeDashboardData, t: Messages): string {
 export type YoutubeDashboardPageKind = 'overview' | 'insights' | 'history' | 'recap';
 
 export interface YoutubeDashboardOptions {
+  profileHtml?: string;
   // Path the dashboard is served under; range/sort links stay on it.
   basePath?: string;
   nav?: ShellNavItem[];
@@ -838,6 +839,7 @@ export function youtubeDashboardPage(
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
+    ${options.profileHtml ?? ''}
     <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div>${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '') + stableTopics

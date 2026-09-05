@@ -37,7 +37,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
   for (const path of ['/matching-v3', '/matching-v3/*', '/api/matching-v3', '/api/matching-v3/*']) {
     app.use(path, bodyLimit({ maxSize: 32 * 1024 }), authorize);
   }
-  const isAdmin = (user: User) => s.adminHandles.includes(user.handle);
+  const isAdmin = (user: User) => s.adminHandles.includes(user.storageName);
   const adminOnly: MiddlewareHandler<{ Variables: { user: User } }> = async (c, next) => {
     if (!isAdmin(c.get('user'))) return c.json({ error: 'admin_required' }, 403);
     await next();

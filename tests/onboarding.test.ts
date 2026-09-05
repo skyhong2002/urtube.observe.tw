@@ -324,11 +324,13 @@ test('account page toggles dashboard visibility and edits the display name', asy
     assert.ok(accountHtml.includes(`v${bundledVersion}`), 'account shows the bundled extension version');
     assert.deepEqual(await (await app.request('/extension-version.json')).json(), { version: bundledVersion });
 
-    // Display name edits apply immediately.
+    // Display name edits apply immediately with the session-bound form token.
+    const editHtml = await (await app.request('/account/profile', { headers: { cookie: session } })).text();
+    const csrf = editHtml.match(/name="csrf" value="([^"]+)"/)![1];
     await app.request('/account/profile', {
       method: 'POST',
       headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'displayName=Renamed Vis',
+      body: new URLSearchParams({displayName: 'Renamed Vis', handle: 'vis', bio: '', csrf}).toString(),
     });
     assert.equal(registry.userByHandle('vis')?.displayName, 'Renamed Vis');
 

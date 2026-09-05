@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:profile": "tsx scripts/preview-profile.ts",
     "start": "tsx src/index.ts",
     "ingest": "tsx src/ingest.ts",
     "worker": "tsx src/youtube-worker.ts",

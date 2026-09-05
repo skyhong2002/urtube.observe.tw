@@ -1,8 +1,13 @@
+import { normalizeSocialUrl } from './social-links.js';
+import { createHash } from 'node:crypto';
+import { ProfileError, validHandle, type ProfileInput } from './profile.js';
+import { profileDetails, profileEditPage, profileMessages } from './output/profile.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { AvatarService, type AvatarImage } from './avatars.js';
@@ -184,6 +189,28 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return entry.result;
   };
   app.use('*', securityHeaders(true));
+  app.use('/account/profile', bodyLimit({ maxSize: 100_000 }));
+  app.use('*', async (c, next) => {
+    if (c.req.method === 'GET' || c.req.method === 'HEAD') {
+      const url = new URL(c.req.url);
+      const match = url.pathname.match(/^\/(?:u\/)?([^/]+)(\/(?:insights|history|recap|tags|summary\.json|crystal\.json))?$/);
+      const user = match && validHandle(match[1]) ? registry.userByAlias(match[1]) : null;
+      if (user && match) {
+        // Carry a previously issued handle cookie into the stable ID cookie.
+        const oldKey = getCookie(c, `urtube_dash_${match[1]}`);
+        if (oldKey && registry.userByDashboardToken(user.handle, oldKey)) {
+          setCookie(c, `urtube_dash_id_${user.id}`, oldKey, { httpOnly: true, sameSite: 'Lax', path: '/', secure: secureCookies, maxAge: 180 * 86400 });
+        }
+        const keyed = dashboardKeyAccess(c, user);
+        const page = match[2] === '/history' ? 'history' : match[2] === '/recap' ? 'recap' : match[2] === '/insights' ? 'insights' : 'overview';
+        if (!profileAccess(c, user, page) && !keyed && !(oldKey && registry.userByDashboardToken(user.handle, oldKey))) return notFoundPage(c);
+        url.searchParams.delete('key');
+        c.header('Cache-Control', 'no-store');
+        return c.redirect(`${url.pathname.startsWith('/u/') ? '/u' : ''}/${user.handle}${match[2] ?? ''}${url.search}`, 302);
+      }
+    }
+    await next();
+  });
   const v3 = services.matchingV3?.settings ?? matchingV3Settings();
   if (v3.enabled) app.route('/', matchingRoutes(registry, v3, config.publicBaseUrl, services.matchingV3?.compute, (viewer, target, result, lang) => {
     const card = blendCard(viewer, target);
@@ -267,8 +294,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // as its owner, or when the request carries the user's dashboard token
   // (?key=... on first visit, then a cookie).
   function dashboardKeyAccess(c: Context, user: User): boolean {
-    const cookieName = `urtube_dash_${user.handle}`;
-    const key = c.req.query('key') ?? getCookie(c, cookieName) ?? '';
+    const cookieName = `urtube_dash_id_${user.id}`;
+    const key = c.req.query('key') ?? getCookie(c, cookieName) ?? getCookie(c, `urtube_dash_${user.handle}`) ?? '';
     if (!registry.userByDashboardToken(user.handle, key)) return false;
     if (c.req.query('key')) {
       // Path '/' so /compare can also see which dashboards this browser may
@@ -416,6 +443,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
       basePath: pagePath,
       profilePath,
+      profileHtml: profileDetails(user, viewerOwns, lang),
       page,
       lang,
       nav: siteNav(c, lang, viewerOwns
@@ -625,7 +653,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       if (registry.userByGoogleSub(pending.sub)) {
         return c.html(signupStartPage(t.errGoogleTaken, lang), 409);
       }
-      if (registry.userByHandle(handle)) {
+      if (!registry.handleAvailable(handle)) {
         return c.html(signupCompletePage(pageInput, t.errHandleTaken(handle), lang), 409);
       }
       const created = registry.createUser(handle, displayName, {
@@ -691,8 +719,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const pending = registry.pendingSignup(getCookie(c, 'urtube_signup') ?? '');
     if (!pending) return c.json({ error: 'no pending signup' }, 403);
     const handle = (c.req.query('handle') ?? '').trim().toLocaleLowerCase('en-US');
-    if (!/^[a-z0-9][a-z0-9.-]{1,31}$/.test(handle)) return c.json({ available: false, invalid: true });
-    return c.json({ available: !registry.userByHandle(handle) });
+    if (!validHandle(handle)) return c.json({ available: false, invalid: true });
+    return c.json({ available: registry.handleAvailable(handle) });
   });
 
   app.get('/account', (c) => {
@@ -737,7 +765,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         provisional,
         recommendations,
         langToggle(c, lang).href,
-        v3.enabled ? { admin: v3.adminHandles.includes(me.handle), invitations: `<div class="mt-grid">${registry.listUsers()
+        v3.enabled ? { admin: v3.adminHandles.includes(me.storageName), invitations: `<div class="mt-grid">${registry.listUsers()
           .filter(target => target.matchingOptIn && registry.matchingRelationshipFor(me, target.id).status === 'incoming')
           .map(target => candidateCard(blendCard(me, target), me.handle, lang)).join('')}</div>` } : undefined,
       ), v3.enabled && status === 403 ? 200 : status);
@@ -1071,20 +1099,47 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.html(accountPage(me, accountStateFor(me, { rotated }), langOf(c)));
   });
 
-  app.post('/account/profile', async (c) => {
+  function profileCsrf(c: Context): string {
+    return createHash('sha256').update('urtube-profile:' + (getCookie(c, 'urtube_session') ?? '')).digest('hex');
+  }
+
+  app.get('/account/profile', (c) => {
+    c.header('Cache-Control', 'no-store');
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
-    const form = await c.req.parseBody();
+    return c.html(profileEditPage(me, profileCsrf(c), langOf(c), me, '', c.req.query('saved') === '1'));
+  });
+
+  app.post('/account/profile', async (c) => {
+    c.header('Cache-Control', 'no-store');
+    const me = sessionUser(c);
+    if (!me) return c.text('Unauthorized', 401);
+    const lang = langOf(c), t = profileMessages(lang);
+    if (c.req.header('sec-fetch-site') === 'cross-site' ||
+        (c.req.header('origin') && c.req.header('origin') !== new URL(config.publicBaseUrl).origin)) {
+      return c.text(t.errors.csrf, 403);
+    }
+    // Bound input before parsing to avoid unbounded form uploads.
+    const raw = await c.req.text();
+    if (Buffer.byteLength(raw) > 100_000) return c.text(t.errors.failed, 413);
+    const form = new URLSearchParams(raw);
+    if (form.get('csrf') !== profileCsrf(c)) return c.text(t.errors.csrf, 403);
+    const names = form.getAll('linkName'), urls = form.getAll('linkUrl'), platforms = form.getAll('linkPlatform');
+    const value: ProfileInput = {
+      displayName: form.get('displayName') ?? '', handle: form.get('handle') ?? '',
+      bio: (form.get('bio') ?? '').replace(/\r\n?/g, '\n'),
+      socialLinks: Array.from({length: Math.max(names.length, urls.length)}, (_, i) => ({name: names[i] ?? '', url: normalizeSocialUrl(platforms[i] ?? '', urls[i] ?? ''), platform: platforms[i] ?? ''})),
+    };
     try {
-      registry.setDisplayName(me.handle, String(form.displayName ?? ''));
-      // The crystal embeds the display name; drop it so /compare and
-      // crystal.json pick up the rename immediately.
+      if (value.handle !== me.handle && form.get('confirmHandleChange') !== '1') {
+        return c.html(profileEditPage(me, profileCsrf(c), lang, value, t.errors.confirm), 400);
+      }
+      const updated = registry.updateProfile(me.id, value);
       clearReadCaches();
-      return c.redirect('/account');
+      return c.redirect('/account/profile?saved=1', 303);
     } catch (error) {
-      return c.html(accountPage(me, accountStateFor(me, {
-        error: error instanceof Error ? error.message : String(error),
-      }), langOf(c)), 400);
+      const detail = error instanceof ProfileError ? t.errors[error.reason === 'taken' ? 'taken' : error.field] : t.errors.failed;
+      return c.html(profileEditPage(me, profileCsrf(c), lang, value, detail), error instanceof ProfileError && error.reason === 'taken' ? 409 : error instanceof ProfileError ? 400 : 500);
     }
   });
 
@@ -1217,7 +1272,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (String(form.confirmHandle ?? '').trim() !== me.handle) {
       return c.html(accountPage(me, accountStateFor(me, { error: t.errDeleteConfirm }), lang), 400);
     }
-    if (me.handle === DEFAULT_HANDLE) {
+    if (me.storageName === DEFAULT_HANDLE) {
       return c.html(accountPage(me, accountStateFor(me, { error: t.errOwnerDelete }), lang), 400);
     }
     try {
@@ -1335,7 +1390,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       user.dashboardPublic
       || me?.id === user.id
       || keyed(user, param)
-      || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
+      || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_id_${user.id}`) ?? getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
     if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return notFoundPage(c);
     const comparison = compareCrystals(cachedCrystalFor(registry, a), cachedCrystalFor(registry, b));
     c.header('Cache-Control', 'no-cache');

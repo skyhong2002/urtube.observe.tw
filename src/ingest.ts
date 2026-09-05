@@ -207,7 +207,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
   // worker are configured for the instance owner's account.
   app.post('/api/ingest/youtube/oauth/start', (c) => {
     const context = adminContext(c.req.header('authorization'));
-    if (!context || context.user.handle !== DEFAULT_HANDLE) return c.json({ error: 'Unauthorized' }, 401);
+    if (!context || context.user.storageName !== DEFAULT_HANDLE) return c.json({ error: 'Unauthorized' }, 401);
     try {
       return c.json({ authorizationUrl: youtubeOAuthAuthorizationUrl(context.repository) });
     } catch (error) {

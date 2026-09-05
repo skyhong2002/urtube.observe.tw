@@ -201,7 +201,9 @@ test('renaming a user keeps tokens and encryption key, moves the dashboard', asy
     assert.equal(registry.dataKeyFor(renamed), keyBefore);
     assert.equal(registry.userByHandle('oldname'), null);
 
-    assert.equal((await app.request('/oldname?key=' + created.dashboardToken)).status, 404);
+    const oldUrl = await app.request('/oldname?key=' + created.dashboardToken);
+    assert.equal(oldUrl.status, 302);
+    assert.equal(oldUrl.headers.get('location'), '/new.name.tw');
     assert.equal((await app.request('/new.name.tw?key=' + created.dashboardToken)).status, 200);
     assert.throws(() => registry.renameUser('missing', 'other'), /Unknown user/);
   } finally {
