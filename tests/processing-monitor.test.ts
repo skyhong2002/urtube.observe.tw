@@ -65,9 +65,9 @@ test('personal monitor displays failed job details and category gaps without cla
   assert.match(f.content.textContent, /最後回報階段：標籤向量/);
   assert.match(f.content.textContent, /15 \/ 30 tags/);
   assert.match(f.content.textContent, /2,000 \/ 2,000/);
-  assert.match(f.content.textContent, /資料不足 · 42 部影片/);
+  assert.doesNotMatch(f.content.textContent, /九類處理結果|資料不足|下方各類別狀態/);
   assert.match(f.content.textContent, /18:38:52/);
-  assert.equal(descendants(f.content).filter(el => el.tag === 'dt').length, 9);
+  assert.equal(descendants(f.content).filter(el => el.tag === 'dt').length, 0);
   assert.equal(descendants(f.content).filter(el => el.tag === 'img').length, 0, 'errors stay literal text');
   assert.match(f.content.textContent, /<img src=x onerror=bad\(\)>/);
   assert.equal(f.snapshot.hidden, true);
