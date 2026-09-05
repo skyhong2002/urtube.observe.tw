@@ -36,8 +36,8 @@ const formStyles = `
   .ob-steps strong{color:var(--ink)}
   .ob-google{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);display:inline-flex;font-size:14px;font-weight:700;gap:10px;padding:11px 20px;text-decoration:none}
   .ob-google:hover{border-color:var(--muted)}
-  .ob-advanced{border-top:1px solid var(--line);padding-top:22px}.ob-advanced>summary{color:var(--accent-text);cursor:pointer;font-size:14px;font-weight:750;list-style-position:outside;margin-left:16px;padding-left:3px}.ob-advanced>summary:hover{color:var(--ink)}
-  .ob-advanced-body{padding-top:18px}.ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
+  .ob-advanced{border-top:1px solid var(--line);padding-top:22px}
+  .ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
   .ob-switches{display:grid;gap:8px;margin:4px 0 10px}.ob-switch{align-items:flex-start;background:var(--raised);border:1px solid var(--line);border-radius:10px;cursor:pointer;display:flex;gap:12px;padding:11px 12px}.ob-switch input{flex:0 0 auto;height:18px;margin:2px 0 0;width:18px}.ob-switch strong{color:var(--ink);display:block;font-size:13px}.ob-switch small{color:var(--ink-2);display:block;font-size:11px;line-height:1.5;margin-top:2px}
 `;
 
@@ -144,21 +144,19 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     : state.takeoutError
       ? `<div class="ob-error" role="alert">${t.accountTakeoutFailed(html(state.takeoutError))}</div>`
       : '';
-  const takeout = `<details class="ob-advanced"${takeoutFeedback ? ' open' : ''}>
-      <summary>${t.accountTakeoutSummary}</summary>
-      <div class="ob-advanced-body">
-        <h2>${t.accountTakeoutTitle}</h2>
-        <p>${t.accountTakeoutPara}</p>
-        <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
-        ${takeoutFeedback}
-        <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
-          <label for="takeout">${t.accountTakeoutFile}</label>
-          <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required>
-          <p class="ob-help">${t.accountTakeoutLimit}</p>
-          <button type="submit">${t.accountTakeoutSubmit}</button>
-        </form>
-      </div>
-    </details>`;
+  const takeout = `<section class="ob-advanced" id="account-takeout">
+      <h2>${t.accountTakeoutSummary}</h2>
+      <h3>${t.accountTakeoutTitle}</h3>
+      <p>${t.accountTakeoutPara}</p>
+      <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
+      ${takeoutFeedback}
+      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
+        <label for="takeout">${t.accountTakeoutFile}</label>
+        <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required>
+        <p class="ob-help">${t.accountTakeoutLimit}</p>
+        <button type="submit">${t.accountTakeoutSubmit}</button>
+      </form>
+    </section>`;
   const matchingSettings = `
       <h2>${t.accountMatching}</h2>
       <p>${t.accountMatchingPara}</p>
@@ -173,7 +171,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     `<details class="st-group" id="${id}"${open ? ' open' : ''}><summary>${title}</summary><div class="st-content">${content}</div></details>`;
   const body = `<style>${formStyles}${v3ProcessingStyles}
     .st-page{max-width:680px;margin:0 auto}.st-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}.st-heading .ob-intro{margin:0}.st-heading a{font-size:13px}
-    .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
+    .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content h3{color:var(--ink-2);font-size:13px;margin:0 0 6px}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
     @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
     </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
       ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
