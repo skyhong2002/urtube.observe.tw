@@ -1,0 +1,14 @@
+:80 {
+    redir /match-preview /match-preview/
+    handle_path /match-preview/* {
+        root * /srv/match-preview
+        header Cache-Control "no-store"
+        file_server
+    }
+    handle /api/ingest/* {
+        reverse_proxy ingest:3001
+    }
+    handle {
+        reverse_proxy app:3000
+    }
+}

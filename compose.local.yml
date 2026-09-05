@@ -1,0 +1,66 @@
+name: urtube-local
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
+  image: urtube-local:dev
+  restart: unless-stopped
+  env_file: .env.local
+  environment: &environment
+    DATABASE_PATH: /data/urtube.sqlite
+    USERS_DATABASE_PATH: /data/users.sqlite
+    URTUBE_BACKUP_DIRECTORY: /backups
+  volumes:
+    - ./src:/app/src:ro
+    - ./scripts:/app/scripts:ro
+    - ./tests:/app/tests:ro
+    - ./chrome-extension:/app/chrome-extension:ro
+    - ./favicon.svg:/app/favicon.svg:ro
+    - ./og.png:/app/og.png:ro
+    - local-data:/data
+    - local-backups:/backups
+
+services:
+  app:
+    <<: *common
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:19080:80"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./frontend/match-preview:/srv/match-preview:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      ingest:
+        condition: service_started
+  ingest:
+    <<: *common
+    command: ["npx", "tsx", "watch", "src/ingest.ts"]
+    environment:
+      <<: *environment
+      PORT: "3001"
+    ports:
+      - "127.0.0.1:19081:3001"
+  worker:
+    <<: *common
+    command: ["npx", "tsx", "watch", "src/youtube-worker.ts"]
+  backup:
+    <<: *common
+    command: ["npx", "tsx", "scripts/backup-worker.ts"]
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  local-data:
+  local-backups:
