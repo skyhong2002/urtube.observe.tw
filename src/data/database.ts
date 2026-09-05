@@ -14,6 +14,7 @@ import type {
   YoutubeScanEndReason,
   YoutubeCapturedWatch,
   YoutubeCaptureResult,
+  YoutubeComparisonProfile,
   YoutubeImportResult,
   YoutubeOAuthCredential,
   YoutubeParsedArchive,
@@ -127,6 +128,8 @@ function portableColumnDescription(name: string): string {
   return `Stored ${name.replaceAll('_', ' ')} value.`;
 }
 
+// Ranked comparison lists stop here so an all-time profile stays bounded.
+const YOUTUBE_COMPARISON_LIST_LIMIT = 5000;
 function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
   if (range === 'all') return null;
   const days = Number.parseInt(range, 10);
@@ -2374,6 +2377,176 @@ export class Repository {
         watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
+    };
+  }
+
+  // Everything one side of a two-person comparison needs, in one pass over
+  // the estimated-events temp table. Ranked lists are capped so an all-time
+  // history stays a bounded in-memory object; a peer's item beyond the cap
+  // simply does not count as common.
+  youtubeComparisonProfile(
+    taxonomyVersion: number,
+    range: YoutubeRange = '28d',
+    now = new Date(),
+  ): YoutubeComparisonProfile {
+    this.ensureEstimatedEvents();
+    const cutoff = youtubeCutoff(range, now);
+    const where = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
+    const params = cutoff ? [cutoff] : [];
+    const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_VIEW;
+    const channelId = 'COALESCE(e.channel_id, v.channel_id)';
+    const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
+    const channelKey = `COALESCE(${channelId}, ${channelName})`;
+    const totals = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COUNT(*) watch_events,
+        COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
+        COUNT(DISTINCT COALESCE(e.channel_id, e.channel_title)) unique_channels,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
+        COUNT(DISTINCT strftime('%Y-%m-%d', e.watched_at, '+8 hours')) active_days
+      FROM estimated_events e
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const channelRows = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT ${channelKey} key, ${channelName} name,
+          COALESCE(c.thumbnail_url, '') thumbnail_url,
+          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
+        ${where}
+          AND ${channelName} IS NOT NULL
+          AND LOWER(TRIM(${channelName}))<>'unknown channel'
+        GROUP BY ${channelKey}
+      )
+      SELECT key, name, thumbnail_url, watches, estimated_watch_seconds,
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, name) rank
+      FROM aggregated
+      ORDER BY rank
+      LIMIT ${YOUTUBE_COMPARISON_LIST_LIMIT}
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    const videoRows = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT e.video_id,
+          COALESCE(NULLIF(v.title, ''), e.raw_title) title,
+          COALESCE(NULLIF(v.channel_title, ''), NULLIF(e.channel_title, ''), '') channel_title,
+          COALESCE(v.thumbnail_url, '') thumbnail_url,
+          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        ${where} AND e.video_id IS NOT NULL
+        GROUP BY e.video_id
+      )
+      SELECT video_id, title, channel_title, thumbnail_url, watches, estimated_watch_seconds,
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, title) rank
+      FROM aggregated
+      ORDER BY rank
+      LIMIT ${YOUTUBE_COMPARISON_LIST_LIMIT}
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    const topicRows = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT mt.topic_key, COUNT(*) watches,
+          COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        JOIN youtube_videos v ON v.video_id=e.video_id
+        JOIN youtube_video_matching_topics mt
+          ON mt.video_id=v.video_id AND mt.taxonomy_version=?
+          AND mt.metadata_hash=v.metadata_hash
+        ${where} AND mt.topic_key IS NOT NULL
+        GROUP BY mt.topic_key
+      )
+      SELECT topic_key, watches, estimated_watch_seconds,
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, topic_key) rank
+      FROM aggregated ORDER BY rank
+    `).all(taxonomyVersion, ...params) as Array<Record<string, string | number>>;
+    const rhythmCoverage = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT
+        COALESCE(SUM(CASE WHEN a.occurred_precision='exact' THEN 1 ELSE 0 END), 0) exact_watches,
+        COALESCE(SUM(CASE WHEN a.occurred_precision<>'exact' THEN 1 ELSE 0 END), 0) date_only_watches
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const hourly = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT CAST(strftime('%H', e.watched_at, '+8 hours') AS INTEGER) hour,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      ${where} AND a.occurred_precision='exact'
+      GROUP BY hour ORDER BY hour
+    `).all(...params) as Array<Record<string, string | number>>;
+    const weekdays = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT CAST(strftime('%w', e.watched_at, '+8 hours') AS INTEGER) weekday,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      ${where}
+      GROUP BY weekday ORDER BY weekday
+    `).all(...params) as Array<Record<string, string | number>>;
+    const edge = (direction: 'ASC' | 'DESC') => {
+      const row = this.db.prepare(`
+        SELECT COALESCE(NULLIF(v.title, ''), e.raw_title) title, e.watched_at
+        FROM youtube_watch_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        ${where}
+        ORDER BY e.watched_at ${direction} LIMIT 1
+      `).get(...params) as { title: string; watched_at: string } | undefined;
+      return row ? { title: String(row.title), watchedAt: String(row.watched_at) } : null;
+    };
+    return {
+      range,
+      stats: {
+        watchEvents: Number(totals.watch_events ?? 0),
+        estimatedWatchSeconds: Number(totals.estimated_watch_seconds ?? 0),
+        uniqueVideos: Number(totals.unique_videos ?? 0),
+        uniqueChannels: Number(totals.unique_channels ?? 0),
+        activeDays: Number(totals.active_days ?? 0),
+      },
+      channels: channelRows.map((row) => ({
+        key: String(row.key),
+        name: String(row.name),
+        thumbnailUrl: String(row.thumbnail_url ?? ''),
+        rank: Number(row.rank),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      videos: videoRows.map((row) => ({
+        videoId: String(row.video_id),
+        title: String(row.title),
+        channelTitle: String(row.channel_title ?? ''),
+        thumbnailUrl: String(row.thumbnail_url ?? ''),
+        rank: Number(row.rank),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      topics: topicRows.map((row) => ({
+        key: String(row.topic_key),
+        rank: Number(row.rank),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      hourly: hourly.map((row) => ({
+        hour: Number(row.hour),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      weekdays: weekdays.map((row) => ({
+        weekday: Number(row.weekday),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      rhythmCoverage: {
+        exactWatches: Number(rhythmCoverage.exact_watches ?? 0),
+        dateOnlyWatches: Number(rhythmCoverage.date_only_watches ?? 0),
+      },
+      firstWatch: edge('ASC'),
+      lastWatch: edge('DESC'),
     };
   }
 

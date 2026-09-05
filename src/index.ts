@@ -53,8 +53,20 @@ import {
   type CohortRecommendations,
 } from './youtube/cohort-recommendations.js';
 import { registryCrystalEligible } from './youtube/registry-crystal.js';
+import {
+  COMPARISON_RANGES,
+  compareWatchProfiles,
+  comparisonRange,
+  type ComparisonRange,
+} from './youtube/comparison.js';
+import { MATCHING_TAXONOMY } from './youtube/matching.js';
 import type { TagListSnapshot } from './youtube/taglists.js';
-import { YOUTUBE_RANGES, type YoutubeDashboardData, type YoutubeRange } from './youtube/types.js';
+import {
+  YOUTUBE_RANGES,
+  type YoutubeComparisonProfile,
+  type YoutubeDashboardData,
+  type YoutubeRange,
+} from './youtube/types.js';
 import { PERSONAL_TAXONOMY_DEFINITION_VERSION } from './youtube/personal-taxonomy.js';
 
 function requestedRange(value: string | undefined): YoutubeRange {
@@ -90,6 +102,7 @@ function clientIp(c: Context): string {
 const CACHE_TTL_MS = 300_000;
 const dashboardCache = new Map<string, { key: string; at: number; data: YoutubeDashboardData }>();
 const crystalCache = new Map<string, { key: string; at: number; crystal: YoutubeCrystal }>();
+const comparisonCache = new Map<string, { key: string; at: number; profile: YoutubeComparisonProfile }>();
 // Handles worth pre-warming: the owner plus anyone whose dashboard was
 // actually visited since boot. Keeps the warm sweep (and its open SQLite
 // handles) proportional to traffic, not to total signups.
@@ -111,6 +124,7 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
 
 function evictUserCaches(handle: string): void {
   for (const range of YOUTUBE_RANGES) dashboardCache.delete(`${handle}:${range}`);
+  for (const range of COMPARISON_RANGES) comparisonCache.delete(`${handle}:${range}`);
   crystalCache.delete(handle);
   warmedHandles.delete(handle);
 }
@@ -128,6 +142,20 @@ function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRa
     dashboardCache.set(id, entry);
   }
   return entry.data;
+}
+
+// One side of a two-person comparison. Same discipline as the dashboard
+// cache; the comparison itself is recomputed per request because it
+// depends on the current relationship and disclosure settings.
+function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeComparisonProfile {
+  const now = Date.now();
+  const id = `${user.handle}:${range}`;
+  let entry = comparisonCache.get(id);
+  if (!entry || entry.key !== validity || now - entry.at > CACHE_TTL_MS) {
+    entry = { key: validity, at: now, profile: repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, range) };
+    comparisonCache.set(id, entry);
+  }
+  return entry.profile;
 }
 
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), validity = validityFor(repository.youtubeCounts(), processingFor(repository))): YoutubeCrystal {
@@ -819,9 +847,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const card = rankedMatchingCandidateCards(viewer, [candidate])[0];
     return card?.candidateUserId === candidate.userId
       ? {
-        ...card,
-        actionToken,
-        relationship: registry.matchingRelationshipFor(me, candidate.userId),
+        candidate,
+        card: {
+          ...card,
+          actionToken,
+          relationship: registry.matchingRelationshipFor(me, candidate.userId),
+        },
       }
       : null;
   };
@@ -830,17 +861,37 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
     const actionToken = c.req.param('token') ?? '';
-    const card = actionableCandidate(me, actionToken);
-    if (!card) return notFoundPage(c);
+    const actionable = actionableCandidate(me, actionToken);
+    const other = actionable ? registry.userByHandle(actionable.candidate.handle) : null;
+    if (!actionable || !other) return notFoundPage(c);
+    const { card, candidate } = actionable;
     const lang = langOf(c);
+    const range = comparisonRange(c.req.query('range'));
+    // Consent and disclosure are re-read on every request: a withdrawal or
+    // a stricter setting takes effect on the next page load.
+    const comparison = compareWatchProfiles(
+      cachedComparisonProfileFor(registry, me, range),
+      cachedComparisonProfileFor(registry, other, range),
+      range,
+      {
+        connected: card.relationship.status === 'connected',
+        channelsAllowed: me.matchingDisclosure === 'topics_and_channel'
+          && candidate.disclosureLevel === 'topics_and_channel',
+        hiddenTopicKeys: new Set([
+          ...registry.matchingDimensionsFor(me).excludedTopicKeys,
+          ...candidate.dimensions.excludedTopicKeys,
+        ]),
+      },
+    );
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
     return c.html(matchingCandidatePage(
       me.displayName,
       '/dashboard',
       card,
+      comparison,
       lang,
-      `${c.req.path}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+      `${c.req.path}?range=${range}&lang=${lang === 'zh' ? 'en' : 'zh'}`,
     ));
   };
 
