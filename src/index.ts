@@ -42,7 +42,7 @@ import {
 import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { ensureYoutubeTaxonomy } from './youtube/ai.js';
-import { fetchYoutubeChannelMetadata } from './youtube/metadata.js';
+import { fetchYoutubeChannelMetadata, youtubeApiUsage } from './youtube/metadata.js';
 import {
   brandMark, html, primaryNav, shell,
   type PrimaryNavActive, type ShellNavItem,
@@ -166,7 +166,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   const loadChannelMetadata = services.loadChannelMetadata ?? (async (channelId: string) => {
     if (!config.youtube.apiKey) return null;
     const boundedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(4000) });
-    return (await fetchYoutubeChannelMetadata([channelId], config.youtube.apiKey, boundedFetch))[0] ?? null;
+    return (await fetchYoutubeChannelMetadata([channelId], undefined, boundedFetch))[0] ?? null;
   });
   // Share concurrent lookups across viewers; back off after upstream failures.
   const channelMetadataLookups = new Map<string, { until: number; result: Promise<YoutubeChannelMetadata | null> }>();
@@ -1444,6 +1444,18 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           lastError: repository.youtubeSyncState('last_error'),
         },
         summary: '/api/youtube/summary.json',
+        // Approximate YouTube Data API quota units spent since the last
+        // reset: the worker's count from its status file plus this app
+        // process's own channel-page lookups.
+        apiUsage: (() => {
+          const worker = readOpsStatus<WorkerOpsStatus>('worker');
+          const app = youtubeApiUsage();
+          return {
+            workerRequestsSinceReset: worker?.youtubeApiRequestsSinceReset ?? null,
+            appRequestsSinceReset: app.requestsSinceReset,
+            quotaResetAt: app.quotaResetAt,
+          };
+        })(),
       },
     });
   });

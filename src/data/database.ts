@@ -373,6 +373,37 @@ export function buildChannelRace(
   return race;
 }
 
+// Channel statistics refresh policy. Refreshing every channel a user has ever
+// watched weekly costs one YouTube Data API unit per 50 channels per week,
+// and most of the tens of thousands of channels in a long history are
+// long-dormant. Only channels watched recently keep the weekly cadence; the
+// rest refresh quarterly, and the channel page refreshes on demand when
+// someone actually looks (see the channel route in src/index.ts).
+export const CHANNEL_STATISTICS_ACTIVE_REFRESH_DAYS = 7;
+export const CHANNEL_STATISTICS_DORMANT_REFRESH_DAYS = 90;
+export const CHANNEL_STATISTICS_ACTIVE_WATCH_DAYS = 30;
+
+// Expects `v` (youtube_videos) and `c` (LEFT JOIN youtube_channels) aliases.
+// Bind parameters, in order: dormant cutoff, active cutoff, recent-watch cutoff.
+const CHANNEL_NEEDS_METADATA_SQL = `(
+  c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL
+  OR c.statistics_fetched_at < ?
+  OR (c.statistics_fetched_at < ? AND v.channel_id IN (
+    SELECT wv.channel_id FROM youtube_watch_events w
+    JOIN youtube_videos wv ON wv.video_id=w.video_id
+    WHERE w.watched_at >= ? AND wv.channel_id IS NOT NULL
+  ))
+)`;
+
+function channelMetadataCutoffs(now: Date): [string, string, string] {
+  const daysAgo = (days: number) => new Date(now.getTime() - days * 86400_000).toISOString();
+  return [
+    daysAgo(CHANNEL_STATISTICS_DORMANT_REFRESH_DAYS),
+    daysAgo(CHANNEL_STATISTICS_ACTIVE_REFRESH_DAYS),
+    daysAgo(CHANNEL_STATISTICS_ACTIVE_WATCH_DAYS),
+  ];
+}
+
 export class Repository {
   private readonly db: DatabaseSync;
   private readonly path: string;
@@ -1450,9 +1481,7 @@ export class Repository {
         (SELECT COUNT(DISTINCT v.channel_id)
            FROM youtube_videos v
            LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
-           WHERE v.channel_id IS NOT NULL AND (
-             c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?
-           )) channels_pending_metadata,
+           WHERE v.channel_id IS NOT NULL AND ${CHANNEL_NEEDS_METADATA_SQL}) channels_pending_metadata,
         (SELECT COUNT(*) FROM youtube_videos v
            WHERE metadata_fetched_at IS NOT NULL AND availability='available'
              AND EXISTS (SELECT 1 FROM youtube_watch_events w
@@ -1472,7 +1501,7 @@ export class Repository {
                  AND vt.model=run.model AND vt.prompt_version=run.prompt_version
              )) videos_pending_topics,
         (SELECT MAX(imported_at) FROM youtube_watch_events) last_import_at
-    `).get(new Date(now.getTime() - 7 * 86400_000).toISOString()) as Record<string, unknown>;
+    `).get(...channelMetadataCutoffs(now)) as Record<string, unknown>;
     return {
       videos: Number(row.videos),
       videosPendingMetadata: Number(row.videos_pending_metadata),
@@ -2323,12 +2352,10 @@ export class Repository {
       SELECT DISTINCT v.channel_id
       FROM youtube_videos v
       LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
-      WHERE v.channel_id IS NOT NULL AND (
-        c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?
-      )
+      WHERE v.channel_id IS NOT NULL AND ${CHANNEL_NEEDS_METADATA_SQL}
       ORDER BY v.channel_id
       LIMIT ?
-    `).all(new Date(now.getTime() - 7 * 86400_000).toISOString(), safeLimit) as Array<{ channel_id: string }>;
+    `).all(...channelMetadataCutoffs(now), safeLimit) as Array<{ channel_id: string }>;
     return rows.map((row) => row.channel_id);
   }
 

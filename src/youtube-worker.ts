@@ -8,7 +8,7 @@ import {
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
 import { buildYoutubeCrystal } from './youtube/crystal.js';
-import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata } from './youtube/metadata.js';
+import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata, youtubeApiUsage } from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
@@ -196,6 +196,8 @@ if (process.env.NODE_ENV !== 'test') {
         users: users.length,
         failedUsers,
         lastError: '',
+        youtubeApiRequestsSinceReset: youtubeApiUsage().requestsSinceReset,
+        youtubeApiQuotaResetAt: youtubeApiUsage().quotaResetAt,
       });
       // A batch limit protects memory and external services; it should not
       // impose an additional five-minute sleep. Continue immediately while a
