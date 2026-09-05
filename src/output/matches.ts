@@ -1,8 +1,20 @@
 import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/candidates.js';
 import type { CohortRecommendations } from '../youtube/cohort-recommendations.js';
 import type { MatchRelationship } from '../users.js';
-import { messages, type Lang } from './i18n.js';
-import { html, primaryNav, shell } from './pages.js';
+import {
+  COMPARISON_LOCKED_TOPIC_LIMIT,
+  COMPARISON_RANGES,
+  type CommonChannel,
+  type CommonTopic,
+  type CommonVideo,
+  type ComparisonList,
+  type ComparisonPair,
+  type ComparisonWatchEdge,
+  type WatchComparison,
+} from '../youtube/comparison.js';
+import { messages, type Lang, type Messages } from './i18n.js';
+import { hours, html, primaryNav, shell } from './pages.js';
+import { radialClock, rhythmClockStyles } from './youtube.js';
 
 export type MatchesPageState =
   | { kind: 'opt_in_required' }
@@ -79,17 +91,147 @@ function metric(label: string, percentage: number | null): string {
   return `<div class="mt-metric"><span>${html(label)}</span><div class="mt-meter" aria-hidden="true"><i style="width:${percentage}%"></i></div><strong>${percentage}%</strong></div>`;
 }
 
+const COMPARISON_PREVIEW_ROWS = 6;
+
+function count(value: number): string {
+  return new Intl.NumberFormat('en').format(value);
+}
+
+function percent(share: number): string {
+  return `${Math.round(share * 100)}%`;
+}
+
+function taipeiDate(iso: string, t: Messages): string {
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return '';
+  const local = new Date(time + 8 * 3600_000);
+  return t.fullDate(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate());
+}
+
+function rankCell(rank: number, watches: number | null, name: string, t: Messages): string {
+  return `<span class="mt-rank" aria-label="${html(t.matchesRankFor(name))}"><b>#${rank}</b>${watches === null ? '' : `<small>${html(t.matchesTimes(watches))}</small>`}</span>`;
+}
+
+// Six rows stay visible; the rest fold into a native disclosure so the page
+// needs no script to behave like stats.fm's "show more".
+function foldedRows(rows: string[], t: Messages): string {
+  const visible = rows.slice(0, COMPARISON_PREVIEW_ROWS).join('');
+  const rest = rows.slice(COMPARISON_PREVIEW_ROWS);
+  if (!rest.length) return `<div class="mt-rows">${visible}</div>`;
+  return `<div class="mt-rows">${visible}</div><details class="mt-more"><summary>${html(t.matchesShowMore(rest.length))}</summary><div class="mt-rows">${rest.join('')}</div></details>`;
+}
+
+function listSection(
+  title: string,
+  subtitle: string,
+  list: ComparisonList<unknown>,
+  rows: string[],
+  t: Messages,
+  // Topics stay visible (bounded, ranks only) while locked; channels and
+  // videos do not.
+  previewWhileLocked = false,
+): string {
+  let body: string;
+  if (list.state === 'locked' && !previewWhileLocked) {
+    body = `<p class="mt-gate mt-gate-locked">${t.matchesUnlockNote}</p>`;
+  } else if (list.state === 'hidden') {
+    body = `<p class="mt-gate">${t.matchesHiddenNote}</p>`;
+  } else if (!rows.length) {
+    body = `<p class="mt-gate">${t.matchesNothingInCommon}</p>`;
+  } else {
+    body = foldedRows(rows, t);
+  }
+  return `<section class="mt-panel"><div class="mt-panel-head"><h2>${html(title)}</h2><span>${html(subtitle)}</span></div>${body}</section>`;
+}
+
+function topicRows(topics: CommonTopic[], names: ComparisonPair<string>, t: Messages): string[] {
+  return topics.map((topic) => `<div class="mt-row">${rankCell(topic.rank.a, topic.watches?.a ?? null, names.a, t)}<div class="mt-row-main"><strong>${html(topic.name)}</strong></div>${rankCell(topic.rank.b, topic.watches?.b ?? null, names.b, t)}</div>`);
+}
+
+function channelRows(channels: CommonChannel[], names: ComparisonPair<string>, t: Messages): string[] {
+  return channels.map((channel) => {
+    const avatar = channel.thumbnailUrl
+      ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="36" height="36">`
+      : `<span class="mt-row-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
+    return `<div class="mt-row">${rankCell(channel.rank.a, channel.watches.a, names.a, t)}<div class="mt-row-main">${avatar}<strong>${html(channel.name)}</strong></div>${rankCell(channel.rank.b, channel.watches.b, names.b, t)}</div>`;
+  });
+}
+
+function videoRows(videos: CommonVideo[], names: ComparisonPair<string>, t: Messages): string[] {
+  return videos.map((video) => {
+    const thumb = video.thumbnailUrl
+      ? `<img class="mt-thumb" src="${html(video.thumbnailUrl)}" alt="" loading="lazy" width="64" height="36">`
+      : `<span class="mt-thumb" aria-hidden="true"></span>`;
+    return `<div class="mt-row">${rankCell(video.rank.a, video.watches.a, names.a, t)}<div class="mt-row-main">${thumb}<div><strong><a href="https://www.youtube.com/watch?v=${html(video.videoId)}" rel="noopener" target="_blank">${html(video.title)}</a></strong>${video.channelTitle ? `<small>${html(video.channelTitle)}</small>` : ''}</div></div>${rankCell(video.rank.b, video.watches.b, names.b, t)}</div>`;
+  });
+}
+
+function statsSection(comparison: WatchComparison, t: Messages): string {
+  if (!comparison.stats) {
+    return `<section class="mt-panel mt-locked"><div class="mt-panel-head"><h2>${t.matchesWatchStats}</h2></div><p class="mt-gate mt-gate-locked">${t.matchesUnlockNote}</p></section>`;
+  }
+  const rows = comparison.stats.map((row) => `<div class="mt-stat-row"><strong>${count(row.a)}</strong><span>${html(t.matchesStat[row.key] ?? row.key)}</span><strong>${count(row.b)}</strong></div>`).join('');
+  return `<section class="mt-panel"><div class="mt-panel-head"><h2>${t.matchesWatchStats}</h2></div><div class="mt-stats">${rows}</div></section>`;
+}
+
+function clockSection(comparison: WatchComparison, names: ComparisonPair<string>, t: Messages): string {
+  const share = comparison.clock.mode === 'share';
+  const figure = (side: 'a' | 'b', metric: 'watches' | 'seconds') => {
+    const data = comparison.clock[side];
+    if (!data.reliable) return `<div class="mt-clock-empty" data-clock-panel="${metric}"><span>${html(names[side])}</span><p>${t.matchesClockUnreliable}</p></div>`;
+    const values = metric === 'watches' ? data.watches : data.seconds;
+    const tip = (_hour: number, value: number) => {
+      if (share) return metric === 'watches' ? t.matchesClockShare(percent(value)) : t.matchesClockShareTime(percent(value));
+      return metric === 'watches' ? t.tipVideos(value) : hours(value);
+    };
+    return radialClock(values, names[side], t.rhythmAria(names[side]), tip, metric);
+  };
+  return `<section class="mt-panel" data-clock-section><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesClock}</h2><span>${t.matchesClockSub}</span></div>
+    <div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesClock)}"><button type="button" data-clock-metric="watches" aria-pressed="true">${t.rhythmWatches}</button><button type="button" data-clock-metric="seconds" aria-pressed="false">${t.rhythmTime}</button></div></div>
+    <div class="mt-clocks">${figure('a', 'watches')}${figure('b', 'watches')}${figure('a', 'seconds')}${figure('b', 'seconds')}</div>
+    ${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}
+    <script>(()=>{const root=document.currentScript?.closest('[data-clock-section]');if(!root)return;const buttons=[...root.querySelectorAll('[data-clock-metric]')];const panels=[...root.querySelectorAll('[data-clock-panel],[data-rhythm-panel]')];const apply=(metric)=>{for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.clockMetric===metric));for(const p of panels)p.hidden=(p.dataset.clockPanel||p.dataset.rhythmPanel)!==metric;};for(const b of buttons)b.addEventListener('click',()=>apply(b.dataset.clockMetric));apply('watches');})();</script>
+  </section>`;
+}
+
+function weekdaySection(comparison: WatchComparison, t: Messages): string {
+  const share = comparison.weekdays.mode === 'share';
+  const max = Math.max(1e-9, ...comparison.weekdays.rows.flatMap((row) => [row.watches.a, row.watches.b]));
+  const label = (value: number) => (share ? percent(value) : count(value));
+  const bar = (side: 'a' | 'b', row: WatchComparison['weekdays']['rows'][number]) => {
+    const value = row.watches[side];
+    const seconds = row.seconds[side];
+    const tipLabel = share ? t.matchesClockShareTime(percent(seconds)) : hours(seconds);
+    return `<div class="mt-bar mt-bar-${side}" data-tip="${html(label(value))}" data-tip-label="${html(tipLabel)}" tabindex="0"><i style="width:${Math.round(value / max * 100)}%"></i><b>${html(label(value))}</b></div>`;
+  };
+  const rows = comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('');
+  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2><span>${t.matchesWeekdaysSub}</span></div></div><div class="mt-week">${rows}</div>${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}</section>`;
+}
+
+function edgeSection(
+  title: string,
+  edges: ComparisonPair<ComparisonWatchEdge | null>,
+  names: ComparisonPair<string>,
+  t: Messages,
+): string {
+  const row = (side: 'a' | 'b') => {
+    const edge = edges[side];
+    return `<div class="mt-edge"><span class="mt-side-label">${html(names[side])}</span>${edge ? `<strong>${html(edge.title)}</strong><small>${html(taipeiDate(edge.watchedAt, t))}</small>` : `<small>${t.matchesNoHistory}</small>`}</div>`;
+  };
+  return `<section class="mt-panel"><div class="mt-panel-head"><h2>${html(title)}</h2></div><div class="mt-edges">${row('a')}${row('b')}</div></section>`;
+}
+
 export function matchingCandidatePage(
   viewerName: string,
   dashboardHref: string,
   card: ActionableMatchingCandidateCard,
+  comparison: WatchComparison,
   lang: Lang = 'en',
   languageHref = `/matches/compare/${card.actionToken}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
 ): string {
   const t = messages(lang);
   const connected = card.relationship.status === 'connected';
-  const visibleShared = connected ? card.sharedInterests : card.disclosure.topics;
-  const shared = visibleShared.length ? interestPills(visibleShared) : `<p>${t.matchesNoSharedTopics}</p>`;
+  const names: ComparisonPair<string> = { a: viewerName, b: card.displayName };
   const viewerInterests = card.viewerInterests.length
     ? interestPills(card.viewerInterests.slice(0, connected ? 5 : 3))
     : `<p>${t.matchesNoProfileTopics}</p>`;
@@ -108,18 +250,50 @@ export function matchingCandidatePage(
   } else {
     actions = `<span class="mt-state connected">${t.matchesConnectedStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form>`;
   }
-  const channel = connected && card.disclosure.channel
-    ? `<p><strong>${t.matchesSharedChannel}:</strong> ${html(card.disclosure.channel)}</p>` : '';
-  const detail = connected
-    ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p>${shared}${channel}</section>`
-    : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p>${shared}</section>`;
-  const content = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/match/${html(card.actionToken)}/viewer" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/match/${html(card.actionToken)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${candidateInterests}</section></div>${detail}<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p></section>`;
-  actions = `<div class="mt-profile-actions">${actions}</div>`;
-  const body = `<style>${matchesStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${content}<p class="mt-version">${t.matchesFormulaVersion(card.percentageVersion)}</p>${actions}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div>`;
+  const basePath = `/matches/compare/${html(card.actionToken)}`;
+  const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
+    `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/match/${html(card.actionToken)}/viewer" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/match/${html(card.actionToken)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${candidateInterests}</section></div>`;
+  const gate = connected
+    ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p></section>`
+    : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p></section>`;
+  const topicsSubtitle = comparison.topics.state === 'locked'
+    ? t.matchesLockedTopics(COMPARISON_LOCKED_TOPIC_LIMIT)
+    : t.matchesInCommon(comparison.topics.total, card.displayName);
+  const sections = [
+    statsSection(comparison, t),
+    listSection(t.matchesCommonTopics, topicsSubtitle, comparison.topics, topicRows(comparison.topics.items, names, t), t, true),
+    listSection(t.matchesCommonChannels, comparison.channels.state === 'unlocked' ? t.matchesInCommon(comparison.channels.total, card.displayName) : '', comparison.channels, channelRows(comparison.channels.items, names, t), t),
+    listSection(t.matchesCommonVideos, comparison.videos.state === 'unlocked' ? t.matchesInCommon(comparison.videos.total, card.displayName) : '', comparison.videos, videoRows(comparison.videos.items, names, t), t),
+    clockSection(comparison, names, t),
+    weekdaySection(comparison, t),
+    comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
+    comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
+    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p><p class="mt-version">${t.matchesFormulaVersion(card.percentageVersion)}</p></section>`,
+  ].join('');
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div>${ranges}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div>`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
 }
+
+const comparisonStyles = `
+  .mt-profile{max-width:960px}.mt-range{flex-wrap:wrap;justify-content:center;margin:18px 0 6px}
+  .mt-panel-head{align-items:center;display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;margin-bottom:14px}.mt-panel-head h2{margin:0}.mt-panel-head span{color:var(--muted);font-size:11px}.mt-panel-title{display:flex;flex-direction:column;gap:2px}
+  .mt-gate{color:var(--muted);font-size:12px;line-height:1.6;margin:0}.mt-gate-locked{background:var(--raised);border-radius:10px;padding:12px 14px}
+  .mt-stats{display:grid;gap:2px}.mt-stat-row{align-items:center;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto 1fr;gap:12px;padding:9px 0}.mt-stat-row:last-child{border-bottom:0}.mt-stat-row strong{font-size:17px;font-variant-numeric:tabular-nums;font-weight:750;letter-spacing:-.02em}.mt-stat-row strong:last-child{text-align:right}.mt-stat-row span{color:var(--muted);font-size:11px;text-align:center}
+  .mt-rows{display:grid;gap:2px}.mt-row{align-items:center;border-radius:10px;display:grid;gap:12px;grid-template-columns:64px minmax(0,1fr) 64px;padding:7px 6px}.mt-row:hover{background:var(--raised)}
+  .mt-rank{display:flex;flex-direction:column;font-variant-numeric:tabular-nums;line-height:1.2}.mt-rank b{color:var(--accent-text);font-size:14px}.mt-rank small{color:var(--muted);font-size:10px}.mt-row>.mt-rank:last-child{align-items:flex-end;text-align:right}
+  .mt-row-main{align-items:center;display:flex;gap:12px;min-width:0}.mt-row-main strong{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mt-row-main strong a{color:var(--ink);text-decoration:none}.mt-row-main strong a:hover{color:var(--accent-text)}.mt-row-main small{color:var(--muted);display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mt-row-main>div{min-width:0}
+  .mt-row-main img,.mt-row-avatar{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;flex:0 0 36px;font-size:13px;font-weight:700;height:36px;object-fit:cover;place-items:center;width:36px}
+  .mt-thumb,.mt-row-main img.mt-thumb{border-radius:6px;flex:0 0 64px;height:36px;width:64px}
+  .mt-more summary{color:var(--muted);cursor:pointer;font-size:12px;margin:8px 6px 4px}
+  .mt-clocks{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.mt-clocks .yt-rhythm-clock svg{max-width:300px}.mt-clock-empty{align-items:center;color:var(--muted);display:flex;flex-direction:column;font-size:12px;justify-content:center;min-height:200px;text-align:center}.mt-clock-empty span{color:var(--ink-2);font-weight:700}.mt-clock-empty[hidden]{display:none}
+  .mt-week{display:grid;gap:4px}.mt-week-row{align-items:center;display:grid;gap:10px;grid-template-columns:minmax(0,1fr) 80px minmax(0,1fr)}.mt-week-row>span{color:var(--muted);font-size:11px;text-align:center}
+  .mt-bar{align-items:center;display:flex;gap:8px;min-width:0;outline:none}.mt-bar i{background:var(--accent);border-radius:999px;display:block;height:10px;min-width:2px;transition:width .2s}.mt-bar b{color:var(--ink-2);flex:0 0 auto;font-size:11px;font-variant-numeric:tabular-nums;font-weight:650}.mt-bar-a{flex-direction:row-reverse}.mt-bar-b i{background:var(--blue)}
+  .mt-edges{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.mt-edge{background:var(--raised);border-radius:10px;padding:12px 14px}.mt-edge strong{display:block;font-size:13px;margin:4px 0 2px}.mt-edge small{color:var(--muted);font-size:11px}
+  @media(max-width:620px){.mt-row{grid-template-columns:48px minmax(0,1fr) 48px;gap:8px}.mt-week-row{grid-template-columns:minmax(0,1fr) 64px minmax(0,1fr)}.mt-stat-row strong{font-size:14px}.mt-clocks{gap:6px}}
+`;
 
 function cohortSection(recommendations: CohortRecommendations, lang: Lang): string {
   if (!recommendations.topics.length && !recommendations.channels.length) return '';

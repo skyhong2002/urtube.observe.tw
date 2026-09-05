@@ -279,6 +279,67 @@ export interface YoutubeHourlySummary {
   estimatedWatchSeconds: number;
 }
 
+// One person's side of a two-person comparison: aggregate stats plus fully
+// ranked channel/video/topic lists so a peer's rank can be looked up, and
+// clock/weekday histograms. Built from the private repository; the
+// comparison layer decides what crosses to the other person.
+export interface YoutubeComparisonRankedChannel {
+  key: string;
+  name: string;
+  thumbnailUrl: string;
+  rank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeComparisonRankedVideo {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  rank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeComparisonRankedTopic {
+  key: string;
+  rank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeWeekdaySummary {
+  // 0 = Sunday … 6 = Saturday, Taipei local time.
+  weekday: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeComparisonWatch {
+  title: string;
+  watchedAt: string;
+}
+
+export interface YoutubeComparisonProfile {
+  range: YoutubeRange;
+  stats: {
+    watchEvents: number;
+    estimatedWatchSeconds: number;
+    uniqueVideos: number;
+    uniqueChannels: number;
+    activeDays: number;
+  };
+  channels: YoutubeComparisonRankedChannel[];
+  videos: YoutubeComparisonRankedVideo[];
+  topics: YoutubeComparisonRankedTopic[];
+  hourly: YoutubeHourlySummary[];
+  weekdays: YoutubeWeekdaySummary[];
+  rhythmCoverage: YoutubeRhythmCoverage;
+  firstWatch: YoutubeComparisonWatch | null;
+  lastWatch: YoutubeComparisonWatch | null;
+}
+
 export interface YoutubeRhythmCoverage {
   // Only exact timestamps are safe to place on a 24-hour clock. Extension
   // history backfills can know the calendar day without knowing the time.

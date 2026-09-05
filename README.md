@@ -101,8 +101,11 @@ to two allowed canonical topics, an optional mutually allowed channel, and a
 generic icebreaker. The avatar and card action open one split-screen VS
 comparison, with the signed-in person on the left and the candidate on the
 right, without first sending a request. The comparison uses a short-lived,
-session-bound opaque token and adds bounded broad interest names plus rounded
-topic/channel percentages; it never exposes
+session-bound opaque token and follows the stats.fm compare layout: the same
+sections for every pair, with a range switch (28 days, 90 days, 365 days, all
+time). Before mutual consent it shows only the rounded match percentage, up to
+five broad canonical topics with each person's rank, and each person's hour-of-
+day and weekday rhythm as their own share (no counts). It never exposes
 handles, emails, crystals, histories, raw shares, full vectors, introductions,
 contacts, or candidate dashboards.
 When at least three of the ten nearest eligible people contribute the same
@@ -115,9 +118,14 @@ labels cannot be verified, channel recommendations stay hidden.
 opaque token, so candidate handles and internal ids never enter the page. The
 same person remains in the directory while a request is pending or accepted.
 The recipient can agree or decline, and the sender can withdraw while pending.
-Only mutual consent unlocks additional broad comparison interests and the
-mutually allowed channel clue; it does not reveal introductions or contact
-details. Every comparison read checks the current relationship, topic
+Only mutual consent unlocks the rest of the comparison: watch stats (events,
+estimated minutes and hours, distinct videos and channels, active days), every
+topic in common with watch counts, channels and videos in common with each
+person's rank, absolute clock and weekday counts, and first and last watch as
+a title plus calendar day. Channels, videos, and first/last watch stay hidden
+when either person allows topic-only disclosure, and topics excluded by either
+person are never named. Mutual consent does not reveal introductions or
+contact details. Every comparison read checks the current relationship, topic
 exclusions, data eligibility, and both users' opt-in. Either person can revoke
 mutual consent, and turning matching off withdraws active relationships
 immediately.

@@ -80,7 +80,7 @@ function polarPoint(angle: number, radius: number): [number, number] {
 
 function radialSector(hour: number, value: number, max: number): string {
   const inner = 9;
-  const outer = inner + value / Math.max(1, max) * 108;
+  const outer = inner + value / (max > 0 ? max : 1) * 108;
   const startAngle = hour * 15 + 1.5;
   const endAngle = (hour + 1) * 15 - 1.5;
   const [innerStartX, innerStartY] = polarPoint(startAngle, inner);
@@ -88,6 +88,34 @@ function radialSector(hour: number, value: number, max: number): string {
   const [outerEndX, outerEndY] = polarPoint(endAngle, outer);
   const [innerEndX, innerEndY] = polarPoint(endAngle, inner);
   return `M${innerStartX.toFixed(2)},${innerStartY.toFixed(2)}L${outerStartX.toFixed(2)},${outerStartY.toFixed(2)}A${outer.toFixed(2)},${outer.toFixed(2)} 0 0 1 ${outerEndX.toFixed(2)},${outerEndY.toFixed(2)}L${innerEndX.toFixed(2)},${innerEndY.toFixed(2)}A${inner},${inner} 0 0 0 ${innerStartX.toFixed(2)},${innerStartY.toFixed(2)}Z`;
+}
+
+// One 24-hour rose chart. Values are any non-negative series (counts,
+// seconds, or shares); the caller formats the tooltip.
+export function radialClock(
+  values: number[],
+  label: string,
+  ariaLabel: string,
+  tip: (hour: number, value: number) => string,
+  panel = '',
+): string {
+  const max = Math.max(1e-9, ...values);
+  const spokes = values.map((_, hour) => {
+    const [x1, y1] = polarPoint(hour * 15, 10);
+    const [x2, y2] = polarPoint(hour * 15, 126);
+    return `<line${hour % 6 === 0 ? ' class="yt-rhythm-major"' : ''} x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
+  }).join('');
+  const sectors = values.map((value, hour) => value > 0
+    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${html(hourLabel(hour))}" data-tip-label="${html(tip(hour, value))}"></path>`
+    : '').join('');
+  return `<figure class="yt-rhythm-clock"${panel ? ` data-rhythm-panel="${html(panel)}"` : ''}><svg viewBox="0 0 300 300" role="img" aria-label="${html(ariaLabel)}">
+    <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
+    <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
+    </svg><figcaption>${label}</figcaption></figure>`;
+}
+
+function hourLabel(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00–${String((hour + 1) % 24).padStart(2, '0')}:00`;
 }
 
 function rhythmClock(
@@ -98,19 +126,13 @@ function rhythmClock(
 ): string {
   const byHour = new Map(hourly.map((entry) => [entry.hour, entry]));
   const values = Array.from({ length: 24 }, (_, hour) => byHour.get(hour)?.[metric] ?? 0);
-  const max = Math.max(1, ...values);
-  const spokes = values.map((_, hour) => {
-    const [x1, y1] = polarPoint(hour * 15, 10);
-    const [x2, y2] = polarPoint(hour * 15, 126);
-    return `<line${hour % 6 === 0 ? ' class="yt-rhythm-major"' : ''} x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
-  }).join('');
-  const sectors = values.map((value, hour) => value > 0
-    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${t.hourRange(hour)}" data-tip-label="${metric === 'watches' ? t.tipVideos(value) : hours(value)}"></path>`
-    : '').join('');
-  return `<figure class="yt-rhythm-clock" data-rhythm-panel="${metric}"><svg viewBox="0 0 300 300" role="img" aria-label="${t.rhythmAria(label)}">
-    <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
-    <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
-    </svg><figcaption>${label}</figcaption></figure>`;
+  return radialClock(
+    values,
+    label,
+    t.rhythmAria(label),
+    (_hour, value) => (metric === 'watches' ? t.tipVideos(value) : hours(value)),
+    metric,
+  );
 }
 
 function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
@@ -482,7 +504,25 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
   </section>`;
 }
 
-const dashboardStyles = `
+// Shared with the two-person comparison page.
+export const rhythmClockStyles = `
+  .yt-rhythm-clocks{margin:4px auto 8px;max-width:460px}
+  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock[hidden]{display:none}.yt-rhythm-clock svg{display:block;margin:auto;max-width:420px;overflow:visible;width:100%}
+  .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
+  .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
+  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
+  .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
+  .yt-rhythm-quality{align-items:flex-start;background:rgba(208,59,59,.08);border:1px solid rgba(230,103,103,.28);border-radius:12px;display:flex;gap:12px;margin:0 0 20px;padding:14px 16px}
+  .yt-rhythm-quality-mark{align-items:center;background:var(--accent);border-radius:50%;color:#fff;display:flex;flex:0 0 24px;font-size:13px;font-weight:800;height:24px;justify-content:center}
+  .yt-rhythm-quality strong{display:block;font-size:13px;margin-bottom:3px}.yt-rhythm-quality p{color:var(--ink-2);font-size:12px;line-height:1.6;margin:0;max-width:820px}
+  .yt-rhythm-quality-blocking{align-items:center;justify-content:center;margin-bottom:0;min-height:260px;padding:32px}.yt-rhythm-quality-blocking>div{max-width:680px}.yt-rhythm-quality-blocking strong{font-size:17px}.yt-rhythm-quality-blocking p{font-size:13px;margin-top:7px}
+
+  .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
+  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:6px 11px}
+  .yt-metric-toggle button[aria-pressed=true]{background:var(--ink);color:#111}
+`;
+
+const dashboardStyles = `${rhythmClockStyles}
   .yt-import-control{align-items:center;display:flex;gap:12px;margin:0 0 18px}.yt-import-control[hidden]{display:none}
   .yt-import-control button{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:600;padding:7px 14px}
   .yt-import-control button:hover{border-color:var(--muted)}.yt-import-control button:disabled{cursor:wait;opacity:.6}
@@ -499,20 +539,6 @@ const dashboardStyles = `
   .yt-hero-stats{border-top:1px solid var(--line);display:grid;gap:16px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));margin-top:24px;padding-top:20px}
   .yt-hero-foot{border-top:1px solid var(--line);color:var(--muted);font-size:11px;margin-top:18px;padding-top:12px}
 
-  .yt-rhythm-clocks{margin:4px auto 8px;max-width:460px}
-  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock[hidden]{display:none}.yt-rhythm-clock svg{display:block;margin:auto;max-width:420px;overflow:visible;width:100%}
-  .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
-  .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
-  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
-  .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
-  .yt-rhythm-quality{align-items:flex-start;background:rgba(208,59,59,.08);border:1px solid rgba(230,103,103,.28);border-radius:12px;display:flex;gap:12px;margin:0 0 20px;padding:14px 16px}
-  .yt-rhythm-quality-mark{align-items:center;background:var(--accent);border-radius:50%;color:#fff;display:flex;flex:0 0 24px;font-size:13px;font-weight:800;height:24px;justify-content:center}
-  .yt-rhythm-quality strong{display:block;font-size:13px;margin-bottom:3px}.yt-rhythm-quality p{color:var(--ink-2);font-size:12px;line-height:1.6;margin:0;max-width:820px}
-  .yt-rhythm-quality-blocking{align-items:center;justify-content:center;margin-bottom:0;min-height:260px;padding:32px}.yt-rhythm-quality-blocking>div{max-width:680px}.yt-rhythm-quality-blocking strong{font-size:17px}.yt-rhythm-quality-blocking p{font-size:13px;margin-top:7px}
-
-  .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
-  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:6px 11px}
-  .yt-metric-toggle button[aria-pressed=true]{background:var(--ink);color:#111}
 
   .yt-channels{display:grid;gap:4px}
   .yt-channel-row{align-items:center;border-radius:10px;display:grid;gap:12px;grid-template-columns:18px 36px minmax(0,1fr) 92px;padding:6px 8px 6px 2px}
