@@ -1,3 +1,4 @@
+import { v3ProcessingStyles } from './v3-processing.js';
 import { matchingWorkspace } from '../matching-v3/page.js';
 import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/candidates.js';
 import type { CohortRecommendations } from '../youtube/cohort-recommendations.js';
@@ -381,6 +382,7 @@ export function matchesPage(
   recommendations: CohortRecommendations = { topics: [], channels: [] },
   languageHref = `/matches?lang=${lang === 'zh' ? 'en' : 'zh'}`,
   workspace?: { admin: boolean; invitations: string },
+  processingHtml = '',
 ): string {
   const t = messages(lang);
   let content: string;
@@ -401,7 +403,7 @@ export function matchesPage(
   }
   content += cohortSection(recommendations, lang);
   if (workspace) content = matchingWorkspace(content, workspace.invitations, workspace.admin, lang);
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${content}`;
+  const body = `<style>${matchesStyles}${v3ProcessingStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${processingHtml}${content}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);

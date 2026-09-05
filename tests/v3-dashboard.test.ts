@@ -91,6 +91,11 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     assert.equal($('a[href="/account/taxonomy"],form[action^="/account/taxonomy"]').length, 0);
     assert.equal((await f.app.request('/account')).status, 302);
     assert.equal(f.store.processingStatus(f.user.id)?.state, 'running');
+    const matching = load(await (await f.app.request('/matches?view=all&lang=zh', { headers: f.headers })).text());
+    assert.equal(matching('[data-v3-processing="running"] [data-processing-monitor]').length, 1);
+    assert.equal(matching('[data-processing-monitor] button').length, 0);
+    assert.equal(matching('[data-processing-monitor] a[href="/matching-v3/admin"]').length, 0);
+
     const dashboard = load(await (await f.app.request('/v3-dashboard?lang=zh', { headers: f.headers })).text());
     assert.equal(dashboard('[data-v3-interests] .section-head span').length, 0, 'interest section does not display processing status');
   } finally { f.registry.close(); }

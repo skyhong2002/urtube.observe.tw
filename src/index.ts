@@ -779,7 +779,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
-    const provisional = !['done', 'disabled'].includes(v3DataFor(me).processing.state);
+    const processing = v3DataFor(me).processing;
+    const provisional = !['done', 'disabled'].includes(processing.state);
     const respond = (
       state: Parameters<typeof matchesPage>[2],
       status: 200 | 403 = 200,
@@ -798,6 +799,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         v3.enabled ? { admin: v3.adminHandles.includes(me.storageName), invitations: `<div class="mt-grid">${registry.listUsers()
           .filter(target => target.matchingOptIn && registry.matchingRelationshipFor(me, target.id).status === 'incoming')
           .map(target => candidateCard(blendCard(me, target), me.handle, lang)).join('')}</div>` } : undefined,
+        v3ProcessingNotice(processing, lang, { ownerDetails: true, alwaysShow: true }),
       ), v3.enabled && status === 403 ? 200 : status);
     };
     const publicUsers = registry.listUsers().filter(user => user.id !== me.id && user.dashboardPublic);
