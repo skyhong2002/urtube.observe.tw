@@ -107,7 +107,7 @@ export const processingMonitorScript = String.raw`
   async function refresh() {
     clearTimeout(timer);
     if (busy || stopped || controller.signal.aborted || document.hidden || !visible()) return;
-    busy = true; button.disabled = true;
+    busy = true; if (button) button.disabled = true;
     let timedOut = false;
     const request = new AbortController();
     const abort = () => request.abort();
@@ -132,11 +132,11 @@ export const processingMonitorScript = String.raw`
         + (stopped ? '' : t(' 顯示內容可能是上次資料，稍後自動重試。', ' Displayed data may be stale; retrying automatically.'));
     } finally {
       clearTimeout(timeout); controller.signal.removeEventListener('abort', abort);
-      busy = false; button.disabled = stopped;
+      busy = false; if (button) button.disabled = stopped;
       if (!stopped && !controller.signal.aborted && !document.hidden && visible()) timer = setTimeout(refresh, retry);
     }
   }
-  button.addEventListener('click', refresh, { signal: controller.signal });
+  button?.addEventListener('click', refresh, { signal: controller.signal });
   document.addEventListener('visibilitychange', () => { clearTimeout(timer); if (!document.hidden) refresh(); }, { signal: controller.signal });
   window.addEventListener('urtube:processing-visibility', () => { clearTimeout(timer); if (visible()) refresh(); }, { signal: controller.signal });
   controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
@@ -145,5 +145,5 @@ export const processingMonitorScript = String.raw`
 
 export function processingMonitor(lang: 'en' | 'zh'): string {
   const zh = lang === 'zh';
-  return `<div class="yt-processing-monitor" data-processing-monitor data-lang="${lang}"><div class="yt-monitor-controls"><button type="button">${zh ? '更新狀態' : 'Refresh status'}</button><span data-monitor-connection role="status">${zh ? '正在讀取最新工作狀態…' : 'Loading current job status…'}</span></div><div data-monitor-content></div></div><script>${processingMonitorScript}</script>`;
+  return `<div class="yt-processing-monitor" data-processing-monitor data-lang="${lang}"><div class="yt-monitor-controls"><span data-monitor-connection role="status">${zh ? '正在讀取最新工作狀態…' : 'Loading current job status…'}</span></div><div data-monitor-content></div></div><script>${processingMonitorScript}</script>`;
 }
