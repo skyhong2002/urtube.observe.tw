@@ -48,7 +48,13 @@ export function migrateFromInfovore(sourcePath: string, targetPath: string): Mig
       for (const { table, where } of TABLES) {
         const clause = where ? ` WHERE ${where}` : '';
         db.exec(`DELETE FROM main.${table}`);
-        db.exec(`INSERT INTO main.${table} SELECT * FROM src.${table}${clause}`);
+        // Older snapshots lack additive metadata columns; let their target
+        // defaults apply while preserving every column present in the source.
+        const sourceColumns = db.prepare(`PRAGMA src.table_info(${table})`).all() as Array<{ name: string }>;
+        const targetColumns = new Set((db.prepare(`PRAGMA main.table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name));
+        const columns = sourceColumns.filter((column) => targetColumns.has(column.name))
+          .map((column) => `"${column.name.replaceAll('"', '""')}"`).join(', ');
+        db.exec(`INSERT INTO main.${table} (${columns}) SELECT ${columns} FROM src.${table}${clause}`);
         const source = Number((db.prepare(`SELECT COUNT(*) count FROM src.${table}${clause}`).get() as { count: number }).count);
         const target = Number((db.prepare(`SELECT COUNT(*) count FROM main.${table}`).get() as { count: number }).count);
         report.tables.push({ table, source, target });

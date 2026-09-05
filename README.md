@@ -172,6 +172,13 @@ channel rankings, with time ranges and watch-time/watch-count sorting. Its
 community totals include only current matching members. `/channel` redirects
 to this directory while preserving the query. The primary navigation and each
 channel detail page link back to it.
+Channel and directory pages put member totals and rankings before personal
+history. Compact image rows use the available page width, with controls beside
+the headings. Channel headers include YouTube subscriber counts (rounded by
+YouTube), public video/view counts, creation dates, and official topic labels.
+Missing or hidden counts remain unavailable, never zero. Public statistics
+refresh on channel visits after a day and in the worker after seven days;
+failed lookups keep cached information and back off for five minutes.
 Channel, video, viewer, and personal-stat cards run in single horizontal rows;
 card rows support arrow buttons, touch scrolling, and keyboard navigation.
 Every channel with a YouTube channel id has a page at `/channel/<id>`

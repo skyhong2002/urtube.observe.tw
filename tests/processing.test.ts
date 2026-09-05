@@ -102,7 +102,7 @@ test('processing status follows the worker through metadata and topics', () => {
     assert.deepEqual(afterMetadata.topics, { done: 0, total: 1, pending: 1 });
     assert.equal(afterMetadata.pending, 2);
 
-    repository.upsertYoutubeChannelMetadata([{ channelId: 'channel-one', name: 'Channel One', thumbnailUrl: '' }]);
+    repository.upsertYoutubeChannelMetadata([{ channelId: 'channel-one', name: 'Channel One', thumbnailUrl: '', statistics: { subscriberCount: null, hiddenSubscriberCount: false, videoCount: null, viewCount: null, publishedAt: null, topicCategories: [] } }]);
     repository.savePersonalYoutubeVideoTopic(run, videoMetadata('video-one'), {
       slug: 'unknown', confidence: 0.4, alternativeSlug: null,
       alternativeConfidence: null, evidence: [], decision: 'low-confidence',
@@ -136,6 +136,7 @@ test('processing notice counts fall across catch-up cycles and disappear when se
         const ids = archive.youtubeChannelsNeedingMetadata(2);
         archive.upsertYoutubeChannelMetadata(ids.map((channelId) => ({
           channelId, name: 'Anonymous Channel', thumbnailUrl: '',
+          statistics: { subscriberCount: null, hiddenSubscriberCount: false, videoCount: null, viewCount: null, publishedAt: null, topicCategories: [] },
         })));
         return ids.length;
       },

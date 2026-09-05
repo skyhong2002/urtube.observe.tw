@@ -536,6 +536,20 @@ export class Repository {
     if (afterScanSummaries.user_version < 10) this.migrateYoutubeMatchingTopics();
     const afterMatchingTopics = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     if (afterMatchingTopics.user_version < 11) this.migratePersonalTaxonomyRuns();
+    const afterTaxonomy = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterTaxonomy.user_version < 12) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        // App, ingest and worker may start together against the same archive.
+        const columns = this.db.prepare('PRAGMA table_info(youtube_channels)').all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'statistics_json')) this.db.exec('ALTER TABLE youtube_channels ADD COLUMN statistics_json TEXT');
+        if (!columns.some((column) => column.name === 'statistics_fetched_at')) this.db.exec('ALTER TABLE youtube_channels ADD COLUMN statistics_fetched_at TEXT');
+        this.db.exec('PRAGMA user_version = 12; COMMIT;');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
   }
 
   private migrateYoutube(): void {
@@ -1396,7 +1410,7 @@ export class Repository {
   // What the worker still owes this archive. Cheap COUNTs over the same
   // predicates the enrichment steps use, so "pending" here is exactly what
   // the next cycles will pick up.
-  youtubeProcessingCounts(): YoutubeProcessingCounts {
+  youtubeProcessingCounts(now = new Date()): YoutubeProcessingCounts {
     const row = this.db.prepare(`
       WITH work_run AS (
         SELECT * FROM youtube_taxonomy_runs
@@ -1411,7 +1425,9 @@ export class Repository {
         (SELECT COUNT(DISTINCT v.channel_id)
            FROM youtube_videos v
            LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
-           WHERE v.channel_id IS NOT NULL AND c.metadata_fetched_at IS NULL) channels_pending_metadata,
+           WHERE v.channel_id IS NOT NULL AND (
+             c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?
+           )) channels_pending_metadata,
         (SELECT COUNT(*) FROM youtube_videos v
            WHERE metadata_fetched_at IS NOT NULL AND availability='available'
              AND EXISTS (SELECT 1 FROM youtube_watch_events w
@@ -1431,7 +1447,7 @@ export class Repository {
                  AND vt.model=run.model AND vt.prompt_version=run.prompt_version
              )) videos_pending_topics,
         (SELECT MAX(imported_at) FROM youtube_watch_events) last_import_at
-    `).get() as Record<string, unknown>;
+    `).get(new Date(now.getTime() - 7 * 86400_000).toISOString()) as Record<string, unknown>;
     return {
       videos: Number(row.videos),
       videosPendingMetadata: Number(row.videos_pending_metadata),
@@ -2235,17 +2251,31 @@ export class Repository {
     }
   }
 
-  youtubeChannelsNeedingMetadata(limit = 500): string[] {
+  youtubeChannelsNeedingMetadata(limit = 500, now = new Date()): string[] {
     const safeLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
     const rows = this.db.prepare(`
       SELECT DISTINCT v.channel_id
       FROM youtube_videos v
       LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
-      WHERE v.channel_id IS NOT NULL AND c.metadata_fetched_at IS NULL
+      WHERE v.channel_id IS NOT NULL AND (
+        c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?
+      )
       ORDER BY v.channel_id
       LIMIT ?
-    `).all(safeLimit) as Array<{ channel_id: string }>;
+    `).all(new Date(now.getTime() - 7 * 86400_000).toISOString(), safeLimit) as Array<{ channel_id: string }>;
     return rows.map((row) => row.channel_id);
+  }
+
+  youtubeChannelMetadata(channelId: string): YoutubeChannelMetadata | null {
+    const row = this.db.prepare(`
+      SELECT * FROM youtube_channels WHERE channel_id=?
+    `).get(channelId) as { name: string; thumbnail_url: string; statistics_json: string | null; statistics_fetched_at: string | null } | undefined;
+    if (!row) return null;
+    return {
+      channelId, name: row.name, thumbnailUrl: row.thumbnail_url,
+      statistics: row.statistics_json ? JSON.parse(row.statistics_json) : undefined,
+      statisticsFetchedAt: row.statistics_fetched_at,
+    };
   }
 
   upsertYoutubeChannelMetadata(
@@ -2253,17 +2283,20 @@ export class Repository {
     fetchedAt = new Date().toISOString(),
   ): void {
     const statement = this.db.prepare(`
-      INSERT INTO youtube_channels(channel_id, name, thumbnail_url, metadata_fetched_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO youtube_channels(channel_id, name, thumbnail_url, metadata_fetched_at, statistics_json, statistics_fetched_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(channel_id) DO UPDATE SET
         name=excluded.name,
         thumbnail_url=excluded.thumbnail_url,
-        metadata_fetched_at=excluded.metadata_fetched_at
+        metadata_fetched_at=excluded.metadata_fetched_at,
+        statistics_json=COALESCE(excluded.statistics_json, youtube_channels.statistics_json),
+        statistics_fetched_at=COALESCE(excluded.statistics_fetched_at, youtube_channels.statistics_fetched_at)
     `);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const channel of channels) {
-        statement.run(channel.channelId, channel.name, channel.thumbnailUrl, fetchedAt);
+        statement.run(channel.channelId, channel.name, channel.thumbnailUrl, fetchedAt,
+          channel.statistics ? JSON.stringify(channel.statistics) : null, channel.statistics ? fetchedAt : null);
       }
       this.db.exec('COMMIT');
     } catch (error) {
@@ -2424,9 +2457,7 @@ export class Repository {
     const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_VIEW;
     const channelIdExpr = 'COALESCE(e.channel_id, v.channel_id)';
     const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
-    const known = this.db.prepare(`
-      SELECT name, thumbnail_url FROM youtube_channels WHERE channel_id=?
-    `).get(channelId) as { name: string; thumbnail_url: string } | undefined;
+    const known = this.youtubeChannelMetadata(channelId);
     const totals = this.db.prepare(`
       ${estimatedEvents}
       SELECT COUNT(*) watches,
@@ -2500,7 +2531,7 @@ export class Repository {
       (known || historic || watches ? channelId : '');
     return {
       range,
-      channel: name ? { channelId, name, thumbnailUrl: known?.thumbnail_url ?? '' } : null,
+      channel: name ? { ...known, channelId, name, thumbnailUrl: known?.thumbnailUrl ?? '' } : null,
       stats: {
         watches,
         estimatedWatchSeconds: seconds,

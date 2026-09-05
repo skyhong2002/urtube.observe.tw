@@ -31,6 +31,7 @@ import {
 import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { ensureYoutubeTaxonomy } from './youtube/ai.js';
+import { fetchYoutubeChannelMetadata } from './youtube/metadata.js';
 import {
   brandMark, html, primaryNav, shell,
   type PrimaryNavActive, type ShellNavItem,
@@ -73,6 +74,7 @@ import type { TagListSnapshot } from './youtube/taglists.js';
 import {
   YOUTUBE_RANGES,
   type YoutubeChannelDetail,
+  type YoutubeChannelMetadata,
   type YoutubeChannelSummary,
   type YoutubeComparisonProfile,
   type YoutubeDashboardData,
@@ -224,12 +226,34 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 interface AppServices {
   loadTagLists: () => Promise<TagListSnapshot>;
   avatarService: Pick<AvatarService, 'avatarFor'>;
+  loadChannelMetadata: (channelId: string) => Promise<YoutubeChannelMetadata | null>;
 }
 
 export function createApp(registry: UserRegistry, services: Partial<AppServices> = {}): Hono {
   const app = new Hono();
   const loadTagLists = services.loadTagLists ?? fetchTagLists;
   const avatarService = services.avatarService ?? new AvatarService();
+  const loadChannelMetadata = services.loadChannelMetadata ?? (async (channelId: string) => {
+    if (!config.youtube.apiKey) return null;
+    const boundedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(4000) });
+    return (await fetchYoutubeChannelMetadata([channelId], config.youtube.apiKey, boundedFetch))[0] ?? null;
+  });
+  // Share concurrent lookups across viewers; back off after upstream failures.
+  const channelMetadataLookups = new Map<string, { until: number; result: Promise<YoutubeChannelMetadata | null> }>();
+  const refreshChannelMetadata = async (channelId: string) => {
+    const now = Date.now();
+    const existing = channelMetadataLookups.get(channelId);
+    if (existing && existing.until > now) return existing.result;
+    const entry = { until: now + 300_000, result: Promise.resolve(null) as Promise<YoutubeChannelMetadata | null> };
+    entry.result = loadChannelMetadata(channelId).then((metadata) => {
+      if (!metadata || metadata.channelId !== channelId) return null;
+      entry.until = Date.now() + 86400_000;
+      return { ...metadata, statisticsFetchedAt: new Date().toISOString() };
+    }).catch(() => null);
+    if (channelMetadataLookups.size >= 128) channelMetadataLookups.delete(channelMetadataLookups.keys().next().value!);
+    channelMetadataLookups.set(channelId, entry);
+    return entry.result;
+  };
   app.use('*', securityHeaders(true));
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
@@ -913,18 +937,38 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // channel, plus member rankings across everyone who joined matching.
   // Community data is reciprocal: only members contribute and only members
   // see it.
-  app.get('/channel/:channelId', (c) => {
+  app.get('/channel/:channelId', async (c) => {
     const channelId = c.req.param('channelId');
     if (!YOUTUBE_CHANNEL_ID_PATTERN.test(channelId)) return notFoundPage(c);
-    const me = sessionUser(c);
+    let me = sessionUser(c);
     if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
     c.header('Cache-Control', 'private, no-store');
     c.header('X-Robots-Tag', 'noindex');
     const range = channelPageRange(c.req.query('range'));
     const sort = channelPageSort(c.req.query('sort'));
+    const repository = registry.repositoryFor(me);
+    let metadata = repository.youtubeChannelMetadata(channelId)
+      ?? cachedChannelDetailFor(registry, me, channelId, range).channel;
+    if (!metadata && me.matchingOptIn) {
+      for (const member of registry.listMatchingMembers()) {
+        metadata = registry.repositoryFor(member).youtubeChannelMetadata(channelId);
+        if (metadata) break;
+      }
+    }
+    if (metadata && (!metadata.statisticsFetchedAt || Date.now() - Date.parse(metadata.statisticsFetchedAt) > 86400_000)) {
+      const fresh = await refreshChannelMetadata(channelId);
+      // The external request may outlive a sign-out or opt-out. Recheck before
+      // reading or rendering anyone's private aggregates.
+      me = sessionUser(c);
+      if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
+      if (fresh) {
+        metadata = { ...fresh, name: fresh.name || metadata.name, thumbnailUrl: fresh.thumbnailUrl || metadata.thumbnailUrl };
+        registry.repositoryFor(me).upsertYoutubeChannelMetadata([metadata], metadata.statisticsFetchedAt!);
+      }
+    }
     const mine = cachedChannelDetailFor(registry, me, channelId, range);
     let community: Parameters<typeof channelPage>[1]['community'] = null;
-    let channel = mine.channel;
+    let channel = metadata ?? mine.channel;
     if (me.matchingOptIn) {
       const comparable = new Set(registry.listMatchingCandidatesFor(me, 499).map((member) => member.handle));
       const members: ChannelMemberRow[] = [];
