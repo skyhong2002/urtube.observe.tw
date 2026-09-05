@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { MatchingStore } from './matching-v3/store.js';
+import { AdminMonitoring } from './matching-v3/monitoring.js';
+import { readAdminSnapshot } from './matching-v3/monitoring-read.js';
 import { Repository } from './data/database.js';
 import {
   MATCHING_DISCLOSURE_LEVELS,
@@ -207,14 +209,20 @@ function rowToUser(row: Record<string, unknown>): User {
 
 export class UserRegistry {
   private v3Store?: MatchingStore;
+  private v3Monitoring?: AdminMonitoring;
   matchingV3Store(): MatchingStore {
     return this.v3Store ??= new MatchingStore(this.db);
+  }
+  matchingV3Monitoring(version: string) {
+    this.matchingV3Store();
+    this.v3Monitoring ??= new AdminMonitoring(this.registryPath, version => readAdminSnapshot(this.db, version));
+    return this.v3Monitoring.read(version);
   }
   private readonly db: DatabaseSync;
   private readonly repositories = new Map<string, Repository>();
   private readonly dataDir: string;
 
-  constructor(registryPath: string, dataDir?: string) {
+  constructor(private readonly registryPath: string, dataDir?: string) {
     if (registryPath !== ':memory:') mkdirSync(dirname(registryPath), { recursive: true });
     this.dataDir = dataDir ?? (registryPath === ':memory:' ? ':memory:' : join(dirname(registryPath), 'users'));
     this.db = new DatabaseSync(registryPath);
@@ -388,6 +396,7 @@ export class UserRegistry {
   }
 
   close(): void {
+    this.v3Monitoring?.close();
     for (const repository of this.repositories.values()) repository.close();
     this.repositories.clear();
     this.db.close();

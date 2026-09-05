@@ -4,7 +4,8 @@ const date = value => value ? new Date(value).toLocaleString('zh-TW', { hour12: 
 const number = value => Number(value || 0).toLocaleString('zh-TW');
 function node(tag, text, className) { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; }
 function row(body, cells) { const tr = node('tr'); for (const content of cells) { const td = node('td'); td.append(content instanceof Node ? content : node('span', String(content))); tr.append(td); } body.append(tr); }
-let data, busy = false, timer;
+const REFRESH_INTERVAL = 30000, MAX_RETRY_INTERVAL = 120000;
+let data, busy = false, timer, retryInterval = REFRESH_INTERVAL;
 function renderUsers() {
   $('users').replaceChildren();
   for (const user of data.users.filter(u => u.handle.toLowerCase().includes($('search').value.toLowerCase()))) {
@@ -69,12 +70,24 @@ function tokenText(event) {
   return `供應商未回傳（文字字元 ${number(usage.inputCharacters)} / ${number(usage.outputCharacters)}）`;
 }
 async function refresh() {
-  if (busy) return; busy = true; clearTimeout(timer);
+  clearTimeout(timer);
+  if (busy || document.hidden) return;
+  busy = true;
   try {
-    const response = await fetch('/api/matching-v3/admin', { cache: 'no-store' });
+    const response = await fetch('/api/matching-v3/admin', { cache: 'no-store', signal: AbortSignal.timeout(35000) });
     if (!response.ok) throw new Error(response.status === 401 ? '登入已過期，請回配對頁重新登入。' : response.status === 403 ? '此帳號沒有管理員權限。' : '暫時無法取得資料');
-    data = await response.json(); render(); $('connection').textContent = `已連線 · 更新於 ${date(data.now)}`;
-  } catch (error) { $('connection').textContent = `${error.message} · 以下可能為上次資料，稍後自動重試。`; }
-  finally { busy = false; timer = setTimeout(refresh, 5000); }
+    data = await response.json(); render(); $('connection').textContent = `已連線 · 資料更新於 ${date(data.sampledAt ?? data.now)}`;
+    retryInterval = REFRESH_INTERVAL;
+  } catch (error) {
+    retryInterval = Math.min(retryInterval * 2, MAX_RETRY_INTERVAL);
+    $('connection').textContent = `${error.message} · 以下可能為上次資料，稍後自動重試。`;
+  } finally {
+    busy = false;
+    if (!document.hidden) timer = setTimeout(refresh, retryInterval);
+  }
 }
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(timer);
+  if (!document.hidden) refresh();
+});
 $('refresh').addEventListener('click', refresh); $('search').addEventListener('input', () => data && renderUsers()); refresh();
