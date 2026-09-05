@@ -240,13 +240,10 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.match(first, /href="\/matches\?page=2"/);
     assert.doesNotMatch(first, /href="\/matches\/profile\//);
     assert.equal((first.match(/class="mt-person-link" href="\/[a-z0-9.-]+"/g) ?? []).length, 20);
-    assert.doesNotMatch(first, /action="\/matches\/request"/);
-    assert.match(first, />\d{1,3}%<small>match<\/small>/);
-    assert.match(first, /Private by default/);
-    assert.match(first, /Recent 90 days/);
-    assert.match(first, /Mutual consent gates details/);
-    assert.match(first, /\.trust-signals\{display:flex;flex-wrap:wrap/);
-    assert.match(first, /@media\(max-width:560px\)[\s\S]*?\.trust-signals\{gap:6px\}/);
+    assert.match(first, /action="\/matches\/request"/);
+    assert.doesNotMatch(first, /class="mt-percent"/);
+    assert.match(first, /Add friend/);
+    assert.match(first, /Public members are ready for Blend/);
     // Member handles open profiles; raw private data stays out of the directory.
     assert.doesNotMatch(first, /Private Channel|\/compare\?|\/u\//);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);

@@ -177,8 +177,8 @@ test('public dashboards expose aggregates but keep individual recent watches pri
     const anonymousHtml = await anonymous.text();
     assert.ok(!anonymousHtml.includes('<h2>Recently watched</h2>'));
     const publicHistory = await app.request('/public-view/history?range=all');
-    assert.equal(publicHistory.status, 200);
-    assert.ok((await publicHistory.text()).includes('Detailed watch history is private'));
+    assert.equal(publicHistory.status, 404);
+    assert.equal((await app.request('/public-view/recap?range=all')).status, 404);
     const oldTags = await app.request('/public-view/tags?range=all&lang=zh');
     assert.equal(oldTags.status, 301);
     assert.equal(oldTags.headers.get('location'), '/public-view/insights?range=all&lang=zh');
