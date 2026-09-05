@@ -1,4 +1,7 @@
 export const MAX_YOUTUBE_DURATION_SECONDS = 366 * 24 * 60 * 60;
+export const YOUTUBE_STATISTICS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+// Lower bounds; the final popularity bucket has no upper bound.
+export const YOUTUBE_POPULARITY_BUCKETS_V1 = [0, 1000, 10000, 100000, 1000000] as const;
 
 export const YOUTUBE_RANGES = ['7d', '28d', '90d', '365d', 'all'] as const;
 export type YoutubeRange = typeof YOUTUBE_RANGES[number];
@@ -173,7 +176,24 @@ export interface YoutubeVideoMetadata {
   categoryId: string | null;
   availability: 'available' | 'unavailable';
   isLivestream?: boolean | null;
+  viewCount?: number | null;
+  statisticsFetchedAt?: string | null;
   metadataHash: string;
+}
+
+export interface YoutubePopularitySeries {
+  buckets: number[];
+  known: number;
+  unknown: number;
+  oldestFetchedAt: string | null;
+  newestFetchedAt: string | null;
+}
+
+export interface YoutubePopularity {
+  totalVideos: number;
+  unidentifiedEvents: number;
+  channels: YoutubePopularitySeries;
+  videos: YoutubePopularitySeries;
 }
 
 export interface YoutubeChannelStatistics {

@@ -140,6 +140,11 @@ test('processing notice counts fall across catch-up cycles and disappear when se
         })));
         return ids.length;
       },
+      statistics: async (archive) => {
+        const ids = archive.youtubeVideosNeedingStatistics(2);
+        archive.saveYoutubeVideoStatistics(ids.map(videoId => ({ videoId, viewCount: null })), new Date().toISOString());
+        return ids.length;
+      },
       matchingClassification: async (archive) => classifyYoutubeVideosForMatching(archive, 2),
       classification: async (archive) => {
         const videos = archive.youtubeVideosForPersonalClassification(run, 2);
@@ -163,6 +168,7 @@ test('processing notice counts fall across catch-up cycles and disappear when se
 
     const observed = [pending()];
     while (youtubeWorkPending(registry, BOTH)) {
+      assert.ok(observed.length < 10, 'catch-up must settle in a bounded number of cycles');
       await runYoutubeWorkerCycle(registry, steps);
       observed.push(pending());
     }
@@ -258,6 +264,7 @@ test('worker stamps each archive and reports pending work only for configured st
       portability: async () => 'idle',
       metadata: async () => 0,
       channelMetadata: async () => 0,
+      statistics: async () => 0,
       matchingClassification: async () => 0,
       classification: async () => { throw new Error('boom'); },
     };

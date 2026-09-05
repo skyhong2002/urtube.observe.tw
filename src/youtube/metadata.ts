@@ -24,6 +24,7 @@ interface YoutubeApiItem {
   };
   contentDetails?: { duration?: string };
   liveStreamingDetails?: { actualStartTime?: string; actualEndTime?: string; scheduledStartTime?: string };
+  statistics?: { viewCount?: string };
 }
 
 interface YoutubeChannelApiItem {
@@ -42,18 +43,19 @@ interface YoutubeChannelApiItem {
   topicDetails?: { topicCategories?: string[] };
 }
 
+function publicCount(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
 function channelStatistics(item: YoutubeChannelApiItem): YoutubeChannelStatistics {
-  const integer = (value: unknown): number | null => {
-    if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
-    const number = Number(value);
-    return Number.isSafeInteger(number) ? number : null;
-  };
   const hidden = item.statistics?.hiddenSubscriberCount === true;
   return {
-    subscriberCount: hidden ? null : integer(item.statistics?.subscriberCount),
+    subscriberCount: hidden ? null : publicCount(item.statistics?.subscriberCount),
     hiddenSubscriberCount: hidden,
-    videoCount: integer(item.statistics?.videoCount),
-    viewCount: integer(item.statistics?.viewCount),
+    videoCount: publicCount(item.statistics?.videoCount),
+    viewCount: publicCount(item.statistics?.viewCount),
     publishedAt: item.snippet?.publishedAt && Number.isFinite(Date.parse(item.snippet.publishedAt)) ? item.snippet.publishedAt : null,
     topicCategories: (item.topicDetails?.topicCategories ?? []).filter((value) => typeof value === 'string'),
   };
@@ -83,8 +85,9 @@ function channelThumbnail(item: YoutubeChannelApiItem): string {
 }
 
 function metadataHash(value: Omit<YoutubeVideoMetadata, 'metadataHash'>): string {
-  // Broadcast identification changes the chart, not the topic-classification input.
-  const { isLivestream: _broadcast, ...classificationMetadata } = value;
+  // Public counters and broadcast identification are not classification inputs.
+  const { isLivestream: _broadcast, viewCount: _views, statisticsFetchedAt: _statisticsAt,
+    ...classificationMetadata } = value;
   return createHash('sha256').update(JSON.stringify(classificationMetadata)).digest('hex');
 }
 
@@ -102,6 +105,7 @@ function normalize(item: YoutubeApiItem): YoutubeVideoMetadata | null {
     publishedAt: item.snippet.publishedAt ?? null,
     categoryId: item.snippet.categoryId ?? null,
     availability: 'available',
+    viewCount: publicCount(item.statistics?.viewCount),
     isLivestream: Boolean(item.liveStreamingDetails || item.snippet.liveBroadcastContent === 'live'
       || item.snippet.liveBroadcastContent === 'upcoming'),
   };
@@ -112,7 +116,7 @@ function unavailable(videoId: string): YoutubeVideoMetadata {
   const base: Omit<YoutubeVideoMetadata, 'metadataHash'> = {
     videoId, title: '', channelId: null, channelTitle: null, description: '',
     tags: [], thumbnailUrl: '', durationSeconds: null, publishedAt: null,
-    categoryId: null, availability: 'unavailable',
+    categoryId: null, availability: 'unavailable', viewCount: null,
   };
   return { ...base, metadataHash: metadataHash(base) };
 }
@@ -127,7 +131,7 @@ export async function fetchYoutubeMetadata(
   for (let index = 0; index < videoIds.length; index += 50) {
     const batch = videoIds.slice(index, index + 50);
     const url = new URL('https://www.googleapis.com/youtube/v3/videos');
-    url.searchParams.set('part', 'snippet,contentDetails,status,liveStreamingDetails');
+    url.searchParams.set('part', 'snippet,contentDetails,status,liveStreamingDetails,statistics');
     url.searchParams.set('id', batch.join(','));
     url.searchParams.set('key', apiKey);
     const body = await youtubeApiRequest(async () => {
@@ -148,6 +152,31 @@ export async function enrichYoutubeMetadata(repository: Repository, limit = 500)
   const metadata = await fetchYoutubeMetadata(ids);
   repository.upsertYoutubeVideoMetadata(metadata);
   return metadata.length;
+}
+
+export async function enrichYoutubeVideoStatistics(
+  repository: Repository, limit = 500, apiKey = config.youtube.apiKey,
+  fetchImpl: typeof fetch = fetch, now = () => new Date(),
+): Promise<number> {
+  if (!apiKey) return 0;
+  const ids = repository.youtubeVideosNeedingStatistics(limit, now());
+  let processed = 0;
+  for (let index = 0; index < ids.length; index += 50) {
+    const batch = ids.slice(index, index + 50);
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'statistics');
+    url.searchParams.set('id', batch.join(','));
+    url.searchParams.set('key', apiKey);
+    const body = await youtubeApiRequest(async () => {
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`YouTube video statistics: HTTP ${response.status}`);
+      return response.json() as Promise<{ items?: YoutubeApiItem[] }>;
+    });
+    const found = new Map((body.items ?? []).map(item => [item.id, publicCount(item.statistics?.viewCount)]));
+    repository.saveYoutubeVideoStatistics(batch.map(videoId => ({ videoId, viewCount: found.get(videoId) ?? null })), now().toISOString());
+    processed += batch.length;
+  }
+  return processed;
 }
 
 export async function fetchYoutubeChannelMetadata(
