@@ -50,7 +50,20 @@ const tagLeanStyles = `
   .tl-channel-name a{color:var(--ink);text-decoration:none}.tl-channel-name a:hover{color:var(--accent-text)}
   .tl-channel-hours{color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums;text-align:right}
   .tl-empty{color:var(--muted);font-size:12px}
-  .tl-coverage{color:var(--ink-2);font-size:14px;line-height:1.6;margin:16px 2px 0}
+  .tl-coverage-bar{background:var(--line-strong);border-radius:4px;display:flex;height:18px;overflow:hidden}
+  .tl-coverage-bar span{background:var(--accent);display:block;height:100%}
+  .tl-coverage-labels{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;margin-top:10px;font-size:13px;font-variant-numeric:tabular-nums}
+  .tl-coverage-help{color:var(--ink-2);font-size:13px;max-width:72ch}
+  .tl-coverage-details{border-top:1px solid var(--line);margin-top:20px;padding-top:12px}
+  .tl-coverage-details summary{cursor:pointer;width:fit-content}
+  .tl-coverage-details summary:focus-visible{outline:2px solid var(--accent-text);outline-offset:4px}
+  .tl-coverage-scroll{overflow-x:auto}.tl-coverage-details table{border-collapse:collapse;width:100%;font-size:12px}
+  .tl-coverage-details th,.tl-coverage-details td{border-bottom:1px solid var(--line);padding:10px 6px;text-align:right;font-variant-numeric:tabular-nums}
+  .tl-coverage-details th:first-child,.tl-coverage-details td:first-child{text-align:left}
+  .tl-coverage-details h3{font-size:14px;margin:24px 0 8px}
+  .tl-uncovered{list-style:none;padding:0;margin:12px 0;max-width:72ch}
+  .tl-uncovered li{display:flex;gap:20px;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .tl-uncovered li>:first-child{min-width:0;overflow-wrap:anywhere}.tl-uncovered li>span:last-child{flex:none;color:var(--ink-2)}
   .tl-foot{color:var(--muted);font-size:11px;margin-top:16px}
   .tl-reference{margin-top:26px}.tl-reference>p{color:var(--ink-2);font-size:13px;line-height:1.65;max-width:72ch}
   .tl-reference-axis{margin-top:20px}.tl-reference-axis h3{align-items:baseline;display:flex;flex-wrap:wrap;font-size:14px;gap:8px;margin:0 0 9px}.tl-reference-axis h3 span{color:var(--muted);font-size:11px;font-weight:600}
@@ -165,6 +178,34 @@ export interface TagLeanPageOptions {
   reference?: ReferencePopulation;
 }
 
+function coverageSection(data: TagLeanData, t: Messages): string {
+  const seconds = data.totals.estimatedWatchSeconds;
+  const classified = pct(data.matched.estimatedWatchSeconds, seconds);
+  const unclassified = pct(data.unmatched.estimatedWatchSeconds, seconds);
+  const label = `${t.tagLeanClassified} · ${pctLabel(classified)}`;
+  const uncoveredLabel = `${t.tagLeanUnclassified} · ${pctLabel(unclassified)}`;
+  const rows = [...data.content, ...data.political].map((group) => `<tr>
+    <th scope="row">${html(t.tagGroups[group.key])}</th>
+    <td>${seconds > 0 ? pctLabel(pct(group.estimatedWatchSeconds, seconds)) : '—'}</td>
+    <td>${hours(group.estimatedWatchSeconds)}</td><td>${group.watchedChannels}</td>
+  </tr>`).join('');
+  return `<section class="section tl-coverage-section"><div class="section-head"><h2>${t.tagLeanCoverageTitle}</h2></div>
+    ${seconds > 0 ? `<div class="tl-coverage-bar" role="img" aria-label="${html(`${label}, ${uncoveredLabel}`)}"><span style="width:${classified}%"></span></div>
+      <div class="tl-coverage-labels"><span>${label} · ${hours(data.matched.estimatedWatchSeconds)}</span><span>${uncoveredLabel} · ${hours(data.unmatched.estimatedWatchSeconds)}</span></div>`
+      : `<p class="tl-empty">${t.tagLeanCoverageEmpty}</p>`}
+    <p class="tl-coverage-help">${t.tagLeanCoverageHelp}</p>
+    <details class="tl-coverage-details"><summary>${t.tagLeanCoverageDetails}</summary>
+      <div class="tl-coverage-scroll"><table><thead><tr><th scope="col">${t.colGroup}</th><th scope="col">${t.colShare}</th><th scope="col">${t.colEstTime}</th><th scope="col">${t.colChannels}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h3>${t.tagLeanUnclassified}</h3>
+      ${data.unmatched.channels > 0 ? `<p class="tl-coverage-help">${t.tagLeanUncoveredCount(data.unmatched.topChannels.length, data.unmatched.channels)}</p>
+        <ul class="tl-uncovered">${data.unmatched.topChannels.map((channel) => `<li>
+          ${channel.channelId ? `<a href="/channel/${html(channel.channelId)}">${html(channel.name || channel.channelId)}</a>` : `<span>${html(channel.name || t.tagLeanUnknownChannel)}</span>`}
+          <span>${hours(channel.estimatedWatchSeconds)}</span></li>`).join('')}</ul>`
+        : `<p class="tl-empty">${seconds > 0 ? t.tagLeanFullyCovered : t.tagLeanCoverageEmpty}</p>`}
+    </details>
+  </section>`;
+}
+
 export function tagLeanSection(
   data: TagLeanData,
   lang: Lang = 'en',
@@ -209,7 +250,7 @@ export function tagLeanSection(
     () => CONTENT_COLOR, t,
   );
 
-  const coverage = `<p class="tl-coverage">${t.tagLeanCoverage(Math.round(matchedShare))}</p>`;
+  const coverage = coverageSection(data, t);
   const provenance = data.provenance;
   const sourceHost = provenance.sourceUrl.replace(/^https?:\/\//, '').split('/')[0];
   const foot = `<p class="tl-foot">${t.tagLeanSource(

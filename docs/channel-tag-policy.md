@@ -43,6 +43,39 @@ reassign channels. Each group is fetched independently from the source.
 urtube 不會從使用者的影片自行推論這些分組，也不會暗中重分頻道；每個
 分組都直接、獨立地向資料來源取得。
 
+`TAG_GROUPS` in [`src/youtube/taglists.ts`](../src/youtube/taglists.ts) is the
+source-controlled catalog: its key, English/Traditional Chinese names, axis,
+query, description, policy version and source note define each group. Fetching,
+translated labels, aggregation and rendering derive from this catalog. Adding
+a verified group requires a catalog entry, this policy and synthetic fixture
+updates; it does not require another fetch or rendering implementation.
+An empty definition or missing source timestamp makes the result unavailable.
+No guessed ACGN/travel/finance/AI tags or AI-production detector are included.
+
+## Personal coverage / 本人觀看覆蓋
+
+The signed-in owner's insights show classified/unclassified estimated watch
+time for the selected range. The denominator includes every watched channel,
+including rows without metadata/channel IDs. Classified time is the union of
+all seven lists; a channel contributes once to overall coverage even if it
+carries multiple labels. The expandable coverage table uses **all selected
+watch time** for every group's share, so those overlapping shares need not
+sum to 100%. The existing political-axis chart retains its original denominator.
+
+The owner can expand at most ten uncovered channels, ordered by estimated
+watch time, then watch events and stable channel key. This list stays on the
+owner's page, is never a matching projection, and is not prefilled into GitHub
+reports or sent to the upstream source. Public dashboard visitors, other
+accounts and dashboard-key-only visitors do not receive governed insights.
+An empty range shows no estimated watch time, not a fabricated preference.
+This is coverage of the owner's viewing, never a percentage of YouTube's market.
+
+已登入本人可在洞察查看所選期間的已分類／尚未分類觀看時間。分母包括
+缺少 metadata 或頻道 ID 的紀錄；整體依頻道聯集去重。展開明細後，每組
+比例皆以全部觀看時間為分母，重疊組別不必加總為 100%。最多列出觀看
+時間最高的十個未涵蓋頻道，僅本人可見，不會自動傳送到 GitHub 或上游。
+公開訪客、其他帳號及僅持 dashboard key 的訪客皆不會收到受治理洞察。
+
 ## Provenance and versions / 來源與版本
 
 Every displayed result carries:
