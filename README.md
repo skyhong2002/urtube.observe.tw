@@ -21,20 +21,20 @@ urtube 希望以真實行為資料提升同好探索的準確度，找出長期�
 | 功能 | 使用者可以做什麼 |
 | --- | --- |
 | 授權匯入與進度 | Google 登入後，使用 Chrome 擴充功能或 Google Takeout ZIP 匯入紀錄，查看可持續更新的背景處理狀態。 |
-| 私人興趣洞察 | 查看觀看時間、頻道與影片、公開 metadata 關鍵字，以及不同時間範圍的主題趨勢，理解自己的偏好與配對依據。 |
-| 可檢視的 AI 分類 | AI 依公開影片 metadata 整理個人主題；新版分類提供證據、品質檢查與本人審閱／啟用／回復流程。 |
-| 近期同好探索 | 以最近 90 天的共通主題與頻道聚合資料產生候選名單與 VS 比較；資料不足或沒有候選人時顯示對應狀態。 |
+| 私人興趣洞察 | 查看觀看時間、頻道與影片、影片內容關鍵字，以及不同時間範圍的主題趨勢，理解自己的偏好與配對依據。 |
+| 可檢視的 AI 分類 | AI 協助整理觀看內容中的興趣主題，使用者可查看分類依據、確認結果與復原先前的分類。 |
+| 近期同好探索 | 以最近 90 天的共同主題與頻道喜好推薦同好並提供比較；資料不足或沒有候選人時顯示對應狀態。 |
 | 好友與 Blend | 私人帳號接受好友邀請後，雙方可查看總覽、洞察與 Blend；登入使用者也可直接與公開帳號進行 Blend。 |
 | 資料控制 | 關閉配對、撤回關係、設定儀表板公開性，以及匯出或刪除自己的資料。 |
 
-總覽（Overview）整合穩定主題、頻道動能與主題動態，兩組排行動畫共用播放控制。主題動態依所選日期範圍呈現：短區間使用每日資料，年度與全部時間使用每月資料；展開主題詳情可比較原始與平滑後的比例。分類尚未完整時會標示暫定狀態；頻道動能以完整歷史計算時間衰減。最近觀看紀錄位於總覽底部，供本人或儀表板 key 持有者查看。
+總覽（Overview）呈現常看的主題、頻道與興趣變化，搭配可播放的排行動畫，幫助使用者回顧不同時期的關注。本人也可在頁面底部查看最近觀看紀錄。
 
 ### 最短使用流程
 
 1. 開啟正式站，選擇 **Sign up / sign in** 並使用自己的 Google 帳號；若服務暫停註冊，先從導覽列查看 **Example dashboard**。
-2. 依引導設定 handle；安裝擴充功能同步，或在 **Account** 的 Takeout 匯入區上傳 ZIP。
+2. 依引導設定使用者名稱；安裝擴充功能同步，或在 **Account** 的 Takeout 匯入區上傳 ZIP。
 3. 查看處理進度，再到私人儀表板確認洞察；公開影片資訊或模型尚未處理完時，結果可能不完整。
-4. 依 onboarding 確認配對設定，進入 **Matches**。私人帳號先選擇「加好友」，對方接受後可看總覽、洞察與 Blend；公開帳號可直接進行 Blend。
+4. 依首次使用引導確認配對設定，進入 **Matches**。私人帳號先選擇「加好友」，對方接受後可看總覽、洞察與 Blend；公開帳號可直接進行 Blend。
 5. 在 **Account** 管理資料與配對。新註冊帳號的儀表板預設私人；目前配對開關預設開啟，與儀表板公開設定分開，請在確認步驟檢查自己的選擇。
 
 請使用自己的 Google 帳號登入。Example dashboard 顯示的是實例擁有者允許公開的頁面；本機合成示範則使用虛構資料，見下方安裝指南。
@@ -42,49 +42,38 @@ urtube 希望以真實行為資料提升同好探索的準確度，找出長期�
 ## 系統架構
 
 ```mermaid
-flowchart TD
-    Browser[瀏覽器：登入、洞察、Matches、Account] --> App[Hono app]
-    Extension[Chrome 擴充功能] --> Ingest[驗證後的 ingest API]
-    Takeout[本人 Takeout ZIP] --> App
-    Portability[Google Data Portability] --> Worker[背景 worker]
-    App --> Private[每位使用者獨立 SQLite]
-    Ingest --> Private
-    Worker <--> Private
-    Worker --> YouTube[YouTube Data API：公開影片與頻道資訊]
-    Worker --> AI[設定的 chat-completions 模型：公開 metadata 分類]
-    Private --> Projection[最近 90 天的有上限配對投影]
-    Projection --> Registry[共享 registry：帳號、session、配對投影與關係]
-    App <--> Registry
-    Backup[定時備份] --> Private
-    Backup --> Registry
+flowchart LR
+    Import[使用者授權匯入觀看紀錄] --> Storage[個人資料儲存]
+    Public[YouTube 公開影片資訊] --> Analysis[背景整理與 AI 分類]
+    Storage --> Analysis
+    Analysis --> Insights[私人興趣洞察]
+    Analysis --> Matching[共同興趣配對]
+    Matching --> Friends[好友探索與交流]
 ```
 
-前端由伺服器產生 HTML，搭配 CSS、原生 JavaScript 與 SVG 圖表。app 負責互動、登入與存取控制；ingest 接收擴充功能與匯入請求；worker 補齊公開 metadata、分類與配對投影。原始紀錄留在各使用者的 SQLite，候選查詢讀取共享 registry 中有上限的聚合投影。
+網站負責登入、資料匯入與好友互動；背景服務整理影片資訊與興趣，讓使用者能在介面上查看洞察與探索同好。每位使用者的原始紀錄分開儲存，配對使用整理後的共同興趣資訊。
 
-AI 請求只包含公開影片中繼資料（public video metadata）：標題、頻道名稱、描述與 tags，不包含帳號、搜尋字串、觀看時間、觀看次數或播放進度。證據不足時標為 `Unknown`（無法判斷），本人可在分類審閱頁啟用通過品質檢查的候選版本，也可回復（rollback）先前版本。個人 AI 主題與跨人配對的共通分類分開管理。目前配對使用 `calibrated-v2`：分別計算共通主題與頻道向量的 cosine similarity，套用固定校準後平均可用維度，輸出 0–100 整數；主題覆蓋不足時僅使用頻道維度並標示暫定結果。細節見 [配對公式說明](docs/pitch.md)及[配對實作](src/youtube/candidates.ts)。
+AI 分類使用公開影片資訊，例如標題、頻道名稱與描述；搜尋紀錄與觀看時間保留在個人資料中。資訊不足時顯示「無法判斷」，使用者可檢視分類依據並復原先前結果。
 
-私人帳號透過好友邀請分享總覽、洞察與 Blend；公開帳號的總覽與洞察可供訪客閱讀，登入使用者可直接進行 Blend。觀看紀錄（History）與回顧（Recap）限本人登入或持有儀表板 key 者查看。關閉配對會撤銷邀請與好友關係；公開頁面的存取由公開設定管理，每次讀取依當前權限判斷。
-
-部署使用 Docker Compose 分開執行 app、ingest、worker 與 backup。依[目前部署紀錄](CUTOVER_RUNBOOK.md)，正式站透過 Cloudflare Tunnel 對外服務，Tunnel 設定不在 repository 內；自架可使用反向代理將 `/api/ingest/*` 導向 ingest，其餘路徑導向 app。
+私人帳號接受好友邀請後，雙方可看總覽、洞察與 Blend。公開帳號的總覽與洞察可供訪客閱讀，登入使用者可直接進行 Blend；詳細觀看紀錄與回顧由本人管理。配對參與、好友關係與頁面公開性可在帳號設定中調整。
 
 ## 使用技術
 
 | 類型 | 技術／服務 | 用途 |
 | --- | --- | --- |
-| AI 模型 | 可設定的 OpenAI-compatible chat-completions 服務 | 從公開 metadata 整理語意與個人主題；repository 不內含模型權重，實際模型名稱／版本待部署者補充。既有 Codex gateway 部署紀錄見 [AI gateway](docs/ai-gateway.md)。 |
-| 前端 | Server-rendered HTML、CSS、原生 JavaScript、SVG | 直接提供洞察與互動圖表，支援繁中／英文介面。 |
-| 後端 | TypeScript、Node.js、Hono、Zod | 共用 HTTP 架構、型別檢查與輸入驗證；`tsx` 執行 TypeScript。 |
-| 資料庫 | Node.js `node:sqlite`、每人一份 SQLite、共享 registry | 將原始資料與配對投影分離，支援個人匯出與整體備份。 |
-| 匯入與解析 | Chrome Extension Manifest V3、Cheerio、fflate | 擷取本人紀錄、解析 Takeout HTML／JSON 與 ZIP。 |
-| 外部資料 | Google OAuth、YouTube Data API v3、Google Data Portability、analysis.tw | 身分驗證、公開 metadata、本人授權匯入與受治理頻道標籤。 |
-| 維運 | Docker Compose、Cloudflare Tunnel；自架反向代理可用 Caddy | 分離服務與備份、對外 HTTPS 及路由。 |
+| AI 模型 | 可設定的 AI 服務，實際模型待補 | 從影片資訊整理興趣主題，協助理解使用者長期關注的內容。 |
+| 前端 | HTML、CSS、JavaScript、SVG | 呈現興趣洞察、時間趨勢、好友頁面與互動圖表。 |
+| 後端 | TypeScript、Node.js、Hono | 處理帳號、匯入、背景分析與好友互動。 |
+| 資料庫 | SQLite | 分開保存個人紀錄，支援匯出與備份。 |
+| 資料來源 | YouTube、Google Takeout、Chrome 擴充功能 | 匯入本人授權的觀看紀錄與取得公開影片資訊。 |
+| 部署 | Docker Compose、Cloudflare Tunnel | 執行網站與背景服務，提供對外連線。 |
 | Sponsor 技術 | 待補 | 待團隊確認需列名的贊助技術及實際用途。 |
 
-技術選擇圍繞 data-driven 交友流程：AI 從內容整理興趣線索，版本化計分比較使用者的共同偏好，時間趨勢呈現興趣的持續與變化，權限控制支援使用者逐步分享與建立好友關係。語意 embedding、興趣分群與長期偏好穩定性分析是後續配對方法的發展方向。
+AI 協助整理興趣，行為資料支持同好探索，時間趨勢則讓使用者看見喜好的持續與改變。這些能力共同支援從理解自己、發現共同話題，到建立好友關係的交友體驗。
 
 ## 安裝與執行
 
-以下指令適用於 macOS／Linux 的 shell。需要 Git、Node.js 與 npm；Docker 路徑另需 Docker Engine／Desktop 與 Compose plugin。Dockerfile 使用 `node:22-alpine`；原生執行需要支援 `node:sqlite` 的 Node.js（22.13 以上），本次驗證使用原生 Node.js 24.2.0／npm 11.3.0，以及 Docker 內 Node.js 22.23.2。
+需要 Git、Node.js 22.13 以上與 npm。以下指令適用於 macOS／Linux；完整自架方式見下方展開說明。
 
 ### 1. 取得專案與安裝依賴
 
@@ -103,7 +92,10 @@ npm run check
 npm run demo:matching
 ```
 
-終端會輸出 Alice 與 Bob 的本機登入連結，預設 `http://127.0.0.1:4317`。用兩個不同瀏覽器 profile 分別開啟，可操作候選、好友邀請、Blend 與撤回。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用暫存 SQLite 與人工建立的投影，供體驗配對流程；Google 登入、真實匯入與模型輸出使用下方的實例設定。
+終端會輸出 Alice 與 Bob 的本機登入連結，預設 `http://127.0.0.1:4317`。用兩個不同瀏覽器 profile 分別開啟，可操作候選、好友邀請、Blend 與撤回。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用合成資料體驗配對流程；使用自己的帳號與觀看紀錄，請依下方指南設定。
+
+<details>
+<summary>完整自架指南：帳號設定、資料匯入、服務啟動與部署</summary>
 
 ### 3. 設定自己的本機實例
 
@@ -163,7 +155,7 @@ PORT=3001 node --env-file=.env --import tsx src/ingest.ts
 ```
 
 ```bash
-# 終端三：公開 metadata、分類與配對投影背景工作
+# 終端三：影片資訊、興趣整理與配對背景工作
 node --env-file=.env --import tsx src/youtube-worker.ts
 ```
 
@@ -211,10 +203,12 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 | `EADDRINUSE` | app／ingest 分別使用 3000／3001；Compose 使用 18080／18081。先確認連接埠沒有其他服務。 |
 | AI／metadata 沒進度 | 確認 worker 運作、API key、模型名稱、endpoint、配額與 timeout；依畫面的失敗／重試狀態排查。 |
 | Takeout 被拒絕 | 使用包含觀看歷史的原始 ZIP，瀏覽器上傳上限 100 MiB；依錯誤訊息檢查格式與帳號儲存容量。 |
-| 看不到配對人選 | 私人成員探索需檢查配對開關、最近 90 天至少 200 次觀看與 14 個活躍日，以及其他合格帳號；公開帳號可直接進行 Blend。 |
+| 看不到配對人選 | 檢查配對開關、匯入與處理進度，以及近期觀看資料是否充足；公開帳號可直接進行 Blend。 |
 | readiness 503 | 查看 `/readyz` 的各項結果、worker heartbeat 與備份狀態，不只看網站是否能打開。 |
 
-更多資料：[部署／備份與還原](CUTOVER_RUNBOOK.md)、[系統資料邊界](YOUTUBE_BOUNDARY.md)、[個人分類審閱](docs/personal-taxonomy-v2.md)、[關鍵字管線](docs/keyword-pipeline.md)、[頻道標籤政策](docs/channel-tag-policy.md)、[匿名參考母體](docs/reference-population.md)、[安全稽核紀錄](docs/security-audit.md)。
+</details>
+
+進一步設定見[部署與備份指南](CUTOVER_RUNBOOK.md)、[AI 服務設定](docs/ai-gateway.md)及[資料使用說明](YOUTUBE_BOUNDARY.md)。
 
 ## 作品展示
 
@@ -225,22 +219,17 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 
 ## 限制與未來工作
 
-- 觀看時間包含估計值；頻道標籤描述來源對內容的分類，覆蓋率以使用者所選期間的觀看資料為分母。
-- 私人成員的配對探索受最近活動量、分類覆蓋與其他同意參與者數量限制；共通主題需要目前版本至少 80% 覆蓋，未達時依目前程式只使用頻道維度。公開帳號可直接進入 Blend，分數資料不足時顯示「—」。
-- Google 登入、公開 metadata、AI 分類與 Data Portability 需要外部服務設定；Data Portability 限 instance owner，模型 gateway 原始碼與正式 Tunnel 設定不在本 repository，僅 clone 無法重建這些外部服務。
-- 端到端延遲、每人模型成本與大規模負載的量測待完成；部署者可依自己的資料量與供應商用量進行評估。長歷史的五年／五萬筆、16 GB 裝置實帳號驗收仍由 [#3](https://github.com/skyhong2002/urtube.observe.tw/issues/3) 追蹤。
-- 後續語意標籤、embedding 快取、興趣分群與新配對方式由 [#44](https://github.com/skyhong2002/urtube.observe.tw/issues/44)、[#45](https://github.com/skyhong2002/urtube.observe.tw/issues/45)、[#46](https://github.com/skyhong2002/urtube.observe.tw/issues/46)、[#47](https://github.com/skyhong2002/urtube.observe.tw/issues/47) 追蹤。
-- 正式模型識別、外部資料的再利用授權與發布映像的完整元件盤點仍有待確認項目，詳見第三方聲明。
+- 洞察品質取決於匯入紀錄的完整程度，以及影片資訊的可取得性；觀看時間包含估計值。
+- 目前配對著重最近 90 天的興趣。資料不足或合適成員較少時，需要更多紀錄與參與者才能提供有用的推薦。
+- Google 登入、影片資訊與 AI 分類需要外部服務設定。大量歷史資料的處理時間、成本與使用體驗仍待進一步實測。
+- 後續將加強共同興趣的理解與呈現，探索長期喜好的穩定性，並透過使用者回饋改善配對品質。
+- 團隊資訊、評選影片及部分第三方來源與授權資料仍待補充，詳細狀態見下方連結。
 
 ## 第三方服務、資料與素材
 
-完整來源、確切套件版本、授權文字、外部條款與尚待確認項目集中於 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，包含：
+套件、AI 服務、Google／YouTube 資料、頻道標籤、頭像與專案素材的來源及授權，集中於 [第三方來源與授權聲明](THIRD_PARTY_NOTICES.md)。
 
-- npm 直接／間接依賴及各平台選用套件，與可擷取的 CycloneDX SBOM。
-- Google／YouTube、analysis.tw 頻道清單、Google／Gravatar 頭像與部署服務。
-- 可設定 AI 服務的模型／資料來源揭露狀態，以及專案圖示、OG 圖片與合成示範資料的來源。
-
-使用者觀看歷史依本人授權使用；外部資料與素材的使用方式見來源授權表。部署憑證保存在 `.env`，私人 archive 保存在使用者資料庫；準備公開展示時，請使用合成資料。
+使用者觀看歷史依本人授權使用，公開展示請使用合成資料。
 
 ## 團隊成員
 
