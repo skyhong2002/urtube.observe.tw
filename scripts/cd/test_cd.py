@@ -33,6 +33,8 @@ with tempfile.TemporaryDirectory() as directory:
     with patch("sys.argv", ["urtube-cd.py", "--deploy"]), patch.object(cd, "candidate", return_value=sha), patch.object(cd, "get_json", return_value={"object": {"sha": sha}}), patch.object(cd, "healthy"), patch.object(cd.subprocess, "run") as deploy:
         cd.main()
         cd.main()
-        assert deploy.call_count == 1
+        assert deploy.call_count == 3
+        assert deploy.call_args_list[1].args[0][1:] == ["image", "prune", "--force", "--filter", "until=168h"]
+        assert deploy.call_args_list[2].args[0][1:] == ["builder", "prune", "--force", "--filter", "until=168h", "--reserved-space", "2GB"]
         assert cd.json.loads((cd.STATE / "state.json").read_text()) == {"deployed": sha}
 print("CD success and failure-state checks passed")

@@ -55,3 +55,18 @@ Public health confirms availability, not source identity. Deployment source
 identity must be guaranteed by the reviewed host script and its evidence.
 Changes to the CD agent itself require explicit installation; a new main commit
 does not silently replace the deployment control program.
+
+## Cache cleanup
+
+After a successful deployment and public health checks, remove unused dangling
+images older than seven days (`docker image prune --filter until=168h`) and
+build cache unused for seven days, retaining a 2 GB build-cache reserve
+(`docker builder prune --filter until=168h --reserved-space 2GB`). The host's
+Docker CLI supports this Buildx option. Tagged images, running containers and
+volumes are not pruned. Cache pruning is daemon-wide and can make later builds
+of other projects slower. A cleanup error is reported as a service failure but
+does not cause the already successful release to be redeployed.
+
+On this host Docker uses `/home/.docker-data` (a separate loop filesystem).
+Reclaiming space inside it does not necessarily free the backing `/home`
+filesystem, so monitor both separately.

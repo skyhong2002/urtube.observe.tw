@@ -92,6 +92,9 @@ def main():
         healthy()
         save({"deployed": sha})
         print("Deployment command and public health checks succeeded:", sha, flush=True)
+        docker = str(Path.home() / ".local/bin/docker")
+        subprocess.run([docker, "image", "prune", "--force", "--filter", "until=168h"], check=True, timeout=300)
+        subprocess.run([docker, "builder", "prune", "--force", "--filter", "until=168h", "--reserved-space", "2GB"], check=True, timeout=300)
 
 
 if __name__ == "__main__":
