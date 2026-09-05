@@ -172,6 +172,7 @@ export interface YoutubeVideoMetadata {
   publishedAt: string | null;
   categoryId: string | null;
   availability: 'available' | 'unavailable';
+  isLivestream?: boolean | null;
   metadataHash: string;
 }
 
@@ -226,6 +227,8 @@ export interface YoutubeVideoSummary {
 
 export interface YoutubeShortFormDailySummary {
   day: string;
+  liveWatchSeconds?: number;
+  regularWatchSeconds?: number;
   shortWatchSeconds: number;
   knownDurationWatchSeconds: number;
 }

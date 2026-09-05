@@ -20,8 +20,10 @@ interface YoutubeApiItem {
     thumbnails?: Record<string, { url?: string }>;
     publishedAt?: string;
     categoryId?: string;
+    liveBroadcastContent?: string;
   };
   contentDetails?: { duration?: string };
+  liveStreamingDetails?: { actualStartTime?: string; actualEndTime?: string; scheduledStartTime?: string };
 }
 
 interface YoutubeChannelApiItem {
@@ -81,7 +83,9 @@ function channelThumbnail(item: YoutubeChannelApiItem): string {
 }
 
 function metadataHash(value: Omit<YoutubeVideoMetadata, 'metadataHash'>): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  // Broadcast identification changes the chart, not the topic-classification input.
+  const { isLivestream: _broadcast, ...classificationMetadata } = value;
+  return createHash('sha256').update(JSON.stringify(classificationMetadata)).digest('hex');
 }
 
 function normalize(item: YoutubeApiItem): YoutubeVideoMetadata | null {
@@ -98,6 +102,8 @@ function normalize(item: YoutubeApiItem): YoutubeVideoMetadata | null {
     publishedAt: item.snippet.publishedAt ?? null,
     categoryId: item.snippet.categoryId ?? null,
     availability: 'available',
+    isLivestream: Boolean(item.liveStreamingDetails || item.snippet.liveBroadcastContent === 'live'
+      || item.snippet.liveBroadcastContent === 'upcoming'),
   };
   return { ...base, metadataHash: metadataHash(base) };
 }
@@ -121,7 +127,7 @@ export async function fetchYoutubeMetadata(
   for (let index = 0; index < videoIds.length; index += 50) {
     const batch = videoIds.slice(index, index + 50);
     const url = new URL('https://www.googleapis.com/youtube/v3/videos');
-    url.searchParams.set('part', 'snippet,contentDetails,status');
+    url.searchParams.set('part', 'snippet,contentDetails,status,liveStreamingDetails');
     url.searchParams.set('id', batch.join(','));
     url.searchParams.set('key', apiKey);
     const body = await youtubeApiRequest(async () => {

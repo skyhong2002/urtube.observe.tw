@@ -376,8 +376,8 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { watches: 1, seconds: 120 },
     );
     assert.deepEqual(dashboard.shortFormDaily, [
-      { day: '2026-07-28', shortWatchSeconds: 60, knownDurationWatchSeconds: 60 },
-      { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
+      { day: '2026-07-28', shortWatchSeconds: 60, liveWatchSeconds: 0, regularWatchSeconds: 0, knownDurationWatchSeconds: 60 },
+      { day: '2026-07-29', shortWatchSeconds: 30, liveWatchSeconds: 0, regularWatchSeconds: 120, knownDurationWatchSeconds: 150 },
     ]);
     const overviewPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'overview',
@@ -398,7 +398,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(insightsPage, /data-rhythm-metric="watches"/);
     assert.match(insightsPage, /\.yt-rhythm-clocks\{display:grid;gap:34px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);max-width:none\}/);
     assert.match(insightsPage, /toggle\.hidden=wide\.matches/);
-    assert.match(insightsPage, /Shorts 與一般影片時間/);
+    assert.match(insightsPage, /觀看時間趨勢/);
     assert.match(insightsPage, /yt-short-segment/);
     assert.match(insightsPage, /yt-regular-segment/);
     assert.doesNotMatch(insightsPage, /yt-short-line-chart/);
@@ -435,7 +435,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     }), /方案 C · 年月熱圖/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'absolute',
-    }), /Shorts 與一般影片時間/);
+    }), /觀看時間趨勢/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'dual',
     }), /方案 A2 · 組成＋總時數/);

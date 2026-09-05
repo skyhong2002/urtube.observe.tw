@@ -207,11 +207,54 @@ function shortFormBars(data: YoutubeDashboardData, t: Messages): {
   return { bars, unit: rhythm.unit };
 }
 
+// The main chart uses all estimated time, including measured events without duration.
+function watchTimeSection(data: YoutubeDashboardData, t: Messages): string {
+  const { bars: rhythm, unit } = rhythmBars(data.daily, t);
+  if (!rhythm.length) return '';
+  const zh = t.htmlLang === 'zh-Hant';
+  const labels = zh
+    ? { total: '總觀看時間', regular: '一般影片', short: '短影音（推估）', live: '直播／回放', unknown: '片長未知', method: '短影音以片長 ≤ 3 分鐘推估；直播／回放依 YouTube 標記辨識，包含首播，無法判定觀看當時是否正在直播。舊資料會陸續補齊辨識。' }
+    : { total: 'Total watch time', regular: 'Regular videos', short: 'Short-form (estimated)', live: 'Livestreams / replays', unknown: 'Unknown duration', method: 'Short-form uses duration ≤ 3 minutes. YouTube broadcast metadata identifies streams/replays, including premieres; it does not show whether you watched live. Older metadata is being refreshed.' };
+  const bars = rhythm.map((bar) => ({ ...bar, short: 0, live: 0, regular: 0 }));
+  const byKey = new Map(bars.map((bar) => [bar.key, bar]));
+  for (const day of data.shortFormDaily) {
+    const bar = byKey.get(unit === 'month' ? day.day.slice(0, 7) : day.day);
+    if (!bar) continue;
+    bar.short += day.shortWatchSeconds;
+    bar.live += day.liveWatchSeconds ?? 0;
+    bar.regular += day.regularWatchSeconds ?? Math.max(0, day.knownDurationWatchSeconds - day.shortWatchSeconds - (day.liveWatchSeconds ?? 0));
+  }
+  const categories = ['regular', 'short', 'live', 'unknown'] as const;
+  const values = (bar: typeof bars[number]) => ({ ...bar,
+    unknown: Math.max(0, bar.estimatedWatchSeconds - bar.short - bar.live - bar.regular),
+  });
+  const max = Math.max(1, ...bars.map((bar) => bar.estimatedWatchSeconds));
+  const total = bars.reduce((sum, bar) => sum + bar.estimatedWatchSeconds, 0);
+  const columns = bars.map((bar) => {
+    const amounts = values(bar);
+    const tip = `${labels.total} ${hours(bar.estimatedWatchSeconds)} · ` + categories.map((key) => `${labels[key]} ${hours(amounts[key])}`).join(' · ');
+    const segments = categories.map((key) => `<i class="yt-watch-${key}" style="height:${(bar.estimatedWatchSeconds ? amounts[key] / bar.estimatedWatchSeconds * 100 : 0).toFixed(3)}%"></i>`).join('');
+    return `<div class="yt-short-absolute-col" tabindex="0" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${(bar.estimatedWatchSeconds / max * 100).toFixed(3)}%">${segments}</span></div>`;
+  }).join('');
+  const rows = bars.map((bar) => {
+    const amounts = values(bar);
+    return `<tr><td>${html(bar.label)}</td><td>${hours(bar.estimatedWatchSeconds)}</td>${categories.map((key) => `<td>${hours(amounts[key])}</td>`).join('')}</tr>`;
+  }).join('');
+  return `<section class="section yt-watch-time"><div class="section-head"><h2>${t.shortForm}</h2><span>${labels.total} ${hours(total)}</span></div>
+    <div class="yt-short-absolute-axis"><span>${hours(max)}</span><span>0h</span></div>
+    <div class="yt-short-absolute" role="img" aria-label="${html(t.shortForm + ': ' + categories.map((key) => labels[key]).join(', '))}">${columns}</div>
+    <div class="yt-short-absolute-axis"><span>${html(bars[0].label)}</span><span>${html(bars.at(-1)!.label)}</span></div>
+    <div class="yt-watch-legend">${categories.map((key) => `<span><i class="yt-watch-${key}"></i>${labels[key]}</span>`).join('')}</div>
+    <div class="yt-short-method">${labels.method}</div>
+    <details class="viz-table"><summary>${t.tableView}</summary><table><thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${labels.total}</th>${categories.map((key) => `<th>${labels[key]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></details></section>`;
+}
+
 function shortFormSection(
   data: YoutubeDashboardData,
   t: Messages,
   variant: ShortFormVariant = 'absolute',
 ): string {
+  if (variant === 'absolute') return watchTimeSection(data, t);
   const { bars, unit } = shortFormBars(data, t);
   if (!bars.length) return '';
   const midpoint = bars.length > 1 ? Math.floor(bars.length / 2) : 0;
@@ -318,19 +361,6 @@ function shortFormSection(
     const tip = `${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
     return `<div class="yt-short-volume-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${(bar.knownDurationWatchSeconds / maxKnown * 100).toFixed(1)}%"></i></div>`;
   }).join('');
-
-  if (variant === 'absolute') {
-    const columns = bars.map((bar) => {
-      const share = shareOf(bar);
-      const totalHeight = bar.knownDurationWatchSeconds / maxKnown * 100;
-      const tip = `${Math.round(share)}% · ${copy.short} ${hours(bar.shortWatchSeconds)} · ${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
-      return `<div class="yt-short-absolute-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${totalHeight.toFixed(1)}%"><i class="yt-short-segment" style="height:${share.toFixed(1)}%"></i><b class="yt-regular-segment" style="height:${(100 - share).toFixed(1)}%"></b></span></div>`;
-    }).join('');
-    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.absolute}</span></div>
-      <div class="yt-short-absolute-axis"><span>${hours(maxKnown)}</span><span>0h</span></div>
-      <div class="yt-short-absolute" role="img" aria-label="${t.shortFormAria}">${columns}</div>
-      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span></div>${method}${details}</section>`;
-  }
 
   if (variant === 'dual') {
     return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.dual}</span></div>
@@ -588,6 +618,7 @@ const dashboardStyles = `${rhythmClockStyles}
   .yt-short-stack-legend{display:flex;gap:20px;justify-content:center;margin-top:12px}.yt-short-stack-legend span{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px}.yt-short-stack-legend i{background:var(--accent);border-radius:2px;height:10px;width:10px}.yt-short-stack-legend span+span i{background:#55534e;border:0}
   .yt-short-stack-legend .yt-short-total-key i{background:var(--ink-2);border:0}
 
+  .yt-watch-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;margin-top:10px}.yt-watch-legend span{display:flex;align-items:center;gap:5px}.yt-watch-legend i{width:9px;height:9px;border-radius:2px}.yt-watch-regular{background:#55534e}.yt-watch-short{background:var(--accent)}.yt-watch-live{background:#528da8}.yt-watch-unknown{background:#aaa59a}.yt-short-absolute-col>span>i{display:block;width:100%;flex-shrink:0}
   .yt-short-absolute{align-items:end;background:linear-gradient(to bottom,var(--line) 1px,transparent 1px);display:flex;gap:2px;height:190px;overflow:hidden}.yt-short-absolute-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-absolute-col>span{border-radius:3px 3px 0 0;display:flex;flex-direction:column;overflow:hidden;width:100%}.yt-short-absolute-col .yt-short-segment,.yt-short-absolute-col .yt-regular-segment{display:block;width:100%}.yt-short-absolute-col .yt-short-segment{background:var(--accent)}.yt-short-absolute-col .yt-regular-segment{background:#55534e}.yt-short-absolute-axis{color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin-bottom:4px}
 
   .yt-short-dual-label{align-items:center;color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin:12px 0 5px}.yt-short-dual-label strong{color:var(--ink-2);font-size:10px;font-weight:650;text-transform:uppercase}
