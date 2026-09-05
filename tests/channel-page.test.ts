@@ -124,7 +124,7 @@ test('the channel page shows your history and reciprocal member rankings', async
     const viewers = load(htmlText)('.ch-rows[aria-label="Top viewers on urtube"]').closest('section').html()!;
     assert.match(viewers, /2 members watch this channel/);
     assert.ok(viewers.indexOf('Alice') < viewers.indexOf('Bob'));
-    assert.match(viewers, /href="\/alice-ch\/compare\/bob-ch"/);
+    assert.match(viewers, /href="\/bob-ch"/);
     assert.match(viewers, /src="\/avatar\/member\/bob-ch"/);
     assert.doesNotMatch(viewers, /Loner|loner-ch/);
     assert.match(viewers, /#1 among their channels/);

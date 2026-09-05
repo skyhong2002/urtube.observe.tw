@@ -212,12 +212,11 @@ export function channelPage(viewer: ChannelPageViewer, data: ChannelPageData, la
   } else {
     const memberRows = ranked(community.members, sort).map((member, index) => {
       const name = member.isViewer
-        ? `<strong>${html(member.displayName)} <small>(${t.channelYou})</small></strong>`
-        : member.canCompare ? `<strong><a href="/${html(viewer.handle)}/compare/${html(member.handle)}">${html(member.displayName)}</a></strong>`
-        : `<strong>${html(member.displayName)}</strong>`;
+        ? `<strong><a href="/${html(member.handle)}">${html(member.displayName)}</a> <small>(${t.channelYou})</small></strong>`
+        : `<strong><a href="/${html(member.handle)}">${html(member.displayName)}</a></strong>`;
       const avatar = member.isViewer || member.canCompare
-        ? `<img src="/avatar/member/${html(member.handle)}" alt="" loading="lazy" width="36" height="36">`
-        : `<span class="ch-initial" aria-hidden="true">${html([...member.displayName][0] ?? '?')}</span>`;
+        ? `<a href="/${html(member.handle)}" tabindex="-1" aria-hidden="true"><img src="/avatar/member/${html(member.handle)}" alt="" loading="lazy" width="36" height="36"></a>`
+        : `<a href="/${html(member.handle)}" tabindex="-1" aria-hidden="true"><span class="ch-initial">${html([...member.displayName][0] ?? '?')}</span></a>`;
       const position = sort === 'watches' ? member.rank.watches : member.rank.time;
       const rank = position === null ? '' : `<small>${html(t.channelMemberRank(position))}</small>`;
       return `<div class="ch-row ch-person${member.isViewer ? ' me' : ''}"><span class="ch-rank">#${index + 1}</span><div class="ch-main">${avatar}<div>${name}${rank}</div></div><div class="ch-nums"><strong>${sort === 'watches' ? html(t.matchesTimes(member.watches)) : hours(member.estimatedWatchSeconds)}</strong><span>${sort === 'watches' ? hours(member.estimatedWatchSeconds) : html(t.matchesTimes(member.watches))}</span></div></div>`;

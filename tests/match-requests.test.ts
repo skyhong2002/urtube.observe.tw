@@ -76,7 +76,7 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.match(candidates, /<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/alice-match\/compare\/bob-match"/);
     assert.doesNotMatch(candidates, /@bob-private|candidateUserId|actionToken/);
     assert.match(candidates, />100%<small>match<\/small>/);
-    assert.match(candidates, /<a class="mt-person-link" href="\/alice-match\/compare\/bob-match"><img class="mt-avatar" src="\/avatar\/member\/bob-match"/);
+    assert.match(candidates, /<a class="mt-person-link" href="\/bob-match"><img class="mt-avatar" src="\/avatar\/member\/bob-match"/);
     assert.doesNotMatch(candidates, /matches\/profile|matches\/compare|You both said yes|Bob likes live music/);
     assert.doesNotMatch(candidates, /Strong fit|Aligned|Some overlap|Different/);
 

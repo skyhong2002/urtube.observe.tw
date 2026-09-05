@@ -239,7 +239,7 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.doesNotMatch(first, /Candidate 21/);
     assert.match(first, /href="\/matches\?page=2"/);
     assert.doesNotMatch(first, /href="\/matches\/profile\//);
-    assert.equal((first.match(/class="mt-person-link" href="\/viewer-list\/compare\/[a-z0-9.-]+"/g) ?? []).length, 20);
+    assert.equal((first.match(/class="mt-person-link" href="\/[a-z0-9.-]+"/g) ?? []).length, 20);
     assert.doesNotMatch(first, /action="\/matches\/request"/);
     assert.match(first, />\d{1,3}%<small>match<\/small>/);
     assert.match(first, /Private by default/);
@@ -247,8 +247,8 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.match(first, /Mutual consent gates details/);
     assert.match(first, /\.trust-signals\{display:flex;flex-wrap:wrap/);
     assert.match(first, /@media\(max-width:560px\)[\s\S]*?\.trust-signals\{gap:6px\}/);
-    // Member handles are part of comparison addresses now; dashboards stay private.
-    assert.doesNotMatch(first, /Private Channel|\/compare\?|\/u\/|href="\/hidden-candidate-\d+"/);
+    // Member handles open profiles; raw private data stays out of the directory.
+    assert.doesNotMatch(first, /Private Channel|\/compare\?|\/u\//);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);
 
     const second = await (await app.request('/matches?page=2', { headers: { cookie } })).text();
