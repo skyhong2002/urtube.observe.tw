@@ -6,6 +6,7 @@ export interface CommunityStats {
   status: 'ready' | 'unavailable';
   generatedAt: string;
   publicMembers: number;
+  profiles?: Array<{ handle: string; displayName: string }>;
   activeMembers: number;
   watches: number;
   channels: number;
@@ -14,7 +15,7 @@ export interface CommunityStats {
   topDurationChannels?: CommunityChannel[];
   topChannels: CommunityChannel[];
 }
-interface Member { id: number; dashboardPublic: boolean }
+interface Member { id: number; dashboardPublic: boolean; handle?: string; displayName?: string }
 interface Source<T extends Member> {
   listUsers(): T[];
   repositoryFor(user: T): { youtubeChannelTotals(range: '90d', now: Date): YoutubeChannelSummary[] };
@@ -23,16 +24,18 @@ interface Source<T extends Member> {
 // Only public archives contribute. Recheck membership on EVERY request so a
 // privacy change or deletion invalidates the cache immediately. No user IDs,
 // raw events, searches, or per-user contribution maps leave this function.
+// Public profile projections contain only current handles and display names.
 export function communityStatsProvider<T extends Member>(source: Source<T>, clock = () => Date.now()) {
   let cache: { key: string; at: number; value: CommunityStats } | undefined;
   return (): CommunityStats => {
     const now = clock();
-    const empty: CommunityStats = { status: 'unavailable', generatedAt: new Date(now).toISOString(), publicMembers: 0, activeMembers: 0, watches: 0, channels: 0, estimatedWatchSeconds: 0, topWatchedChannels: [], topDurationChannels: [], topChannels: [] };
+    const empty: CommunityStats = { status: 'unavailable', generatedAt: new Date(now).toISOString(), publicMembers: 0, profiles: [], activeMembers: 0, watches: 0, channels: 0, estimatedWatchSeconds: 0, topWatchedChannels: [], topDurationChannels: [], topChannels: [] };
     try {
       const members = source.listUsers().filter(user => user.dashboardPublic);
-      const key = members.map(user => user.id).sort((a, b) => a - b).join(',');
+      const profiles = members.flatMap(user => user.handle && user.displayName ? [{ handle: user.handle, displayName: user.displayName }] : []);
+      const key = JSON.stringify([members.map(user => user.id).sort((a, b) => a - b), profiles]);
       if (cache?.key === key && now - cache.at < 300_000) return cache.value;
-      const value: CommunityStats = { ...empty, status: 'ready', publicMembers: members.length };
+      const value: CommunityStats = { ...empty, status: 'ready', publicMembers: members.length, profiles };
       const channels = new Map<string, CommunityChannel>();
       for (const user of members) {
         const rows = source.repositoryFor(user).youtubeChannelTotals('90d', new Date(now));

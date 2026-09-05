@@ -105,3 +105,29 @@ test('landing and allowlisted screenshots are served through the production app'
     assert.equal((await app.request('/landing-assets/missing.png')).status, 404);
   } finally { registry.close(); }
 });
+
+
+test('public profile projection reflects renames and revokes private identities', () => {
+  const users = [
+    { id: 1, dashboardPublic: true, handle: 'alice', displayName: 'Alice' },
+    { id: 2, dashboardPublic: false, handle: 'private-user', displayName: 'Private Person' },
+  ];
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: () => ({ youtubeChannelTotals: () => [] }) });
+  assert.deepEqual(provider().profiles, [{ handle: 'alice', displayName: 'Alice' }]);
+  assert.ok(!landingContent('zh', '', provider()).includes('private-user'));
+  users[0].displayName = 'New Alice';
+  assert.equal(provider().profiles?.[0].displayName, 'New Alice');
+  users[0].dashboardPublic = false;
+  assert.deepEqual(provider().profiles, []);
+  assert.ok(!landingContent('zh', '', provider()).includes('class="lp-member"'));
+});
+
+
+test('product screenshots navigate to actual pages instead of image files', () => {
+ const data = { status: 'ready' as const, generatedAt: new Date().toISOString(), publicMembers: 0, activeMembers: 0, watches: 0, channels: 0, topChannels: [] };
+ const page = landingContent('zh', '', data);
+ assert.ok(page.includes('href="/skyhong.tw"'));
+ assert.ok(page.includes('href="/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d"'));
+ assert.ok(page.includes('href="/matches"'));
+ assert.ok(!page.includes('href="/landing-assets/'));
+});
