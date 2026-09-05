@@ -144,7 +144,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     : state.takeoutError
       ? `<div class="ob-error" role="alert">${t.accountTakeoutFailed(html(state.takeoutError))}</div>`
       : '';
-  const takeout = `<section class="ob-advanced" id="account-takeout">
+  const takeout = `<section id="account-takeout">
       <h2>${t.accountTakeoutSummary}</h2>
       <h3>${t.accountTakeoutTitle}</h3>
       <p>${t.accountTakeoutPara}</p>
@@ -208,7 +208,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       `)}
       ${group('settings-data', t.settingsData, `
       ${takeout}
-      <section id="account-export">
+      <section class="ob-advanced" id="account-export">
         <h2>${t.accountExportTitle}</h2>
         <p>${t.accountExportPara}</p>
         <form method="post" action="/account/export" class="ob-form">
