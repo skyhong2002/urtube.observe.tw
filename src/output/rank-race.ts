@@ -9,7 +9,7 @@ export interface RankRace {
   empty: string;
   format: 'hours' | 'percent';
   channels: Array<{ name: string; thumbnailUrl?: string; color?: string }>;
-  frames: Array<{ period: string; entries: Array<[number, number]>; note?: string }>;
+  frames: Array<{ period: string; entries: Array<[number, number]>; note?: string; empty?: string }>;
 }
 
 // Both overview animations use the same rows, timing, controls and transitions.
@@ -41,7 +41,7 @@ export function rankRaceSection(race: RankRace): string {
         <input type="range" min="0" max="${race.frames.length - 1}" value="${race.frames.length - 1}" aria-label="${html(race.title)}" data-chase-range>
       </div>
       <p class="yt-chase-note" data-chase-note style="visibility:${latest.note ? 'visible' : 'hidden'}">${html(latest.note ?? '')}</p>
-      <p class="muted" data-chase-empty${latest.entries.length ? ' hidden' : ''}>${html(race.empty)}</p>
+      <p class="muted" data-chase-empty${latest.entries.length ? ' hidden' : ''}>${html(latest.empty ?? race.empty)}</p>
       <div class="yt-chase-rows" data-chase-rows style="height:${trackHeight}px">${initialRows}</div>
     </div>
     <script type="application/json" data-chase-data>${payload}</script>
@@ -134,6 +134,7 @@ export function rankRaceSection(race: RankRace): string {
           note.textContent = frame.note || '';
           note.style.visibility = frame.note ? 'visible' : 'hidden';
           root.querySelector('[data-chase-empty]').hidden = frame.entries.length > 0;
+          root.querySelector('[data-chase-empty]').textContent = frame.empty ?? ${JSON.stringify(race.empty).replace(/</g, '\\u003c')};
           period.textContent = frame.period;
           range.value = String(frameIndex);
         };
