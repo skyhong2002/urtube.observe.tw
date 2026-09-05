@@ -1,0 +1,9 @@
+[Unit]
+Description=Check urtube main for deployment every five minutes
+
+[Timer]
+OnStartupSec=2min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy CI-approved urtube main
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/urtube-cd/urtube-cd.py --deploy
+Environment=PATH=/home/urtube/.local/bin:/usr/local/bin:/usr/bin
+TimeoutStartSec=40min
+UMask=0077
