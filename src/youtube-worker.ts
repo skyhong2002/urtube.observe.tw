@@ -84,9 +84,12 @@ export async function runYoutubeWorkerCycle(
       const metadata = await steps.metadata(repository, user);
       const channelMetadata = await steps.channelMetadata(repository, user);
       const matchingClassified = await steps.matchingClassification(repository, user);
-      const classified = await steps.classification(repository, user);
+      // The matching projection only needs metadata and the category-based
+      // matching topics. Publish it before the optional AI step so a model
+      // outage cannot leave a stale crystal in the registry.
       const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
       registry.upsertMatchingCrystal(user, crystal);
+      const classified = await steps.classification(repository, user);
       repository.setYoutubeSyncState('last_error', '');
       return {
         user: user.handle,
