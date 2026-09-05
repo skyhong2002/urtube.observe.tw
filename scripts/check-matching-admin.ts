@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { serve } from '@hono/node-server';
+import { UserRegistry } from '../src/users.js';
+import { matchingRoutes } from '../src/matching-v3/routes.js';
+import { settings } from '../src/matching-v3/model.js';
+if (process.env.NODE_ENV !== 'test' || process.env.DATABASE_PATH !== ':memory:') throw new Error('Isolated tests only');
+const { chromium } = createRequire('/tmp/browser/package.json')('playwright');
+const registry = new UserRegistry(':memory:'); registry.createUser('adminfixture', 'Admin Fixture');
+const user = registry.userByHandle('adminfixture')!, store = registry.matchingV3Store();
+store.workerHeartbeat(); store.putCache('fixture-vector', [1, 0]);
+store.schedule(user.id, 'fixture', 'fixture'); store.defer(store.claim()!, 'provider_http_429');
+const app = matchingRoutes(registry, { ...settings(), enabled: true, adminHandles: [user.handle] }, 'http://localhost:3000');
+const server = serve({ fetch: app.fetch, port: 3000 });
+const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } }), errors: string[] = [];
+  page.on('pageerror', (e: Error) => errors.push(e.message));
+  await page.context().addCookies([{ name: 'urtube_session', value: registry.createSession(user), domain: 'localhost', path: '/' }]);
+  await page.goto('http://localhost:3000/matching-v3/admin'); await page.getByText('已連線', { exact: false }).waitFor();
+  assert.equal(await page.locator('#cards .value').nth(1).innerText(), '1');
+  store.putCache('fixture-vector-two', [0, 1]);
+  await page.waitForFunction("document.querySelectorAll('#cards .value')[1]?.textContent === '2'");
+  await page.getByRole('button', { name: '重試', exact: true }).click(); await page.getByText('adminfixture 已重新排程，沿用成功快取。').waitFor();
+  assert.equal(store.status(user.id)?.retry_at, 0);
+  await page.screenshot({ path: '/tmp/admin-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate('document.documentElement.scrollWidth <= innerWidth'));
+  await page.screenshot({ path: '/tmp/admin-mobile.png', fullPage: true });
+  assert.deepEqual(errors, []); console.log('Admin browser checks passed: login, polling, persisted retry, desktop/mobile layout.');
+} finally { await browser.close(); server.close(); registry.close(); }

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
+import { MatchingStore } from './matching-v3/store.js';
 import { Repository } from './data/database.js';
 import {
   MATCHING_DISCLOSURE_LEVELS,
@@ -199,6 +200,10 @@ function rowToUser(row: Record<string, unknown>): User {
 }
 
 export class UserRegistry {
+  private v3Store?: MatchingStore;
+  matchingV3Store(): MatchingStore {
+    return this.v3Store ??= new MatchingStore(this.db);
+  }
   private readonly db: DatabaseSync;
   private readonly repositories = new Map<string, Repository>();
   private readonly dataDir: string;

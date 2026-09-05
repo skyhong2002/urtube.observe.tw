@@ -8,6 +8,8 @@
     "start": "tsx src/index.ts",
     "ingest": "tsx src/ingest.ts",
     "worker": "tsx src/youtube-worker.ts",
+    "matching:v3:worker": "tsx src/matching-v3/worker.ts",
+    "matching:v3:once": "tsx src/matching-v3/worker.ts --once",
     "youtube:import": "tsx src/import-youtube.ts",
     "youtube:topics:rebuild": "tsx src/youtube-topics.ts",
     "extension:release": "tsx scripts/build-extension-release.ts",
@@ -24,6 +26,7 @@
     "cheerio": "^1.2.0",
     "fflate": "^0.8.3",
     "hono": "^4.12.28",
+    "js-tiktoken": "^1.0.21",
     "tsx": "^4.23.0",
     "zod": "^3.25.76"
   },
