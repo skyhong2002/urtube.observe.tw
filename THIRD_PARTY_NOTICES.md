@@ -93,11 +93,12 @@
 | Google Data Portability API | 可選的 instance owner 定期匯入；[官方資料來源](https://developers.google.com/data-portability)。 | [Data Portability user data and developer policy](https://developers.google.com/data-portability/policy) 與適用 Google API 條款。服務權限與驗證由部署者設定。 |
 | YouTube Data API v3／Google | 取得公開影片、頻道 metadata、圖片 URL 與公開統計；[API 文件](https://developers.google.com/youtube/v3)。 | [YouTube API Services Terms](https://developers.google.com/youtube/terms/api-services-terms-of-service)、[Developer Policies](https://developers.google.com/youtube/terms/developer-policies) 與 [Branding Guidelines](https://developers.google.com/youtube/terms/branding-guidelines)。影片、縮圖與頻道圖片依權利人授權及平台條款使用。 |
 | analysis.tw 頻道標籤清單 | 以 [channels_list API](https://urtubeapi.analysis.tw/api/channels_list.php) 取得新聞／社論與政治內容標籤；使用 query、來源時間與內容版本見[專案政策](docs/channel-tag-policy.md)。 | **資料再利用授權待確認**：待維護者提供授權／使用條款，補充展示、快取與再散布範圍。此清單用於頻道內容標籤。 |
-| 可設定的 AI chat-completions 服務 | `AI_BASE_URL`、`AI_MODEL` 決定供應商與模型。輸入為公開影片 metadata，結果用於個人分類；程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | 模型透過 OpenAI-compatible API 介面呼叫，權重與訓練資料由模型提供者管理。正式模型名稱、版本、model card、權重授權及訓練資料來源待部署者補充；供應商未公開的欄位標為「未公開」。適用條款依所選供應商與模型填列。 |
+| OpenAI GPT 5.6 Luna／OpenAI | 團隊採用 GPT 5.6 Luna 處理所有需要語言模型的內容理解與生成工作，包含依公開影片資訊整理興趣主題。分類服務透過 `AI_BASE_URL`、`AI_MODEL` 設定，程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | 模型服務依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。實際部署的 model ID／revision 與可公開的模型及資料來源文件待補充。 |
+| Google Gemini embedding／Google | 團隊採用 Gemini embedding 進行語意分析，理解內容與興趣之間的關聯；[官方來源與使用文件](https://ai.google.dev/gemini-api/docs/embeddings)。 | 服務條款見 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)。實際採用的 embedding model ID／revision 與可公開的模型及資料來源文件待補充。 |
 | Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；shim 原始碼不在本 repository，現行部署版本待確認。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。shim 自身來源與授權亦待部署者補充。 |
 | Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 取得 Google allowlist 圖片或 [Gravatar](https://gravatar.com/) 圖片，經本站同源路徑提供；本機字首頭像由程式生成。 | Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/) 與[隱私政策](https://automattic.com/privacy/)。使用 Gravatar 時伺服器會送出由 Email 產生的 SHA-256 識別值，瀏覽器不直接取得該值。 |
 
-`BAAI/bge-m3` 目前出現在 [#45 的待合併方案](https://github.com/skyhong2002/urtube.observe.tw/issues/45)。正式採用時補上模型 revision、官方來源、權重與可取得的模型資料說明。
+模型名稱與用途依團隊提供的實際使用資訊揭露；版本資訊隨正式部署紀錄更新。
 
 ## 部署工具與基礎映像
 
@@ -127,7 +128,7 @@
 
 | 項目 | 待提供的證據／處置 | 負責角色 |
 | --- | --- | --- |
-| 正式 AI 模型與 shim | 實際供應商、model ID／revision、適用模型／服務條款、公開 model card 與資料來源；非公開資訊明示狀態，shim 補原始碼來源及授權。 | 部署維護者 |
+| 模型版本與 shim | 補齊 OpenAI GPT 5.6 Luna 與 Google Gemini embedding 的部署 model ID／revision、適用服務方案及可公開的模型與資料來源文件；shim 補原始碼來源及授權。 | 部署維護者 |
 | analysis.tw 資料授權 | 取得維護者正式使用條款或許可證據，確認展示、快取與再散布的使用範圍。 | 資料來源聯絡者／維護者 |
 | 發布 image 與外部工具 | 固定實際發布 digest、工具版本，產生容器／OS 元件 SBOM 並保留隨附聲明。 | 發布維護者 |
 | OG 圖片重現環境 | 現有紀錄可追溯 HTML；原渲染環境的字型、瀏覽器版本與字型授權待補。 | 素材維護者 |
