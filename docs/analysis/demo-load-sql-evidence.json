@@ -1,0 +1,194 @@
+{
+  "node": "v24.2.0",
+  "sqlite": "3.50.0",
+  "cpu": "Apple M5 Pro",
+  "fixture": {
+    "videos": 20000,
+    "watches": 20000,
+    "channels": 2000,
+    "historyDays": 730,
+    "searches": 0,
+    "actualSeconds": null,
+    "tagsPerVideo": 8,
+    "seed": "deterministic short synthetic metadata; fixed 8 tags; 14 assigned topics"
+  },
+  "measurements": [
+    {
+      "name": "source_limit_2000",
+      "medianMs": 24.856,
+      "samplesMs": [
+        23.973,
+        24.856,
+        30.593
+      ]
+    },
+    {
+      "name": "source_limit_20000",
+      "medianMs": 90.479,
+      "samplesMs": [
+        86.967,
+        90.479,
+        93.544
+      ]
+    },
+    {
+      "name": "estimated_events_rebuild",
+      "medianMs": 50.285,
+      "samplesMs": [
+        48.053,
+        50.285,
+        52.56
+      ]
+    },
+    {
+      "name": "channel_totals_90d_temp_warm",
+      "medianMs": 2.468,
+      "samplesMs": [
+        2.233,
+        2.468,
+        2.648
+      ]
+    },
+    {
+      "name": "channel_totals_all_temp_warm",
+      "medianMs": 14.278,
+      "samplesMs": [
+        14.118,
+        14.278,
+        15.387
+      ]
+    },
+    {
+      "name": "channel_detail_all_temp_warm",
+      "medianMs": 17.474,
+      "samplesMs": [
+        16.96,
+        17.474,
+        17.822
+      ]
+    },
+    {
+      "name": "dashboard_base_28d_temp_warm",
+      "medianMs": 31.902,
+      "samplesMs": [
+        31.146,
+        31.902,
+        32.277
+      ]
+    },
+    {
+      "name": "dashboard_overview_28d_temp_warm",
+      "medianMs": 115.062,
+      "samplesMs": [
+        112.556,
+        115.062,
+        126.901
+      ]
+    },
+    {
+      "name": "dashboard_insights_all_temp_warm",
+      "medianMs": 418.756,
+      "samplesMs": [
+        409.429,
+        418.756,
+        428.083
+      ]
+    },
+    {
+      "name": "comparison_profile_all_temp_warm",
+      "medianMs": 132.545,
+      "samplesMs": [
+        124.364,
+        132.545,
+        133.061
+      ]
+    },
+    {
+      "name": "build_crystal_temp_warm",
+      "medianMs": 268.742,
+      "samplesMs": [
+        266.664,
+        268.742,
+        278.391
+      ]
+    },
+    {
+      "name": "cached_overview_read_only",
+      "medianMs": 0.003,
+      "samplesMs": [
+        0.002,
+        0.002,
+        0.003,
+        0.003,
+        0.046
+      ]
+    },
+    {
+      "name": "100_placeholder_queries_20k_existing",
+      "medianMs": 46.188,
+      "samplesMs": [
+        45.972,
+        46.188,
+        46.758
+      ]
+    },
+    {
+      "name": "capture_backfill_all_channels_known",
+      "medianMs": 0.395,
+      "samplesMs": [
+        0.359,
+        0.395,
+        0.993
+      ]
+    },
+    {
+      "name": "capture_backfill_one_video",
+      "medianMs": 0.013,
+      "samplesMs": [
+        0.01,
+        0.013,
+        0.044
+      ]
+    },
+    {
+      "name": "100_placeholder_queries_expression_index",
+      "medianMs": 0.051,
+      "samplesMs": [
+        0.049,
+        0.051,
+        0.099
+      ]
+    }
+  ],
+  "mainLogicalBytes": 24842240,
+  "tempLogicalBytes": 4354048,
+  "placeholderPlan": [
+    {
+      "id": 4,
+      "parent": 0,
+      "notused": 216,
+      "detail": "SCAN a"
+    },
+    {
+      "id": 8,
+      "parent": 0,
+      "notused": 46,
+      "detail": "SEARCH w USING INDEX sqlite_autoindex_youtube_watch_events_2 (activity_id=?)"
+    }
+  ],
+  "indexedPlaceholderPlan": [
+    {
+      "id": 5,
+      "parent": 0,
+      "notused": 60,
+      "detail": "SEARCH w USING INDEX probe_identity_day (<expr>=? AND <expr>=?)"
+    },
+    {
+      "id": 13,
+      "parent": 0,
+      "notused": 46,
+      "detail": "SEARCH a USING INDEX sqlite_autoindex_activities_1 (id=?)"
+    }
+  ],
+  "peakRssKiB": 578480
+}
