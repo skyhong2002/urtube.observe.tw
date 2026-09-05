@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createApp } from '../src/index.js';
+import { UserRegistry } from '../src/users.js';
 import { Repository } from '../src/data/database.js';
 import { tagLeanPage, tagLeanSection } from '../src/output/taglean.js';
 import { normalizeYoutubeCapture } from '../src/youtube/capture.js';
@@ -8,6 +10,7 @@ import {
   fetchTagLists,
   resetTagListsCache,
   TAG_POLICY,
+  TAG_GROUPS,
   type TagLists,
   type TagListSnapshot,
 } from '../src/youtube/taglists.js';
@@ -47,6 +50,17 @@ function channel(
   return { channelId, name, thumbnailUrl: '', watches, estimatedWatchSeconds: seconds };
 }
 
+test('the governed catalog preserves all seven queries and translated definitions', () => {
+  assert.deepEqual(Object.fromEntries(Object.entries(TAG_GROUPS).map(([key, group]) => [key, group.query])), {
+    news: 'tagid=13', editorial: 'tagid=1&not=2,9,10,12,13,33,36,81',
+    editorialShows: 'tagid=1,9', blue: 'tagid=3', green: 'tagid=4', white: 'tagid=6', red: 'tagid=5',
+  });
+  for (const group of Object.values(TAG_GROUPS)) {
+    assert.ok(group.names.en && group.names.zh && group.description && group.source);
+    assert.equal(group.policyVersion, TAG_POLICY.version);
+  }
+});
+
 test('computeTagLean splits watch time per tag group and tracks coverage', () => {
   const channels = [
     channel('UCgreen-news', 'Green News', 10, 3600),
@@ -76,6 +90,88 @@ test('computeTagLean splits watch time per tag group and tracks coverage', () =>
   const shows = data.content.find((group) => group.key === 'editorialShows')!;
   assert.equal(shows.estimatedWatchSeconds, 0);
   assert.equal(shows.topChannels.length, 0);
+});
+
+test('coverage deduplicates overlapping groups and bounds uncovered channels with stable ordering', () => {
+  const uncovered = Array.from({ length: 12 }, (_, index) =>
+    channel(`UCunknown-${String(index).padStart(2, '0')}`, `Uncovered ${index}`, 1, 100));
+  const rows = [channel('UCshared', 'Shared', 3, 600), ...uncovered,
+    channel(null, '<script>private</script>', 1, 200)];
+  const source = snapshot({ news: ['UCshared'], editorial: ['UCshared'], blue: ['UCshared'] });
+  const data = computeTagLean('all', rows, source);
+  assert.equal(data.matched.estimatedWatchSeconds, 600);
+  assert.equal(data.totals.estimatedWatchSeconds, 2000);
+  assert.equal(data.unmatched.channels, 13);
+  assert.equal(data.unmatched.estimatedWatchSeconds, 1400);
+  assert.equal(data.unmatched.topChannels.length, 10);
+  assert.equal(data.unmatched.topChannels[0].channelId, null);
+  assert.deepEqual(computeTagLean('all', [...rows].reverse(), source).unmatched, data.unmatched);
+  const en = tagLeanSection(data, 'en');
+  assert.match(en, /Classified · 30%/);
+  assert.match(en, /Unclassified · 70%/);
+  assert.match(en, /all estimated watch time in the selected range/);
+  assert.match(en, /groups can overlap/);
+  assert.match(en, /&lt;script&gt;private&lt;\/script&gt;/);
+  assert.doesNotMatch(en, /<script>private/);
+  assert.match(en, /<details class="tl-coverage-details">/);
+  assert.match(tagLeanSection(data, 'zh'), /尚未分類 · 70%/);
+  const allUnknown = computeTagLean('all', uncovered, snapshot({}));
+  assert.equal(allUnknown.matched.channels, 0);
+  assert.match(tagLeanSection(allUnknown), /Unclassified · 100%/);
+  const empty = tagLeanSection(computeTagLean('all', [], snapshot({})));
+  assert.match(empty, /No estimated watch time in this range/);
+  assert.doesNotMatch(empty, /Classified · 0%/);
+  const nameless = computeTagLean('all', [channel(null, '', 1, 100), channel('UCknown-id', '', 1, 100)], snapshot({}));
+  assert.match(tagLeanSection(nameless), /Channel not identified/);
+  assert.match(tagLeanSection(nameless), /href="\/channel\/UCknown-id">UCknown-id<\/a>/);
+  assert.match(tagLeanSection(nameless, 'zh'), /尚未辨識的頻道/);
+});
+
+test('governed coverage and uncovered channels are available only to the signed-in owner', async () => {
+  const registry = new UserRegistry(':memory:');
+  let calls = 0;
+  let unavailable = false;
+  const app = createApp(registry, { loadTagLists: async () => {
+    calls++;
+    if (unavailable) throw new Error('fixture source unavailable');
+    return snapshot({});
+  } });
+  try {
+    const owner = registry.createUser('coverage-owner', 'Owner');
+    const other = registry.createUser('coverage-other', 'Other');
+    registry.setDashboardPublic(owner.handle, true);
+    registry.repositoryFor(owner).ingestYoutubeArchive({
+      archiveHash: 'private-coverage-fixture', source: 'takeout', searches: [], watches: [{
+        eventId: 'coverage-event', videoId: 'PRIVATE0001', title: 'Synthetic video',
+        url: 'https://www.youtube.com/watch?v=PRIVATE0001',
+        channelId: 'UCunknown', channelTitle: 'Synthetic uncovered channel', channelUrl: null,
+        watchedAt: new Date().toISOString(), actualWatchedSeconds: 120, activityType: 'video',
+      }],
+    });
+    const path = `/${owner.handle}/insights?range=all`;
+    const ownerPage = await (await app.request(path, {
+      headers: { cookie: `urtube_session=${registry.createSession(owner)}` },
+    })).text();
+    assert.match(ownerPage, /Unclassified · 100%/);
+    assert.equal(calls, 1);
+    for (const [url, cookie] of [
+      [path, ''],
+      [path, `urtube_session=${registry.createSession(other)}`],
+      [`${path}&key=${owner.dashboardToken}`, ''],
+    ]) {
+      const page = await (await app.request(url, { headers: { cookie } })).text();
+      assert.doesNotMatch(page, /tl-coverage-details|Political-channel watch distribution/);
+    }
+    assert.equal(calls, 1, 'non-owner requests must not fetch governed data');
+    unavailable = true;
+    const failed = await (await app.request(path, {
+      headers: { cookie: `urtube_session=${registry.createSession(owner)}` },
+    })).text();
+    assert.match(failed, /channel-label source cannot be verified/);
+    assert.doesNotMatch(failed, /tl-coverage-details/);
+  } finally {
+    registry.close();
+  }
 });
 
 test('youtubeChannelTotals returns every watched channel, uncut and range-filtered', () => {
@@ -205,6 +301,16 @@ test('tag-list snapshots are versioned by membership and never reuse an expired 
     mode = 'invalid-id';
     resetTagListsCache();
     await assert.rejects(fetchTagLists(0), /unexpected payload/);
+
+    mode = 'ok';
+    const definition = TAG_GROUPS.news;
+    try {
+      Object.assign(TAG_GROUPS, { news: { ...definition, description: '' } });
+      resetTagListsCache();
+      await assert.rejects(fetchTagLists(0), /missing governed definition/);
+    } finally {
+      Object.assign(TAG_GROUPS, { news: definition });
+    }
   } finally {
     globalThis.fetch = realFetch;
     resetTagListsCache();
