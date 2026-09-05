@@ -1046,7 +1046,7 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
     assert.equal(partial.stats.topicCoverage, 0.5);
     assert.equal(partial.topics[0]?.slug, 'recent-topic');
     const partialPage = youtubeDashboardPage('Fixture', partial, 'duration', {
-      lang: 'en', page: 'insights',
+      lang: 'en', page: 'overview',
     });
     assert.match(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
     assert.match(partialPage, /Effective coverage is below 80%/);
@@ -1154,7 +1154,7 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     ]);
 
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
-      lang: 'zh', page: 'insights',
+      lang: 'zh', page: 'overview',
     });
     assert.match(html, /主題動態/);
     assert.match(html, /依頁面範圍/);

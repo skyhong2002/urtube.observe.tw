@@ -124,10 +124,12 @@ public title/tag/description metadata by the versioned pipeline described in
 `docs/keyword-pipeline.md`; keywords never enter matching. Imports enqueue a projection refresh, and
 the worker atomically publishes it without dropping a newer queued refresh.
 
-The topic trend on Insights follows the selected page range. Short ranges use
-daily points, while yearly and all-time ranges use monthly points. Readers can
-switch between raw and smoothed shares. Incomplete current-taxonomy
-classification remains visibly provisional.
+Overview brings stable topics, channel momentum, and topic dynamics together.
+Both animations share playback controls and smoothly moving ranking bars. Topic
+dynamics follows the selected page range: short ranges use daily points, while
+yearly and all-time ranges use monthly points. Expand the detailed topic view
+to compare raw and smoothed shares. Incomplete current-taxonomy classification
+remains visibly provisional; channel momentum keeps its full-history decay.
 
 Both channel and canonical-topic comparisons use that 90-day window, so old
 history cannot dominate a current match. Pool eligibility is controlled by
