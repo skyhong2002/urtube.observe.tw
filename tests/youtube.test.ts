@@ -1156,7 +1156,7 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
       lang: 'zh', page: 'insights',
     });
-    assert.match(html, /主題如何改變/);
+    assert.match(html, /主題動態/);
     assert.match(html, /依頁面範圍/);
     assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);
