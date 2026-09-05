@@ -156,3 +156,54 @@ $('editor-form').onsubmit = async event => {
 };
 $('cancel').onclick = () => $('editor').close(); $('interests').onclick = () => openEditor('interests'); $('add').onclick = () => openEditor('topic'); $('search').oninput = renderTopics;
 load().catch(error);
+
+
+// Keep the existing session/token-protected HTML endpoints; update cards in place.
+let friendshipPending = false;
+document.addEventListener('submit', async event => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || !form.closest('.mv-workspace')) return;
+  const path = new URL(form.action, location.href).pathname;
+  if (!['/matches/request', '/matches/respond', '/matches/withdraw'].includes(path)) return;
+  event.preventDefault();
+  if (friendshipPending) return;
+  friendshipPending = true;
+  const submitter = event.submitter;
+  const cardHref = form.closest('.mt-card')?.querySelector('.mt-person-link')?.getAttribute('href');
+  const controls = [...document.querySelectorAll('.mv-workspace form[action^="/matches/"] button')];
+  const originallyDisabled = controls.map(button => button.disabled);
+  const body = new URLSearchParams();
+  for (const [key, value] of new FormData(form)) if (typeof value === 'string') body.append(key, value);
+  body.set('returnTo', '/matches');
+  if (submitter?.name) body.set(submitter.name, submitter.value);
+  let feedback = document.querySelector('.mt-friend-feedback');
+  if (!feedback) {
+    feedback = element('p', '', 'mt-friend-feedback'); feedback.setAttribute('role', 'status');
+    document.querySelector('.mv-detail').prepend(feedback);
+  }
+  feedback.textContent = lang === 'zh' ? '正在更新好友邀請…' : 'Updating friend request…';
+  controls.forEach(button => { button.disabled = true; });
+  try {
+    const response = await fetch(path, { method: 'POST', body, credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok || new URL(response.url).pathname !== '/matches') throw new Error('request_failed');
+    const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+    const directory = page.getElementById('mv-directory');
+    const invitations = page.getElementById('mv-invitations');
+    if (!directory || !invitations) throw new Error('session_changed');
+    const replacements = new Map([...directory.querySelectorAll('.mt-card')].map(card => [card.querySelector('.mt-person-link')?.getAttribute('href'), card]));
+    for (const card of $('mv-directory').querySelectorAll('.mt-card')) {
+      const replacement = replacements.get(card.querySelector('.mt-person-link')?.getAttribute('href'));
+      if (replacement) card.replaceWith(document.importNode(replacement, true));
+    }
+    $('mv-invitations').replaceChildren(...[...invitations.childNodes].map(node => document.importNode(node, true)));
+    feedback.textContent = lang === 'zh' ? '好友邀請狀態已更新。' : 'Friend request updated.';
+    const visibleCards = [...document.querySelectorAll('.mv-detail .mt-card')];
+    const updated = visibleCards.find(card => !card.closest('[hidden]') && card.querySelector('.mt-person-link')?.getAttribute('href') === cardHref);
+    (updated?.querySelector('[data-friendship-tools] button') || $('mv-invites')).focus({ preventScroll: true });
+  } catch {
+    feedback.textContent = lang === 'zh' ? '無法確認邀請狀態，請稍後再試；若登入已過期，請重新登入。' : 'Could not confirm the request. Try again later, or sign in if your session expired.';
+  } finally {
+    controls.forEach((button, index) => { button.disabled = originallyDisabled[index]; });
+    friendshipPending = false;
+  }
+}, { signal: window.urtubePageController?.signal });

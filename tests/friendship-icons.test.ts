@@ -27,7 +27,7 @@ test('directory friendship icons keep accessible names and correct POST actions 
     for (const el of tools.find('button').toArray()) {
       assert.equal($(el).attr('title'), $(el).attr('aria-label'));
       assert.equal($(el).find('svg[aria-hidden="true"]').length, 1);
-      assert.equal($(el).text(), '');
+      assert.equal($(el).text(), $(el).attr('aria-label'));
     }
     assert.equal(tools.find('[name=actionToken]').attr('value'), base.actionToken);
     assert.equal(tools.find('[name=returnTo]').attr('value'), '/matches');
