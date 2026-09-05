@@ -1,4 +1,5 @@
 import { readMonitoring } from './monitoring-read.js';
+import type { V3JobStatus } from '../youtube/v3-processing.js';
 import type { TokenObservation } from './telemetry.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -104,6 +105,12 @@ export class MatchingStore {
     if (!row) return null;
     return { state: String(row.state), attempts: Number(row.attempts), error: row.error === null ? null : String(row.error),
       retry_at: Number(row.retry_at), progress: row.progress_json ? JSON.parse(String(row.progress_json)) as JobProgress : null };
+  }
+  // Display only the stored v3 phase and its own units; keep the existing API unchanged.
+  processingStatus(userId: number): V3JobStatus | null {
+    const row = this.db.prepare('SELECT state,version,attempts,retry_at,progress_json FROM matching_v3_jobs WHERE user_id=?').get(userId);
+    return row ? { state: String(row.state), version: String(row.version), attempts: Number(row.attempts),
+      retryAt: Number(row.retry_at), progress: row.progress_json ? JSON.parse(String(row.progress_json)) as JobProgress : null } : null;
   }
   progress(job: Job, progress: JobProgress): void {
     this.db.prepare('UPDATE matching_v3_jobs SET progress_json=? WHERE user_id=? AND token=?')

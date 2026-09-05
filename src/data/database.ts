@@ -32,6 +32,7 @@ import type {
 } from '../youtube/types.js';
 import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
 import type { YoutubeProcessingCounts } from '../youtube/processing.js';
+import type { YoutubeMetadataProcessingCounts } from '../youtube/v3-processing.js';
 import {
   KEYWORD_DEFAULT_LIMIT,
   KEYWORD_SAMPLE_LIMIT,
@@ -1430,6 +1431,20 @@ export class Repository {
       searchQueries: Number(row.search_queries),
       channels: Number(row.channels),
     };
+  }
+
+  // Metadata-only display counts. Keep legacy taxonomy scans out of v3 UI reads.
+  youtubeMetadataProcessingCounts(now = new Date()): YoutubeMetadataProcessingCounts {
+    const row = this.db.prepare(`SELECT
+      (SELECT COUNT(*) FROM youtube_videos) videos,
+      (SELECT COUNT(*) FROM youtube_videos WHERE metadata_fetched_at IS NULL) videosPendingMetadata,
+      (SELECT COUNT(DISTINCT v.channel_id) FROM youtube_videos v
+        LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
+        WHERE v.channel_id IS NOT NULL AND (c.metadata_fetched_at IS NULL
+          OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?)) channelsPendingMetadata
+    `).get(new Date(now.getTime() - 7 * 86400_000).toISOString());
+    return { videos: Number(row!.videos), videosPendingMetadata: Number(row!.videosPendingMetadata),
+      channelsPendingMetadata: Number(row!.channelsPendingMetadata) };
   }
 
   // What the worker still owes this archive. Cheap COUNTs over the same

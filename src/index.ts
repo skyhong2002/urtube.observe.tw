@@ -7,7 +7,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
-import { settings as matchingV3Settings } from './matching-v3/model.js';
+import { settings as matchingV3Settings, version as matchingV3Version, GENRES } from './matching-v3/model.js';
 import { matchingRoutes } from './matching-v3/routes.js';
 import type { Compute } from './matching-v3/compute.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
@@ -15,7 +15,7 @@ import type { Repository } from './data/database.js';
 import { cachedRead, clearReadCaches } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
-import { comparePage, shiftsSection } from './output/crystal.js';
+import { comparePage } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import { matchesPage, matchingCandidatePage, friendshipActions, candidateCard, type ActionableMatchingCandidateCard } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
@@ -41,25 +41,23 @@ import {
 } from './output/onboarding.js';
 import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
-import { ensureYoutubeTaxonomy } from './youtube/ai.js';
 import { fetchYoutubeChannelMetadata } from './youtube/metadata.js';
 import {
   brandMark, html, primaryNav, shell,
   type PrimaryNavActive, type ShellNavItem,
 } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
-import { processingNotice } from './output/processing.js';
+import { v3ProcessingNotice } from './output/v3-processing.js';
+import { describeV3Processing } from './youtube/v3-processing.js';
+import { v3DashboardSection } from './output/v3-dashboard.js';
 import {
   describeYoutubeProcessing,
   youtubeProcessingCapabilities,
   type YoutubeProcessingStatus,
 } from './youtube/processing.js';
-import { tagLeanSection } from './output/taglean.js';
-import { personalTaxonomyAuditPage } from './output/taxonomy-audit.js';
 import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
-import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
-import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
+import { fetchTagLists } from './youtube/taglists.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
@@ -91,7 +89,6 @@ import {
   type YoutubeDashboardData,
   type YoutubeRange,
 } from './youtube/types.js';
-import { PERSONAL_TAXONOMY_DEFINITION_VERSION } from './youtube/personal-taxonomy.js';
 
 // A year is the default view everywhere; shorter ranges are one click away.
 export const DEFAULT_YOUTUBE_RANGE: YoutubeRange = '365d';
@@ -192,10 +189,21 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     card.topicMatch = { score: result.score, provisional: result.provisional, reasons: result.reasons.map(reason => reason.text), detailsVisible: result.detailsVisible };
     return candidateCard(card, viewer.handle, lang);
   }));
+  const v3DataFor = (user: User) => {
+    const repository = registry.repositoryFor(user);
+    const store = v3.enabled ? registry.matchingV3Store() : null;
+    const profile = store?.profile(user.id) ?? null;
+    return { profile, processing: describeV3Processing({
+      metadata: cachedRead(repository, 'metadata-processing', () => repository.youtubeMetadataProcessingCounts(), 5000),
+      metadataEnabled: Boolean(config.youtube.apiKey), enabled: v3.enabled,
+      profileVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
+      profile, job: store?.processingStatus(user.id) ?? null,
+    }) };
+  };
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
-    processing: processingFor(registry.repositoryFor(user)),
     ...state,
+    v3Processing: v3DataFor(user).processing,
   });
   const onboardingStateFor = (user: User): GuidedOnboardingState => {
     const repository = registry.repositoryFor(user);
@@ -321,7 +329,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
     const counts = countsFor(repository);
-    const processing = processingFor(repository);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
     const shortFormVariant = requestedShortForm === 'stacked'
@@ -332,50 +339,18 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       ? requestedShortForm : undefined;
     const data = cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
     const hasData = counts.watches > 0;
-    const crystalHtml = page === 'insights' && hasData
-      ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
-    let leaningsHtml = '';
-    if (page === 'insights' && hasData) {
-      try {
-        const snapshot = await loadTagLists();
-        const tagLean = computeTagLean(
-          range,
-          cachedChannelTotalsFor(registry, user, range),
-          snapshot,
-        );
-        const contributions = registry.listReferencePopulationUsers().flatMap((contributor) => {
-          const contributorRepository = registry.repositoryFor(contributor);
-          const dataUpdatedAt = contributorRepository.youtubeReferenceDataUpdatedAt();
-          if (!dataUpdatedAt) return [];
-          return [{
-            subjectId: contributor.id,
-            dataUpdatedAt,
-            data: contributor.id === user.id
-              ? tagLean
-              : computeTagLean(
-                range,
-                cachedChannelTotalsFor(registry, contributor, range),
-                snapshot,
-              ),
-          }];
-        });
-        leaningsHtml = tagLeanSection(
-          tagLean,
-          lang,
-          buildReferencePopulation(tagLean, contributions),
-        );
-      } catch (error) {
-        console.warn('channel classifications unavailable:',
-          error instanceof Error ? error.message : 'unknown error');
-        leaningsHtml = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
-      }
-    }
-    // Insights may await external classification. Recheck visibility and
-    // the session before rendering any data from the earlier snapshot.
+    // All interest content below comes from v3. Keep access checks in front
+    // of every response, including when aggregate data came from the cache.
     if (!profileAccess(c, user, page)) return notFoundPage(c);
     user = registry.userByHandle(user.handle)!;
     const me = sessionUser(c);
     const viewerOwns = me?.id === user.id;
+    const v3Data = v3DataFor(user);
+    const selectedGenres = viewerOwns ? [...GENRES] : user.matchingOptIn && v3.enabled
+      ? registry.matchingV3Store().preferences(user.id).genres : [];
+    const visibleProcessing = viewerOwns || selectedGenres.length ? v3Data.processing
+      : { ...v3Data.processing, state: 'disabled' as const, progress: null, profile: null };
+
     // Only the owner or an explicit dashboard key can expose individual watches.
     const showRecent = privateDashboardAccess(c, user);
     const history = page === 'history' && showRecent
@@ -409,8 +384,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       setupHtml: showSetup ? dashboardSetupSection(user, hasData, lang) : '',
       // Every visitor, not just the owner: a public reader deserves to know
       // the figures are still settling.
-      processingHtml: hasData ? processingNotice(processing, lang) : '',
-      insightsHtml: crystalHtml + leaningsHtml,
+      processingHtml: hasData ? v3ProcessingNotice(visibleProcessing, lang, { ownerDetails: viewerOwns }) : '',
+      statsProvisional: v3Data.processing.metadata.enabled && v3Data.processing.metadata.videosPendingMetadata > 0,
+      v3Html: v3DashboardSection(v3Data.profile, {
+        enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
+        genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done',
+      }),
       history,
       showRecent,
       showPrivatePages: showRecent,
@@ -624,7 +603,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
-    return c.html(guidedOnboardingPage(me, onboardingStateFor(me), langOf(c)));
+    return c.html(guidedOnboardingPage(me, onboardingStateFor(me), langOf(c), v3DataFor(me).processing));
   });
 
   app.post('/onboarding/finish', async (c) => {
@@ -682,99 +661,26 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.html(accountPage(me, accountStateFor(me), langOf(c)));
   });
 
-  const taxonomyAuditFor = (user: User) => {
-    const repository = registry.repositoryFor(user);
-    const runs = repository.youtubeTaxonomyRuns();
-    return {
-      readiness: repository.youtubePersonalTaxonomyReadiness(),
-      canPrepare: !runs.some((run) =>
-        run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
-        && ['candidate', 'ready', 'active'].includes(run.status)),
-      runs: runs.map((run) => ({
-        run,
-        distribution: repository.youtubePersonalTaxonomyDistribution(run.taxonomyVersion),
-        evidence: run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
-          ? repository.youtubePersonalTaxonomyEvidence(run.taxonomyVersion, 2) : [],
-      })),
-      activations: repository.youtubeTaxonomyActivations(),
-    };
-  };
-
-  app.get('/account/taxonomy', (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
+  // Retire the review UI without deleting stored legacy classifications or
+  // changing the existing worker. Old bookmarks lead to the current progress.
+  app.get('/account/taxonomy', c => {
+    if (!sessionUser(c)) return c.redirect('/signup');
     c.header('Cache-Control', 'no-store');
-    c.header('X-Robots-Tag', 'noindex');
-    return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), langOf(c), '', `/${me.handle}`));
+    return c.redirect(`/account${c.req.query('lang') ? `?lang=${langOf(c)}` : ''}#processing`);
   });
-
-  app.post('/account/taxonomy/prepare', async (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
-    const lang = langOf(c);
-    const form = await c.req.parseBody();
-    const renderError = (message: string, status: 400 | 503 = 400) => {
+  for (const path of ['/account/taxonomy/prepare', '/account/taxonomy/:version/activate']) {
+    app.post(path, c => {
+      if (!sessionUser(c)) return c.redirect('/signup');
       c.header('Cache-Control', 'no-store');
-      c.header('X-Robots-Tag', 'noindex');
-      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message, `/${me.handle}`), status);
-    };
-    if (form.confirmed !== '1') {
-      return renderError(lang === 'zh' ? '必須先確認建立候選版本' : 'Candidate confirmation is required');
-    }
-    const repository = registry.repositoryFor(me);
-    const before = repository.youtubeTaxonomyRuns();
-    if (before.some((run) => run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION
-      && ['candidate', 'ready', 'active'].includes(run.status))) {
-      return renderError(lang === 'zh' ? '已有進行中或可用的 v2 版本' : 'A current v2 run already exists');
-    }
-    try {
-      const previousVersions = new Set(before.map((run) => run.taxonomyVersion));
-      await ensureYoutubeTaxonomy(repository, true);
-      const created = repository.youtubeTaxonomyRuns().find((run) =>
-        !previousVersions.has(run.taxonomyVersion)
-        && run.definitionVersion === PERSONAL_TAXONOMY_DEFINITION_VERSION);
-      if (!created) {
-        const readiness = repository.youtubePersonalTaxonomyReadiness();
-        return renderError(readiness.ready
-          ? (lang === 'zh' ? '此部署未啟用 AI 分類' : 'AI classification is not enabled on this deployment')
-          : (lang === 'zh' ? 'Metadata 尚未達到建立候選版本的門檻' : 'Metadata is not ready for a candidate yet'), 503);
-      }
-      clearReadCaches();
-      return c.redirect('/account/taxonomy');
-    } catch (caught) {
-      return renderError(caught instanceof Error ? caught.message : 'Candidate creation failed');
-    }
-  });
-
-  app.post('/account/taxonomy/:version/activate', async (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
-    const lang = langOf(c);
-    const version = Number(c.req.param('version'));
-    const form = await c.req.parseBody();
-    const error = lang === 'zh' ? '必須先確認人工審核' : 'Manual review confirmation is required';
-    if (!Number.isSafeInteger(version) || version < 1 || form.reviewed !== '1') {
-      c.header('Cache-Control', 'no-store');
-      c.header('X-Robots-Tag', 'noindex');
-      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, error, `/${me.handle}`), 400);
-    }
-    try {
-      registry.repositoryFor(me).activatePersonalTaxonomy(version);
-      clearReadCaches();
-      return c.redirect('/account/taxonomy');
-    } catch (caught) {
-      c.header('Cache-Control', 'no-store');
-      c.header('X-Robots-Tag', 'noindex');
-      const message = caught instanceof Error ? caught.message : 'Taxonomy activation failed';
-      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message, `/${me.handle}`), 400);
-    }
-  });
+      return c.text(langOf(c) === 'zh' ? '舊版主題審核已停用，請至帳號頁查看 v3 處理進度。' : 'Legacy topic review is retired. View v3 processing progress on your account page.', 410);
+    });
+  }
 
   app.get('/matches', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
-    const provisional = processingFor(registry.repositoryFor(me)).pending > 0;
+    const provisional = !['done', 'disabled'].includes(v3DataFor(me).processing.state);
     const respond = (
       state: Parameters<typeof matchesPage>[2],
       status: 200 | 403 = 200,
@@ -1220,7 +1126,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       c.header('Cache-Control', 'no-store');
       return c.html(accountPage(me, accountStateFor(me, {
         takeoutResult: result,
-        processing: processingFor(repository),
       }), lang));
     } catch (error) {
       return renderError(error instanceof Error ? error.message : String(error));

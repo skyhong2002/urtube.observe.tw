@@ -1048,8 +1048,8 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
     const partialPage = youtubeDashboardPage('Fixture', partial, 'duration', {
       lang: 'en', page: 'overview',
     });
-    assert.match(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
-    assert.match(partialPage, /Effective coverage is below 80%/);
+    assert.doesNotMatch(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
+    assert.doesNotMatch(partialPage, /Effective coverage is below 80%|AI topic coverage/);
     assert.doesNotMatch(partialPage, /<div class="yt-topic"><strong>Recent topic/);
 
     const sample = samplePersonalTaxonomy(repository.youtubePersonalTaxonomyCandidates(), 2);
@@ -1156,11 +1156,9 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
       lang: 'zh', page: 'overview',
     });
-    assert.match(html, /主題動態/);
-    assert.match(html, /依頁面範圍/);
-    assert.match(html, /data-trend-smoothing="raw"/);
-    assert.match(html, /已分類 50% · 暫定/);
-    assert.match(html, /只納入精確時間紀錄/);
+    assert.doesNotMatch(html, /主題動態|data-rank-race="topics"/);
+    assert.doesNotMatch(html, /data-trend-smoothing="raw"|data-topic-trend/);
+    assert.doesNotMatch(html, /已分類 50% · 暫定/);
     assert.match(html, /\.yt-short-absolute\{[^}]*overflow:hidden/,
       'dense history columns stay contained instead of widening the mobile page');
   } finally {

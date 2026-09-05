@@ -126,7 +126,7 @@ test('public profiles support direct Blend independently of friendship, opt-in a
 });
 
 for (const revocation of ['public', 'friendship', 'session'] as const) {
-  test(`Insights rechecks ${revocation} access after waiting for classifications`, async () => {
+  test(`Insights rechecks ${revocation} access on cached data without requesting legacy classifications`, async () => {
     const registry = new UserRegistry(':memory:');
     try {
       const alice = registry.createUser('race-alice', 'Alice'), bob = registry.createUser('race-bob', 'Bob');
@@ -134,17 +134,20 @@ for (const revocation of ['public', 'friendship', 'session'] as const) {
       const requestToken = connect(registry, alice, bob);
       if (revocation === 'public') registry.setDashboardPublic(bob.handle, true);
       const session = registry.createSession(alice);
-      let release!: (value: TagListSnapshot) => void;
-      let entered!: () => void;
-      const started = new Promise<void>(resolve => { entered = resolve; });
-      const app = createApp(registry, { loadTagLists: () => { entered(); return new Promise(resolve => { release = resolve; }); } });
-      const response = app.request('/race-bob/insights', revocation === 'public' ? {} : { headers: { cookie: `urtube_session=${session}` } });
-      await started;
+      let classificationCalls = 0;
+      const app = createApp(registry, { loadTagLists: async () => {
+        classificationCalls += 1;
+        throw new Error('Insights must not request legacy channel classifications');
+      } });
+      const request = revocation === 'public' ? {} : { headers: { cookie: `urtube_session=${session}` } };
+      const response = await app.request('/race-bob/insights', request);
+      assert.equal(response.status, 200, 'the permitted request populates the dashboard data cache');
+      assert.equal(classificationCalls, 0);
       if (revocation === 'public') registry.setDashboardPublic(bob.handle, false);
       if (revocation === 'friendship') registry.withdrawMatchRequest(alice, requestToken);
       if (revocation === 'session') registry.deleteSession(session);
-      release(snapshot);
-      assert.equal((await response).status, 404);
+      assert.equal((await app.request('/race-bob/insights', request)).status, 404);
+      assert.equal(classificationCalls, 0);
     } finally { registry.close(); }
   });
 }
