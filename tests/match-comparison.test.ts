@@ -75,6 +75,7 @@ function profile(overrides: Partial<YoutubeComparisonProfile> = {}): YoutubeComp
     topics: [],
     hourly: [],
     weekdays: [],
+    weekdayDays: [4, 4, 4, 4, 4, 4, 4],
     rhythmCoverage: { exactWatches: 10, dateOnlyWatches: 0 },
     firstWatch: null,
     lastWatch: null,

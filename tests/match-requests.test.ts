@@ -105,9 +105,7 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.match(comparisonHtml, /Topic intersection/);
     assert.match(comparisonHtml, /Channel intersection/);
     assert.match(comparisonHtml, /Shared interests/);
-    assert.match(comparisonHtml, /Private by default/);
-    assert.match(comparisonHtml, /Recent 90 days/);
-    assert.match(comparisonHtml, /Mutual consent gates details/);
+    assert.doesNotMatch(comparisonHtml, /Private by default|Recent 90 days|Mutual consent gates details/);
     assert.match(comparisonHtml, /Opening or liking a comparison sends no private details/);
     assert.match(comparisonHtml, /action="\/matches\/request"/);
     assert.doesNotMatch(comparisonHtml, /@bob-private|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
@@ -159,9 +157,7 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     const chinesePending = await (await app.request('/alice-match/compare/bob-match?lang=zh', {
       headers: { cookie: aliceCookie },
     })).text();
-    assert.match(chinesePending, /預設私密/);
-    assert.match(chinesePending, /只看近 90 天/);
-    assert.match(chinesePending, /雙向同意才解鎖/);
+    assert.doesNotMatch(chinesePending, /預設私密|只看近 90 天|雙向同意才解鎖/);
     assert.match(chinesePending, /打開或喜歡這份比較都不會送出私人細節/);
 
     const request = registry.matchingInboxFor(bob).incoming[0];

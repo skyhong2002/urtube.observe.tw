@@ -18,6 +18,7 @@ import { messages, type Lang, type Messages } from './i18n.js';
 import { hours, html, primaryNav, shell, trustSignals } from './pages.js';
 import { radialClock, rhythmClockStyles } from './youtube.js';
 import { YOUTUBE_CHANNEL_ID_PATTERN } from './channel.js';
+import { channelPreviewDrawer } from './channel-preview.js';
 
 export type MatchesPageState =
   | { kind: 'opt_in_required' }
@@ -191,7 +192,10 @@ function channelRow(names: ComparisonPair<string>, t: Messages) {
       ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="36" height="36">`
       : `<span class="mt-row-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
     const href = channelHref(channel);
-    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${avatar}<strong><a href="${html(href)}"${href.startsWith('/') ? '' : ' rel="noopener" target="_blank"'}>${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
+    const linkedAvatar = href.startsWith('/')
+      ? `<a class="mt-channel-avatar-link" href="${html(href)}" data-channel-preview tabindex="-1" aria-hidden="true">${avatar}</a>`
+      : avatar;
+    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${linkedAvatar}<strong><a href="${html(href)}"${href.startsWith('/') ? ' data-channel-preview aria-haspopup="dialog"' : ' rel="noopener" target="_blank"'}>${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
   };
 }
 
@@ -236,14 +240,17 @@ function weekdaySection(comparison: WatchComparison, t: Messages): string {
     const pick = (row: WatchComparison['weekdays']['rows'][number], side: 'a' | 'b') =>
       metric === 'watches' ? row.watches[side] : row.seconds[side];
     const max = Math.max(1e-9, ...comparison.weekdays.rows.flatMap((row) => [pick(row, 'a'), pick(row, 'b')]));
-    const label = (value: number) => (share ? percent(value) : metricValue(metric, value, t));
+    const label = (value: number) => (share ? percent(value) : metricValue(metric, Math.round(value * 10) / 10, t));
     const bar = (side: 'a' | 'b', row: WatchComparison['weekdays']['rows'][number]) => {
       const value = pick(row, side);
       return `<div class="mt-bar mt-bar-${side}" data-tip="${html(label(value))}" tabindex="0"><i style="width:${Math.round(value / max * 100)}%"></i><b>${html(label(value))}</b></div>`;
     };
-    return `<div class="mt-week">${comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('')}</div>`;
+    const subtitle = share
+      ? metric === 'seconds' ? t.matchesWeekdaysShareTime : t.matchesWeekdaysShareWatches
+      : metric === 'seconds' ? t.matchesWeekdaysTime : t.matchesWeekdaysWatches;
+    return `<p class="mt-week-sub">${html(subtitle)}</p><div class="mt-week">${comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('')}</div>`;
   };
-  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2><span>${t.matchesWeekdaysSub}</span></div></div>${metricPanels(rowsFor)}${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}</section>`;
+  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2></div></div>${metricPanels(rowsFor)}<p class="mt-gate mt-week-note">${html(share ? t.matchesShareMode : t.matchesWeekdaysAverageNote)}</p></section>`;
 }
 
 function edgeSection(
@@ -317,22 +324,17 @@ export function matchingCandidatePage(
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
     `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p><p class="mt-version">${t.matchesFormulaVersion(card.percentageVersion)}</p></section>`,
   ].join('');
-  const signals = trustSignals([
-    t.trustPrivateDefault,
-    t.trustRecent90,
-    t.trustMutualConsent,
-  ], t.trustSignalsLabel);
   const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
-  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${signals}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${metricToggle}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div><script>${metricScript}</script>`;
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${metricToggle}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
 }
 
 const comparisonStyles = `
-  .mt-profile{max-width:960px}.mt-range{flex-wrap:wrap;justify-content:center;margin:18px 0 6px}
+  .mt-profile{max-width:960px}.mt-profile .mt-profile-back{display:block;margin-inline:auto;text-align:center;width:fit-content}.mt-profile .mt-panel-head{justify-content:center;text-align:center}.mt-profile .mt-panel>h2,.mt-profile .mt-panel>p,.mt-profile .mt-privacy,.mt-profile .mt-more summary,.mt-profile .mt-edge{text-align:center}.mt-profile .mt-row-main{justify-content:center;text-align:center}.mt-profile .mt-metrics{margin-inline:auto;max-width:560px}.mt-range{flex-wrap:wrap;justify-content:center;margin:18px 0 6px}
   .mt-metric-bar{align-items:center;display:flex;flex-direction:column;gap:8px;margin:6px 0 16px;text-align:center}.mt-metric-bar .mt-gate{max-width:560px}[data-metric-panel][hidden]{display:none}
-  .mt-profile>.trust-signals{justify-content:center;margin-top:-5px}.mt-consent-note{color:var(--muted);font-size:11px;margin:9px auto 14px;max-width:620px;text-align:center}
+  .mt-consent-note{color:var(--muted);font-size:11px;margin:9px auto 14px;max-width:620px;text-align:center}
   .mt-panel-head{align-items:center;display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;margin-bottom:14px}.mt-panel-head h2{margin:0}.mt-panel-head span{color:var(--muted);font-size:11px}.mt-panel-title{display:flex;flex-direction:column;gap:2px}
   .mt-gate{color:var(--muted);font-size:12px;line-height:1.6;margin:0}.mt-gate-locked{background:var(--raised);border-radius:10px;padding:12px 14px}
   .mt-stats{display:grid;gap:2px}.mt-stat-row{align-items:center;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto 1fr;gap:12px;padding:9px 0}.mt-stat-row:last-child{border-bottom:0}.mt-stat-row strong{font-size:17px;font-variant-numeric:tabular-nums;font-weight:750;letter-spacing:-.02em}.mt-stat-row strong:last-child{text-align:right}.mt-stat-row span{color:var(--muted);font-size:11px;text-align:center}
@@ -340,9 +342,11 @@ const comparisonStyles = `
   .mt-rank{display:flex;flex-direction:column;font-variant-numeric:tabular-nums;line-height:1.2}.mt-rank b{color:var(--accent-text);font-size:14px}.mt-rank small{color:var(--muted);font-size:10px}.mt-row>.mt-rank:last-child{align-items:flex-end;text-align:right}
   .mt-row-main{align-items:center;display:flex;gap:12px;min-width:0}.mt-row-main strong{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mt-row-main strong a{color:var(--ink);text-decoration:none}.mt-row-main strong a:hover{color:var(--accent-text)}.mt-row-main small{color:var(--muted);display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mt-row-main>div{min-width:0}
   .mt-row-main img,.mt-row-avatar{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;flex:0 0 36px;font-size:13px;font-weight:700;height:36px;object-fit:cover;place-items:center;width:36px}
+  .mt-channel-avatar-link{flex:0 0 36px;text-decoration:none}
   .mt-thumb,.mt-row-main img.mt-thumb{border-radius:6px;flex:0 0 64px;height:36px;width:64px}
   .mt-more summary{color:var(--muted);cursor:pointer;font-size:12px;margin:8px 6px 4px}
   .mt-clocks{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.mt-clocks .yt-rhythm-clock svg{max-width:300px}.mt-clock-empty{align-items:center;color:var(--muted);display:flex;flex-direction:column;font-size:12px;justify-content:center;min-height:200px;text-align:center}.mt-clock-empty span{color:var(--ink-2);font-weight:700}.mt-clock-empty[hidden]{display:none}
+  .mt-week-sub{color:var(--muted);font-size:11px;margin:-8px 0 14px;text-align:center}.mt-week-note{margin:14px auto 0;max-width:620px}
   .mt-week{display:grid;gap:4px}.mt-week-row{align-items:center;display:grid;gap:10px;grid-template-columns:minmax(0,1fr) 80px minmax(0,1fr)}.mt-week-row>span{color:var(--muted);font-size:11px;text-align:center}
   .mt-bar{align-items:center;display:flex;gap:8px;min-width:0;outline:none}.mt-bar i{background:var(--accent);border-radius:999px;display:block;height:10px;min-width:2px;transition:width .2s}.mt-bar b{color:var(--ink-2);flex:0 0 auto;font-size:11px;font-variant-numeric:tabular-nums;font-weight:650}.mt-bar-a{flex-direction:row-reverse}.mt-bar-b i{background:var(--blue)}
   .mt-edges{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.mt-edge{background:var(--raised);border-radius:10px;padding:12px 14px}.mt-edge strong{display:block;font-size:13px;margin:4px 0 2px}.mt-edge small{color:var(--muted);font-size:11px}

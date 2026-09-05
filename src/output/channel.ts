@@ -8,6 +8,24 @@ import { hours, html, primaryNav, shell } from './pages.js';
 export const CHANNEL_PAGE_RANGES = ['28d', '90d', '365d', 'all'] as const satisfies readonly YoutubeRange[];
 export type ChannelPageRange = typeof CHANNEL_PAGE_RANGES[number];
 
+export function channelHeader(channel: YoutubeChannelMetadata, t: Messages, heading: 'h1' | 'h2' = 'h1'): string {
+  const avatar = channel.thumbnailUrl
+    ? `<img class="ch-avatar" src="${html(channel.thumbnailUrl)}" alt="" width="84" height="84">`
+    : `<span class="ch-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
+  const publicStats = channel.statistics;
+  const subscriberValue = publicStats?.hiddenSubscriberCount ? t.channelSubscribersHidden
+    : publicStats?.subscriberCount != null ? `≈ ${count(publicStats.subscriberCount)}` : '—';
+  const publicMetric = (value: number | null | undefined, label: string) => value == null ? '' : `<span><strong>${count(value)}</strong> ${html(label)}</span>`;
+  const tags = (publicStats?.topicCategories ?? []).flatMap((value) => {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || !/(^|\.)wikipedia\.org$/.test(url.hostname) || !url.pathname.startsWith('/wiki/')) return [];
+      return [`<a href="${html(url.href)}" target="_blank" rel="noopener">${html(decodeURIComponent(url.pathname.slice(6)).replaceAll('_', ' '))}</a>`];
+    } catch { return []; }
+  });
+  return `<header class="ch-head">${avatar}<div><${heading}>${html(channel.name)}</${heading}><div class="ch-meta"><span class="ch-subscribers" title="${html(publicStats?.subscriberCount != null ? t.channelSubscriberNote : t.channelStatsUnavailable)}"><strong>${html(subscriberValue)}</strong> ${t.channelSubscribers}</span><a href="https://www.youtube.com/channel/${html(channel.channelId)}" rel="noopener" target="_blank">${t.channelOpenYoutube} ↗</a></div><div class="ch-public">${publicMetric(publicStats?.videoCount, t.channelPublicVideos)}${publicMetric(publicStats?.viewCount, t.channelPublicViews)}${publicStats?.publishedAt ? `<span>${t.channelCreated} <strong>${html(taipeiDate(publicStats.publishedAt, t))}</strong></span>` : ''}${channel.statisticsFetchedAt ? `<span>${html(t.channelUpdated(taipeiDate(channel.statisticsFetchedAt, t)))}</span>` : ''}</div>${tags.length ? `<div class="ch-tags"><span>${t.channelCategories}</span>${tags.join('')}</div>` : ''}</div></header>`;
+}
+
 export function channelPageRange(value: string | undefined): ChannelPageRange {
   return (CHANNEL_PAGE_RANGES as readonly string[]).includes(value ?? '') ? value as ChannelPageRange : '365d';
 }
@@ -169,9 +187,6 @@ export function channelPage(viewer: ChannelPageViewer, data: ChannelPageData, la
   const t = messages(lang);
   const { channel, mine, community, sort } = data;
   const basePath = `/channel/${html(channel.channelId)}`;
-  const avatar = channel.thumbnailUrl
-    ? `<img class="ch-avatar" src="${html(channel.thumbnailUrl)}" alt="" width="84" height="84">`
-    : `<span class="ch-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
   const ranges = `<nav class="yt-range ch-range" aria-label="${html(t.matchesRange)}">${CHANNEL_PAGE_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}&sort=${sort}"${range === data.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
   const sortLinks = `<nav class="yt-range ch-sort" aria-label="${html(t.matchesMetric)}">${(['duration', 'watches'] as const).map((metric) => `<a href="${basePath}?range=${data.range}&sort=${metric}"${metric === sort ? ' aria-current="page"' : ''}>${metric === 'duration' ? t.rhythmTime : t.rhythmWatches}</a>`).join('')}</nav>`;
@@ -214,20 +229,9 @@ export function channelPage(viewer: ChannelPageViewer, data: ChannelPageData, la
       <section class="section"><div class="section-head"><h2>${t.channelCommunityVideos}</h2><span>${html(t.channelCommunityVideosSub)}</span></div>${communityVideos.length ? shelf(communityVideos, t.channelCommunityVideos, t) : `<p class="ch-empty">${t.channelNoMembers}</p>`}</section>
       <section class="section"><div class="section-head"><h2>${t.channelTopViewers}</h2><span>${html(t.channelTopViewersSub(community.memberCount))}</span></div>${memberRows.length ? shelf(memberRows, t.channelTopViewers, t) : `<p class="ch-empty">${t.channelNoMembers}</p>`}</section>`;
   }
-  const publicStats = channel.statistics;
-  const subscriberValue = publicStats?.hiddenSubscriberCount ? t.channelSubscribersHidden
-    : publicStats?.subscriberCount != null ? `≈ ${count(publicStats.subscriberCount)}` : '—';
-  const publicMetric = (value: number | null | undefined, label: string) => value == null ? '' : `<span><strong>${count(value)}</strong> ${html(label)}</span>`;
-  const tags = (publicStats?.topicCategories ?? []).flatMap((value) => {
-    try {
-      const url = new URL(value);
-      if (url.protocol !== 'https:' || !/(^|\.)wikipedia\.org$/.test(url.hostname) || !url.pathname.startsWith('/wiki/')) return [];
-      return [`<a href="${html(url.href)}" target="_blank" rel="noopener">${html(decodeURIComponent(url.pathname.slice(6)).replaceAll('_', ' '))}</a>`];
-    } catch { return []; }
-  });
   const body = `<style>${styles}</style><div class="ch-page ch-detail">
     <a class="ch-back" href="/channel/?range=${data.range}&sort=${sort}">← ${t.channelDirectory}</a>
-    <header class="ch-head">${avatar}<div><h1>${html(channel.name)}</h1><div class="ch-meta"><span class="ch-subscribers" title="${html(publicStats?.subscriberCount != null ? t.channelSubscriberNote : t.channelStatsUnavailable)}"><strong>${html(subscriberValue)}</strong> ${t.channelSubscribers}</span><a href="https://www.youtube.com/channel/${html(channel.channelId)}" rel="noopener" target="_blank">${t.channelOpenYoutube} ↗</a></div><div class="ch-public">${publicMetric(publicStats?.videoCount, t.channelPublicVideos)}${publicMetric(publicStats?.viewCount, t.channelPublicViews)}${publicStats?.publishedAt ? `<span>${t.channelCreated} <strong>${html(taipeiDate(publicStats.publishedAt, t))}</strong></span>` : ''}${channel.statisticsFetchedAt ? `<span>${html(t.channelUpdated(taipeiDate(channel.statisticsFetchedAt, t)))}</span>` : ''}</div>${tags.length ? `<div class="ch-tags"><span>${t.channelCategories}</span>${tags.join('')}</div>` : ''}</div></header>
+    ${channelHeader(channel, t)}
     <div class="ch-toolbar">${ranges}${sortLinks}</div>
     ${communityHtml}
     <div class="ch-personal"><section class="section"><div class="section-head"><h2>${t.channelYourStats}</h2><span>${html(viewer.displayName)}</span></div>${yours}</section>
