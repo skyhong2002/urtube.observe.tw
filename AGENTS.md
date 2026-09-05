@@ -65,3 +65,11 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
   visible friendship requests, public direct Blend, friend Overview/Insights,
   and restricted History/Recap. Keep /matches as the canonical integrated UI.
   This integration does not request restarting backfills or changing API budgets.
+
+# Main branch workflow
+
+- User instruction (2026-09-06): consolidate completed work into `main` and do
+  future development directly on `main`. Do not create feature branches or
+  isolated worktrees for routine work. Preserve unrelated uncommitted changes.
+- Before deployment, verify the integrated `main` includes the existing UI and
+  processing features; verify the running container contents as well as Git HEAD.
