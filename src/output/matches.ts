@@ -240,14 +240,17 @@ function weekdaySection(comparison: WatchComparison, t: Messages): string {
     const pick = (row: WatchComparison['weekdays']['rows'][number], side: 'a' | 'b') =>
       metric === 'watches' ? row.watches[side] : row.seconds[side];
     const max = Math.max(1e-9, ...comparison.weekdays.rows.flatMap((row) => [pick(row, 'a'), pick(row, 'b')]));
-    const label = (value: number) => (share ? percent(value) : metricValue(metric, value, t));
+    const label = (value: number) => (share ? percent(value) : metricValue(metric, Math.round(value * 10) / 10, t));
     const bar = (side: 'a' | 'b', row: WatchComparison['weekdays']['rows'][number]) => {
       const value = pick(row, side);
       return `<div class="mt-bar mt-bar-${side}" data-tip="${html(label(value))}" tabindex="0"><i style="width:${Math.round(value / max * 100)}%"></i><b>${html(label(value))}</b></div>`;
     };
-    return `<div class="mt-week">${comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('')}</div>`;
+    const subtitle = share
+      ? metric === 'seconds' ? t.matchesWeekdaysShareTime : t.matchesWeekdaysShareWatches
+      : metric === 'seconds' ? t.matchesWeekdaysTime : t.matchesWeekdaysWatches;
+    return `<p class="mt-week-sub">${html(subtitle)}</p><div class="mt-week">${comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('')}</div>`;
   };
-  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2><span>${t.matchesWeekdaysSub}</span></div></div>${metricPanels(rowsFor)}${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}</section>`;
+  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2></div></div>${metricPanels(rowsFor)}<p class="mt-gate mt-week-note">${html(share ? t.matchesShareMode : t.matchesWeekdaysAverageNote)}</p></section>`;
 }
 
 function edgeSection(
@@ -343,6 +346,7 @@ const comparisonStyles = `
   .mt-thumb,.mt-row-main img.mt-thumb{border-radius:6px;flex:0 0 64px;height:36px;width:64px}
   .mt-more summary{color:var(--muted);cursor:pointer;font-size:12px;margin:8px 6px 4px}
   .mt-clocks{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.mt-clocks .yt-rhythm-clock svg{max-width:300px}.mt-clock-empty{align-items:center;color:var(--muted);display:flex;flex-direction:column;font-size:12px;justify-content:center;min-height:200px;text-align:center}.mt-clock-empty span{color:var(--ink-2);font-weight:700}.mt-clock-empty[hidden]{display:none}
+  .mt-week-sub{color:var(--muted);font-size:11px;margin:-8px 0 14px;text-align:center}.mt-week-note{margin:14px auto 0;max-width:620px}
   .mt-week{display:grid;gap:4px}.mt-week-row{align-items:center;display:grid;gap:10px;grid-template-columns:minmax(0,1fr) 80px minmax(0,1fr)}.mt-week-row>span{color:var(--muted);font-size:11px;text-align:center}
   .mt-bar{align-items:center;display:flex;gap:8px;min-width:0;outline:none}.mt-bar i{background:var(--accent);border-radius:999px;display:block;height:10px;min-width:2px;transition:width .2s}.mt-bar b{color:var(--ink-2);flex:0 0 auto;font-size:11px;font-variant-numeric:tabular-nums;font-weight:650}.mt-bar-a{flex-direction:row-reverse}.mt-bar-b i{background:var(--blue)}
   .mt-edges{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.mt-edge{background:var(--raised);border-radius:10px;padding:12px 14px}.mt-edge strong{display:block;font-size:13px;margin:4px 0 2px}.mt-edge small{color:var(--muted);font-size:11px}

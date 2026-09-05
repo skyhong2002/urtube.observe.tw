@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { activityFromEntry } from './activity.js';
 import { taipeiDay } from '../youtube/history-sync.js';
+import { weekdayExposure } from '../youtube/weekday-average.js';
 import type { Activity, SourceSnapshot } from './types.js';
 import type {
   YoutubeChannelMetadata,
@@ -2714,6 +2715,8 @@ export class Repository {
       `).get(...params) as { title: string; watched_at: string } | undefined;
       return row ? { title: String(row.title), watchedAt: String(row.watched_at) } : null;
     };
+    const firstWatch = edge('ASC');
+    const lastWatch = edge('DESC');
     return {
       range,
       stats: {
@@ -2747,6 +2750,9 @@ export class Repository {
         watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
+      weekdayDays: cutoff
+        ? weekdayExposure(cutoff, now.toISOString())
+        : weekdayExposure(firstWatch?.watchedAt ?? null, lastWatch?.watchedAt ?? null, true),
       weekdays: weekdays.map((row) => ({
         weekday: Number(row.weekday),
         watches: Number(row.watches),
@@ -2756,8 +2762,8 @@ export class Repository {
         exactWatches: Number(rhythmCoverage.exact_watches ?? 0),
         dateOnlyWatches: Number(rhythmCoverage.date_only_watches ?? 0),
       },
-      firstWatch: edge('ASC'),
-      lastWatch: edge('DESC'),
+      firstWatch,
+      lastWatch,
     };
   }
 
