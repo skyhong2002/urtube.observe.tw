@@ -14,7 +14,7 @@ import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
-import { matchesPage, matchingCandidatePage, type ActionableMatchingCandidateCard } from './output/matches.js';
+import { matchesPage, matchingCandidatePage, friendshipActions, type ActionableMatchingCandidateCard } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
 import { memberProfilePage } from './output/member-profile.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
@@ -377,6 +377,14 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!user.dashboardPublic || showRecent) c.header('X-Robots-Tag', 'noindex');
     // Setup credentials are limited to the owner or a private dashboard key holder.
     const showSetup = viewerOwns || (showRecent && !user.dashboardPublic);
+    let friendshipHtml = '';
+    if (me && !viewerOwns && registry.matchingRelationshipFor(me, user.id).status !== 'none') {
+      const card = blendCard(me, user);
+      if (registry.matchingCandidateByHandle(me, user.handle)) {
+        card.actionToken = registry.issueMatchActionToken(me, user.id, card.disclosure.topics);
+      }
+      friendshipHtml = friendshipActions(card, me.handle, messages(lang), profilePath, false);
+    }
     const suffix: Record<YoutubeDashboardPageKind, string> = {
       overview: '', insights: '/insights', history: '/history', recap: '/recap',
     };
@@ -397,6 +405,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       history,
       showRecent,
       showPrivatePages: showRecent,
+      friendshipHtml,
       blendHref: !viewerOwns && (user.dashboardPublic || mutualFriends(me, user))
         ? `/blend/${user.handle}?range=${range}&lang=${lang}` : undefined,
       dashboardPrivate: !user.dashboardPublic,

@@ -680,6 +680,8 @@ export interface YoutubeDashboardOptions {
   showRecent?: boolean;
   showPrivatePages?: boolean;
   blendHref?: string;
+  // Server-rendered friendship controls, independent of public profile access.
+  friendshipHtml?: string;
   // Local design-review variants for the short-form visualization.
   shortFormVariant?: ShortFormVariant;
   page?: YoutubeDashboardPageKind;
@@ -827,11 +829,13 @@ export function youtubeDashboardPage(
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
-  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}</style><section class="yt-profile">
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}
+    .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin-top:16px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
+  </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
-    <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div></div></section>`;
+    <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div>${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
