@@ -1,7 +1,7 @@
 // /channel/<youtube channel id>: one channel through the signed-in person's
 // history, plus how the matching pool as a whole watches it — the stats.fm
 // artist page, for a YouTube channel.
-import type { YoutubeChannelDetail, YoutubeRange } from '../youtube/types.js';
+import type { YoutubeChannelDetail, YoutubeChannelSummary, YoutubeRange } from '../youtube/types.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { hours, html, primaryNav, shell } from './pages.js';
 
@@ -19,7 +19,7 @@ export function channelPageSort(value: string | undefined): ChannelPageSort {
 
 // Aggregate the complete per-person lists before capping display results.
 function ranked<T extends { watches: number; estimatedWatchSeconds: number }>(rows: T[], sort: ChannelPageSort): T[] {
-  const key = (row: T) => 'videoId' in row ? String(row.videoId) : 'handle' in row ? String(row.handle) : '';
+  const key = (row: T) => 'videoId' in row ? String(row.videoId) : 'handle' in row ? String(row.handle) : 'channelId' in row ? String(row.channelId) : '';
   return [...rows].sort((a, b) =>
     (sort === 'watches' ? b.watches - a.watches : b.estimatedWatchSeconds - a.estimatedWatchSeconds)
     || (sort === 'watches' ? b.estimatedWatchSeconds - a.estimatedWatchSeconds : b.watches - a.watches)
@@ -69,16 +69,18 @@ export interface ChannelPageData {
 const styles = `
   .ch-head{align-items:center;display:flex;gap:18px;margin:14px 0 18px}.ch-avatar{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;flex:0 0 84px;font-size:30px;font-weight:700;height:84px;object-fit:cover;place-items:center;width:84px}.ch-head h1{font-size:clamp(26px,4vw,40px);letter-spacing:-.03em;line-height:1.05;margin:2px 0 6px}.ch-meta{color:var(--muted);font-size:12px}.ch-meta a{color:var(--ink-2)}
   .ch-range{margin:0 0 14px}.ch-head>div{min-width:0}.ch-head code{overflow-wrap:anywhere}.ch-months{overflow-x:auto}
-  .ch-stats{display:grid;gap:14px 22px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}.ch-stats .yt-stat:nth-child(n+6) strong{font-size:15px;white-space:nowrap}
-  .ch-rows{display:grid;gap:2px}.ch-row{align-items:center;border-radius:10px;display:grid;gap:12px;grid-template-columns:28px minmax(0,1fr) 110px;padding:7px 6px}.ch-row:hover{background:var(--raised)}.ch-row.me{background:rgba(208,59,59,.08)}
-  .ch-rank{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
-  .ch-main{align-items:center;display:flex;gap:12px;min-width:0}.ch-main strong{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ch-main strong a{color:var(--ink);text-decoration:none}.ch-main strong a:hover{color:var(--accent-text)}.ch-main small{color:var(--muted);display:block;font-size:11px}.ch-main>div{min-width:0}
-  .ch-main img,.ch-initial{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;flex:0 0 36px;font-size:13px;font-weight:700;height:36px;object-fit:cover;place-items:center;width:36px}.ch-main img.ch-thumb,.ch-thumb{border-radius:6px;flex:0 0 64px;height:36px;object-fit:cover;width:64px}
-  .ch-nums{text-align:right}.ch-nums strong{display:block;font-size:13px;font-variant-numeric:tabular-nums;font-weight:650}.ch-nums span{color:var(--muted);font-size:10px;font-variant-numeric:tabular-nums}
+  .ch-stats{display:flex;gap:24px;overflow-x:auto;padding:4px 2px 14px;scroll-snap-type:x proximity}.ch-stats .yt-stat{flex:0 0 140px;scroll-snap-align:start}.ch-stats .yt-stat:nth-child(n+6) strong{font-size:15px;white-space:nowrap}
+  .ch-controls{display:flex;gap:8px;justify-content:flex-end;margin:-6px 0 10px}.ch-controls button{background:var(--raised);border:1px solid var(--line-strong);border-radius:50%;color:var(--ink);cursor:pointer;font-size:18px;height:32px;width:32px}.ch-controls button:disabled{cursor:default;opacity:.3}
+  .ch-rows{display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;padding:4px 2px 16px;scroll-snap-type:x proximity;scroll-padding-inline:2px;scrollbar-color:var(--line-strong) transparent;scrollbar-width:thin}
+  .ch-row{background:var(--raised);border:1px solid transparent;border-radius:12px;display:flex;flex:0 0 204px;flex-direction:column;gap:10px;min-width:0;padding:12px;scroll-snap-align:start}.ch-row:hover{border-color:var(--line-strong)}.ch-row.me{background:rgba(208,59,59,.08);border-color:rgba(208,59,59,.25)}
+  .ch-rank{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .ch-main{display:flex;flex:1;flex-direction:column;gap:12px;min-width:0}.ch-main strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:14px;font-weight:650;line-height:1.5;overflow:hidden;overflow-wrap:anywhere}.ch-main a{color:var(--ink);text-decoration:none}.ch-main a:hover{color:var(--accent-text)}.ch-main small{color:var(--muted);display:block;font-size:11px;margin-top:4px}.ch-main>div{min-width:0}
+  .ch-main img,.ch-initial{background:var(--surface);border-radius:50%;color:var(--ink-2);display:grid;font-size:32px;font-weight:700;height:128px;margin:0 auto;object-fit:cover;place-items:center;width:128px}.ch-main img.ch-thumb,.ch-thumb{aspect-ratio:16/9;border-radius:8px;display:block;height:auto;margin:0;object-fit:cover;width:100%;background:var(--surface)}
+  .ch-nums{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin-top:auto}.ch-nums strong{font-size:14px;font-variant-numeric:tabular-nums;font-weight:650}.ch-nums span{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+  .ch-search{display:flex;gap:10px;max-width:540px;margin:20px 0}.ch-search input[type=search]{background:var(--surface);border:1px solid var(--line-strong);border-radius:9px;color:var(--ink);flex:1;font:inherit;min-width:0;padding:10px 12px}.ch-search button{background:var(--accent);border:0;border-radius:9px;color:white;font:inherit;padding:10px 16px}.ch-back{display:inline-block;font-size:12px;margin-bottom:10px}.ch-intro{color:var(--muted);font-size:13px}
   .ch-months{align-items:flex-end;display:flex;gap:4px;height:120px;margin-top:6px}.ch-month{background:var(--accent);border-radius:4px 4px 2px 2px;flex:1;min-width:6px;outline:none}.ch-month:hover,.ch-month:focus{background:#e66767}.ch-month-labels{color:var(--muted);display:flex;font-size:10px;justify-content:space-between;margin-top:6px}
   .ch-empty{color:var(--muted);font-size:12px;margin:0}
-  .ch-more summary{color:var(--muted);cursor:pointer;font-size:12px;margin:8px 6px 4px}
-  @media(max-width:560px){.ch-row{grid-template-columns:24px minmax(0,1fr) 84px;gap:8px}}
+  @media(max-width:560px){.ch-row{flex-basis:172px}.ch-stats .yt-stat{flex-basis:132px}.ch-rows{gap:12px}}
 `;
 
 function count(value: number): string {
@@ -93,18 +95,17 @@ function taipeiDate(iso: string | null, t: Messages): string {
   return t.fullDate(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate());
 }
 
-function folded(rows: string[], t: Messages, visible = 8): string {
-  const head = rows.slice(0, visible).join('');
-  const rest = rows.slice(visible);
-  if (!rest.length) return `<div class="ch-rows">${head}</div>`;
-  return `<div class="ch-rows">${head}</div><details class="ch-more"><summary>${html(t.matchesShowMore(rest.length))}</summary><div class="ch-rows">${rest.join('')}</div></details>`;
+function shelf(rows: string[], label: string, t: Messages): string {
+  return `<div class="ch-shelf"><div class="ch-controls"><button type="button" data-ch-scroll="-1" aria-label="${html(t.channelScrollPrevious)}">←</button><button type="button" data-ch-scroll="1" aria-label="${html(t.channelScrollNext)}">→</button></div><div class="ch-rows" role="region" aria-label="${html(label)}" tabindex="0">${rows.join('')}</div></div>`;
 }
+
+const shelfScript = `<script>(()=>{for(const shelf of document.querySelectorAll('.ch-shelf')){const rail=shelf.querySelector('.ch-rows');const buttons=[...shelf.querySelectorAll('[data-ch-scroll]')];const update=()=>{buttons[0].disabled=rail.scrollLeft<=3;buttons[1].disabled=rail.scrollLeft+rail.clientWidth>=rail.scrollWidth-3};for(const button of buttons)button.addEventListener('click',()=>rail.scrollBy({left:Number(button.dataset.chScroll)*rail.clientWidth*.85,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'}));rail.addEventListener('scroll',update,{passive:true});new ResizeObserver(update).observe(rail);update()}})();</script>`;
 
 function videoRow(video: { videoId: string; title: string; thumbnailUrl: string; watches: number; estimatedWatchSeconds: number }, index: number, t: Messages, sort: ChannelPageSort, extra = ''): string {
   const thumb = video.thumbnailUrl
     ? `<img class="ch-thumb" src="${html(video.thumbnailUrl)}" alt="" loading="lazy" width="64" height="36">`
     : '<span class="ch-thumb" aria-hidden="true"></span>';
-  return `<div class="ch-row"><span class="ch-rank">#${index + 1}</span><div class="ch-main">${thumb}<div><strong><a href="https://www.youtube.com/watch?v=${html(video.videoId)}" rel="noopener" target="_blank">${html(video.title)}</a></strong>${extra ? `<small>${extra}</small>` : ''}</div></div><div class="ch-nums"><strong>${sort === 'watches' ? html(t.matchesTimes(video.watches)) : hours(video.estimatedWatchSeconds)}</strong><span>${sort === 'watches' ? hours(video.estimatedWatchSeconds) : html(t.matchesTimes(video.watches))}</span></div></div>`;
+  return `<div class="ch-row"><span class="ch-rank">#${index + 1}</span><div class="ch-main"><a href="https://www.youtube.com/watch?v=${html(video.videoId)}" rel="noopener" target="_blank" tabindex="-1" aria-hidden="true">${thumb}</a><div><strong><a href="https://www.youtube.com/watch?v=${html(video.videoId)}" rel="noopener" target="_blank">${html(video.title)}</a></strong>${extra ? `<small>${extra}</small>` : ''}</div></div><div class="ch-nums"><strong>${sort === 'watches' ? html(t.matchesTimes(video.watches)) : hours(video.estimatedWatchSeconds)}</strong><span>${sort === 'watches' ? hours(video.estimatedWatchSeconds) : html(t.matchesTimes(video.watches))}</span></div></div>`;
 }
 
 function monthlySection(detail: YoutubeChannelDetail, t: Messages, sort: ChannelPageSort): string {
@@ -140,7 +141,7 @@ export function channelPage(viewer: ChannelPageViewer, data: ChannelPageData, la
   const channelRank = sort === 'watches' ? mine.rank.watches : mine.rank.time;
   const stat = (value: string, label: string) => `<div class="yt-stat"><strong>${value}</strong><span>${html(label)}</span></div>`;
   const yours = mine.stats.watches
-    ? `<div class="ch-stats">
+    ? `<div class="ch-stats" role="region" aria-label="${html(t.channelYourStats)}" tabindex="0">
         ${stat(count(mine.stats.watches), t.channelStatWatches)}
         ${stat(hours(mine.stats.estimatedWatchSeconds), t.channelStatHours)}
         ${stat(count(mine.stats.uniqueVideos), t.channelStatVideos)}
@@ -151,7 +152,7 @@ export function channelPage(viewer: ChannelPageViewer, data: ChannelPageData, la
       </div>`
     : `<p class="ch-empty">${t.channelNothingYet}</p>`;
   const myVideos = mine.videos.length
-    ? folded(ranked(mine.videos, sort).slice(0, 50).map((video, index) => videoRow(video, index, t, sort)), t)
+    ? shelf(ranked(mine.videos, sort).slice(0, 50).map((video, index) => videoRow(video, index, t, sort)), t.channelYourVideos, t)
     : `<p class="ch-empty">${t.channelNothingYet}</p>`;
   let communityHtml: string;
   if (!community) {
@@ -171,18 +172,64 @@ export function channelPage(viewer: ChannelPageViewer, data: ChannelPageData, la
     });
     const communityVideos = ranked(community.videos, sort).slice(0, 50).map((video, index) =>
       videoRow(video, index, t, sort, html(t.channelViewers(video.viewers))));
-    communityHtml = `<section class="section"><div class="section-head"><div><h2>${t.channelTopViewers}</h2></div><span>${html(t.channelTopViewersSub(community.memberCount))}</span></div>${memberRows.length ? folded(memberRows, t, 10) : `<p class="ch-empty">${t.channelNoMembers}</p>`}</section>
-      <section class="section"><div class="section-head"><h2>${t.channelCommunityVideos}</h2><span>${html(t.channelCommunityVideosSub)}</span></div>${communityVideos.length ? folded(communityVideos, t) : `<p class="ch-empty">${t.channelNoMembers}</p>`}</section>`;
+    communityHtml = `<section class="section"><div class="section-head"><div><h2>${t.channelTopViewers}</h2></div><span>${html(t.channelTopViewersSub(community.memberCount))}</span></div>${memberRows.length ? shelf(memberRows, t.channelTopViewers, t) : `<p class="ch-empty">${t.channelNoMembers}</p>`}</section>
+      <section class="section"><div class="section-head"><h2>${t.channelCommunityVideos}</h2><span>${html(t.channelCommunityVideosSub)}</span></div>${communityVideos.length ? shelf(communityVideos, t.channelCommunityVideos, t) : `<p class="ch-empty">${t.channelNoMembers}</p>`}</section>`;
   }
   const body = `<style>${styles}</style>
+    <a class="ch-back" href="/channel/?range=${data.range}&sort=${sort}">← ${t.channelDirectory}</a>
     <section class="ch-head">${avatar}<div><div class="eyebrow">${t.channelEyebrow}</div><h1>${html(channel.name)}</h1><div class="ch-meta"><a href="https://www.youtube.com/channel/${html(channel.channelId)}" rel="noopener" target="_blank">${t.channelOpenYoutube}</a> · <code>${html(channel.channelId)}</code></div></div></section>
     ${ranges}${sortLinks}
     <section class="section"><div class="section-head"><h2>${t.channelYourStats}</h2><span>${html(viewer.displayName)}</span></div>${yours}</section>
     ${communityHtml}
     <section class="section"><div class="section-head"><h2>${t.channelYourVideos}</h2></div>${myVideos}</section>
-    ${monthlySection(mine, t, sort)}`;
+    ${monthlySection(mine, t, sort)}${shelfScript}`;
   return shell(`${channel.name} · ${t.channelEyebrow}`, body, primaryNav(lang, {
-    dashboardHref: `/${viewer.handle}`,
+    active: 'channels', dashboardHref: `/${viewer.handle}`,
     languageHref: `${basePath}?range=${data.range}&sort=${sort}&lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  }), '', lang);
+}
+
+export interface ChannelDirectoryData {
+  range: ChannelPageRange;
+  sort: ChannelPageSort;
+  query: string;
+  mine: YoutubeChannelSummary[];
+  community: Array<YoutubeChannelSummary & { viewers: number }> | null;
+}
+
+export function channelDirectoryPage(viewer: ChannelPageViewer, data: ChannelDirectoryData, lang: Lang = 'en'): string {
+  const t = messages(lang);
+  const url = (range: ChannelPageRange, sort: ChannelPageSort, language = lang) =>
+    `/channel/?${new URLSearchParams({ range, sort, q: data.query, lang: language })}`;
+  const controls = `<nav class="yt-range" aria-label="${html(t.matchesRange)}">${CHANNEL_PAGE_RANGES.map((range) =>
+    `<a href="${html(url(range, data.sort))}"${range === data.range ? ' aria-current="page"' : ''}>${html(t.ranges[range])}</a>`).join('')}</nav>
+    <nav class="yt-range" aria-label="${html(t.matchesMetric)}">${(['duration', 'watches'] as const).map((sort) =>
+      `<a href="${html(url(data.range, sort))}"${sort === data.sort ? ' aria-current="page"' : ''}>${sort === 'duration' ? t.rhythmTime : t.rhythmWatches}</a>`).join('')}</nav>`;
+  const section = (label: string, channels: YoutubeChannelSummary[]) => {
+    const query = data.query.toLocaleLowerCase();
+    const rows = ranked(channels, data.sort)
+      .filter((channel) => YOUTUBE_CHANNEL_ID_PATTERN.test(channel.channelId ?? ''))
+      .filter((channel) => !query || `${channel.name} ${channel.channelId}`.toLocaleLowerCase().includes(query))
+      .slice(0, 100)
+      .map((channel, index) => {
+        const name = channel.name || channel.channelId!;
+        const href = `/channel/${channel.channelId}?range=${data.range}&sort=${data.sort}`;
+        const avatar = channel.thumbnailUrl
+          ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="128" height="128">`
+          : `<span class="ch-initial" aria-hidden="true">${html([...name][0] ?? '?')}</span>`;
+        const viewers = 'viewers' in channel ? `<small>${html(t.channelViewers(Number(channel.viewers)))}</small>` : '';
+        return `<article class="ch-row"><span class="ch-rank">#${index + 1}</span><div class="ch-main"><a href="${html(href)}" tabindex="-1" aria-hidden="true">${avatar}</a><div><strong><a href="${html(href)}">${html(name)}</a></strong>${viewers}</div></div><div class="ch-nums"><strong>${data.sort === 'duration' ? hours(channel.estimatedWatchSeconds) : html(t.matchesTimes(channel.watches))}</strong><span>${data.sort === 'duration' ? html(t.matchesTimes(channel.watches)) : hours(channel.estimatedWatchSeconds)}</span></div></article>`;
+      });
+    return `<section class="section"><div class="section-head"><h2>${html(label)}</h2></div>${rows.length ? shelf(rows, label, t) : `<p class="ch-empty">${t.channelDirectoryEmpty}</p>`}</section>`;
+  };
+  const community = data.community === null
+    ? `<section class="section"><div class="section-head"><h2>${t.channelPopular}</h2></div><p class="ch-empty">${t.channelJoinForCommunity} <a href="/account">${t.accountMatchingSave}</a></p></section>`
+    : section(t.channelPopular, data.community);
+  const body = `<style>${styles}</style><div class="eyebrow">urtube</div><h1>${t.channelDirectory}</h1><p class="ch-intro">${t.channelDirectoryIntro}</p>
+    <form class="ch-search" action="/channel/" method="get"><input type="hidden" name="range" value="${data.range}"><input type="hidden" name="sort" value="${data.sort}"><input type="hidden" name="lang" value="${lang}"><input type="search" name="q" value="${html(data.query)}" maxlength="100" placeholder="${html(t.channelSearch)}" aria-label="${html(t.channelSearch)}"><button type="submit">${t.channelSearchButton}</button></form>
+    ${controls}${section(t.channelYourChannels, data.mine)}${community}${shelfScript}`;
+  return shell(t.channelDirectory, body, primaryNav(lang, {
+    active: 'channels', dashboardHref: `/${viewer.handle}`,
+    languageHref: url(data.range, data.sort, lang === 'zh' ? 'en' : 'zh'),
   }), '', lang);
 }

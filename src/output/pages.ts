@@ -143,7 +143,7 @@ export interface ShellNavItem {
   active?: boolean;
 }
 
-export type PrimaryNavActive = 'signup' | 'example' | 'dashboard' | 'matches' | 'account';
+export type PrimaryNavActive = 'signup' | 'example' | 'dashboard' | 'channels' | 'matches' | 'account';
 
 export interface PrimaryNavOptions {
   active?: PrimaryNavActive;
@@ -165,6 +165,7 @@ export function primaryNav(lang: Lang, options: PrimaryNavOptions = {}): ShellNa
   if (options.dashboardHref) {
     return [
       { label: t.navDashboard, href: options.dashboardHref, active: options.active === 'dashboard' },
+      { label: t.channelDirectory, href: '/channel/', active: options.active === 'channels' },
       { label: t.navMatches, href: '/matches', active: options.active === 'matches' },
       { label: t.navAccount, href: '/account', active: options.active === 'account' },
       language,

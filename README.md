@@ -167,6 +167,13 @@ day and weekday rhythm as their own share (no counts). Members see each
 other's handles in these addresses; it never exposes emails, crystals,
 histories, raw shares, full vectors, introductions, contacts, or candidate
 dashboards (a dashboard keeps its own visibility setting).
+The signed-in `/channel/` directory has searchable personal and community
+channel rankings, with time ranges and watch-time/watch-count sorting. Its
+community totals include only current matching members. `/channel` redirects
+to this directory while preserving the query. The primary navigation and each
+channel detail page link back to it.
+Channel, video, viewer, and personal-stat cards run in single horizontal rows;
+card rows support arrow buttons, touch scrolling, and keyboard navigation.
 Every channel with a YouTube channel id has a page at `/channel/<id>`
 (session only, never indexed): the signed-in person's own watches, hours,
 share, rank, first and last watch, top videos, and a monthly series for that
