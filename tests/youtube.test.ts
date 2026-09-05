@@ -386,7 +386,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(overviewPage, /data-youtube-sort="watches"/);
     assert.match(overviewPage, /data-youtube-sort-list="channels"/);
     assert.match(overviewPage, /history\.pushState/);
-    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos,\.yt-recent\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
     assert.doesNotMatch(overviewPage, /data-rhythm-panel=/);
     const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: true,
