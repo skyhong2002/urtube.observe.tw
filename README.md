@@ -4,7 +4,7 @@
 
 urtube 是以 **behavioral matching** 為核心的 **data-driven 交友網站**，透過使用者授權的真實行為資料，協助人們找到長期具有共同興趣與喜好的朋友。目前從 YouTube 觀看紀錄出發，分析持續關注的主題、創作者與偏好變化，將這些線索轉化為同好探索與交流的起點。
 
-[![urtube 專案展示圖](og.png)](https://urtube.observe.tw)
+[![urtube — 讓真實的喜好，成為相遇的起點。](og.png)](https://urtube.observe.tw)
 
 ## 問題與目標
 
