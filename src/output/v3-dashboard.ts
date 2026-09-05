@@ -20,6 +20,7 @@ export function v3DashboardSection(profile: Profile | null, options: {
   const provisional = current && (options.provisional || !current.complete || visible.some(genre => !current.genres[genre] || current.genres[genre]?.status === 'insufficient'));
   const state = (genre: Genre) => {
     const item = current?.genres[genre];
+    if (item?.clusters.length) return zh ? `已建立 ${item.clusters.length} 個興趣群` : `${item.clusters.length} interest clusters`;
     return item?.status === 'ready' ? (zh ? '已建立' : 'Ready')
       : item?.status === 'empty' ? (zh ? '沒有相關影片' : 'No related videos')
         : item?.status === 'insufficient' ? (zh ? '資料不足' : 'Limited data')
@@ -34,7 +35,7 @@ export function v3DashboardSection(profile: Profile | null, options: {
     <p class="yt-v3-scope">${html(scope)}</p>
     ${current ? `<div class="yt-v3-grid">${visible.map(genre => {
       const item = current.genres[genre];
-      return `<div class="yt-v3-genre"><strong>${html(zh ? names[genre] : genre)}</strong><span>${html(state(genre))}</span>${item ? `<span>${Number(item.videoCount).toLocaleString('en')} ${zh ? '部影片' : 'videos'}</span>` : ''}</div>`;
+      return `<div class="yt-v3-genre"><strong>${html(zh ? names[genre] : genre)}</strong><span>${html(state(genre))}</span>${item?.clusters.length && (item.status === 'insufficient' || !current.complete || options.provisional) ? `<span>${zh ? '暫定分析' : 'Provisional analysis'}</span>` : ''}${item?.clusters.length && item.retainedCoverage < 0.5 ? `<span>${zh ? '核心興趣涵蓋較少，尚不能代表整體' : 'Core interests cover a limited portion of this category'}</span>` : ''}${item ? `<span>${Number(item.videoCount).toLocaleString('en')} ${zh ? '部影片' : 'videos'}</span>` : ''}</div>`;
     }).join('')}</div>` : `<p class="muted">${empty}</p>`}
   </section>`;
 }
