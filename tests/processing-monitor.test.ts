@@ -71,7 +71,7 @@ test('personal monitor displays failed job details and category gaps without cla
   assert.equal(descendants(f.content).filter(el => el.tag === 'img').length, 0, 'errors stay literal text');
   assert.match(f.content.textContent, /<img src=x onerror=bad\(\)>/);
   assert.equal(f.snapshot.hidden, true);
-  assert.equal(f.requests[0].url, '/api/matching-v3');
+  assert.equal(f.requests[0].url, '/api/processing');
   assert.equal(f.requests[0].options.cache, 'no-store');
   assert.equal([...f.timers.values()][0].delay, 30000);
   f.page.abort(); assert.equal(f.timers.size, 0);
@@ -117,4 +117,25 @@ test('simple mode avoids initial polling and toggling back on immediately refres
   f.windowEvents['urtube:processing-visibility'](); await f.tick();
   assert.equal(f.timers.size, 0);
   await f.button.events.click(); assert.equal(f.requests.length, 1);
+});
+
+
+test('all pipeline bars stay visible for completed, disabled, waiting and running work with honest ETAs', async () => {
+  const pipeline = [
+    { id: 'metadata', state: 'done', done: 24, total: 24, detail: 'video-metadata', estimatedMinutes: 0 },
+    { id: 'topics', state: 'running', done: 12, total: 24, detail: 'topic-classification', estimatedMinutes: 2 },
+    { id: 'keywords', state: 'done', done: 24, total: 24, detail: 'keyword-source', estimatedMinutes: 0 },
+    { id: 'v3', state: 'disabled', done: null, total: null, detail: 'v3-classification', estimatedMinutes: null },
+    { id: 'embedding', state: 'waiting', done: null, total: null, detail: 'embedding-batch', estimatedMinutes: null },
+    { id: 'channels', state: 'running', done: null, total: null, detail: 'channel-count-unavailable', estimatedMinutes: null },
+  ];
+  const f = fixture({ ...data, job: null, pipeline }); await f.tick();
+  const stages = descendants(f.content).filter(el => el.dataset.pipelineStage);
+  assert.equal(stages.length, 6);
+  assert.ok(stages.every(el => descendants(el).some(child => child.tag === 'progress')));
+  assert.match(f.content.textContent, /主題動態分類|常見關鍵字來源/);
+  assert.match(f.content.textContent, /估計約 2 分鐘/);
+  assert.match(f.content.textContent, /沒有獨立的 AI 排程/);
+  assert.match(f.content.textContent, /剩餘時間：0 分鐘/);
+  assert.match(f.content.textContent, /不以來源影片數冒充頻道完成率/);
 });

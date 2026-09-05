@@ -44,6 +44,7 @@ export interface User {
   bio: string;
   socialLinks: ProfileInput['socialLinks'];
   storageName: string;
+  autoActivateInitialTopics: boolean;
   dashboardPublic: boolean;
   referenceOptIn: boolean;
   matchingOptIn: boolean;
@@ -195,6 +196,7 @@ function rowToUser(row: Record<string, unknown>): User {
     bio: String(row.bio ?? ''),
     socialLinks: JSON.parse(String(row.social_links ?? '[]')),
     storageName: String(row.storage_name ?? row.handle),
+    autoActivateInitialTopics: Number(row.auto_activate_initial_topics) === 1,
     dashboardPublic: Number(row.dashboard_public) === 1,
     referenceOptIn: Number(row.reference_opt_in) === 1,
     matchingOptIn: Number(row.matching_opt_in) === 1,
@@ -267,7 +269,7 @@ export class UserRegistry {
       this.db.exec('ALTER TABLE users ADD COLUMN key_seed TEXT');
     }
     this.db.exec('UPDATE users SET key_seed=handle WHERE key_seed IS NULL');
-    for (const [name, definition] of [['bio', "TEXT NOT NULL DEFAULT ''"], ['social_links', "TEXT NOT NULL DEFAULT '[]'"], ['storage_name', 'TEXT']]) {
+    for (const [name, definition] of [['bio', "TEXT NOT NULL DEFAULT ''"], ['social_links', "TEXT NOT NULL DEFAULT '[]'"], ['storage_name', 'TEXT'], ['auto_activate_initial_topics', 'INTEGER NOT NULL DEFAULT 0']]) {
       if (!columns.some(column => column.name === name)) this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
     }
     // Freeze existing filenames; handle edits now only update the registry.
@@ -439,8 +441,8 @@ export class UserRegistry {
         INSERT INTO users (
           handle, display_name, capture_token_hash, dashboard_token_hash,
           dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url,
-          matching_opt_in, matching_disclosure, matching_rhythm
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          matching_opt_in, matching_disclosure, matching_rhythm, auto_activate_initial_topics
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `).run(
         handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
         options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,

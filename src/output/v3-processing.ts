@@ -10,6 +10,7 @@ export const v3ProcessingStyles = `
 .yt-v3-processing p{color:var(--ink-2);font-size:13px;line-height:1.55;margin:8px 0 0}
 .yt-v3-processing progress{accent-color:#e7ae35;display:block;height:6px;margin-top:8px;width:100%}
 .yt-monitor-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px}.yt-monitor-controls button{background:var(--raised);border:1px solid var(--line-strong);border-radius:6px;color:var(--ink);cursor:pointer;font:inherit;padding:8px 12px;min-height:44px}.yt-monitor-controls span{color:var(--muted);font-size:12px}.yt-monitor-genres{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,2fr);gap:6px 14px;font-size:13px}.yt-monitor-genres dd{margin:0;color:var(--ink-2)}.yt-monitor-error{overflow-wrap:anywhere}.yt-processing-monitor details{margin-top:12px}.yt-processing-monitor summary{cursor:pointer;font-size:13px}
+[data-processing-live] [data-v3-static]{display:none}.yt-pipeline-stage{border-top:1px solid var(--line);padding:12px 0}.yt-pipeline-stage h3{font-size:14px;margin:0}.yt-pipeline-stage p{font-size:12px}.yt-pipeline-stage progress{height:9px}
 .yt-v3-processing a{color:var(--ink);font-weight:600}
 `;
 
@@ -23,7 +24,7 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
   if (!status) return '';
   const metadataPending = status.metadata.enabled
     && status.metadata.videosPendingMetadata + status.metadata.channelsPendingMetadata > 0;
-  if (!options.alwaysShow && !(options.ownerDetails && status.state !== 'disabled') && !metadataPending && ['done', 'disabled'].includes(status.state)) return '';
+  if (!options.alwaysShow && !options.ownerDetails && !metadataPending && ['done', 'disabled'].includes(status.state)) return '';
   const zh = lang === 'zh';
   const number = (value: number) => new Intl.NumberFormat(zh ? 'zh-TW' : 'en').format(value);
   const label = 'v3 ' + {
@@ -86,5 +87,5 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
   const meter = options.ownerDetails && status.state === 'running' && p && p.phase !== 'channels' && p.total > 0
     ? `<progress aria-label="${zh ? '目前分析階段' : 'Current analysis phase'}" max="${p.total}" value="${Math.max(0, Math.min(p.total, p.processed))}"></progress>` : '';
   const link = options.ownerDetails && options.dashboardHref ? `<p><a href="${html(options.dashboardHref)}">${zh ? '查看分析' : 'View analysis'}</a></p>` : '';
-  return `<aside class="yt-v3-processing" role="status" aria-live="polite" data-v3-processing="${status.state}"><header><strong>${zh ? '資料處理狀態' : 'Data processing status'}</strong><span data-v3-state-label>${label}</span></header>${details.slice(0, fixedDetails).map(text => `<p>${text}</p>`).join('')}<div data-v3-snapshot>${details.slice(fixedDetails).map(text => `<p>${text}</p>`).join('')}${meter}</div>${options.ownerDetails && status.state !== 'disabled' ? processingMonitor(lang) : ''}${link}</aside>`;
+  return `<aside class="yt-v3-processing" role="status" aria-live="polite" data-v3-processing="${status.state}"><header><strong>${zh ? '資料處理狀態' : 'Data processing status'}</strong><span data-v3-state-label>${label}</span></header>${details.slice(0, fixedDetails).map(text => `<p data-v3-static>${text}</p>`).join('')}<div data-v3-snapshot>${details.slice(fixedDetails).map(text => `<p>${text}</p>`).join('')}${meter}</div>${options.ownerDetails ? processingMonitor(lang) : ''}${link}</aside>`;
 }

@@ -166,8 +166,8 @@ export async function ensureYoutubeTaxonomyWithClient(
   return repository.youtubeTopics(run.taxonomyVersion);
 }
 
-export async function classifyYoutubeVideos(repository: Repository, limit = 250): Promise<number> {
-  return classifyYoutubeVideosWithClient(repository, limit, defaultClient());
+export async function classifyYoutubeVideos(repository: Repository, limit = 250, autoActivateFirst = false): Promise<number> {
+  return classifyYoutubeVideosWithClient(repository, limit, defaultClient(), autoActivateFirst);
 }
 
 function workRun(repository: Repository, client: YoutubeAiClient): PersonalTaxonomyRun | null {
@@ -183,9 +183,11 @@ export async function classifyYoutubeVideosWithClient(
   repository: Repository,
   limit: number,
   client: YoutubeAiClient,
+  autoActivateFirst = false,
 ): Promise<number> {
   if (!configured(client)) return 0;
   await ensureYoutubeTaxonomyWithClient(repository, false, client);
+  if (autoActivateFirst) activateInitialTopicsIfReady(repository);
   const run = workRun(repository, client);
   if (!run) return 0;
   const topics = repository.youtubeTopics(run.taxonomyVersion);
@@ -296,10 +298,23 @@ export async function classifyYoutubeVideosWithClient(
     }
   }));
   repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion);
+  if (autoActivateFirst) activateInitialTopicsIfReady(repository);
   if (failedBatches && !classified) throw firstFailure;
   return classified;
 }
 
 function errorText(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 300);
+}
+
+
+// Only callers for newly created accounts enable this. Never replace an
+// active/retired version or bypass quality checks, including after a restart.
+export function activateInitialTopicsIfReady(repository: Repository): boolean {
+  const runs = repository.youtubeTaxonomyRuns();
+  if (runs.length !== 1) return false;
+  const run = runs[0];
+  if (run.definitionVersion !== PERSONAL_TAXONOMY_DEFINITION_VERSION || run.status !== 'ready') return false;
+  repository.activatePersonalTaxonomy(run.taxonomyVersion);
+  return true;
 }

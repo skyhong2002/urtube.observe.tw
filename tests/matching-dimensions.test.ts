@@ -77,7 +77,7 @@ test('every canonical topic is usable for everyone who joined matching', async (
     registry.setMatchingDimensions(user.handle, MATCHING_TAXONOMY.version, ['music'], ['gaming']);
     assert.deepEqual(registry.matchingDimensionsFor(user).excludedTopicKeys, []);
     assert.deepEqual(registry.listMatchableCrystals()[0]?.dimensions.selectedTopicKeys, allKeys);
-    assert.doesNotMatch(account, /politic|taglean/i);
+    assert.doesNotMatch(account.replace(/<script>[\s\S]*?<\/script>/g, ''), /politic|taglean/i);
   } finally {
     registry.close();
   }

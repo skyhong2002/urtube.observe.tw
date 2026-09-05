@@ -54,6 +54,7 @@ import {
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
 import { v3ProcessingNotice } from './output/v3-processing.js';
 import { describeV3Processing } from './youtube/v3-processing.js';
+import { describePipeline, estimatePipeline } from './youtube/pipeline-progress.js';
 import { v3DashboardSection } from './output/v3-dashboard.js';
 import {
   describeYoutubeProcessing,
@@ -229,6 +230,35 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       profile, job: store?.processingStatus(user.id) ?? null,
     }) };
   };
+  // Session-only progress, independent of matching consent or whether v3 is enabled.
+  app.get('/api/processing', (c) => {
+    c.header('Cache-Control', 'private, no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    const me = sessionUser(c);
+    if (!me) return c.json({ error: 'login_required' }, 401);
+    const repository = registry.repositoryFor(me);
+    const now = Date.now();
+    const summary = cachedRead(repository, 'pipeline-progress', () => ({
+      metadata: repository.youtubeMetadataProcessingCounts(),
+      topics: repository.youtubeTopicProcessingProgress(),
+    }), 10000);
+    const store = v3.enabled ? registry.matchingV3Store() : null;
+    const job = store?.status(me.id) ?? null;
+    const profile = store?.profile(me.id) ?? null;
+    const pipeline = estimatePipeline(repository, describePipeline({ ...summary,
+      capabilities: youtubeProcessingCapabilities(), worker: readOpsStatus<WorkerOpsStatus>('worker'),
+      workerStage: repository.youtubeSyncState('worker_stage'), v3Enabled: v3.enabled,
+      job, profile, profileVersion: matchingV3Version(v3), now,
+    }), now);
+    return c.json({ pipeline, sampledAt: now, genres: GENRES, job,
+      profile: profile ? { builtAt: profile.builtAt, complete: profile.complete,
+        totalVideos: profile.totalVideos, processedVideos: profile.processedVideos,
+        currentVersion: profile.version === matchingV3Version(v3),
+        genres: Object.fromEntries(Object.entries(profile.genres).map(([genre, value]) =>
+          [genre, { status: value.status, videoCount: value.videoCount }])) } : null,
+    });
+  });
+
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
     ...state,
@@ -452,7 +482,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       setupHtml: showSetup ? dashboardSetupSection(user, hasData, lang) : '',
       // Every visitor, not just the owner: a public reader deserves to know
       // the figures are still settling.
-      processingHtml: hasData ? v3ProcessingNotice(visibleProcessing, lang, { ownerDetails: viewerOwns }) : '',
+      processingHtml: hasData || viewerOwns ? v3ProcessingNotice(visibleProcessing, lang, { ownerDetails: viewerOwns }) : '',
       statsProvisional: v3Data.processing.metadata.enabled && v3Data.processing.metadata.videosPendingMetadata > 0,
       insightsHtml: crystalHtml + leaningsHtml,
       v3Html: v3DashboardSection(v3Data.profile, {
