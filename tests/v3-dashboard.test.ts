@@ -92,7 +92,7 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     assert.equal((await f.app.request('/account')).status, 302);
     assert.equal(f.store.processingStatus(f.user.id)?.state, 'running');
     const dashboard = load(await (await f.app.request('/v3-dashboard?lang=zh', { headers: f.headers })).text());
-    assert.equal(dashboard('[data-v3-interests] .section-head span').text(), '暫定結果', 'previous ready profile remains provisional during a rebuild');
+    assert.equal(dashboard('[data-v3-interests] .section-head span').length, 0, 'interest section does not display processing status');
   } finally { f.registry.close(); }
 });
 

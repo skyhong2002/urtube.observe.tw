@@ -744,3 +744,28 @@ test('v3 cache monitoring can use the compact statistics index', () => {
    assert.match(result.reasons[0].text,/20.0%/);
    assert.doesNotMatch(result.reasons[0].text,/100.0%/);
  });
+
+test('admin password gate protects page, script and API without bypassing session, allowlist or origin', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const admin=registry.createUser('password-admin','Admin'), viewer=registry.createUser('password-viewer','Viewer');
+    const config={...s,adminHandles:[admin.storageName],adminUsername:'demo-admin',adminPassword:'test-password-with-sufficient-length'};
+    const app=matchingRoutes(registry,config,'http://localhost:3000',compute);
+    const headers={Cookie:`urtube_session=${registry.createSession(admin)}`,Origin:'http://localhost:3000'};
+    const Authorization='Basic '+Buffer.from(`${config.adminUsername}:${config.adminPassword}`).toString('base64');
+    for (const path of ['/matching-v3/admin','/matching-v3/admin.js','/api/matching-v3/admin']) {
+      const denied=await app.request(path,{headers});
+      assert.equal(denied.status,401);
+      assert.match(denied.headers.get('www-authenticate')??'',/Basic realm="urtube-admin"/);
+      assert.equal((await app.request(path,{headers:{...headers,Authorization:'Basic invalid'}})).status,401);
+      assert.equal((await app.request(path,{headers:{...headers,Authorization}})).status,200);
+      assert.equal((await app.request(path,{headers:{Authorization}})).status,401);
+      assert.equal((await app.request(path,{headers:{Authorization,Cookie:`urtube_session=${registry.createSession(viewer)}`}})).status,403);
+    }
+    const path=`/api/matching-v3/admin/retry/${viewer.id}`;
+    assert.equal((await app.request(path,{method:'POST',headers})).status,401);
+    assert.equal((await app.request(path,{method:'POST',headers:{...headers,Authorization,Origin:'https://evil.example'}})).status,403);
+    config.adminPassword='';
+    assert.equal((await app.request('/matching-v3/admin',{headers:{...headers,Authorization}})).status,503);
+  } finally {registry.close();}
+});
