@@ -37,6 +37,7 @@ export function settings(env = process.env) {
     similarityFloor: number('MATCHING_V3_SIMILARITY_FLOOR', 0.7, 0, 0.999),
     computeUrl: env.MATCHING_V3_COMPUTE_URL ?? 'http://matching-compute:8090',
     computeToken: env.MATCHING_V3_COMPUTE_TOKEN ?? '',
+    backfillVideoLimit: (() => { const n = number('MATCHING_V3_BACKFILL_VIDEO_LIMIT', 2000, 1, 1000000); if (!Number.isInteger(n)) throw new Error('Invalid MATCHING_V3_BACKFILL_VIDEO_LIMIT'); return n; })(),
     concurrency: Math.trunc(number('MATCHING_V3_CONCURRENCY', 4, 1, 10000)),
     callsPerCycle: number('MATCHING_V3_CALLS_PER_CYCLE', 20, 0, 100000),
     dailyApiCalls: Math.trunc(number('MATCHING_V3_DAILY_API_CALLS', 200, 0, 100000)),
@@ -45,7 +46,7 @@ export function settings(env = process.env) {
 }
 export function version(s: Settings) {
   return digest(['matching-v3.3-gpt-gemini', 'classification-3-openai-text-only', s.classificationCacheNamespace, s.classificationModel,
-    s.embeddingBaseUrl, s.embeddingModel, s.dimensions, s.task, s.eps, s.minSamples, s.minShare, s.similarityFloor]);
+    s.backfillVideoLimit, s.embeddingBaseUrl, s.embeddingModel, s.dimensions, s.task, s.eps, s.minSamples, s.minShare, s.similarityFloor]);
 }
 export interface VideoInput { id: string; title: string; tags: string[]; channelId: string | null; channelTitle: string | null }
 export interface SourceSnapshot { videos: VideoInput[]; complete: boolean; fingerprint: string }
