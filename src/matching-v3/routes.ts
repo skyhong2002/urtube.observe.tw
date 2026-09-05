@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { bodyLimit } from 'hono/body-limit';
@@ -40,6 +41,18 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
   const isAdmin = (user: User) => s.adminHandles.includes(user.storageName);
   const adminOnly: MiddlewareHandler<{ Variables: { user: User } }> = async (c, next) => {
     if (!isAdmin(c.get('user'))) return c.json({ error: 'admin_required' }, 403);
+    // Additional password gate for the existing session + administrator allowlist.
+    // Partial configuration fails closed instead of silently disabling the gate.
+    if (s.adminUsername || s.adminPassword) {
+      if (!s.adminUsername || !s.adminPassword) return c.json({ error: 'admin_credentials_not_configured' }, 503);
+      const authorization = c.req.header('Authorization') ?? '';
+      const expected = 'Basic ' + Buffer.from(`${s.adminUsername}:${s.adminPassword}`).toString('base64');
+      const digest = (value: string) => createHash('sha256').update(value).digest();
+      if (!timingSafeEqual(digest(authorization), digest(expected))) {
+        c.header('WWW-Authenticate', 'Basic realm="urtube-admin", charset="UTF-8"');
+        return c.json({ error: 'admin_credentials_required' }, 401);
+      }
+    }
     await next();
   };
   for (const path of ['/matching-v3/admin', '/matching-v3/admin.js', '/api/matching-v3/admin', '/api/matching-v3/admin/*']) app.use(path, adminOnly);

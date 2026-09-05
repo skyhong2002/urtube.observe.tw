@@ -12,6 +12,7 @@ export const processingMonitorScript = String.raw`
   const connection = root.querySelector('[data-monitor-connection]');
   const button = root.querySelector('button');
   const controller = window.urtubePageController || new AbortController();
+  let detailsOpen = false;
   let timer, busy = false, stopped = false, retry = 30000;
   const visible = () => document.documentElement?.dataset.processingVisibility !== 'hidden';
   const node = (tag, text) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; return el; };
@@ -20,13 +21,13 @@ export const processingMonitorScript = String.raw`
     failed: t('處理失敗，目前未在執行', 'Failed; not currently running'),
     done: t('工作已完成', 'Job completed'), missing: t('尚未排程', 'Not scheduled'),
   };
-  const genres = { Politic: '政治', Music: '音樂', Sport: '運動', Education: '教育',
-    'Video gaming': '電玩', Streaming: '直播', News: '新聞', Podcast: 'Podcast', 'channel type': '頻道類型' };
   function render(data) {
     const job = data.job, profile = data.profile, progress = job?.progress;
     const state = job?.state || 'missing';
     const label = states[state] || t('狀態未知', 'Unknown state');
-    const fragment = document.createDocumentFragment();
+    const output = document.createDocumentFragment();
+    let fragment = output;
+    const explanations = [];
     if (data.pipeline) {
       const names = { metadata: t('影片資料', 'Video metadata'), topics: t('主題動態分類', 'Topic dynamics classification'),
         keywords: t('常見關鍵字來源', 'Common keyword sources'), v3: t('v3 興趣分類', 'v3 interest classification'),
@@ -47,7 +48,8 @@ export const processingMonitorScript = String.raw`
       };
       for (const stage of data.pipeline) {
         const section = node('section'); section.className = 'yt-pipeline-stage'; section.dataset.pipelineStage = stage.id;
-        section.append(node('h3', names[stage.id]), node('p', labels[stage.state]));
+        const heading = node('div'); heading.className = 'yt-pipeline-heading';
+        heading.append(node('h3', names[stage.id]), node('span', labels[stage.state])); section.append(heading);
         const meter = node('progress'); meter.setAttribute('aria-label', names[stage.id]);
         if (stage.total > 0 && stage.done !== null) { meter.max = stage.total; meter.value = Math.max(0, Math.min(stage.total, stage.done)); }
         else if (stage.state !== 'running') { meter.max = 1; meter.value = stage.state === 'done' ? 1 : 0; }
@@ -55,22 +57,26 @@ export const processingMonitorScript = String.raw`
         if (stage.done !== null && stage.total !== null) section.append(node('p', number(stage.done) + ' / ' + number(stage.total) + (stage.id === 'embedding' ? ' tags' : t(' 部影片', ' videos'))));
         const eta = stage.state === 'done' ? t('剩餘時間：0 分鐘', 'Time remaining: 0 minutes')
           : stage.estimatedMinutes !== null ? t('依近期速度估計約 ', 'Estimated from recent progress: about ') + number(stage.estimatedMinutes) + t(' 分鐘（不含等待與重試）', ' minutes (excluding queueing and retries)')
-          : stage.state === 'running' ? t('時間估算中：觀察到足夠進度後顯示。', 'Estimating time: waiting for enough progress observations.')
-          : t('尚無可估算的完成時間。', 'Completion time is not yet available.');
+          : stage.state === 'running' ? t('時間估算中', 'Estimating time')
+          : t('時間待估', 'ETA pending');
         section.append(node('p', eta));
-        if (stage.state === 'queued' && ['metadata', 'topics', 'keywords'].includes(stage.id)) section.append(node('p', t('背景服務閒置時約每 5 分鐘檢查新工作。', 'The idle worker checks for new work about every 5 minutes.')));
-        if (notes[stage.detail]) section.append(node('p', notes[stage.detail]));
+        if (stage.state === 'queued' && ['metadata', 'topics', 'keywords'].includes(stage.id)) explanations.push(node('p', t('背景服務閒置時約每 5 分鐘檢查新工作。', 'The idle worker checks for new work about every 5 minutes.')));
+        if (notes[stage.detail]) explanations.push(node('p', names[stage.id] + '：' + notes[stage.detail]));
         fragment.append(section);
       }
       panel.dataset.processingLive = 'true';
     }
+    const details = node('details'); details.className = 'yt-monitor-details'; details.open = detailsOpen;
+    details.addEventListener('toggle', () => { detailsOpen = details.open; });
+    details.append(node('summary', t('處理明細與說明', 'Processing details')));
+    output.append(details); fragment = details; fragment.append(...explanations);
     if (data.pipeline) fragment.append(node('h3', t('v3 工作明細', 'v3 job details')));
     fragment.append(node('p', label));
     if (state === 'failed') fragment.append(node('p', t('已儲存的結果仍可使用；失敗不代表工作仍在背景執行。', 'Saved results remain available. A failed job is not still running in the background.')));
     if (progress) {
       const phase = progress.phase === 'classification' ? t('影片分類', 'Video classification')
         : progress.phase === 'embedding' ? t('標籤向量（目前批次）', 'Tag embeddings (current batch)')
-        : t('頻道類型處理', 'Channel-type processing');
+        : t('其他類別處理', 'Channel-type processing');
       const prefix = state === 'running' ? t('目前階段：', 'Current phase: ') : t('最後回報階段：', 'Last reported phase: ');
       const counts = progress.phase === 'channels' ? t('來源影片 ', 'Source videos: ') + number(progress.total)
         : number(progress.processed) + ' / ' + number(progress.total) + (progress.phase === 'embedding' ? ' tags' : t(' 部影片', ' videos'));
@@ -92,20 +98,8 @@ export const processingMonitorScript = String.raw`
       fragment.append(node('p', t('已儲存輪廓：', 'Saved profile: ') + number(profile.processedVideos) + ' / ' + number(profile.totalVideos) + t(' 部影片已分類', ' videos classified')
         + ' · ' + (profile.currentVersion ? t('目前版本', 'Current version') : t('舊版本', 'Older version'))));
       fragment.append(node('p', t('最近輪廓更新（台灣時間）：', 'Profile updated (Taipei time): ') + date(profile.builtAt)));
-      const incomplete = !profile.complete || Object.values(profile.genres).some(g => g.status === 'insufficient');
-      if (incomplete) fragment.append(node('p', t('影片分類完成不等於所有類別都已可用，請查看下方各類別狀態。', 'Classified videos do not mean every category is ready. Check the category statuses below.')));
-      const details = node('details'); details.open = true;
-      details.append(node('summary', t('九類處理結果', 'Results by category')));
-      const list = node('dl'); list.className = 'yt-monitor-genres';
-      const labels = { ready: t('可用', 'Ready'), empty: t('無此類興趣', 'No interests in this category'), insufficient: t('資料不足', 'Insufficient data') };
-      for (const genre of data.genres) {
-        const result = profile.genres[genre];
-        list.append(node('dt', zh ? (genres[genre] || genre) : genre), node('dd', (labels[result?.status] || t('尚未建立', 'Not built'))
-          + (result ? ' · ' + number(result.videoCount) + t(' 部影片', ' videos') : '')));
-      }
-      details.append(list); fragment.append(details);
     } else fragment.append(node('p', t('尚無已儲存輪廓。', 'No saved profile yet.')));
-    content.replaceChildren(fragment);
+    content.replaceChildren(output);
     panel.querySelector('[data-v3-snapshot]').hidden = true;
     panel.querySelector('[data-v3-state-label]').textContent = data.pipeline ? t('各項處理進度', 'Processing progress by stage') : label;
     panel.dataset.v3Processing = state;
@@ -113,7 +107,7 @@ export const processingMonitorScript = String.raw`
   async function refresh() {
     clearTimeout(timer);
     if (busy || stopped || controller.signal.aborted || document.hidden || !visible()) return;
-    busy = true; button.disabled = true;
+    busy = true; if (button) button.disabled = true;
     let timedOut = false;
     const request = new AbortController();
     const abort = () => request.abort();
@@ -138,11 +132,11 @@ export const processingMonitorScript = String.raw`
         + (stopped ? '' : t(' 顯示內容可能是上次資料，稍後自動重試。', ' Displayed data may be stale; retrying automatically.'));
     } finally {
       clearTimeout(timeout); controller.signal.removeEventListener('abort', abort);
-      busy = false; button.disabled = stopped;
+      busy = false; if (button) button.disabled = stopped;
       if (!stopped && !controller.signal.aborted && !document.hidden && visible()) timer = setTimeout(refresh, retry);
     }
   }
-  button.addEventListener('click', refresh, { signal: controller.signal });
+  button?.addEventListener('click', refresh, { signal: controller.signal });
   document.addEventListener('visibilitychange', () => { clearTimeout(timer); if (!document.hidden) refresh(); }, { signal: controller.signal });
   window.addEventListener('urtube:processing-visibility', () => { clearTimeout(timer); if (visible()) refresh(); }, { signal: controller.signal });
   controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
@@ -151,5 +145,5 @@ export const processingMonitorScript = String.raw`
 
 export function processingMonitor(lang: 'en' | 'zh'): string {
   const zh = lang === 'zh';
-  return `<div class="yt-processing-monitor" data-processing-monitor data-lang="${lang}"><div class="yt-monitor-controls"><button type="button">${zh ? '更新狀態' : 'Refresh status'}</button><span data-monitor-connection role="status">${zh ? '正在讀取最新工作狀態…' : 'Loading current job status…'}</span></div><div data-monitor-content></div><details class="yt-monitor-admin"><summary>${zh ? '全站監控' : 'Site-wide monitoring'}</summary><p><a href="/matching-v3/admin">${zh ? '開啟原監控面板（限管理員）' : 'Open the original monitor (administrators only)'}</a></p></details></div><script>${processingMonitorScript}</script>`;
+  return `<div class="yt-processing-monitor" data-processing-monitor data-lang="${lang}"><div class="yt-monitor-controls"><span data-monitor-connection role="status">${zh ? '正在讀取最新工作狀態…' : 'Loading current job status…'}</span></div><div data-monitor-content></div></div><script>${processingMonitorScript}</script>`;
 }

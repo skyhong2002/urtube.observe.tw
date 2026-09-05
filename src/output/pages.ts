@@ -103,7 +103,7 @@ const styles = `
 
   .yt-profile{align-items:flex-start;display:flex;gap:18px;margin:14px 0 22px}
   .yt-avatar{background:linear-gradient(140deg,#e66767,#a92f2f);border-radius:50%;display:block;flex:0 0 70px;height:70px;object-fit:cover;width:70px}
-  .yt-profile-copy{min-width:0}.profile-details li{overflow-wrap:anywhere;max-width:100%}
+  .yt-profile:has(.profile-edit-button){position:relative;padding-right:60px}.yt-profile .profile-edit-button{position:absolute;right:0;top:0}.yt-profile .profile-action-row:not(:has(.profile-social-buttons)){margin:0}.yt-profile-copy{min-width:0}.profile-details li{overflow-wrap:anywhere;max-width:100%}
   .profile-action-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:16px 0}
   .profile-social-buttons{display:flex;flex-wrap:wrap;gap:10px;list-style:none;padding:0;margin:0}
   .profile-icon-button,.profile-edit-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;border:1px solid var(--line-strong);background:var(--raised);color:var(--ink);text-decoration:none;transition:background .15s,border-color .15s}

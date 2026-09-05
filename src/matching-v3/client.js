@@ -30,23 +30,10 @@ function error(err) { showView('topics'); $('message').textContent = err.message
 async function load() {
   state = await api();
   $('status').replaceChildren();
-  $('status').toggleAttribute('data-processing-status', state.optedIn);
+  $('status').hidden = state.optedIn;
   if (!state.optedIn) {
     $('status').append(element('span', '尚未開啟配對。請至 '));
     const link = element('a', '我的帳號'); link.href = '/account'; $('status').append(link, element('span', ' 開啟參與配對，再選擇興趣。'));
-  } else {
-    const profile = state.profile;
-    $('status').append(element('span', profile ? `已建立 ${profile.processedVideos.toLocaleString()} 部不同影片的輪廓 · ${profile.complete ? '已有完整掃描紀錄' : '資料尚未齊全，配對為暫定'}${profile.currentVersion ? '' : ' · 演算法更新中'}` : '正在預先建立所有類別的配對輪廓，不需要先選擇興趣。'));
-    if (state.job) $('status').append(element('p', `處理狀態：${({ queued: '排程中', running: '處理中', done: '完成', failed: '需重試' })[state.job.state] || state.job.state}`, 'small muted'));
-    if (state.job?.progress && state.job.state !== 'done') {
-      const p = state.job.progress;
-      $('status').append(element('p', `${({ classification: '影片分類', embedding: 'Tag 向量', channels: '頻道分析' })[p.phase]}${p.genre ? ' · ' + p.genre : ''}：${p.processed.toLocaleString()} / ${p.total.toLocaleString()}`, 'small muted'));
-    }
-    if (state.job?.error === 'daily_budget_reached') $('status').append(element('p', '已達每日模型呼叫上限，將於台灣時間上午 8 點恢復處理。', 'small muted'));
-    const retry = element('button', '更新處理狀態'); retry.onclick = () => load().catch(error); $('status').append(retry);
-    if (state.job?.state === 'failed') {
-      const rebuild = element('button', '重試建立輪廓'); rebuild.onclick = async () => { try { await api('/rebuild', 'POST'); await load(); } catch (err) { error(err); } }; $('status').append(rebuild);
-    }
   }
   if (!state.preferences.topics.some(t => t.id === selectedId)) selectedId = null;
   const view = new URL(location.href).searchParams.get('view') || 'all';

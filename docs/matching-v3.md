@@ -394,3 +394,9 @@ it is not a probability or a claim of validated compatibility.
 新帳號會寫入 `auto_activate_initial_topics=1`，既有帳號升級時維持 0。metadata 至少 98% 且有 24 部可用影片後，worker 初始化個人主題並分類；即使匯入時 metadata 已完整，也會進入追趕檢查。只有新帳號的唯一第一版、且通過既有品質門檻時才自動啟用。既有帳號、已有版本、未通過品質檢查者不自動替換或重建。worker 把當前階段寫入既有 sync state，進度讀取不回報成功前就將進度算作完成。
 
 部署包含 PR #79 的穩定儲存名稱相容性變更，需備份後一起更新所有共用資料庫的 web、ingest、worker、matching worker 與 backup 程式。保留成功分類／向量快取與既有 API 預算。
+
+### 管理介面帳密
+
+可在 `.env` 設定 `MATCHING_V3_ADMIN_USERNAME` 與 `MATCHING_V3_ADMIN_PASSWORD`，正式部署請放入 `MATCHING_V3_ENV_FILE` 指向的環境檔（目前為部署端 `.env.matching-v3`），重新部署後生效。兩者均未設定時沿用既有網站登入與管理員白名單；只設定其中一個時拒絕管理介面存取。
+
+設定帳密後，白名單內的已登入管理員開啟 `/matching-v3/admin` 會收到瀏覽器帳密提示。管理頁、JavaScript、監控資料 API 和重試 API 都要求相同驗證；此帳密不會取代 `MATCHING_V3_ADMIN_HANDLES` 白名單，POST 仍驗證 Origin。正式站需使用 HTTPS。帳密不得提交 Git，變更後重新部署；瀏覽器可能快取舊帳密，必要時關閉瀏覽器工作階段再登入。

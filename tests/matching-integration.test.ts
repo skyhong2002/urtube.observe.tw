@@ -46,7 +46,7 @@ test('one matching workspace keeps directory actions and compact topic cards wit
     assert.equal(directory('#mv-directory .mt-card').length, 1);
     assert.equal(directory('#mv-directory .mt-percent').text(), '—合拍度');
     assert.equal(directory('#mv-directory form[action="/matches/request"]').length, 1);
-    assert.equal(directory('a[href="/matching-v3/admin"]').length, 1);
+    assert.equal(directory('a[href="/matching-v3/admin"]').length, 0);
     assert.match(directory('#mv-invitations').text(), /目前沒有/);
     const alias = await app.request('/matching-v3?lang=zh', { headers });
     assert.equal(alias.status, 302);

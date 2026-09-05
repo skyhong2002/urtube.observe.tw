@@ -85,14 +85,14 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     const $ = load(await (await f.app.request('/account?lang=zh', { headers: f.headers })).text());
     assert.equal($('#processing [data-v3-processing="running"]').length, 1);
     assert.equal($('#processing [data-processing-monitor]').length, 1);
-    assert.equal($('#processing a[href="/matching-v3/admin"]').length, 1);
+    assert.equal($('#processing a[href="/matching-v3/admin"]').length, 0);
     assert.match($('#processing').text(), /17 \/ 250 部影片/);
     assert.doesNotMatch($.text(), /120 分鐘|預計還需|AI 主題|檢查個人主題版本/);
     assert.equal($('a[href="/account/taxonomy"],form[action^="/account/taxonomy"]').length, 0);
     assert.equal((await f.app.request('/account')).status, 302);
     assert.equal(f.store.processingStatus(f.user.id)?.state, 'running');
     const dashboard = load(await (await f.app.request('/v3-dashboard?lang=zh', { headers: f.headers })).text());
-    assert.equal(dashboard('[data-v3-interests] .section-head span').text(), '暫定結果', 'previous ready profile remains provisional during a rebuild');
+    assert.equal(dashboard('[data-v3-interests] .section-head span').length, 0, 'interest section does not display processing status');
   } finally { f.registry.close(); }
 });
 
