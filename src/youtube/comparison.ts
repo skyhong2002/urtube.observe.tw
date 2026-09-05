@@ -42,28 +42,39 @@ export interface ComparisonStatRow extends ComparisonPair<number> {
   key: ComparisonStatKey;
 }
 
-export interface CommonTopic {
+// Every common item carries both people's numbers under both metrics and a
+// symmetric "blend" score per metric: the geometric mean of the two shares
+// (sqrt(shareA * shareB)). Ordering by blend puts what both people watch a
+// lot at the top and gives the two people the identical list, only mirrored.
+export interface CommonMeasure {
+  rank: ComparisonPair<number>;
+  value: ComparisonPair<number>;
+  blend: number;
+}
+
+export interface CommonItemMeasures {
+  seconds: CommonMeasure;
+  watches: CommonMeasure;
+}
+
+export interface CommonTopic extends CommonItemMeasures {
   key: string;
   name: string;
-  rank: ComparisonPair<number>;
-  // Absent before mutual consent.
-  watches: ComparisonPair<number> | null;
+  // Locked comparisons keep ranks only; values are zeroed.
+  valuesVisible: boolean;
 }
 
-export interface CommonChannel {
+export interface CommonChannel extends CommonItemMeasures {
+  key: string;
   name: string;
   thumbnailUrl: string;
-  rank: ComparisonPair<number>;
-  watches: ComparisonPair<number>;
 }
 
-export interface CommonVideo {
+export interface CommonVideo extends CommonItemMeasures {
   videoId: string;
   title: string;
   channelTitle: string;
   thumbnailUrl: string;
-  rank: ComparisonPair<number>;
-  watches: ComparisonPair<number>;
 }
 
 export type ComparisonListState = 'unlocked' | 'locked';
@@ -105,6 +116,7 @@ export interface WatchComparison {
   stats: ComparisonStatRow[] | null;
   topics: ComparisonList<CommonTopic>;
   channels: ComparisonList<CommonChannel>;
+  shortsChannels: ComparisonList<CommonChannel>;
   videos: ComparisonList<CommonVideo>;
   clock: { mode: ComparisonValueMode } & ComparisonPair<ComparisonClockSide>;
   weekdays: { mode: ComparisonValueMode; rows: ComparisonWeekdayRow[] };
@@ -127,8 +139,43 @@ function statRows(a: YoutubeComparisonProfile, b: YoutubeComparisonProfile): Com
   ];
 }
 
-function byRank<T extends { rank: ComparisonPair<number> }>(items: T[]): T[] {
-  return items.sort((x, y) => x.rank.a - y.rank.a || x.rank.b - y.rank.b);
+interface RankedSource {
+  rank: number;
+  watchRank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+function measures(
+  left: RankedSource,
+  right: RankedSource,
+  a: YoutubeComparisonProfile,
+  b: YoutubeComparisonProfile,
+): CommonItemMeasures {
+  const share = (value: number, total: number) => (total > 0 ? value / total : 0);
+  const blend = (x: number, y: number) => Math.sqrt(x * y);
+  return {
+    seconds: {
+      rank: { a: left.rank, b: right.rank },
+      value: { a: left.estimatedWatchSeconds, b: right.estimatedWatchSeconds },
+      blend: blend(
+        share(left.estimatedWatchSeconds, a.stats.estimatedWatchSeconds),
+        share(right.estimatedWatchSeconds, b.stats.estimatedWatchSeconds),
+      ),
+    },
+    watches: {
+      rank: { a: left.watchRank, b: right.watchRank },
+      value: { a: left.watches, b: right.watches },
+      blend: blend(share(left.watches, a.stats.watchEvents), share(right.watches, b.stats.watchEvents)),
+    },
+  };
+}
+
+// Lists are delivered in watch-time blend order; the page re-sorts for the
+// watch-count metric client-side using the same blend field.
+function byBlend<T extends CommonItemMeasures>(items: T[]): T[] {
+  return items.sort((x, y) => y.seconds.blend - x.seconds.blend
+    || (x.seconds.rank.a + x.seconds.rank.b) - (y.seconds.rank.a + y.seconds.rank.b));
 }
 
 function commonTopics(
@@ -137,16 +184,16 @@ function commonTopics(
   access: ComparisonAccess,
 ): ComparisonList<CommonTopic> {
   const bByKey = new Map(b.topics.map((topic) => [topic.key, topic]));
-  const items = byRank(a.topics.flatMap((topic) => {
+  const items = byBlend(a.topics.flatMap((topic) => {
     const other = bByKey.get(topic.key);
     const name = TOPIC_NAMES.get(topic.key);
     if (!other || !name) return [];
-    return [{
-      key: topic.key,
-      name,
-      rank: { a: topic.rank, b: other.rank },
-      watches: access.connected ? { a: topic.watches, b: other.watches } : null,
-    }];
+    const item = { key: topic.key, name, valuesVisible: access.connected, ...measures(topic, other, a, b) };
+    if (!access.connected) {
+      item.seconds.value = { a: 0, b: 0 };
+      item.watches.value = { a: 0, b: 0 };
+    }
+    return [item];
   }));
   if (access.connected) return { state: 'unlocked', items, total: items.length };
   const visible = items.slice(0, COMPARISON_LOCKED_TOPIC_LIMIT);
@@ -157,22 +204,24 @@ function listState(access: ComparisonAccess): ComparisonListState {
   return access.connected ? 'unlocked' : 'locked';
 }
 
-function commonChannels(
+function commonChannelList(
+  left: YoutubeComparisonProfile['channels'],
+  right: YoutubeComparisonProfile['channels'],
   a: YoutubeComparisonProfile,
   b: YoutubeComparisonProfile,
   access: ComparisonAccess,
 ): ComparisonList<CommonChannel> {
   const state = listState(access);
   if (state !== 'unlocked') return { state, items: [], total: 0 };
-  const bByKey = new Map(b.channels.map((channel) => [channel.key, channel]));
-  const items = byRank(a.channels.flatMap((channel) => {
-    const other = bByKey.get(channel.key);
+  const rightByKey = new Map(right.map((channel) => [channel.key, channel]));
+  const items = byBlend(left.flatMap((channel) => {
+    const other = rightByKey.get(channel.key);
     if (!other) return [];
     return [{
+      key: channel.key,
       name: channel.name,
       thumbnailUrl: channel.thumbnailUrl || other.thumbnailUrl,
-      rank: { a: channel.rank, b: other.rank },
-      watches: { a: channel.watches, b: other.watches },
+      ...measures(channel, other, a, b),
     }];
   }));
   return { state, items: items.slice(0, COMPARISON_LIST_LIMIT), total: items.length };
@@ -186,7 +235,7 @@ function commonVideos(
   const state = listState(access);
   if (state !== 'unlocked') return { state, items: [], total: 0 };
   const bById = new Map(b.videos.map((video) => [video.videoId, video]));
-  const items = byRank(a.videos.flatMap((video) => {
+  const items = byBlend(a.videos.flatMap((video) => {
     const other = bById.get(video.videoId);
     if (!other) return [];
     return [{
@@ -194,8 +243,7 @@ function commonVideos(
       title: video.title,
       channelTitle: video.channelTitle || other.channelTitle,
       thumbnailUrl: video.thumbnailUrl || other.thumbnailUrl,
-      rank: { a: video.rank, b: other.rank },
-      watches: { a: video.watches, b: other.watches },
+      ...measures(video, other, a, b),
     }];
   }));
   return { state, items: items.slice(0, COMPARISON_LIST_LIMIT), total: items.length };
@@ -257,7 +305,8 @@ export function compareWatchProfiles(
     empty: { a: a.stats.watchEvents === 0, b: b.stats.watchEvents === 0 },
     stats: access.connected ? statRows(a, b) : null,
     topics: commonTopics(a, b, access),
-    channels: commonChannels(a, b, access),
+    channels: commonChannelList(a.channels, b.channels, a, b, access),
+    shortsChannels: commonChannelList(a.shortsChannels, b.shortsChannels, a, b, access),
     videos: commonVideos(a, b, access),
     clock: { mode, a: clockSide(a, mode), b: clockSide(b, mode) },
     weekdays: { mode, rows: weekdayRows(a, b, mode) },

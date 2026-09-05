@@ -287,7 +287,9 @@ export interface YoutubeComparisonRankedChannel {
   key: string;
   name: string;
   thumbnailUrl: string;
+  // Position by estimated watch time and by watch count, 1-based.
   rank: number;
+  watchRank: number;
   watches: number;
   estimatedWatchSeconds: number;
 }
@@ -298,6 +300,7 @@ export interface YoutubeComparisonRankedVideo {
   channelTitle: string;
   thumbnailUrl: string;
   rank: number;
+  watchRank: number;
   watches: number;
   estimatedWatchSeconds: number;
 }
@@ -305,6 +308,7 @@ export interface YoutubeComparisonRankedVideo {
 export interface YoutubeComparisonRankedTopic {
   key: string;
   rank: number;
+  watchRank: number;
   watches: number;
   estimatedWatchSeconds: number;
 }
@@ -331,6 +335,9 @@ export interface YoutubeComparisonProfile {
     activeDays: number;
   };
   channels: YoutubeComparisonRankedChannel[];
+  // Channels ranked by short-form viewing only (videos of at most three
+  // minutes, the codebase's Shorts proxy).
+  shortsChannels: YoutubeComparisonRankedChannel[];
   videos: YoutubeComparisonRankedVideo[];
   topics: YoutubeComparisonRankedTopic[];
   hourly: YoutubeHourlySummary[];

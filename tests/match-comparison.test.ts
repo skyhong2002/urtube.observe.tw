@@ -70,6 +70,7 @@ function profile(overrides: Partial<YoutubeComparisonProfile> = {}): YoutubeComp
     range: '28d',
     stats: { watchEvents: 10, estimatedWatchSeconds: 7200, uniqueVideos: 8, uniqueChannels: 3, activeDays: 4 },
     channels: [],
+    shortsChannels: [],
     videos: [],
     topics: [],
     hourly: [],
@@ -118,24 +119,24 @@ test('comparison profile ranks channels, videos, and rhythm from one repository'
 test('compareWatchProfiles keeps volume private until both people choose to meet', () => {
   const alice = profile({
     topics: [
-      { key: 'music', rank: 1, watches: 6, estimatedWatchSeconds: 5000 },
-      { key: 'gaming', rank: 2, watches: 3, estimatedWatchSeconds: 1500 },
-      { key: 'comedy', rank: 3, watches: 1, estimatedWatchSeconds: 700 },
+      { key: 'music', rank: 1, watchRank: 1, watches: 6, estimatedWatchSeconds: 5000 },
+      { key: 'gaming', rank: 2, watchRank: 2, watches: 3, estimatedWatchSeconds: 1500 },
+      { key: 'comedy', rank: 3, watchRank: 3, watches: 1, estimatedWatchSeconds: 700 },
     ],
-    channels: [{ key: 'c1', name: 'Shared', thumbnailUrl: '', rank: 1, watches: 5, estimatedWatchSeconds: 3000 }],
-    videos: [{ videoId: 'v1', title: 'Shared video', channelTitle: 'Shared', thumbnailUrl: '', rank: 1, watches: 2, estimatedWatchSeconds: 1200 }],
+    channels: [{ key: 'c1', name: 'Shared', thumbnailUrl: '', rank: 1, watchRank: 1, watches: 5, estimatedWatchSeconds: 3000 }],
+    videos: [{ videoId: 'v1', title: 'Shared video', channelTitle: 'Shared', thumbnailUrl: '', rank: 1, watchRank: 1, watches: 2, estimatedWatchSeconds: 1200 }],
     hourly: [{ hour: 9, watches: 3, estimatedWatchSeconds: 900 }, { hour: 21, watches: 1, estimatedWatchSeconds: 300 }],
     weekdays: [{ weekday: 1, watches: 3, estimatedWatchSeconds: 900 }, { weekday: 6, watches: 1, estimatedWatchSeconds: 300 }],
     firstWatch: { title: 'Shared video', watchedAt: '2026-08-01T00:00:00Z' },
   });
   const bob = profile({
     topics: [
-      { key: 'gaming', rank: 1, watches: 9, estimatedWatchSeconds: 6000 },
-      { key: 'music', rank: 2, watches: 2, estimatedWatchSeconds: 900 },
-      { key: 'comedy', rank: 3, watches: 1, estimatedWatchSeconds: 100 },
+      { key: 'gaming', rank: 1, watchRank: 1, watches: 9, estimatedWatchSeconds: 6000 },
+      { key: 'music', rank: 2, watchRank: 2, watches: 2, estimatedWatchSeconds: 900 },
+      { key: 'comedy', rank: 3, watchRank: 3, watches: 1, estimatedWatchSeconds: 100 },
     ],
-    channels: [{ key: 'c1', name: 'Shared', thumbnailUrl: 'https://img/shared.jpg', rank: 4, watches: 1, estimatedWatchSeconds: 300 }],
-    videos: [{ videoId: 'v1', title: 'Shared video', channelTitle: 'Shared', thumbnailUrl: '', rank: 7, watches: 1, estimatedWatchSeconds: 300 }],
+    channels: [{ key: 'c1', name: 'Shared', thumbnailUrl: 'https://img/shared.jpg', rank: 4, watchRank: 5, watches: 1, estimatedWatchSeconds: 300 }],
+    videos: [{ videoId: 'v1', title: 'Shared video', channelTitle: 'Shared', thumbnailUrl: '', rank: 7, watchRank: 9, watches: 1, estimatedWatchSeconds: 300 }],
     hourly: [{ hour: 9, watches: 1, estimatedWatchSeconds: 100 }],
     rhythmCoverage: { exactWatches: 1, dateOnlyWatches: 5 },
   });
@@ -143,8 +144,14 @@ test('compareWatchProfiles keeps volume private until both people choose to meet
   const locked = compareWatchProfiles(alice, bob, '28d', LOCKED);
   assert.equal(locked.stats, null);
   assert.equal(locked.topics.state, 'locked');
-  assert.deepEqual(locked.topics.items.map((topic) => [topic.name, topic.rank.a, topic.rank.b, topic.watches]),
-    [['Music', 1, 2, null], ['Gaming', 2, 1, null], ['Comedy', 3, 3, null]]);
+  // Blend order (geometric mean of shares) is symmetric: gaming is big for
+  // both, music big for Alice only, comedy small for both.
+  assert.deepEqual(locked.topics.items.map((topic) => [topic.name, topic.seconds.rank.a, topic.seconds.rank.b, topic.valuesVisible]),
+    [['Gaming', 2, 1, false], ['Music', 1, 2, false], ['Comedy', 3, 3, false]]);
+  assert.deepEqual(locked.topics.items[0]?.seconds.value, { a: 0, b: 0 }, 'locked topics carry no volume');
+  const mirrored = compareWatchProfiles(bob, alice, '28d', LOCKED);
+  assert.deepEqual(mirrored.topics.items.map((topic) => topic.name), ['Gaming', 'Music', 'Comedy'], 'the other person sees the same order');
+  assert.deepEqual(mirrored.topics.items[0]?.seconds.rank, { a: 1, b: 2 });
   assert.equal(locked.channels.state, 'locked');
   assert.equal(locked.channels.items.length, 0);
   assert.equal(locked.videos.state, 'locked');
@@ -163,11 +170,21 @@ test('compareWatchProfiles keeps volume private until both people choose to meet
   assert.deepEqual(unlocked.stats?.find((row) => row.key === 'hours'), { key: 'hours', a: 2, b: 2 });
   assert.equal(unlocked.topics.state, 'unlocked');
   assert.equal(unlocked.topics.total, 3);
-  assert.deepEqual(unlocked.topics.items[0]?.watches, { a: 6, b: 2 });
-  assert.deepEqual(unlocked.channels.items, [{
-    name: 'Shared', thumbnailUrl: 'https://img/shared.jpg', rank: { a: 1, b: 4 }, watches: { a: 5, b: 1 },
-  }]);
-  assert.equal(unlocked.videos.items[0]?.rank.b, 7);
+  assert.deepEqual(unlocked.topics.items[0]?.watches.value, { a: 3, b: 9 });
+  assert.equal(unlocked.topics.items[0]?.valuesVisible, true);
+  const channel = unlocked.channels.items[0]!;
+  assert.equal(unlocked.channels.items.length, 1);
+  assert.equal(channel.name, 'Shared');
+  assert.equal(channel.thumbnailUrl, 'https://img/shared.jpg');
+  assert.deepEqual(channel.seconds.rank, { a: 1, b: 4 });
+  assert.deepEqual(channel.seconds.value, { a: 3000, b: 300 });
+  assert.deepEqual(channel.watches.rank, { a: 1, b: 5 });
+  assert.deepEqual(channel.watches.value, { a: 5, b: 1 });
+  assert.ok(Math.abs(channel.seconds.blend - Math.sqrt((3000 / 7200) * (300 / 7200))) < 1e-12);
+  assert.equal(unlocked.shortsChannels.state, 'unlocked');
+  assert.deepEqual(unlocked.shortsChannels.items, []);
+  assert.equal(unlocked.videos.items[0]?.seconds.rank.b, 7);
+  assert.equal(unlocked.videos.items[0]?.watches.rank.b, 9);
   assert.equal(unlocked.clock.mode, 'absolute');
   assert.equal(unlocked.clock.a.watches[9], 3);
   assert.equal(unlocked.firstWatch?.a?.title, 'Shared video');
@@ -220,6 +237,12 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     publish(registry, bob);
     seed(registry.repositoryFor(alice), 'alice', ALICE_EVENTS);
     seed(registry.repositoryFor(bob), 'bob', BOB_EVENTS);
+    // AAAAAAAAAA1 is a Short (two minutes) for both people.
+    for (const user of [alice, bob]) {
+      registry.repositoryFor(user).upsertYoutubeVideoMetadata([
+        { ...metadata('AAAAAAAAAA1', 'channel-a', 'Channel A'), durationSeconds: 120 },
+      ]);
+    }
     const aliceCookie = `urtube_session=${registry.createSession(alice)}`;
     const bobCookie = `urtube_session=${registry.createSession(bob)}`;
 
@@ -240,6 +263,8 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.match(lockedHtml, /Topics in common/);
     assert.match(lockedHtml, /Channels in common/);
     assert.match(lockedHtml, /Videos in common/);
+    assert.match(lockedHtml, /Shorts channels in common/);
+    assert.match(lockedHtml, /data-metric="watches"/);
     assert.match(lockedHtml, /Watch clock/);
     assert.match(lockedHtml, /Weekdays/);
     assert.match(lockedHtml, /Unlocks when you both choose to meet/);
@@ -271,6 +296,15 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     // Common videos: AAAAAAAAAA1 is #1 for Alice and #3 for Bob; BBBBBBBBBB1 #2 / #1.
     assert.match(unlockedHtml, /Video AAAAAAAAAA1/);
     assert.match(unlockedHtml, /Video BBBBBBBBBB1/);
+    // Every channel and video links out; name-keyed channels fall back to a search.
+    assert.match(unlockedHtml, /href="https:\/\/www\.youtube\.com\/results\?search_query=Channel%20A"/);
+    assert.match(unlockedHtml, /href="https:\/\/www\.youtube\.com\/watch\?v=AAAAAAAAAA1"/);
+    // Both metric panels are rendered; the Shorts list only has Channel A.
+    assert.equal((unlockedHtml.match(/data-metric-panel="seconds"/g) ?? []).length, (unlockedHtml.match(/data-metric-panel="watches" hidden/g) ?? []).length);
+    const shorts = unlockedHtml.slice(unlockedHtml.indexOf('Shorts channels in common'), unlockedHtml.indexOf('Videos in common'));
+    assert.match(shorts, /1 in common with Bob/);
+    assert.match(shorts, /Channel A/);
+    assert.doesNotMatch(shorts, /Channel B/);
     assert.doesNotMatch(unlockedHtml, /Video AAAAAAAAAA2|Video BBBBBBBBBB2/, 'videos only one person watched never cross');
     assert.match(unlockedHtml, /First watch/);
     assert.match(unlockedHtml, /Last watch/);
