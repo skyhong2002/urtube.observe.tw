@@ -51,8 +51,11 @@ running source revision and health, then replace state with that verified
 notification is configured. Pause with `systemctl --user stop urtube-cd.timer`.
 Stopping the timer does not interrupt an already running deployment.
 
-Public health confirms availability, not source identity. Deployment source
-identity must be guaranteed by the reviewed host script and its evidence.
+Public health confirms availability, not source identity. After deployment, the
+agent also compares the running app source and build inputs with the GitHub
+archive for the exact commit. A concurrent deployment or source mismatch blocks
+success recording and cache cleanup. This detects competing deployments; the
+local lock only serializes this agent, so operators must coordinate manual releases.
 Changes to the CD agent itself require explicit installation; a new main commit
 does not silently replace the deployment control program.
 

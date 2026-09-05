@@ -2,12 +2,15 @@
 """Poll the public repository and deploy only a successful main push commit."""
 import argparse
 import fcntl
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import time
+import tarfile
 from urllib.request import Request, urlopen
 
 API = "https://api.github.com/repos/skyhong2002/urtube.observe.tw"
@@ -57,6 +60,31 @@ def healthy():
             time.sleep(10)
 
 
+SOURCE_PATHS = ("src/", "scripts/", "public/landing/", "chrome-extension/")
+SOURCE_FILES = {"package.json", "package-lock.json", "tsconfig.json", "favicon.svg", "og.png"}
+
+
+def source_hashes(data, strip_root=False):
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        hashes = {}
+        for member in archive:
+            name = member.name.partition("/")[2] if strip_root else member.name.removeprefix("./")
+            if member.isfile() and (name in SOURCE_FILES or name.startswith(SOURCE_PATHS)):
+                hashes[name] = hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+        if "src/index.ts" not in hashes:
+            raise RuntimeError("Missing app source in archive")
+        return hashes
+
+
+def verify_source(sha):
+    with urlopen("https://codeload.github.com/skyhong2002/urtube.observe.tw/tar.gz/" + sha, timeout=30) as response:
+        expected = source_hashes(response.read(), strip_root=True)
+    paths = [*SOURCE_PATHS, *sorted(SOURCE_FILES)]
+    actual = subprocess.check_output([str(Path.home() / ".local/bin/docker"), "exec", "urtube-app", "tar", "-c", "-C", "/app", *paths], timeout=30)
+    if source_hashes(actual) != expected:
+        raise RuntimeError("Running app source differs from " + sha + "; possible concurrent deployment")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deploy", action="store_true", help="invoke the host deployment script; default is read-only")
@@ -90,6 +118,7 @@ def main():
         save(state)
         subprocess.run(["sudo", "-n", "-u", "deck", "/home/deck/urtube-ops/deploy.sh", sha], check=True, timeout=1800)
         healthy()
+        verify_source(sha)
         save({"deployed": sha})
         print("Deployment command and public health checks succeeded:", sha, flush=True)
         docker = str(Path.home() / ".local/bin/docker")
