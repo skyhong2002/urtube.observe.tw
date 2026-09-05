@@ -20,8 +20,6 @@ export const processingMonitorScript = String.raw`
     failed: t('處理失敗，目前未在執行', 'Failed; not currently running'),
     done: t('工作已完成', 'Job completed'), missing: t('尚未排程', 'Not scheduled'),
   };
-  const genres = { Politic: '政治', Music: '音樂', Sport: '運動', Education: '教育',
-    'Video gaming': '電玩', Streaming: '直播', News: '新聞', Podcast: 'Podcast', 'channel type': '頻道類型' };
   function render(data) {
     const job = data.job, profile = data.profile, progress = job?.progress;
     const state = job?.state || 'missing';
@@ -70,7 +68,7 @@ export const processingMonitorScript = String.raw`
     if (progress) {
       const phase = progress.phase === 'classification' ? t('影片分類', 'Video classification')
         : progress.phase === 'embedding' ? t('標籤向量（目前批次）', 'Tag embeddings (current batch)')
-        : t('頻道類型處理', 'Channel-type processing');
+        : t('其他類別處理', 'Channel-type processing');
       const prefix = state === 'running' ? t('目前階段：', 'Current phase: ') : t('最後回報階段：', 'Last reported phase: ');
       const counts = progress.phase === 'channels' ? t('來源影片 ', 'Source videos: ') + number(progress.total)
         : number(progress.processed) + ' / ' + number(progress.total) + (progress.phase === 'embedding' ? ' tags' : t(' 部影片', ' videos'));
@@ -92,18 +90,6 @@ export const processingMonitorScript = String.raw`
       fragment.append(node('p', t('已儲存輪廓：', 'Saved profile: ') + number(profile.processedVideos) + ' / ' + number(profile.totalVideos) + t(' 部影片已分類', ' videos classified')
         + ' · ' + (profile.currentVersion ? t('目前版本', 'Current version') : t('舊版本', 'Older version'))));
       fragment.append(node('p', t('最近輪廓更新（台灣時間）：', 'Profile updated (Taipei time): ') + date(profile.builtAt)));
-      const incomplete = !profile.complete || Object.values(profile.genres).some(g => g.status === 'insufficient');
-      if (incomplete) fragment.append(node('p', t('影片分類完成不等於所有類別都已可用，請查看下方各類別狀態。', 'Classified videos do not mean every category is ready. Check the category statuses below.')));
-      const details = node('details'); details.open = true;
-      details.append(node('summary', t('九類處理結果', 'Results by category')));
-      const list = node('dl'); list.className = 'yt-monitor-genres';
-      const labels = { ready: t('可用', 'Ready'), empty: t('無此類興趣', 'No interests in this category'), insufficient: t('資料不足', 'Insufficient data') };
-      for (const genre of data.genres) {
-        const result = profile.genres[genre];
-        list.append(node('dt', zh ? (genres[genre] || genre) : genre), node('dd', (labels[result?.status] || t('尚未建立', 'Not built'))
-          + (result ? ' · ' + number(result.videoCount) + t(' 部影片', ' videos') : '')));
-      }
-      details.append(list); fragment.append(details);
     } else fragment.append(node('p', t('尚無已儲存輪廓。', 'No saved profile yet.')));
     content.replaceChildren(fragment);
     panel.querySelector('[data-v3-snapshot]').hidden = true;

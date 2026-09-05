@@ -58,7 +58,7 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
         ? (zh ? '本輪影片分類' : 'Video classification in this run')
         : progress.phase === 'embedding'
           ? (progress.genre ? (zh ? `${progress.genre} 的 tag 向量` : `${progress.genre} tag embeddings`) : (zh ? '目前批次的 tag 向量' : 'Tag embeddings in the current batch'))
-          : (zh ? '頻道類型分析' : 'Channel-type analysis');
+          : (zh ? '其他類別分析' : 'Channel-type analysis');
       const counts = progress.phase === 'channels'
         // The worker reports the source-video count here, not channel completion.
         ? (zh ? `來源 ${number(progress.total)} 部影片` : `${number(progress.total)} source videos`)

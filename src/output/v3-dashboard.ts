@@ -4,7 +4,7 @@ import type { Lang } from './i18n.js';
 
 const names: Record<Genre, string> = {
   Politic: '政治', Music: '音樂', Sport: '運動', Education: '教育',
-  'Video gaming': '遊戲', Streaming: '直播', News: '新聞', Podcast: 'Podcast', 'channel type': '頻道類型',
+  'Video gaming': '遊戲', Streaming: '直播', News: '新聞', Podcast: 'Podcast', 'channel type': '其他類別',
 };
 
 export function v3DashboardSection(profile: Profile | null, options: {
