@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
-import { createAsyncLimiter } from './concurrency.js';
+import { createAsyncLimiter, type AsyncLimiter } from './concurrency.js';
 import {
   PERSONAL_TAXONOMY_DEFINITION_VERSION,
   PERSONAL_TAXONOMY_MIN_AVAILABLE_VIDEOS,
@@ -24,6 +24,7 @@ export interface YoutubeAiClient {
   timeoutMs?: number;
   concurrency?: number;
   fetchImpl?: typeof fetch;
+  requestLimiter?: AsyncLimiter;
 }
 
 function defaultClient(): YoutubeAiClient {
@@ -48,38 +49,62 @@ function parseJson(content: string): unknown {
   return JSON.parse(cleaned);
 }
 
-async function chatJson(
-  system: string,
-  input: unknown,
-  client: YoutubeAiClient,
-  feedback?: string,
-): Promise<unknown> {
-  return aiRequest(async () => {
-    const response = await (client.fetchImpl ?? fetch)(`${client.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${client.apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: client.model,
-        temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify(input) },
-          ...(feedback ? [{ role: 'user', content: feedback }] : []),
-        ],
-      }),
-      signal: AbortSignal.timeout(client.timeoutMs ?? config.ai.timeoutMs),
-    });
-    if (!response.ok) {
-      throw new Error(`AI topics: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
+export class AiHttpError extends Error {
+  constructor(public readonly status: number, detail: string) { super(`AI topics: HTTP ${status}: ${detail}`); }
+}
+
+export interface AiCallMetrics {
+  inputTokens: number | null; outputTokens: number | null;
+  inputCharacters: number; outputCharacters: number;
+  estimatedInputTokens: number | null; estimatedOutputTokens: number | null;
+  tokenizer: 'o200k_base'; queueMs: number; requestMs: number;
+  requestedModel: string; returnedModel: string | null; reasoningEffort: string | null;
+}
+let encoder: import('js-tiktoken').Tiktoken | undefined;
+export async function chatJson(system: string, input: unknown, client: YoutubeAiClient,
+  feedbackOrOptions: string | { maxCompletionTokens?: number; reasoningEffort?: 'low'; onUsage?: (value: AiCallMetrics) => void } = {}): Promise<unknown> {
+  const feedback = typeof feedbackOrOptions === 'string' ? feedbackOrOptions : undefined;
+  const options = typeof feedbackOrOptions === 'string' ? {} : feedbackOrOptions;
+  const queuedAt = performance.now();
+  return (client.requestLimiter ?? aiRequest)(async () => {
+    const startedAt = performance.now(), inputText = JSON.stringify(input);
+    let content = '', inputTokens: number | null = null, outputTokens: number | null = null, returnedModel: string | null = null;
+    try {
+      const response = await (client.fetchImpl ?? fetch)(`${client.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${client.apiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: client.model,
+          ...(!options.reasoningEffort || new URL(client.baseUrl).hostname !== 'api.openai.com' ? { temperature: 0 } : {}), response_format: { type: 'json_object' },
+          ...(options.maxCompletionTokens ? { max_completion_tokens: options.maxCompletionTokens } : {}),
+          ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
+          messages: [{ role: 'system', content: system }, { role: 'user', content: inputText },
+            ...(feedback ? [{ role: 'user', content: feedback }] : [])],
+        }), signal: AbortSignal.timeout(client.timeoutMs ?? config.ai.timeoutMs),
+      });
+      if (!response.ok) throw new AiHttpError(response.status, (await response.text()).slice(0, 500));
+      const body = await response.json() as { model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ finish_reason?: string; message?: { content?: string; refusal?: string } }> };
+      const validTokens = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+      inputTokens = validTokens(body.usage?.prompt_tokens); outputTokens = validTokens(body.usage?.completion_tokens);
+      returnedModel = typeof body.model === 'string' ? body.model.slice(0, 100) : null;
+      content = body.choices?.[0]?.message?.content ?? '';
+      if (options.maxCompletionTokens && (body.choices?.[0]?.message?.refusal
+        || body.choices?.[0]?.finish_reason && body.choices[0].finish_reason !== 'stop')) throw new Error('AI classification incomplete or refused');
+      if (!content) throw new Error('AI topics: response did not contain message content');
+      return parseJson(content);
+    } finally {
+      const requestMs = performance.now() - startedAt;
+      if (options.onUsage) {
+        let estimatedInputTokens: number | null = null, estimatedOutputTokens: number | null = null;
+        try {
+          encoder ??= (await import('js-tiktoken')).getEncoding('o200k_base');
+          estimatedInputTokens = encoder.encode(system).length + encoder.encode(inputText).length;
+          estimatedOutputTokens = content ? encoder.encode(content).length : null;
+        } catch { /* Metrics must not fail completed API work. */ }
+        options.onUsage({ inputTokens, outputTokens, inputCharacters: system.length + inputText.length, outputCharacters: content.length,
+          estimatedInputTokens, estimatedOutputTokens, tokenizer: 'o200k_base', queueMs: startedAt - queuedAt, requestMs,
+          requestedModel: client.model, returnedModel, reasoningEffort: options.reasoningEffort ?? null });
+      }
     }
-    const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = body.choices?.[0]?.message?.content;
-    if (!content) throw new Error('AI topics: response did not contain message content');
-    return parseJson(content);
   });
 }
 

@@ -8,15 +8,17 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
+import { settings as matchingV3Settings } from './matching-v3/model.js';
+import { matchingRoutes } from './matching-v3/routes.js';
+import type { Compute } from './matching-v3/compute.js';
+import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
 import { cachedRead, clearReadCaches } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
-import { landingContent } from './output/landing.js';
-import { communityStatsProvider } from './youtube/community.js';
-import { matchesPage, matchingCandidatePage, friendshipActions, type ActionableMatchingCandidateCard } from './output/matches.js';
+import { matchesPage, matchingCandidatePage, friendshipActions, candidateCard, type ActionableMatchingCandidateCard } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
 import { memberProfilePage } from './output/member-profile.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
@@ -31,6 +33,8 @@ import {
   type ChannelMemberRow,
   type ChannelPageRange,
 } from './output/channel.js';
+import { landingContent } from './output/landing.js';
+import { communityStatsProvider } from './youtube/community.js';
 import {
   accountPage, dashboardSetupSection, extensionSetupPage, guidedOnboardingPage,
   signupCompletePage, signupStartPage,
@@ -153,6 +157,7 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 }
 
 interface AppServices {
+  matchingV3: { settings: MatchingSettings; compute: Compute };
   loadTagLists: () => Promise<TagListSnapshot>;
   avatarService: Pick<AvatarService, 'avatarFor'>;
   loadChannelMetadata: (channelId: string) => Promise<YoutubeChannelMetadata | null>;
@@ -184,6 +189,13 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return entry.result;
   };
   app.use('*', securityHeaders(true));
+  const v3 = services.matchingV3?.settings ?? matchingV3Settings();
+  if (v3.enabled) app.route('/', matchingRoutes(registry, v3, config.publicBaseUrl, services.matchingV3?.compute, (viewer, target, result, lang) => {
+    const card = blendCard(viewer, target);
+    if (viewer.matchingOptIn && target.matchingOptIn) card.actionToken = registry.issueMatchActionToken(viewer, target.id, card.disclosure.topics);
+    card.topicMatch = { score: result.score, provisional: result.provisional, reasons: result.reasons.map(reason => reason.text), detailsVisible: result.detailsVisible };
+    return candidateCard(card, viewer.handle, lang);
+  }));
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
     processing: processingFor(registry.repositoryFor(user)),
@@ -485,7 +497,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/avatar/member/:handle', async (c) => {
     const me = sessionUser(c);
     const target = registry.userByHandle(c.req.param('handle'));
-    const user = me && target && (target.id === me.id || target.dashboardPublic || mutualFriends(me, target))
+    const user = me && target && (target.id === me.id || target.dashboardPublic || mutualFriends(me, target) || (me.matchingOptIn && target.matchingOptIn))
       ? target : me ? registry.avatarUserForMember(me, c.req.param('handle')) : null;
     if (!user) return c.body(null, 404);
     return avatarResponse(c, user, 'private, no-store');
@@ -783,16 +795,20 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         provisional,
         recommendations,
         langToggle(c, lang).href,
-      ), status);
+        v3.enabled ? { admin: v3.adminHandles.includes(me.handle), invitations: `<div class="mt-grid">${registry.listUsers()
+          .filter(target => target.matchingOptIn && registry.matchingRelationshipFor(me, target.id).status === 'incoming')
+          .map(target => candidateCard(blendCard(me, target), me.handle, lang)).join('')}</div>` } : undefined,
+      ), v3.enabled && status === 403 ? 200 : status);
     };
     const publicUsers = registry.listUsers().filter(user => user.id !== me.id && user.dashboardPublic);
+    const v3Members = v3.enabled && me.matchingOptIn ? registry.listUsers().filter(user => user.id !== me.id && user.matchingOptIn) : [];
     if (!me.matchingOptIn && !publicUsers.length) return respond({ kind: 'opt_in_required' }, 403);
     const crystal = registry.matchingCrystalFor(me.handle);
     const eligible = Boolean(crystal && registryCrystalEligible(crystal));
-    if (!eligible && !publicUsers.length) return respond({ kind: 'data_pending' });
+    if (!eligible && !publicUsers.length && !v3Members.length) return respond({ kind: 'data_pending' });
     const viewer = blendIdentity(me);
     const privatePool = eligible ? registry.listMatchingCandidatesFor(me, MATCHING_CANDIDATE_POOL_LIMIT) : [];
-    const pool = [...new Map([...privatePool, ...publicUsers.map(blendIdentity)].map(member => [member.userId, member])).values()];
+    const pool = [...new Map([...privatePool, ...publicUsers.map(blendIdentity), ...v3Members.map(blendIdentity)].map(member => [member.userId, member])).values()];
     let channelPolicy: CohortChannelPolicy | undefined;
     if (pool.length + 1 >= 4) {
       try {
@@ -814,7 +830,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     });
     const recommendations = cohortRecommendations(viewer, [viewer, ...visiblePool], channelPolicy);
     const ranked = rankedMatchingCandidateCards(viewer, visiblePool);
-    const cards = [...ranked, ...publicUsers.filter(user => registry.userByHandle(user.handle)?.dashboardPublic && !ranked.some(card => card.candidateUserId === user.id)).map(user => blendCard(me, user))];
+    const cards = [...ranked, ...[...new Map([...publicUsers, ...v3Members].map(user => [user.id, user])).values()].filter(user => {
+      const target = registry.userByHandle(user.handle);
+      return target && (target.dashboardPublic || (currentMe.matchingOptIn && target.matchingOptIn)) && !ranked.some(card => card.candidateUserId === user.id);
+    }).map(user => blendCard(currentMe, user))];
     if (!cards.length) return respond({ kind: 'empty' }, 200, recommendations);
     const batch = matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1));
     return respond({ kind: 'ready', batch: {
@@ -823,7 +842,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         ...card,
         relationship: registry.matchingRelationshipFor(me, card.candidateUserId),
         targetPublic: Boolean(registry.userByHandle(card.handle)?.dashboardPublic),
-        actionToken: registry.matchingCandidateByHandle(currentMe, card.handle)
+        actionToken: currentMe.matchingOptIn && registry.userByHandle(card.handle)?.matchingOptIn
           ? registry.issueMatchActionToken(currentMe, card.candidateUserId, card.disclosure.topics) : undefined,
       })),
     } }, 200, recommendations);
@@ -1057,7 +1076,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   };
 
   const comparisonAfterAction = (c: Context, me: User, actionToken: unknown, returnTo?: unknown) => {
-    const candidate = registry.matchingCandidateForAction(me, String(actionToken ?? ''));
+    const candidate = registry.friendshipCandidateForAction(me, String(actionToken ?? ''));
     if (returnTo === '/matches' || (candidate && returnTo === `/${candidate.handle}`)) return c.redirect(String(returnTo));
     return candidate ? c.redirect(comparisonPath(me, candidate.handle)) : c.redirect('/matches');
   };
@@ -1557,11 +1576,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       const lang = langOf(c);
       return c.html(memberProfilePage(me.handle, {
         handle: user.handle, displayName: user.displayName,
-        avatarVisible: Boolean(registry.avatarUserForMember(me, user.handle)),
+        avatarVisible: me.matchingOptIn && user.matchingOptIn,
         interests: card?.interests.slice(0, 3) ?? [],
         comparisonHref: null,
-        friendship: card ? { ...card, relationship: registry.matchingRelationshipFor(me, user.id),
-          targetPublic: false, actionToken: registry.issueMatchActionToken(me, user.id, card.disclosure.topics) } : null,
+        friendship: me.matchingOptIn && user.matchingOptIn ? { ...(card ?? blendCard(me, user)), relationship: registry.matchingRelationshipFor(me, user.id),
+          targetPublic: false, actionToken: registry.issueMatchActionToken(me, user.id, card?.disclosure.topics ?? []) } : null,
       }, lang));
     }
     return dashboardResponse(c, user, `/${user.handle}`);

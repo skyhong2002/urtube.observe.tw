@@ -1,3 +1,4 @@
+import { matchingWorkspace } from '../matching-v3/page.js';
 import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/candidates.js';
 import type { CohortRecommendations } from '../youtube/cohort-recommendations.js';
 import type { MatchRelationship } from '../users.js';
@@ -32,6 +33,7 @@ export interface ActionableMatchingCandidateCard extends MatchingCandidateCard {
   relationship: MatchRelationship;
   targetPublic?: boolean;
   comparisonReady?: boolean;
+  topicMatch?: { score: number | null; provisional: boolean; reasons: string[]; detailsVisible: boolean };
 }
 
 export interface ActionableMatchingCandidateBatch extends Omit<MatchingCandidateBatch, 'cards'> {
@@ -76,7 +78,7 @@ export function friendshipActions(card: ActionableMatchingCandidateCard, viewerH
   }
 }
 
-function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang): string {
+export function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang): string {
   const t = messages(lang);
   const topics = card.disclosure.topics;
   const prompt = topics.length
@@ -85,11 +87,12 @@ function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: stri
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
   return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div></div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${card.topicMatch ? (lang === 'zh' ? '整體合拍度' : 'Overall compatibility') : t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
     </div>
+    ${card.topicMatch ? `<div class="mv-topic-score"><strong>${card.topicMatch.score === null ? '—' : `${(card.topicMatch.score * 100).toFixed(1)}%`}</strong> ${lang === 'zh' ? '主題合拍度' : 'Topic compatibility'}<small>${card.topicMatch.score === null ? (lang === 'zh' ? '資料不足' : 'Insufficient data') : card.topicMatch.provisional ? (lang === 'zh' ? '暫定結果' : 'Provisional') : (lang === 'zh' ? '依所選類別計算' : 'Based on selected categories')}</small></div><details class="mv-reasons"><summary>${lang === 'zh' ? '為什麼推薦給你' : 'Why this match'}</summary>${card.topicMatch.detailsVisible ? card.topicMatch.reasons.map(reason => `<p>${html(reason)}</p>`).join('') || `<p>${lang === 'zh' ? '目前沒有足夠的共同興趣可說明。' : 'Not enough shared interests to explain this score.'}</p>` : `<p>${lang === 'zh' ? '成為好友後可查看詳細配對理由。' : 'Become friends to see detailed matching reasons.'}</p>`}</details>` : ''}
     <p class="mt-icebreaker">${html(prompt)}</p>
     <div class="mt-actions">${friendshipActions(card, viewerHandle, t, '/matches')}</div>
   </article>`;
@@ -369,6 +372,7 @@ export function matchesPage(
   provisional = false,
   recommendations: CohortRecommendations = { topics: [], channels: [] },
   languageHref = `/matches?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  workspace?: { admin: boolean; invitations: string },
 ): string {
   const t = messages(lang);
   let content: string;
@@ -387,7 +391,9 @@ export function matchesPage(
         ${batch.hasNext ? `<a href="/matches?page=${batch.page + 1}">${t.matchesNext}</a>` : ''}
       </nav>`;
   }
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
+  content += cohortSection(recommendations, lang);
+  if (workspace) content = matchingWorkspace(content, workspace.invitations, workspace.admin, lang);
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);

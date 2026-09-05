@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
+import { MatchingStore } from './matching-v3/store.js';
 import { Repository } from './data/database.js';
 import {
   MATCHING_DISCLOSURE_LEVELS,
@@ -205,6 +206,10 @@ function rowToUser(row: Record<string, unknown>): User {
 }
 
 export class UserRegistry {
+  private v3Store?: MatchingStore;
+  matchingV3Store(): MatchingStore {
+    return this.v3Store ??= new MatchingStore(this.db);
+  }
   private readonly db: DatabaseSync;
   private readonly repositories = new Map<string, Repository>();
   private readonly dataDir: string;
@@ -741,7 +746,8 @@ export class UserRegistry {
     if (!current || current.id !== sender.id || !current.matchingOptIn) {
       throw new Error('Matching is not enabled');
     }
-    if (!this.listMatchingCandidatesFor(current).some((candidate) => candidate.userId === recipientUserId)) {
+    if (!Number.isSafeInteger(recipientUserId) || recipientUserId === current.id
+      || !this.db.prepare('SELECT 1 FROM users WHERE id=? AND matching_opt_in=1').get(recipientUserId)) {
       throw new Error('Candidate is no longer eligible');
     }
     const token = newToken();
@@ -777,12 +783,13 @@ export class UserRegistry {
     return token;
   }
 
-  matchingCandidateForAction(viewer: User, actionToken: string): MatchableCrystal | null {
+  friendshipCandidateForAction(viewer: User, actionToken: string): User | null {
     const current = this.userByHandle(viewer.handle);
     if (!current || current.id !== viewer.id || !current.matchingOptIn
       || !MATCH_ACTION_TOKEN_PATTERN.test(actionToken)) return null;
     const row = this.db.prepare(`
-      SELECT action.recipient_user_id FROM match_action_tokens action
+      SELECT recipient.* FROM match_action_tokens action
+      JOIN users recipient ON recipient.id=action.recipient_user_id AND recipient.matching_opt_in=1
       WHERE action.token_hash=? AND action.sender_user_id=? AND action.expires_at>=?
         AND NOT EXISTS (
           SELECT 1 FROM match_requests request
@@ -794,11 +801,14 @@ export class UserRegistry {
                 AND request.recipient_user_id=action.sender_user_id))
         )
     `).get(tokenHash(actionToken), current.id, new Date().toISOString()) as
-      | { recipient_user_id: number }
+      | Record<string, unknown>
       | undefined;
-    if (!row) return null;
-    return this.listMatchingCandidatesFor(current, 499)
-      .find((candidate) => candidate.userId === Number(row.recipient_user_id)) ?? null;
+    return row ? rowToUser(row) : null;
+  }
+
+  matchingCandidateForAction(viewer: User, actionToken: string): MatchableCrystal | null {
+    const target = this.friendshipCandidateForAction(viewer, actionToken);
+    return target ? this.matchingCandidateByHandle(viewer, target.handle) : null;
   }
 
   avatarUserForMatchAction(viewer: User, actionToken: string, viewerSide = false): User | null {
@@ -845,7 +855,7 @@ export class UserRegistry {
     if (!current || current.id !== sender.id || !current.matchingOptIn || !actionToken) {
       throw new Error('Match request is not allowed');
     }
-    if (!this.matchingCandidateForAction(current, actionToken)) {
+    if (!this.friendshipCandidateForAction(current, actionToken)) {
       // A retried form submission after a successful request remains
       // idempotent. Revoked, declined, or withdrawn pairs cannot be revived
       // by replaying an old action token.
@@ -866,17 +876,8 @@ export class UserRegistry {
       SELECT a.recipient_user_id, a.topics_json
       FROM match_action_tokens a
       JOIN users recipient ON recipient.id=a.recipient_user_id AND recipient.matching_opt_in=1
-      JOIN crystals c ON c.user_id=recipient.id AND c.kind='matching'
-        AND c.version=? AND c.taxonomy_version=? AND c.eligible=1
-      JOIN crystals sender_crystal ON sender_crystal.user_id=a.sender_user_id
-        AND sender_crystal.kind='matching' AND sender_crystal.version=?
-        AND sender_crystal.taxonomy_version=? AND sender_crystal.eligible=1
       WHERE a.token_hash=? AND a.sender_user_id=? AND a.expires_at>=?
     `).get(
-      REGISTRY_CRYSTAL_VERSION,
-      MATCHING_TAXONOMY.version,
-      REGISTRY_CRYSTAL_VERSION,
-      MATCHING_TAXONOMY.version,
       tokenHash(actionToken),
       current.id,
       now,
