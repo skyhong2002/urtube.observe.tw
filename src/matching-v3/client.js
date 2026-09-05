@@ -30,6 +30,7 @@ function error(err) { showView('topics'); $('message').textContent = err.message
 async function load() {
   state = await api();
   $('status').replaceChildren();
+  $('status').toggleAttribute('data-processing-status', state.optedIn);
   if (!state.optedIn) {
     $('status').append(element('span', '尚未開啟配對。請至 '));
     const link = element('a', '我的帳號'); link.href = '/account'; $('status').append(link, element('span', ' 開啟參與配對，再選擇興趣。'));

@@ -25,7 +25,7 @@ test('overview routes load stable topics and both races with scoped topic frames
     })) });
     repository.upsertYoutubeVideoMetadata(dates.map((_, index) => ({
       videoId: `OVERVIEW00${index}`, title: `Video ${index}`, channelId: 'UCaaaaaaaaaaaaaaaaaaaaaa',
-      channelTitle: 'Fixture channel', description: '', tags: [], thumbnailUrl: '', durationSeconds: 300,
+      channelTitle: 'Fixture channel', description: '', tags: ['astronomy', 'telescope'], thumbnailUrl: '', durationSeconds: 300,
       publishedAt: null, categoryId: '10', availability: 'available' as const, metadataHash: `metadata-${index}`,
     })));
     const [topic] = repository.replaceYoutubeTaxonomy([{ version: 1, slug: 'fixture-topic', name: 'Fixture topic', description: 'Music' }]);
@@ -35,6 +35,8 @@ test('overview routes load stable topics and both races with scoped topic frames
     assert.equal(all.status, 200);
     const $ = load(await all.text());
     assert.equal($('.yt-stable-topics h2').text(), '穩定主題');
+    assert.equal($('.yt-keywords').length, 1);
+    assert.match($('.yt-keywords').text(), /astronomy/);
     assert.match($('.yt-stable-topics').text(), /Fixture topic/);
     assert.equal($('.yt-overview-dynamics [data-rank-race]').length, 2);
     for (const kind of ['channels', 'topics']) {
@@ -49,7 +51,11 @@ test('overview routes load stable topics and both races with scoped topic frames
     assert.ok(frames.length <= 9);
     assert.ok(frames.every((frame: { period: string }) => /^\d{4}-\d{2}-\d{2}$/.test(frame.period)));
     const insights = load(youtubeDashboardPage('Fixture', repository.youtubeDashboard('all'), 'duration', { page: 'insights', lang: 'zh' }));
-    assert.equal(insights('[data-rank-race],.yt-stable-topics,[data-topic-trend]').length, 0);
+    assert.equal(insights('[data-rank-race="topics"]').length, 1);
+    assert.equal(insights('[data-rank-race="channels"],.yt-stable-topics').length, 0);
+    assert.equal(insights('.yt-topic-details').length, 1);
+    assert.equal(insights('.yt-keywords').length, 1);
+    assert.match(insights('.yt-keywords').text(), /astronomy/);
     assert.equal(insights('.yt-watch-time').length, 1);
     registry.setDashboardPublic(user.handle, false);
     assert.notEqual((await app.request('/overview-fixture?range=all')).status, 200, 'private dashboard remains protected');

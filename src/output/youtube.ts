@@ -843,9 +843,11 @@ export function youtubeDashboardPage(
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '') + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
-    + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
+    + keywords + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
-    + (options.v3Html ?? '') + (options.insightsHtml ?? '') + distribution + keywords : '';
+    + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
+    + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
+    + distribution + keywords : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   const insightTrust = page === 'insights' && options.dashboardPrivate
