@@ -300,7 +300,6 @@ test('/matches removes governed channels and recomputes an anonymous cohort afte
       '/viewer',
       { kind: 'empty' },
       'zh',
-      undefined,
       false,
       { topics: ['Gaming'], channels: [] },
     ), /同溫層最近常看/);

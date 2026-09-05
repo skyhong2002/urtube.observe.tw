@@ -3,7 +3,9 @@ import { matchingCardDisclosure, type MatchingCardDisclosure } from './disclosur
 import { matchingCandidateSimilarity } from './dimensions.js';
 import { MATCHING_TAXONOMY } from './matching.js';
 
-export const MATCHING_CANDIDATE_PAGE_SIZE = 5;
+// Keep a normal hackathon-sized pool on one page while retaining a hard DOM
+// bound and pagination for larger deployments.
+export const MATCHING_CANDIDATE_PAGE_SIZE = 20;
 export const MATCHING_CANDIDATE_POOL_LIMIT = 250;
 export const MATCHING_PERCENTAGE_VERSION = 'cosine-equal-v1' as const;
 
@@ -21,6 +23,7 @@ export interface MatchingCandidateCard {
   channelPercent: number | null;
   method: 'combined' | 'topics' | 'channels';
   percentageVersion: typeof MATCHING_PERCENTAGE_VERSION;
+  viewerInterests: string[];
   interests: string[];
   sharedInterests: string[];
   disclosure: MatchingCardDisclosure;
@@ -56,7 +59,9 @@ export function rankedMatchingCandidateCards(
 ): MatchingCandidateCard[] {
   return candidates.flatMap((candidate) => {
     const similarity = matchingCandidateSimilarity(viewer, candidate);
-    if (similarity.mode === 'none' || similarity.score <= 0) return [];
+    // A valid 0% comparison is still a person the viewer can inspect. Only
+    // profiles with no usable dimension at all are omitted.
+    if (similarity.mode === 'none') return [];
     const allowedKeys = new Set(similarity.allowedTopicKeys);
     const sharedTopics = commonItems(viewer.crystal.topics, candidate.crystal.topics, allowedKeys)
       .map((item) => TOPIC_NAMES.get(item.key))
@@ -64,7 +69,16 @@ export function rankedMatchingCandidateCards(
     const sharedChannels = commonItems(viewer.crystal.channels, candidate.crystal.channels)
       .map((item) => item.name);
     const viewerExcluded = new Set(viewer.dimensions.excludedTopicKeys);
+    const candidateExcluded = new Set(candidate.dimensions.excludedTopicKeys);
+    const viewerAllowed = new Set(viewer.dimensions.selectedTopicKeys);
     const candidateAllowed = new Set(candidate.dimensions.selectedTopicKeys);
+    const viewerInterests = viewer.crystal.topics
+      .filter((topic) => topic.share > 0 && viewerAllowed.has(topic.key)
+        && !candidateExcluded.has(topic.key))
+      .sort((left, right) => right.share - left.share || left.key.localeCompare(right.key))
+      .slice(0, 5)
+      .map((topic) => TOPIC_NAMES.get(topic.key))
+      .filter((name): name is string => Boolean(name));
     const interests = candidate.crystal.topics
       .filter((topic) => topic.share > 0 && candidateAllowed.has(topic.key)
         && !viewerExcluded.has(topic.key))
@@ -82,6 +96,7 @@ export function rankedMatchingCandidateCards(
         ? null : matchingPercentage(similarity.channelSimilarity),
       method: similarity.mode,
       percentageVersion: MATCHING_PERCENTAGE_VERSION,
+      viewerInterests,
       interests,
       sharedInterests: sharedTopics.slice(0, 5),
       disclosure: matchingCardDisclosure(
