@@ -138,6 +138,19 @@ test('display percentages use the same fallback as ranking when topic coverage i
   assert.equal(card.channelPercent, 100);
 });
 
+test('an eligible zero-percent person remains in the comparison directory', () => {
+  const viewer = profile(1, 'Viewer', crystal(
+    [topic('music', 1)], [{ key: 'left', name: 'Left Channel', share: 1 }],
+  ));
+  const candidate = profile(2, 'Different', crystal(
+    [topic('gaming', 1)], [{ key: 'right', name: 'Right Channel', share: 1 }],
+  ));
+  const card = rankedMatchingCandidateCards(viewer, [candidate])[0];
+  assert.ok(card);
+  assert.equal(card.matchPercent, 0);
+  assert.deepEqual(card.sharedInterests, []);
+});
+
 test('candidate cards remove excluded dimensions and enforce mutual disclosure', () => {
   const viewer = profile(1, 'Viewer', crystal(
     [topic('music', 0.6), topic('gaming', 0.3), topic('learning', 0.1)],
@@ -155,6 +168,7 @@ test('candidate cards remove excluded dimensions and enforce mutual disclosure',
   assert.deepEqual(Object.keys(restrictedCard).sort(), [
     'candidateUserId', 'channelPercent', 'disclosure', 'displayName', 'interests',
     'matchPercent', 'method', 'percentageVersion', 'sharedInterests', 'topicPercent',
+    'viewerInterests',
   ]);
   assert.equal(restrictedCard.topicPercent, 100);
   assert.deepEqual(restrictedCard.sharedInterests, ['Music']);
@@ -186,7 +200,7 @@ test('/matches requires a session and explicit matching opt-in', async () => {
   }
 });
 
-test('/matches renders five bounded cards, a finite next batch, and no private profile payload', async () => {
+test('/matches renders twenty bounded people, a finite next page, and no private profile payload', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry, { loadTagLists: noTaggedChannels });
   try {
@@ -196,7 +210,7 @@ test('/matches renders five bounded cards, a finite next batch, and no private p
       [{ key: 'shared', name: 'Shared Channel', share: 1 }],
     ));
     const candidates: User[] = [];
-    for (let index = 1; index <= 6; index += 1) {
+    for (let index = 1; index <= 21; index += 1) {
       const candidate = registry.createUser(`hidden-candidate-${index}`, `Candidate ${index}`);
       publish(registry, candidate, crystal(
         [topic('music', 0.6), topic('gaming', 0.4)],
@@ -213,13 +227,13 @@ test('/matches renders five bounded cards, a finite next batch, and no private p
     assert.equal(firstResponse.headers.get('cache-control'), 'no-store');
     assert.equal(firstResponse.headers.get('x-robots-tag'), 'noindex');
     const first = await firstResponse.text();
-    assert.equal((first.match(/<article class="mt-card">/g) ?? []).length, 5);
+    assert.equal((first.match(/<article class="mt-card">/g) ?? []).length, 20);
     assert.match(first, /Candidate 1/);
-    assert.match(first, /Candidate 5/);
-    assert.doesNotMatch(first, /Candidate 6/);
+    assert.match(first, /Candidate 20/);
+    assert.doesNotMatch(first, /Candidate 21/);
     assert.match(first, /href="\/matches\?page=2"/);
-    assert.equal((first.match(/href="\/matches\/profile\/[A-Za-z0-9_-]{40,}"/g) ?? []).length, 5);
-    assert.equal((first.match(/href="\/matches\/compare\/[A-Za-z0-9_-]{40,}"/g) ?? []).length, 5);
+    assert.doesNotMatch(first, /href="\/matches\/profile\//);
+    assert.equal((first.match(/class="mt-person-link" href="\/matches\/compare\/[A-Za-z0-9_-]{40,}"/g) ?? []).length, 20);
     assert.doesNotMatch(first, /action="\/matches\/request"/);
     assert.match(first, />\d{1,3}%<small>match<\/small>/);
     assert.doesNotMatch(first, /hidden-candidate|Private Channel|\/compare\?|\/u\//);
@@ -227,14 +241,14 @@ test('/matches renders five bounded cards, a finite next batch, and no private p
 
     const second = await (await app.request('/matches?page=2', { headers: { cookie } })).text();
     assert.equal((second.match(/<article class="mt-card">/g) ?? []).length, 1);
-    assert.match(second, /Candidate 6/);
+    assert.match(second, /Candidate 21/);
     assert.match(second, /href="\/matches\?page=1"/);
 
     assert.equal(registry.listMatchingCandidatesFor(viewer, 3).length, 3);
     registry.setMatchingPreferences(candidates[0]!.handle, false, 'topics_only');
     const afterOptOut = await (await app.request('/matches', { headers: { cookie } })).text();
-    assert.doesNotMatch(afterOptOut, /Candidate 1/);
-    assert.match(afterOptOut, /Candidate 6/);
+    assert.doesNotMatch(afterOptOut, />Candidate 1<\/h2>/);
+    assert.match(afterOptOut, />Candidate 21<\/h2>/);
   } finally {
     registry.close();
   }

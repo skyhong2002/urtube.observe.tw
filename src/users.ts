@@ -95,6 +95,12 @@ export interface MatchingInbox {
   connections: MatchConnection[];
 }
 
+export type MatchRelationship =
+  | { status: 'none' }
+  | { status: 'incoming'; requestToken: string }
+  | { status: 'sent'; requestToken: string }
+  | { status: 'connected'; requestToken: string };
+
 export interface PortableAccountData {
   account: {
     handle: string;
@@ -683,17 +689,37 @@ export class UserRegistry {
   listMatchingCandidatesFor(viewer: User, limit = 250): MatchableCrystal[] {
     const current = this.userByHandle(viewer.handle);
     if (!current || current.id !== viewer.id || !current.matchingOptIn) return [];
-    const unavailable = new Set((this.db.prepare(`
-      SELECT CASE WHEN sender_user_id=? THEN recipient_user_id ELSE sender_user_id END user_id
-      FROM match_requests
-      WHERE status IN ('pending', 'accepted', 'declined')
-        AND (sender_user_id=? OR recipient_user_id=?)
-    `).all(current.id, current.id, current.id) as Array<{ user_id: number }>)
-      .map((row) => Number(row.user_id)));
     const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 499);
     return this.listMatchableCrystals(boundedLimit + 1)
-      .filter((candidate) => candidate.userId !== current.id && !unavailable.has(candidate.userId))
+      // A relationship changes what the comparison can reveal, not whether
+      // the person disappears. Keeping active, declined, and withdrawn pairs
+      // in this bounded pool makes /matches a stable people directory.
+      .filter((candidate) => candidate.userId !== current.id)
       .slice(0, boundedLimit);
+  }
+
+  matchingRelationshipFor(viewer: User, otherUserId: number): MatchRelationship {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn
+      || !Number.isSafeInteger(otherUserId) || otherUserId === current.id) {
+      return { status: 'none' };
+    }
+    const row = this.db.prepare(`
+      SELECT request_token, sender_user_id, status FROM match_requests
+      WHERE status IN ('pending', 'accepted')
+        AND ((sender_user_id=? AND recipient_user_id=?)
+          OR (sender_user_id=? AND recipient_user_id=?))
+      ORDER BY status='accepted' DESC, updated_at DESC LIMIT 1
+    `).get(current.id, otherUserId, otherUserId, current.id) as
+      | { request_token: string; sender_user_id: number; status: 'pending' | 'accepted' }
+      | undefined;
+    if (!row) return { status: 'none' };
+    if (row.status === 'accepted') {
+      return { status: 'connected', requestToken: row.request_token };
+    }
+    return Number(row.sender_user_id) === current.id
+      ? { status: 'sent', requestToken: row.request_token }
+      : { status: 'incoming', requestToken: row.request_token };
   }
 
   issueMatchActionToken(sender: User, recipientUserId: number, topics: string[]): string {
@@ -705,7 +731,20 @@ export class UserRegistry {
       throw new Error('Candidate is no longer eligible');
     }
     const token = newToken();
-    const now = new Date();
+    const latestTerminal = this.db.prepare(`
+      SELECT MAX(updated_at) updated_at FROM match_requests
+      WHERE status IN ('declined', 'withdrawn')
+        AND ((sender_user_id=? AND recipient_user_id=?)
+          OR (sender_user_id=? AND recipient_user_id=?))
+    `).get(current.id, recipientUserId, recipientUserId, current.id) as
+      | { updated_at: string | null }
+      | undefined;
+    const terminalTime = latestTerminal?.updated_at
+      ? new Date(latestTerminal.updated_at).getTime() : Number.NaN;
+    // SQLite timestamps are millisecond precision. Ensure a newly issued
+    // directory link sorts after a decline/withdrawal in that same tick,
+    // while the old action token remains revoked.
+    const now = new Date(Math.max(Date.now(), Number.isFinite(terminalTime) ? terminalTime + 1 : 0));
     this.db.prepare('DELETE FROM match_action_tokens WHERE expires_at < ?').run(now.toISOString());
     this.db.prepare(`
       INSERT INTO match_action_tokens(

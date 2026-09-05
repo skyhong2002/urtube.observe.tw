@@ -739,7 +739,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
-    const inbox = registry.matchingInboxFor(me);
     const provisional = processingFor(registry.repositoryFor(me)).pending > 0;
     const respond = (
       state: Parameters<typeof matchesPage>[2],
@@ -753,7 +752,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         `/${me.handle}`,
         state,
         lang,
-        inbox,
         provisional,
         recommendations,
         langToggle(c, lang).href,
@@ -796,6 +794,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       cards: batch.cards.map((card) => ({
         ...card,
         actionToken: registry.issueMatchActionToken(me, card.candidateUserId, card.disclosure.topics),
+        relationship: registry.matchingRelationshipFor(me, card.candidateUserId),
       })),
     } }, 200, recommendations);
   });
@@ -819,14 +818,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     };
     const card = rankedMatchingCandidateCards(viewer, [candidate])[0];
     return card?.candidateUserId === candidate.userId
-      ? { ...card, actionToken }
+      ? {
+        ...card,
+        actionToken,
+        relationship: registry.matchingRelationshipFor(me, candidate.userId),
+      }
       : null;
   };
 
-  const candidatePageResponse = (
-    c: Context,
-    view: 'profile' | 'compare',
-  ) => {
+  const candidatePageResponse = (c: Context) => {
     const me = sessionUser(c);
     if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
     const actionToken = c.req.param('token') ?? '';
@@ -839,19 +839,28 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       me.displayName,
       '/dashboard',
       card,
-      view,
       lang,
       `${c.req.path}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
     ));
   };
 
-  app.get('/matches/profile/:token', (c) => candidatePageResponse(c, 'profile'));
-  app.get('/matches/compare/:token', (c) => candidatePageResponse(c, 'compare'));
+  app.get('/matches/profile/:token', (c) => {
+    const query = c.req.query('lang');
+    return c.redirect(`/matches/compare/${encodeURIComponent(c.req.param('token'))}${query ? `?lang=${encodeURIComponent(query)}` : ''}`);
+  });
+  app.get('/matches/compare/:token', (c) => candidatePageResponse(c));
 
   const matchingActionError = (c: Context) => {
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
     return c.text(messages(langOf(c)).matchesActionInvalid, 400);
+  };
+
+  const comparisonAfterAction = (c: Context, me: User, actionToken: unknown) => {
+    const token = String(actionToken ?? '');
+    return registry.matchingCandidateForAction(me, token)
+      ? c.redirect(`/matches/compare/${encodeURIComponent(token)}`)
+      : c.redirect('/matches');
   };
 
   app.post('/matches/request', async (c) => {
@@ -860,7 +869,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     try {
       registry.createMatchRequest(me, String(form.actionToken ?? ''));
-      return c.redirect('/matches');
+      return comparisonAfterAction(c, me, form.actionToken);
     } catch {
       return matchingActionError(c);
     }
@@ -874,7 +883,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (response !== 'accept' && response !== 'decline') return matchingActionError(c);
     try {
       registry.respondToMatchRequest(me, String(form.requestToken ?? ''), response);
-      return c.redirect('/matches');
+      return comparisonAfterAction(c, me, form.actionToken);
     } catch {
       return matchingActionError(c);
     }
@@ -886,7 +895,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     try {
       registry.withdrawMatchRequest(me, String(form.requestToken ?? ''));
-      return c.redirect('/matches');
+      return comparisonAfterAction(c, me, form.actionToken);
     } catch {
       return matchingActionError(c);
     }
@@ -951,18 +960,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
     registry.setReferenceOptIn(me.handle, form.referenceOptIn === '1');
-    return c.redirect('/account');
-  });
-
-  app.post('/account/match-profile', async (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
-    const form = await c.req.parseBody();
-    registry.setMatchingProfile(
-      me.handle,
-      String(form.matchingIntroduction ?? ''),
-      String(form.matchingContact ?? ''),
-    );
     return c.redirect('/account');
   });
 

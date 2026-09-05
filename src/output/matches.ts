@@ -1,6 +1,6 @@
 import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/candidates.js';
 import type { CohortRecommendations } from '../youtube/cohort-recommendations.js';
-import type { MatchingInbox } from '../users.js';
+import type { MatchRelationship } from '../users.js';
 import { messages, type Lang } from './i18n.js';
 import { html, primaryNav, shell } from './pages.js';
 
@@ -12,6 +12,7 @@ export type MatchesPageState =
 
 export interface ActionableMatchingCandidateCard extends MatchingCandidateCard {
   actionToken: string;
+  relationship: MatchRelationship;
 }
 
 export interface ActionableMatchingCandidateBatch extends Omit<MatchingCandidateBatch, 'cards'> {
@@ -24,18 +25,16 @@ const matchesStyles = `
   .mt-provisional{background:rgba(250,178,25,.1);border:1px solid rgba(250,178,25,.35);border-radius:10px;color:#f5c95e;font-size:12px;margin:0 0 20px;padding:11px 13px}
   .mt-cohort{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin:0 0 20px;padding:20px}.mt-cohort h2{font-size:17px;margin:0 0 7px}.mt-cohort>p{color:var(--ink-2);font-size:12px;margin:0 0 14px;max-width:680px}.mt-cohort-groups{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.mt-cohort-group strong{color:var(--muted);display:block;font-size:9px;letter-spacing:.08em;margin-bottom:7px;text-transform:uppercase}
   .mt-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
-  .mt-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:270px;padding:20px}
-  .mt-person{align-items:center;display:flex;gap:12px}.mt-avatar{background:linear-gradient(140deg,#e66767,#9b2b2b);border-radius:50%;display:block;flex:0 0 44px;height:44px;object-fit:cover;width:44px}.mt-person h2{font-size:17px;margin:0}.mt-strength{color:var(--accent-text);font-size:11px;font-weight:750;margin-top:2px}
+  .mt-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:230px;padding:20px}
+  .mt-person{align-items:center;display:flex;gap:12px}.mt-person-link{align-items:center;color:inherit;display:flex;gap:12px;text-decoration:none}.mt-avatar{background:linear-gradient(140deg,#e66767,#9b2b2b);border:2px solid transparent;border-radius:50%;display:block;flex:0 0 54px;height:54px;object-fit:cover;transition:border-color .15s,transform .15s;width:54px}.mt-person-link:hover .mt-avatar,.mt-person-link:focus-visible .mt-avatar{border-color:var(--accent);transform:scale(1.04)}.mt-person h2{font-size:17px;margin:0}
   .mt-percent{color:var(--accent-text);font-size:22px;font-variant-numeric:tabular-nums;font-weight:850;letter-spacing:-.03em}.mt-percent small{color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.02em;margin-left:5px}
   .mt-clues{display:grid;gap:9px;margin:20px 0 16px}.mt-clue-label{color:var(--muted);display:block;font-size:9px;font-weight:700;letter-spacing:.08em;margin-bottom:5px;text-transform:uppercase}.mt-pills{display:flex;flex-wrap:wrap;gap:6px}.mt-pill{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:11px;padding:3px 9px}.mt-channel{color:var(--ink-2);font-size:12px}
-  .mt-icebreaker{color:var(--ink-2);font-size:12px;line-height:1.6;margin:auto 0 16px}.mt-actions{display:flex;flex-wrap:wrap;gap:8px}.mt-actions a,.mt-actions button{border-radius:999px;font:inherit;font-size:12px;font-weight:700;padding:8px 12px;text-decoration:none}.mt-want{background:var(--accent);border:1px solid var(--accent);color:#fff}.mt-secondary-link,.mt-skip{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);cursor:pointer}
+  .mt-icebreaker{color:var(--ink-2);font-size:12px;line-height:1.6;margin:auto 0 16px}.mt-actions{align-items:center;display:flex;flex-wrap:wrap;gap:8px}.mt-actions a,.mt-actions button,.mt-profile-actions button{border-radius:999px;font:inherit;font-size:12px;font-weight:700;padding:8px 12px;text-decoration:none}.mt-want{background:var(--accent);border:1px solid var(--accent);color:#fff;cursor:pointer}.mt-secondary-link,.mt-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);cursor:pointer}.mt-state{background:var(--raised);border-radius:999px;color:var(--muted);font-size:10px;font-weight:750;padding:5px 9px}.mt-state.connected{background:rgba(78,190,130,.12);color:#71d9a1}.mt-state.incoming{background:rgba(250,178,25,.12);color:#f5c95e}
   .mt-pagination{align-items:center;display:flex;gap:9px;justify-content:center;margin-top:22px}.mt-pagination a{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:12px;font-weight:700;padding:8px 13px;text-decoration:none}.mt-page{color:var(--muted);font-size:11px}
   .mt-empty{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);max-width:620px;padding:26px}.mt-empty h2{font-size:18px;margin:0 0 8px}.mt-empty p{color:var(--ink-2);margin:0 0 16px}.mt-empty a{background:var(--accent);border-radius:999px;color:#fff;display:inline-block;font-size:13px;font-weight:700;padding:9px 15px;text-decoration:none}
-  .mt-inbox{display:grid;gap:14px;margin-bottom:20px}.mt-inbox-section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}.mt-inbox-section h2{font-size:16px;margin:0 0 12px}.mt-inbox-list{display:grid;gap:10px}.mt-inbox-row{align-items:center;background:var(--raised);border-radius:10px;display:flex;gap:12px;justify-content:space-between;padding:12px 14px}.mt-inbox-copy{min-width:0}.mt-inbox-copy strong,.mt-inbox-copy span{display:block}.mt-inbox-copy span{color:var(--muted);font-size:11px;margin-top:2px}.mt-inbox-actions{display:flex;flex-wrap:wrap;gap:7px}.mt-inbox-actions button{border-radius:999px;cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:7px 10px}.mt-accept{background:var(--accent);border:1px solid var(--accent);color:#fff}.mt-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2)}
-  .mt-connections{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}.mt-connection{background:var(--raised);border-radius:10px;padding:15px}.mt-connection h3{font-size:15px;margin:0 0 7px}.mt-connection p{color:var(--ink-2);font-size:12px;line-height:1.6;margin:5px 0}.mt-contact{border-top:1px solid var(--line);font-weight:700;margin-top:11px!important;padding-top:10px}
-  .mt-profile{margin:10px auto 40px;max-width:860px}.mt-profile-back{color:var(--ink-2);font-size:12px}.mt-profile-hero{align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:grid;gap:22px;grid-template-columns:auto 1fr auto;margin-top:18px;padding:clamp(22px,5vw,42px)}.mt-profile-avatar{border-radius:50%;height:96px;object-fit:cover;width:96px}.mt-profile-copy h1{font-size:clamp(28px,5vw,48px);letter-spacing:-.04em;margin:2px 0 8px}.mt-score-ring{align-items:center;background:conic-gradient(var(--accent) calc(var(--score)*1%),var(--line) 0);border-radius:50%;display:flex;height:112px;justify-content:center;width:112px}.mt-score-ring>span{align-items:center;background:var(--surface);border-radius:50%;display:flex;flex-direction:column;height:88px;justify-content:center;width:88px}.mt-score-ring strong{font-size:27px;font-variant-numeric:tabular-nums}.mt-score-ring small{color:var(--muted);font-size:9px;text-transform:uppercase}.mt-profile-content{display:grid;gap:16px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:16px}.mt-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px}.mt-panel h2{font-size:15px;margin:0 0 13px}.mt-panel>p{color:var(--ink-2);font-size:12px;line-height:1.6}.mt-metrics{display:grid;gap:10px}.mt-metric{align-items:center;display:flex;gap:12px}.mt-metric span{color:var(--ink-2);font-size:12px;min-width:108px}.mt-meter{background:var(--raised);border-radius:999px;flex:1;height:8px;overflow:hidden}.mt-meter i{background:var(--accent);display:block;height:100%}.mt-metric strong{font-size:13px;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}.mt-profile-actions{align-items:center;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}.mt-profile-actions a,.mt-profile-actions button{border-radius:999px;font:inherit;font-size:13px;font-weight:750;padding:10px 16px;text-decoration:none}
-  .mt-vs{align-items:stretch;display:grid;grid-template-columns:minmax(0,1fr) 116px minmax(0,1fr);margin:20px 0}.mt-side{background:var(--surface);border:1px solid var(--line);min-height:360px;padding:clamp(20px,5vw,48px);text-align:center}.mt-side:first-child{border-radius:var(--radius) 0 0 var(--radius)}.mt-side:last-child{border-radius:0 var(--radius) var(--radius) 0}.mt-side img{border-radius:50%;height:clamp(72px,12vw,116px);object-fit:cover;width:clamp(72px,12vw,116px)}.mt-side h2{font-size:clamp(20px,3vw,32px);margin:13px 0 6px}.mt-side-label{color:var(--muted);font-size:10px;letter-spacing:.09em;text-transform:uppercase}.mt-vs-center{align-items:center;display:flex;flex-direction:column;justify-content:center;position:relative;z-index:1}.mt-vs-center::before{background:var(--line);content:'';height:100%;left:50%;position:absolute;width:1px;z-index:-1}.mt-vs-score{align-items:center;background:var(--accent);border:7px solid var(--bg);border-radius:50%;color:#fff;display:flex;flex-direction:column;height:104px;justify-content:center;width:104px}.mt-vs-score strong{font-size:25px;font-variant-numeric:tabular-nums}.mt-vs-score span{font-size:9px;font-weight:700;text-transform:uppercase}.mt-version{color:var(--muted);font-size:10px;margin-top:9px;text-align:center}
-  @media(max-width:620px){.mt-profile-hero{grid-template-columns:auto 1fr}.mt-score-ring{grid-column:1/-1;justify-self:center}.mt-profile-content{grid-template-columns:1fr}.mt-vs{grid-template-columns:minmax(0,1fr) 66px minmax(0,1fr)}.mt-vs-score{border-width:4px;height:62px;width:62px}.mt-vs-score strong{font-size:16px}.mt-vs-score span{font-size:7px}.mt-side{min-height:300px;padding:20px 8px}.mt-side h2{overflow-wrap:anywhere}.mt-profile-avatar{height:72px;width:72px}}
+  .mt-profile{margin:10px auto 40px;max-width:900px}.mt-profile-back{color:var(--ink-2);font-size:12px}.mt-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-top:16px;padding:22px}.mt-panel h2{font-size:15px;margin:0 0 13px}.mt-panel>p{color:var(--ink-2);font-size:12px;line-height:1.6}.mt-metrics{display:grid;gap:10px}.mt-metric{align-items:center;display:flex;gap:12px}.mt-metric span{color:var(--ink-2);font-size:12px;min-width:108px}.mt-meter{background:var(--raised);border-radius:999px;flex:1;height:8px;overflow:hidden}.mt-meter i{background:var(--accent);display:block;height:100%}.mt-metric strong{font-size:13px;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}.mt-profile-actions{align-items:center;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}.mt-profile-actions form{margin:0}.mt-unlock{border-color:rgba(78,190,130,.35);background:rgba(78,190,130,.06)}.mt-locked{background:var(--raised)}
+  .mt-vs{align-items:stretch;display:grid;grid-template-columns:minmax(0,1fr) 116px minmax(0,1fr);margin:20px 0}.mt-side{background:var(--surface);border:1px solid var(--line);min-height:360px;padding:clamp(20px,5vw,48px);text-align:center}.mt-side:first-child{border-radius:var(--radius) 0 0 var(--radius)}.mt-side:last-child{border-radius:0 var(--radius) var(--radius) 0}.mt-side img{border-radius:50%;height:clamp(72px,12vw,116px);object-fit:cover;width:clamp(72px,12vw,116px)}.mt-side h2{font-size:clamp(20px,3vw,32px);margin:13px 0 14px}.mt-side-label{color:var(--muted);font-size:10px;letter-spacing:.09em;text-transform:uppercase}.mt-side .mt-pills{justify-content:center}.mt-vs-center{align-items:center;display:flex;flex-direction:column;justify-content:center;position:relative;z-index:1}.mt-vs-center::before{background:var(--line);content:'';height:100%;left:50%;position:absolute;width:1px;z-index:-1}.mt-vs-score{align-items:center;background:var(--accent);border:7px solid var(--bg);border-radius:50%;color:#fff;display:flex;flex-direction:column;height:104px;justify-content:center;width:104px}.mt-vs-score strong{font-size:25px;font-variant-numeric:tabular-nums}.mt-vs-score span{font-size:9px;font-weight:700;text-transform:uppercase}.mt-version{color:var(--muted);font-size:10px;margin-top:9px;text-align:center}
+  @media(max-width:620px){.mt-vs{grid-template-columns:minmax(0,1fr) 66px minmax(0,1fr)}.mt-vs-score{border-width:4px;height:62px;width:62px}.mt-vs-score strong{font-size:16px}.mt-vs-score span{font-size:7px}.mt-side{min-height:300px;padding:20px 8px}.mt-side h2{overflow-wrap:anywhere}.mt-side .mt-pill{font-size:9px;padding:3px 6px}}
 `;
 
 function icebreaker(topics: string[], lang: Lang): string {
@@ -53,14 +52,21 @@ function candidateCard(card: ActionableMatchingCandidateCard, lang: Lang): strin
     : card.disclosure.channel
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
+  const comparisonHref = `/matches/compare/${html(card.actionToken)}`;
+  const relationshipLabel = {
+    none: t.matchesCompareFirst,
+    incoming: t.matchesIncomingStatus,
+    sent: t.matchesSentStatus,
+    connected: t.matchesConnectedStatus,
+  }[card.relationship.status];
   return `<article class="mt-card">
-    <div class="mt-person"><img class="mt-avatar" src="/avatar/match/${html(card.actionToken)}" alt="" width="44" height="44" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></div>
+    <div class="mt-person"><a class="mt-person-link" href="${comparisonHref}"><img class="mt-avatar" src="/avatar/match/${html(card.actionToken)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
     </div>
     <p class="mt-icebreaker">${html(prompt)}</p>
-    <div class="mt-actions"><a class="mt-want" href="/matches/profile/${html(card.actionToken)}">${t.matchesBrowse}</a><a class="mt-secondary-link" href="/matches/compare/${html(card.actionToken)}">${t.matchesCompare}</a><button class="mt-skip" type="button">${t.matchesSkip}</button></div>
+    <div class="mt-actions"><a class="mt-want" href="${comparisonHref}">${t.matchesCompare}</a><span class="mt-state ${card.relationship.status}">${relationshipLabel}</span></div>
   </article>`;
 }
 
@@ -77,35 +83,42 @@ export function matchingCandidatePage(
   viewerName: string,
   dashboardHref: string,
   card: ActionableMatchingCandidateCard,
-  view: 'profile' | 'compare',
   lang: Lang = 'en',
-  languageHref = `/matches/${view}/${card.actionToken}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  languageHref = `/matches/compare/${card.actionToken}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
 ): string {
   const t = messages(lang);
-  const shared = card.sharedInterests.length ? interestPills(card.sharedInterests) : `<p>${t.matchesNoSharedTopics}</p>`;
-  const interests = card.interests.length ? interestPills(card.interests) : `<p>${t.matchesNoProfileTopics}</p>`;
+  const connected = card.relationship.status === 'connected';
+  const visibleShared = connected ? card.sharedInterests : card.disclosure.topics;
+  const shared = visibleShared.length ? interestPills(visibleShared) : `<p>${t.matchesNoSharedTopics}</p>`;
+  const viewerInterests = card.viewerInterests.length
+    ? interestPills(card.viewerInterests.slice(0, connected ? 5 : 3))
+    : `<p>${t.matchesNoProfileTopics}</p>`;
+  const candidateInterests = card.interests.length
+    ? interestPills(card.interests.slice(0, connected ? 5 : 3))
+    : `<p>${t.matchesNoProfileTopics}</p>`;
   const metrics = `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
-  const request = `<form method="post" action="/matches/request"><input type="hidden" name="actionToken" value="${html(card.actionToken)}"><button class="mt-want" type="submit">${t.matchesWant}</button></form>`;
-  let content: string;
-  if (view === 'compare') {
-    content = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/match/${html(card.actionToken)}/viewer" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${shared}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/match/${html(card.actionToken)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${interests}</section></div><section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p></section>`;
+  const actionToken = `<input type="hidden" name="actionToken" value="${html(card.actionToken)}">`;
+  let actions: string;
+  if (card.relationship.status === 'none') {
+    actions = `<form method="post" action="/matches/request">${actionToken}<button class="mt-want" type="submit">${t.matchesWant}</button></form>`;
+  } else if (card.relationship.status === 'incoming') {
+    actions = `<form method="post" action="/matches/respond">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-want" name="response" value="accept">${t.matchesWantToo}</button><button class="mt-secondary" name="response" value="decline">${t.matchesDecline}</button></form>`;
+  } else if (card.relationship.status === 'sent') {
+    actions = `<span class="mt-state sent">${t.matchesSentStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesWithdraw}</button></form>`;
   } else {
-    content = `<section class="mt-profile-hero"><img class="mt-profile-avatar" src="/avatar/match/${html(card.actionToken)}" alt="" width="96" height="96"><div class="mt-profile-copy"><span class="mt-side-label">${t.matchesCandidateProfile}</span><h1>${html(card.displayName)}</h1><p>${t.matchesProfilePara}</p></div><div class="mt-score-ring" style="--score:${card.matchPercent}"><span><strong>${card.matchPercent}%</strong><small>${t.matchesFit}</small></span></div></section><div class="mt-profile-content"><section class="mt-panel"><h2>${t.matchesTheirInterests}</h2>${interests}</section><section class="mt-panel"><h2>${t.matchesSharedTopics}</h2>${shared}</section><section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div></section><section class="mt-panel"><h2>${t.matchesBeforeMeeting}</h2><p>${t.matchesBeforeMeetingPara}</p></section></div>`;
+    actions = `<span class="mt-state connected">${t.matchesConnectedStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form>`;
   }
-  const actions = `<div class="mt-profile-actions">${view === 'profile' ? `<a class="mt-secondary-link" href="/matches/compare/${html(card.actionToken)}">${t.matchesCompare}</a>` : `<a class="mt-secondary-link" href="/matches/profile/${html(card.actionToken)}">${t.matchesBrowse}</a>`}${request}</div>`;
+  const channel = connected && card.disclosure.channel
+    ? `<p><strong>${t.matchesSharedChannel}:</strong> ${html(card.disclosure.channel)}</p>` : '';
+  const detail = connected
+    ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p>${shared}${channel}</section>`
+    : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p>${shared}</section>`;
+  const content = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/match/${html(card.actionToken)}/viewer" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/match/${html(card.actionToken)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${candidateInterests}</section></div>${detail}<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p></section>`;
+  actions = `<div class="mt-profile-actions">${actions}</div>`;
   const body = `<style>${matchesStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${content}<p class="mt-version">${t.matchesFormulaVersion(card.percentageVersion)}</p>${actions}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div>`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
-}
-
-function inboxSection(inbox: MatchingInbox, lang: Lang): string {
-  const t = messages(lang);
-  const incoming = inbox.incoming.length ? `<section class="mt-inbox-section"><h2>${t.matchesIncoming}</h2><div class="mt-inbox-list">${inbox.incoming.map((request) => `<div class="mt-inbox-row"><img class="mt-avatar" src="/avatar/request/${html(request.requestToken)}" alt="" width="44" height="44" loading="lazy"><div class="mt-inbox-copy"><strong>${html(request.displayName)}</strong><span>${html(request.topics.join(lang === 'zh' ? '、' : ', ') || t.matchesSharedGroundPrivate)}</span></div><div class="mt-inbox-actions"><form method="post" action="/matches/respond"><input type="hidden" name="requestToken" value="${html(request.requestToken)}"><button class="mt-accept" name="response" value="accept">${t.matchesAccept}</button><button class="mt-secondary" name="response" value="decline">${t.matchesDecline}</button></form><button class="mt-secondary mt-ignore" type="button">${t.matchesSkip}</button></div></div>`).join('')}</div></section>` : '';
-  const sent = inbox.sent.length ? `<section class="mt-inbox-section"><h2>${t.matchesSent}</h2><div class="mt-inbox-list">${inbox.sent.map((request) => `<div class="mt-inbox-row"><img class="mt-avatar" src="/avatar/request/${html(request.requestToken)}" alt="" width="44" height="44" loading="lazy"><div class="mt-inbox-copy"><strong>${html(request.displayName)}</strong><span>${t.matchesAwaiting}</span></div><form method="post" action="/matches/withdraw"><input type="hidden" name="requestToken" value="${html(request.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesWithdraw}</button></form></div>`).join('')}</div></section>` : '';
-  const connections = inbox.connections.length ? `<section class="mt-inbox-section"><h2>${t.matchesConnections}</h2><div class="mt-connections">${inbox.connections.map((connection) => `<article class="mt-connection"><div class="mt-person"><img class="mt-avatar" src="/avatar/request/${html(connection.requestToken)}" alt="" width="44" height="44" loading="lazy"><h3>${html(connection.displayName)}</h3></div>${connection.introduction ? `<p>${html(connection.introduction)}</p>` : `<p>${t.matchesNoIntroduction}</p>`}<p>${html(icebreaker(connection.topics, lang))}</p>${connection.contact ? `<p class="mt-contact">${html(connection.contact)}</p>` : `<p class="mt-contact">${t.matchesNoContact}</p>`}<form method="post" action="/matches/withdraw"><input type="hidden" name="requestToken" value="${html(connection.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form></article>`).join('')}</div></section>` : '';
-  if (!incoming && !sent && !connections) return '';
-  return `<div class="mt-inbox">${incoming}${sent}${connections}</div><script>(()=>{for(const button of document.querySelectorAll('.mt-ignore'))button.addEventListener('click',()=>button.closest('.mt-inbox-row')?.remove())})();</script>`;
 }
 
 function cohortSection(recommendations: CohortRecommendations, lang: Lang): string {
@@ -122,7 +135,6 @@ export function matchesPage(
   dashboardHref: string,
   state: MatchesPageState,
   lang: Lang = 'en',
-  inbox: MatchingInbox = { incoming: [], sent: [], connections: [] },
   provisional = false,
   recommendations: CohortRecommendations = { topics: [], channels: [] },
   languageHref = `/matches?lang=${lang === 'zh' ? 'en' : 'zh'}`,
@@ -138,15 +150,13 @@ export function matchesPage(
   } else {
     const { batch } = state;
     content = `<div class="mt-grid">${batch.cards.map((card) => candidateCard(card, lang)).join('')}</div>
-      <p class="mt-empty" id="mt-batch-empty" hidden>${t.matchesBatchEmpty}</p>
       <nav class="mt-pagination" aria-label="${html(t.matchesPages)}">
         ${batch.hasPrevious ? `<a href="/matches?page=${batch.page - 1}">${t.matchesPrevious}</a>` : ''}
         <span class="mt-page">${t.matchesPage(batch.page)}</span>
         ${batch.hasNext ? `<a href="/matches?page=${batch.page + 1}">${t.matchesNext}</a>` : ''}
-      </nav>
-      <script>(()=>{const cards=[...document.querySelectorAll('.mt-card')];for(const card of cards){card.querySelector('.mt-skip')?.addEventListener('click',()=>{card.remove();if(!document.querySelector('.mt-card'))document.getElementById('mt-batch-empty').hidden=false})}})();</script>`;
+      </nav>`;
   }
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${inboxSection(inbox, lang)}${cohortSection(recommendations, lang)}${content}`;
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);

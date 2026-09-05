@@ -232,17 +232,6 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <p class="ob-help">${t.accountMatchingSeparate}</p>
         <button type="submit">${t.accountMatchingSave}</button>
       </form>
-      <h2>${t.accountMatchProfile}</h2>
-      <p>${t.accountMatchProfilePara}</p>
-      <form method="post" action="/account/match-profile" class="ob-form">
-        <label for="matchingIntroduction">${t.accountMatchIntroduction}</label>
-        <textarea id="matchingIntroduction" name="matchingIntroduction" maxlength="160">${html(user.matchingIntroduction)}</textarea>
-        <p class="ob-help">${t.accountMatchIntroductionHint}</p>
-        <label for="matchingContact">${t.accountMatchContact}</label>
-        <input id="matchingContact" name="matchingContact" type="text" maxlength="240" value="${html(user.matchingContact)}">
-        <p class="ob-help">${t.accountMatchContactHint}</p>
-        <button type="submit">${t.accountMatchProfileSave}</button>
-      </form>
       ${dimensionSettings}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>

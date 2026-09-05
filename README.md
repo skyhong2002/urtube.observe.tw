@@ -16,7 +16,7 @@ The deployed flow is usable end to end: sign in with Google, provision the
 Chrome extension or import an anonymous Takeout ZIP, follow persisted
 processing states, inspect private insights, confirm matching interests, opt
 in to matching, review bounded candidate cards, mutually consent to a
-connection, then disconnect, export, or delete the archive. Empty,
+deeper comparison, then revoke that consent, export, or delete the archive. Empty,
 insufficient-data, processing, failed, retry, and no-candidate states have
 explicit UI instead of falling through to a misleading result.
 
@@ -95,13 +95,14 @@ channel only when both people allow it. Turning matching off removes the user
 from new candidate queries immediately; it does not change or publish the
 personal dashboard.
 `/matches` is session-only and requires that opt-in. It ranks at most 250
-eligible profiles using equal topic/channel weight and renders five cards per
-finite batch. Cards contain only a display name, rounded match percentage, up
+eligible profiles using equal topic/channel weight and renders twenty people per
+finite page. Cards contain only a display name, rounded match percentage, up
 to two allowed canonical topics, an optional mutually allowed channel, and a
-generic icebreaker. Each card opens a bounded candidate profile and a
-split-screen VS comparison without first sending a request. Those pages use
-the same short-lived, session-bound opaque token and add at most five broad
-interest names plus rounded topic/channel percentages; they never expose
+generic icebreaker. The avatar and card action open one split-screen VS
+comparison, with the signed-in person on the left and the candidate on the
+right, without first sending a request. The comparison uses a short-lived,
+session-bound opaque token and adds bounded broad interest names plus rounded
+topic/channel percentages; it never exposes
 handles, emails, crystals, histories, raw shares, full vectors, introductions,
 contacts, or candidate dashboards.
 When at least three of the ten nearest eligible people contribute the same
@@ -110,16 +111,16 @@ as a group signal. It never names contributors or exposes their values, videos,
 or source details. Channels from people who allow topic-only disclosure are not
 used. Governed news, editorial, and political channels are excluded. If those
 labels cannot be verified, channel recommendations stay hidden.
-“Want to meet” is a separate action on the profile/VS pages and uses their
-short-lived opaque token, so candidate handles and internal ids never enter
-the page. A request reveals nothing new. The recipient
-can accept, skip locally, or decline, and the sender can withdraw while it is
-pending. A decline hides that pair; either person can disconnect after acceptance.
-Only acceptance creates a connection. Every connection read checks the
-accepted request and both users' current matching opt-in before returning the
-introduction and contact method each person chose to share. Current topic
-exclusions are reapplied to saved icebreakers. Turning matching off withdraws
-pending requests and established connections immediately.
+“Want to meet” is a separate action on the VS page and uses its short-lived
+opaque token, so candidate handles and internal ids never enter the page. The
+same person remains in the directory while a request is pending or accepted.
+The recipient can agree or decline, and the sender can withdraw while pending.
+Only mutual consent unlocks additional broad comparison interests and the
+mutually allowed channel clue; it does not reveal introductions or contact
+details. Every comparison read checks the current relationship, topic
+exclusions, data eligibility, and both users' opt-in. Either person can revoke
+mutual consent, and turning matching off withdraws active relationships
+immediately.
 
 Signed-in users can export their own archive from `/account` after an explicit
 confirmation. The response is a non-cacheable streamed ZIP containing readable
@@ -174,8 +175,7 @@ brand always returns home.
 
 Sessions live in an HttpOnly cookie for 180 days. `/account` shows your
 dashboard link and lets you rename yourself, configure matching privacy,
-choose what introduction and contact method a mutual match may see, choose or
-exclude matching interests, toggle dashboard visibility, rotate
+choose or exclude matching interests, toggle dashboard visibility, rotate
 tokens (lost-token recovery), and sign out. Signups
 are rate-limited per IP; disable them with `SIGNUP_ENABLED=false` (login and
 claiming stay available).
