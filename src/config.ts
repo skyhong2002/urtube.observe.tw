@@ -81,6 +81,9 @@ export const config = {
     // Per-request budget. A queued self-hosted gateway (docs/ai-gateway.md)
     // needs minutes, not the one-minute default sized for hosted APIs.
     timeoutMs: Math.max(1000, Number(process.env.AI_TIMEOUT_MS ?? 60_000) || 60_000),
+    // Model calls in flight across every archive, and the per-archive batch
+    // fan-out. Match the gateway's own concurrency (docs/ai-gateway.md).
+    concurrency: Math.max(1, Math.min(16, Number(process.env.AI_CONCURRENCY ?? 4) || 4)),
   },
   opsStatusDirectory: process.env.OPS_STATUS_DIRECTORY
     ?? dirname(process.env.DATABASE_PATH ?? './data/urtube.sqlite'),

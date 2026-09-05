@@ -1386,8 +1386,10 @@ test('classification feeds rejections back to the model and skips a stubborn bat
     await ensureYoutubeTaxonomyWithClient(repository, false, client);
 
     assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 20);
-    assert.deepEqual(requests.map((entry) => [entry.batch, entry.feedback === null ? null : /rejected: Personal classification evidence must occur/.test(entry.feedback)]),
-      [[20, null], [20, true], [4, null], [4, true], [4, true]]);
+    const shape = (entries: typeof requests) => entries
+      .map((entry) => [entry.batch, entry.feedback === null ? null : /rejected: Personal classification evidence must occur/.test(entry.feedback)] as const)
+      .sort((a, b) => b[0] - a[0] || Number(a[1]) - Number(b[1]));
+    assert.deepEqual(shape(requests), [[20, null], [20, true], [4, null], [4, true], [4, true]]);
     // Only the skipped batch remains; it is retried on the next cycle and
     // the cycle reports the failure when nothing at all could be saved.
     await assert.rejects(classifyYoutubeVideosWithClient(repository, 100, client), /must occur in its declared metadata source/);

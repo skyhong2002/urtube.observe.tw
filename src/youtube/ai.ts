@@ -15,13 +15,14 @@ import type { YoutubeTopic, YoutubeVideoMetadata } from './types.js';
 
 // Accounts run concurrently while all model calls share one bounded FIFO.
 // This prevents a large archive from consuming every classification slot.
-const aiRequest = createAsyncLimiter(4);
+const aiRequest = createAsyncLimiter(config.ai.concurrency);
 
 export interface YoutubeAiClient {
   baseUrl: string;
   apiKey: string;
   model: string;
   timeoutMs?: number;
+  concurrency?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -164,11 +165,20 @@ export async function classifyYoutubeVideosWithClient(
   if (!run) return 0;
   const topics = repository.youtubeTopics(run.taxonomyVersion);
   const videos = repository.youtubeVideosForPersonalClassification(run, limit);
+  const batches: YoutubeVideoMetadata[][] = [];
+  for (let index = 0; index < videos.length; index += 20) batches.push(videos.slice(index, index + 20));
   let classified = 0;
   let failedBatches = 0;
   let firstFailure: unknown;
-  for (let index = 0; index < videos.length; index += 20) {
-    const batch = videos.slice(index, index + 20);
+  const system = 'Classify every supplied YouTube video into exactly one governed topic. '
+    + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
+    + '"alternativeSlug":null,"alternativeConfidence":null,'
+    + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.0}]}]}. '
+    + 'Use Other for clear content outside the listed subjects. Use Unknown when metadata is insufficient. '
+    + 'Give at most three evidence items per video. Each evidence text must be a verbatim quote of at most 80 characters '
+    + 'from its declared public metadata source, with a score above 0 and at most 1. '
+    + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.';
+  const classifyBatch = async (batch: YoutubeVideoMetadata[]): Promise<void> => {
     let validated: Array<{
       video: YoutubeVideoMetadata;
       decision: ReturnType<typeof decidePersonalClassification>;
@@ -182,14 +192,7 @@ export async function classifyYoutubeVideosWithClient(
           ? `Your previous answer was rejected: ${errorText(lastError)}. Return the complete JSON object again with that fixed.`
           : undefined;
         const response = await chatJson(
-          'Classify every supplied YouTube video into exactly one governed topic. '
-          + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
-          + '"alternativeSlug":null,"alternativeConfidence":null,'
-          + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.0}]}]}. '
-          + 'Use Other for clear content outside the listed subjects. Use Unknown when metadata is insufficient. '
-          + 'Give at most three evidence items per video. Each evidence text must be a verbatim quote of at most 80 characters '
-          + 'from its declared public metadata source, with a score above 0 and at most 1. '
-          + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.',
+          system,
           {
             taxonomy: topics.map(({ slug, name, description }) => ({ slug, name, description })),
             videos: batch.map(youtubePublicMetadata),
@@ -249,13 +252,24 @@ export async function classifyYoutubeVideosWithClient(
       failedBatches += 1;
       firstFailure ??= lastError;
       console.warn(`personal classification batch skipped after 3 attempts: ${errorText(lastError)}`);
-      continue;
+      return;
     }
     for (const { video, decision } of validated) {
       repository.savePersonalYoutubeVideoTopic(run, video, decision);
       classified += 1;
     }
-  }
+  };
+  // Batches of one archive fan out up to the shared limiter width; the
+  // limiter still bounds total in-flight model calls across archives.
+  let cursor = 0;
+  const lanes = Math.min(client.concurrency ?? config.ai.concurrency, Math.max(1, batches.length));
+  await Promise.all(Array.from({ length: lanes }, async () => {
+    while (cursor < batches.length) {
+      const batch = batches[cursor]!;
+      cursor += 1;
+      await classifyBatch(batch);
+    }
+  }));
   repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion);
   if (failedBatches && !classified) throw firstFailure;
   return classified;
