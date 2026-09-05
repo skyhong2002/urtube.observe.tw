@@ -1,3 +1,5 @@
+import { genreLabels } from './genre-labels.js';
+import type { Genre } from '../matching-v3/model.js';
 import { v3ProcessingStyles } from './v3-processing.js';
 import { matchingWorkspace } from '../matching-v3/page.js';
 import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/candidates.js';
@@ -33,7 +35,7 @@ export interface ActionableMatchingCandidateCard extends MatchingCandidateCard {
   relationship: MatchRelationship;
   targetPublic?: boolean;
   comparisonReady?: boolean;
-  topicMatch?: { score: number | null; provisional: boolean; reasons: string[]; detailsVisible: boolean };
+  topicMatch?: { score: number | null; provisional: boolean; reasons: string[]; detailsVisible: boolean; details?: Array<{genre: Genre; score: number | null}>; available?: Genre[]; selected?: Genre[]; unavailable?: 'pending' | 'consent' | 'service' };
 }
 
 export interface ActionableMatchingCandidateBatch extends Omit<MatchingCandidateBatch, 'cards'> {
@@ -307,13 +309,29 @@ export function matchingCandidatePage(
   const candidateInterests = card.interests.length
     ? interestPills(card.interests.slice(0, connected ? 5 : 3))
     : `<p>${t.matchesNoProfileTopics}</p>`;
-  const metrics = `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
+  const metrics = card.topicMatch ? (card.topicMatch.details ?? []).map(detail => metric(genreLabels(lang)[detail.genre], detail.score === null ? null : Math.round(detail.score * 100))).join('')
+    : `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
+  const score = card.topicMatch ? card.topicMatch.score === null ? '—' : `${Math.round(card.topicMatch.score * 100)}%`
+    : card.comparisonReady === false ? '—' : `${card.matchPercent}%`;
+  const scoreNote = !card.topicMatch ? '' : card.topicMatch.score !== null
+    ? (card.topicMatch.provisional ? (lang === 'zh' ? '暫定分數' : 'Provisional score') : '')
+    : card.topicMatch.unavailable === 'consent' ? (lang === 'zh' ? '尚無雙方共同開放的興趣類別' : 'No mutually shared interest categories')
+      : card.topicMatch.unavailable === 'service' ? (lang === 'zh' ? '計分服務暫時無法使用，請稍後重試' : 'Scoring is temporarily unavailable. Please try again.')
+        : (lang === 'zh' ? '所選類別的分析尚未齊全' : 'Analysis for the selected categories is not yet complete');
+  const missing = (card.topicMatch?.details ?? []).filter(detail => detail.score === null).map(detail => genreLabels(lang)[detail.genre]);
+  const selection = card.topicMatch?.available?.length ? `<form method="get" class="mt-panel">
+    <input type="hidden" name="genre" value=""><input type="hidden" name="range" value="${comparison.range}"><input type="hidden" name="lang" value="${lang}">
+    <h2>${lang === 'zh' ? '比較類別' : 'Comparison categories'}</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:12px">${card.topicMatch.available.map(genre => `<label><input type="checkbox" name="genre" value="${html(genre)}"${card.topicMatch!.selected?.includes(genre) ? ' checked' : ''}> ${html(genreLabels(lang)[genre])}</label>`).join('')}</div>
+    ${missing.length ? `<p>${html(lang === 'zh' ? `尚無可比較結果：${missing.join('、')}。可取消這些類別，計算其餘選定類別。` : `No comparable results: ${missing.join(', ')}. Deselect these to compare the remaining categories.`)}</p>` : ''}
+    <button type="submit">${lang === 'zh' ? '更新比較' : 'Update comparison'}</button>
+  </form>` : '';
   const actions = friendshipActions(card, viewer.handle, t, `/${card.handle}`, false);
   // Access is enforced before rendering; repeating its rules obscures the shared content.
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
-    `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
-  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
+    `<a href="${basePath}?range=${range}${card.topicMatch?.selected ? html('&genre=' + card.topicMatch.selected.map(genre => encodeURIComponent(genre)).join('&genre=')) : ''}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${score}</strong><span>${t.matchesFit}</span>${scoreNote ? `<p class="mt-gate">${html(scoreNote)}</p>` : ''}</div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
 
   const topicsSubtitle = comparison.topics.state === 'locked'
     ? t.matchesLockedTopics
@@ -328,10 +346,10 @@ export function matchingCandidatePage(
     weekdaySection(comparison, t),
     comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
-    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary><p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p></details></section>`,
+    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary>${card.topicMatch ? `<p>${lang === 'zh' ? '使用 v3 興趣分析，對本次選定且雙方共同開放的類別等權平均。計分方式與配對頁相同；比較類別相同時分數相同，不隨下方日期範圍改變。' : 'Uses v3 interest analysis, equally weighted across the selected, mutually shared categories. The same categories produce the same score as Matches, independently of the date range below.'}</p>` : `<p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p>`}</details></section>`,
   ].join('');
   const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
-  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div>${ranges}${metricToggle}${sections}</div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${selection}<div class="mt-profile-actions">${actions}</div>${ranges}${metricToggle}${sections}</div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);

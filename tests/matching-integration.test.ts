@@ -140,3 +140,51 @@ for (const revoke of ['session', 'friendship', 'public', 'genre', 'optout'] as c
     } finally {f.registry.close()}
   });
 }
+
+
+test('Blend uses the v3 score below old activity thresholds and explains unavailable consent', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const alice = registry.createUser('v3-blend-a', 'A', { dashboardPublic:true });
+    const bob = registry.createUser('v3-blend-b', 'B', { dashboardPublic:true });
+    registry.setMatchingOptIn(alice.handle,true); registry.setMatchingOptIn(bob.handle,true);
+    publish(registry,alice); publish(registry,bob);
+    const app = createApp(registry,{matchingV3:{settings:config,compute}});
+    const headers = {cookie:`urtube_session=${registry.createSession(alice)}`};
+    const matches = await (await app.request('/api/matching-v3/match', {method:'POST',headers:{...headers,origin:'http://localhost:3000','Content-Type':'application/json'},body:JSON.stringify({genres:['Music']})})).json() as {candidates:Array<{score:number}>};
+    for (const range of ['28d','all']) {
+      const $ = load(await (await app.request(`/v3-blend-a/compare/v3-blend-b?range=${range}&lang=zh`,{headers})).text());
+      assert.equal($('.mt-vs-score strong').text(), `${Math.round(matches.candidates[0].score*100)}%`);
+      assert.match($('.mt-panel').text(), /v3 興趣分析/);
+      assert.doesNotMatch($('.mt-panel').text(), /cosine|0.4–0.95/);
+    }
+    registry.matchingV3Store().savePreferences(alice.id,{genres:['Music','Sport'],topics:[]});
+    registry.matchingV3Store().savePreferences(bob.id,{genres:['Music','Sport'],topics:[]});
+    const missing = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
+    assert.equal(missing('.mt-vs-score strong').text(),'—');
+    assert.match(missing('form').text(),/尚無可比較結果：運動/);
+    const selected = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh&genre=Music',{headers})).text());
+    assert.equal(selected('.mt-vs-score strong').text(),'65%');
+    assert.match(selected('.mt-range a').first().attr('href')!,/genre=Music/);
+    registry.setMatchingOptIn(bob.handle,false);
+    const $ = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
+    assert.equal($('.mt-vs-score strong').text(),'—');
+    assert.match($('.mt-vs-score').text(),/尚無雙方共同開放/);
+  } finally {registry.close();}
+});
+
+test('Blend rechecks visibility after asynchronous v3 scoring', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const alice = registry.createUser('v3-race-a','A',{dashboardPublic:true});
+    const bob = registry.createUser('v3-race-b','B',{dashboardPublic:true});
+    registry.setMatchingOptIn(alice.handle,true);registry.setMatchingOptIn(bob.handle,true);
+    publish(registry,alice);publish(registry,bob);
+    const app = createApp(registry,{matchingV3:{settings:config,compute:{...compute,compare:async(a,b)=>{
+      registry.setDashboardPublic(bob.handle,false);return compute.compare(a,b);
+    }}}});
+    const response = await app.request('/v3-race-a/compare/v3-race-b',{headers:{cookie:`urtube_session=${registry.createSession(alice)}`}});
+    assert.equal(response.status,404);
+    assert.doesNotMatch(await response.text(),/65%|private-detail-tag/);
+  } finally {registry.close();}
+});

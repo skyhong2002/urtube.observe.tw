@@ -15,7 +15,8 @@ import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
 import { settings as matchingV3Settings, version as matchingV3Version, GENRES } from './matching-v3/model.js';
 import { matchingRoutes } from './matching-v3/routes.js';
-import type { Compute } from './matching-v3/compute.js';
+import { computeClient, type Compute } from './matching-v3/compute.js';
+import { compareProfiles } from './matching-v3/matching.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
 import { cachedRead, clearReadCaches } from './data/read-cache.js';
@@ -1042,7 +1043,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.redirect(`${comparisonPath(me, c.req.param('handle'))}${querySuffix(c)}`);
   });
 
-  app.get('/:handle/compare/:other', (c) => {
+  app.get('/:handle/compare/:other', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
     const handle = c.req.param('handle');
@@ -1058,6 +1059,38 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       return c.redirect(`/${other.handle}${querySuffix(c)}`);
     }
     const card = blendCard(me, other);
+    if (v3.enabled) {
+      const store = registry.matchingV3Store();
+      const available = store.preferences(me.id).genres.filter(genre => store.preferences(other.id).genres.includes(genre));
+      const requested = c.req.queries('genre');
+      const selected = requested ? available.filter(genre => requested.includes(genre)) : available;
+      const left = store.profile(me.id), right = store.profile(other.id);
+      card.topicMatch = { score: null, provisional: true, reasons: [], detailsVisible: true,
+        details: [], unavailable: 'pending', available, selected };
+      if (!me.matchingOptIn || !other.matchingOptIn || !selected.length) card.topicMatch.unavailable = 'consent';
+      else if (left?.version === matchingV3Version(v3) && right?.version === matchingV3Version(v3)) {
+        try {
+          const result = await compareProfiles(
+            { ...left, complete: left.complete && store.status(me.id)?.state === 'done' },
+            { ...right, complete: right.complete && store.status(other.id)?.state === 'done' },
+            selected, services.matchingV3?.compute ?? computeClient(v3));
+          // Recheck session, visibility, profile freshness and both consents after computation.
+          const viewer = sessionUser(c), target = registry.userByHandle(other.handle);
+          if (!viewer || viewer.id !== me.id) return c.redirect('/auth/google');
+          if (!target || (!target.dashboardPublic && !mutualFriends(viewer, target))) return notFoundPage(c);
+          if (viewer.matchingOptIn && target.matchingOptIn
+            && selected.every(genre => store.preferences(viewer.id).genres.includes(genre) && store.preferences(target.id).genres.includes(genre))
+            && store.profile(viewer.id)?.builtAt === left.builtAt && store.profile(target.id)?.builtAt === right.builtAt
+            && store.profile(viewer.id)?.version === left.version && store.profile(target.id)?.version === right.version) {
+            card.topicMatch = { score: result.score, provisional: result.provisional, reasons: [], detailsVisible: true,
+              details: result.details.map(detail => ({ genre: detail.genre, score: detail.score })), unavailable: 'pending', available, selected };
+          }
+        } catch { card.topicMatch.unavailable = 'service'; }
+      }
+    }
+    const currentViewer = sessionUser(c), currentTarget = registry.userByHandle(other.handle);
+    if (!currentViewer || currentViewer.id !== me.id) return c.redirect('/auth/google');
+    if (!currentTarget || (!currentTarget.dashboardPublic && !mutualFriends(currentViewer, currentTarget))) return notFoundPage(c);
     if (registry.matchingCandidateByHandle(me, other.handle)) {
       card.actionToken = registry.issueMatchActionToken(me, other.id, card.disclosure.topics);
     }
