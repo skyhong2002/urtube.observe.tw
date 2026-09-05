@@ -47,7 +47,12 @@ function parseJson(content: string): unknown {
   return JSON.parse(cleaned);
 }
 
-async function chatJson(system: string, input: unknown, client: YoutubeAiClient): Promise<unknown> {
+async function chatJson(
+  system: string,
+  input: unknown,
+  client: YoutubeAiClient,
+  feedback?: string,
+): Promise<unknown> {
   return aiRequest(async () => {
     const response = await (client.fetchImpl ?? fetch)(`${client.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -62,6 +67,7 @@ async function chatJson(system: string, input: unknown, client: YoutubeAiClient)
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: JSON.stringify(input) },
+          ...(feedback ? [{ role: 'user', content: feedback }] : []),
         ],
       }),
       signal: AbortSignal.timeout(client.timeoutMs ?? config.ai.timeoutMs),
@@ -159,6 +165,8 @@ export async function classifyYoutubeVideosWithClient(
   const topics = repository.youtubeTopics(run.taxonomyVersion);
   const videos = repository.youtubeVideosForPersonalClassification(run, limit);
   let classified = 0;
+  let failedBatches = 0;
+  let firstFailure: unknown;
   for (let index = 0; index < videos.length; index += 20) {
     const batch = videos.slice(index, index + 20);
     let validated: Array<{
@@ -168,6 +176,11 @@ export async function classifyYoutubeVideosWithClient(
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3 && !validated; attempt += 1) {
       try {
+        // Tell the model why the previous answer was rejected; blind retries
+        // of a strict verbatim-evidence contract rarely converge.
+        const feedback = lastError
+          ? `Your previous answer was rejected: ${errorText(lastError)}. Return the complete JSON object again with that fixed.`
+          : undefined;
         const response = await chatJson(
           'Classify every supplied YouTube video into exactly one governed topic. '
           + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
@@ -181,6 +194,7 @@ export async function classifyYoutubeVideosWithClient(
             videos: batch.map(youtubePublicMetadata),
           },
           client,
+          feedback,
         );
         if (!response || typeof response !== 'object' || !Array.isArray((response as any).videos)) {
           throw new Error('AI classification response must contain a videos array');
@@ -228,12 +242,24 @@ export async function classifyYoutubeVideosWithClient(
         lastError = error;
       }
     }
-    if (!validated) throw lastError;
+    if (!validated) {
+      // One stubborn batch must not stall every other video for this
+      // archive; it is retried on the next cycle.
+      failedBatches += 1;
+      firstFailure ??= lastError;
+      console.warn(`personal classification batch skipped after 3 attempts: ${errorText(lastError)}`);
+      continue;
+    }
     for (const { video, decision } of validated) {
       repository.savePersonalYoutubeVideoTopic(run, video, decision);
       classified += 1;
     }
   }
   repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion);
+  if (failedBatches && !classified) throw firstFailure;
   return classified;
+}
+
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 300);
 }

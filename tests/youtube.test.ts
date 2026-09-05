@@ -1327,6 +1327,77 @@ test('YouTube keywords segment Unicode, ignore URLs, and count each video once',
   assert.deepEqual(stopWords, []);
 });
 
+test('classification feeds rejections back to the model and skips a stubborn batch', async () => {
+  const repository = new Repository(':memory:');
+  try {
+    const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
+      videoId: `RTRYVID${String(index).padStart(4, "0")}`,
+      title: `Technical Video ${index + 1}`,
+      channelId: `channel-${index % 12 + 1}`,
+      channelTitle: `Channel ${index % 12 + 1}`,
+      description: 'A public description about software and culture.',
+      tags: ['software', 'culture'],
+      thumbnailUrl: '',
+      durationSeconds: 1200,
+      publishedAt: '2026-07-01T00:00:00Z',
+      categoryId: '28',
+      availability: 'available',
+      metadataHash: `hash-${index + 1}`,
+    }));
+    for (const [index, video] of metadata.entries()) {
+      repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+        sessionId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        videoId: video.videoId,
+        title: video.title,
+        url: `https://www.youtube.com/watch?v=${video.videoId}`,
+        channelTitle: video.channelTitle,
+        watchedAt: `2026-07-${String(index % 24 + 1).padStart(2, '0')}T00:00:00.000Z`,
+        actualWatchedSeconds: 300,
+        durationSeconds: 1200,
+      }, new Date('2026-07-28T00:00:00Z')));
+    }
+    repository.upsertYoutubeVideoMetadata(metadata, '2026-07-28T00:00:00Z');
+
+    const requests: Array<{ batch: number; feedback: string | null }> = [];
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      const users = request.messages.filter((message) => message.role === 'user');
+      const payload = JSON.parse(users[0]!.content) as { videos: Array<{ videoId: string }> };
+      const feedback = users[1]?.content ?? null;
+      requests.push({ batch: payload.videos.length, feedback });
+      // The 20-video batch answers with unverifiable evidence once, then
+      // correctly after feedback. The 4-video batch never gets it right.
+      const attemptsForBatch = requests.filter((entry) => entry.batch === payload.videos.length).length;
+      const good = payload.videos.length === 20 && attemptsForBatch >= 2;
+      const content = {
+        videos: payload.videos.map((video) => ({
+          videoId: video.videoId,
+          slug: 'technology',
+          confidence: 0.9,
+          alternativeSlug: null,
+          alternativeConfidence: null,
+          evidence: [{ text: good ? 'Technical Video' : 'Not in the metadata', source: 'title', score: 0.9 }],
+        })),
+      };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const client: YoutubeAiClient = { baseUrl: 'https://ai.example.test/v1', apiKey: 'test-key', model: 'test-model', fetchImpl };
+    await ensureYoutubeTaxonomyWithClient(repository, false, client);
+
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 20);
+    assert.deepEqual(requests.map((entry) => [entry.batch, entry.feedback === null ? null : /rejected: Personal classification evidence must occur/.test(entry.feedback)]),
+      [[20, null], [20, true], [4, null], [4, true], [4, true]]);
+    // Only the skipped batch remains; it is retried on the next cycle and
+    // the cycle reports the failure when nothing at all could be saved.
+    await assert.rejects(classifyYoutubeVideosWithClient(repository, 100, client), /must occur in its declared metadata source/);
+    assert.equal(requests.length, 8);
+    assert.equal(requests.slice(5).every((entry) => entry.batch === 4), true);
+  } finally {
+    repository.close();
+  }
+});
+
 test('personal taxonomy v2 is gated, versioned, restart-safe, and public-metadata only', async () => {
   const repository = new Repository(':memory:');
   try {
