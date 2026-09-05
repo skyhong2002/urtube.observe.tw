@@ -6,6 +6,9 @@ services:
     build: .
     image: urtube
     container_name: urtube-app
+    # AI classification gateway runs on the host (see docs/ai-gateway.md).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     env_file: .env
     ports:
@@ -35,6 +38,9 @@ services:
     build: .
     image: urtube
     container_name: urtube-worker
+    # AI classification gateway runs on the host (see docs/ai-gateway.md).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["npx", "tsx", "src/youtube-worker.ts"]
     restart: unless-stopped
     healthcheck:

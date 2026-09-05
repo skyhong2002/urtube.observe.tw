@@ -10,6 +10,7 @@ COPY src ./src
 COPY scripts ./scripts
 COPY chrome-extension ./chrome-extension
 COPY favicon.svg og.png ./
+COPY frontend/match-preview/landing ./frontend/match-preview/landing
 
 EXPOSE 3000
 

@@ -1,7 +1,6 @@
 import { Hono, type MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { bodyLimit } from 'hono/body-limit';
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { User, UserRegistry } from '../users.js';
@@ -9,7 +8,8 @@ import { GENRES, genreSchema, selectionSchema, version, type Settings } from './
 import { computeClient, type Compute } from './compute.js';
 import { compareProfiles } from './matching.js';
 import { sourceKey } from './store.js';
-import { matchingPage } from './page.js';
+import type { Lang } from '../output/i18n.js';
+import { pickLang } from '../output/i18n.js';
 import { adminPage } from './admin-page.js';
 
 const preferencesSchema = z.object({
@@ -17,7 +17,10 @@ const preferencesSchema = z.object({
   topics: z.array(z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(60), genres: selectionSchema })).max(50),
 }).strict().refine(p => new Set(p.topics.map(t => t.id)).size === p.topics.length && p.topics.every(t => t.genres.every(g => p.genres.includes(g))));
 
-export function matchingRoutes(registry: UserRegistry, s: Settings, origin: string, compute: Compute = computeClient(s)) {
+export type MemberResult = Awaited<ReturnType<typeof compareProfiles>> & { detailsVisible: boolean };
+export type MemberRenderer = (viewer: User, target: User, result: MemberResult, lang: Lang) => string;
+
+export function matchingRoutes(registry: UserRegistry, s: Settings, origin: string, compute: Compute = computeClient(s), renderMember?: MemberRenderer) {
   const app = new Hono<{ Variables: { user: User } }>();
   if (!s.enabled) return app;
   const store = registry.matchingV3Store();
@@ -62,7 +65,11 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
     store.retry(id);
     return c.json({ queued: true }, 202);
   });
-  app.get('/matching-v3', c => c.html(matchingPage(isAdmin(c.get('user')))));
+  app.get('/matching-v3', c => {
+    const query = new URL(c.req.url).searchParams;
+    query.set('view', 'topics');
+    return c.redirect(`/matches?${query}`, 302);
+  });
   app.get('/matching-v3/client.js', c => {
     c.header('Content-Type', 'text/javascript; charset=utf-8');
     return c.body(readFileSync(new URL('./client.js', import.meta.url), 'utf8'));
@@ -101,7 +108,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
     if (!left || left.version !== version(s)) return c.json({ error: 'profile_pending' }, 409);
     busy.add(user.id);
     try {
-      const candidates = [];
+      const computed: { user: User; builtAt: string; result: Awaited<ReturnType<typeof compareProfiles>> }[] = [];
       for (const other of registry.listUsers()) {
         if (other.id === user.id || !other.matchingOptIn) continue;
         const consent = store.preferences(other.id).genres;
@@ -115,12 +122,25 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
         const freshOther = registry.userByHandle(other.handle);
         if (!freshOther?.matchingOptIn || selected.some(g => !store.preferences(other.id).genres.includes(g))) continue;
         if (store.profile(other.id)?.builtAt !== right.builtAt) continue;
-        candidates.push({ id: randomUUID(), ...result });
+        computed.push({ user: other, builtAt: right.builtAt, result });
       }
       if (!registry.userByHandle(user.handle)?.matchingOptIn || selected.some(g => !store.preferences(user.id).genres.includes(g))) return c.json({ error: 'opt_in_required' }, 403);
       if (store.profile(user.id)?.builtAt !== left.builtAt) return c.json({ error: 'profile_changed' }, 409);
+      const current = registry.userBySession(getCookie(c, 'urtube_session') ?? '');
+      if (!current || current.id !== user.id) return c.json({ error: 'login_required' }, 401);
+      // Project names and details only after every asynchronous comparison has finished.
+      const candidates = computed.flatMap(({ user: previous, builtAt, result }) => {
+        const target = registry.userByHandle(previous.handle);
+        if (!target || target.id !== previous.id || !target.matchingOptIn
+          || selected.some(g => !store.preferences(target.id).genres.includes(g))
+          || store.profile(target.id)?.builtAt !== builtAt) return [];
+        const detailsVisible = target.dashboardPublic || registry.matchingRelationshipFor(current, target.id).status === 'connected';
+        const safe = { ...result, detailsVisible, reasons: detailsVisible ? result.reasons : [], details: detailsVisible ? result.details : [] };
+        return [{ id: target.handle, handle: target.handle, displayName: target.displayName,
+          ...safe, ...(renderMember ? { memberHtml: renderMember(current, target, safe, pickLang(c.req.query('lang'), getCookie(c, 'urtube_lang'), c.req.header('Accept-Language'))) } : {}) }];
+      });
       candidates.sort((a, b) => Number(a.provisional) - Number(b.provisional) || (b.score ?? -1) - (a.score ?? -1));
-      // Preserve anonymous discovery. No handles, raw watch rows or vectors.
+      // Shared identity and friendship controls; raw watch rows and vectors remain private.
       return c.json({ candidates, selected, scoreMeaning: 'selected_genres_equal_weight_distribution_similarity' });
     } catch { return c.json({ error: 'matching_unavailable' }, 503); }
     finally { busy.delete(user.id); }

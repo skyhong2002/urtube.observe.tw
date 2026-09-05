@@ -1,0 +1,16 @@
+# Serve the integrated matching workspace using an already-running v3 compute
+# service. This overlay never starts another backfill worker.
+services:
+  app:
+    env_file:
+      - ${MATCHING_V3_ENV_FILE:-.env.matching-v3}
+    environment:
+      MATCHING_V3_ENABLED: "true"
+      MATCHING_V3_COMPUTE_URL: http://matching-compute:8090
+    networks:
+      - default
+      - matching-compute
+networks:
+  matching-compute:
+    external: true
+    name: ${MATCHING_V3_COMPUTE_NETWORK:-urtube-local_default}

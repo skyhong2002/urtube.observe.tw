@@ -15,12 +15,14 @@ import type { YoutubeTopic, YoutubeVideoMetadata } from './types.js';
 
 // Accounts run concurrently while all model calls share one bounded FIFO.
 // This prevents a large archive from consuming every classification slot.
-const aiRequest = createAsyncLimiter(4);
+const aiRequest = createAsyncLimiter(config.ai.concurrency);
 
 export interface YoutubeAiClient {
   baseUrl: string;
   apiKey: string;
   model: string;
+  timeoutMs?: number;
+  concurrency?: number;
   fetchImpl?: typeof fetch;
   requestLimiter?: AsyncLimiter;
 }
@@ -30,6 +32,7 @@ function defaultClient(): YoutubeAiClient {
     baseUrl: config.ai.baseUrl,
     apiKey: config.ai.apiKey,
     model: config.ai.model,
+    timeoutMs: config.ai.timeoutMs,
   };
 }
 
@@ -59,7 +62,9 @@ export interface AiCallMetrics {
 }
 let encoder: import('js-tiktoken').Tiktoken | undefined;
 export async function chatJson(system: string, input: unknown, client: YoutubeAiClient,
-  options: { maxCompletionTokens?: number; reasoningEffort?: 'low'; onUsage?: (value: AiCallMetrics) => void } = {}): Promise<unknown> {
+  feedbackOrOptions: string | { maxCompletionTokens?: number; reasoningEffort?: 'low'; onUsage?: (value: AiCallMetrics) => void } = {}): Promise<unknown> {
+  const feedback = typeof feedbackOrOptions === 'string' ? feedbackOrOptions : undefined;
+  const options = typeof feedbackOrOptions === 'string' ? {} : feedbackOrOptions;
   const queuedAt = performance.now();
   return (client.requestLimiter ?? aiRequest)(async () => {
     const startedAt = performance.now(), inputText = JSON.stringify(input);
@@ -72,8 +77,9 @@ export async function chatJson(system: string, input: unknown, client: YoutubeAi
           ...(!options.reasoningEffort || new URL(client.baseUrl).hostname !== 'api.openai.com' ? { temperature: 0 } : {}), response_format: { type: 'json_object' },
           ...(options.maxCompletionTokens ? { max_completion_tokens: options.maxCompletionTokens } : {}),
           ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
-          messages: [{ role: 'system', content: system }, { role: 'user', content: inputText }],
-        }), signal: AbortSignal.timeout(60_000),
+          messages: [{ role: 'system', content: system }, { role: 'user', content: inputText },
+            ...(feedback ? [{ role: 'user', content: feedback }] : [])],
+        }), signal: AbortSignal.timeout(client.timeoutMs ?? config.ai.timeoutMs),
       });
       if (!response.ok) throw new AiHttpError(response.status, (await response.text()).slice(0, 500));
       const body = await response.json() as { model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ finish_reason?: string; message?: { content?: string; refusal?: string } }> };
@@ -184,9 +190,20 @@ export async function classifyYoutubeVideosWithClient(
   if (!run) return 0;
   const topics = repository.youtubeTopics(run.taxonomyVersion);
   const videos = repository.youtubeVideosForPersonalClassification(run, limit);
+  const batches: YoutubeVideoMetadata[][] = [];
+  for (let index = 0; index < videos.length; index += 20) batches.push(videos.slice(index, index + 20));
   let classified = 0;
-  for (let index = 0; index < videos.length; index += 20) {
-    const batch = videos.slice(index, index + 20);
+  let failedBatches = 0;
+  let firstFailure: unknown;
+  const system = 'Classify every supplied YouTube video into exactly one governed topic. '
+    + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
+    + '"alternativeSlug":null,"alternativeConfidence":null,'
+    + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.0}]}]}. '
+    + 'Use Other for clear content outside the listed subjects. Use Unknown when metadata is insufficient. '
+    + 'Give at most three evidence items per video. Each evidence text must be a verbatim quote of at most 80 characters '
+    + 'from its declared public metadata source, with a score above 0 and at most 1. '
+    + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.';
+  const classifyBatch = async (batch: YoutubeVideoMetadata[]): Promise<void> => {
     let validated: Array<{
       video: YoutubeVideoMetadata;
       decision: ReturnType<typeof decidePersonalClassification>;
@@ -194,19 +211,19 @@ export async function classifyYoutubeVideosWithClient(
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3 && !validated; attempt += 1) {
       try {
+        // Tell the model why the previous answer was rejected; blind retries
+        // of a strict verbatim-evidence contract rarely converge.
+        const feedback = lastError
+          ? `Your previous answer was rejected: ${errorText(lastError)}. Return the complete JSON object again with that fixed.`
+          : undefined;
         const response = await chatJson(
-          'Classify every supplied YouTube video into exactly one governed topic. '
-          + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
-          + '"alternativeSlug":null,"alternativeConfidence":null,'
-          + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.0}]}]}. '
-          + 'Use Other for clear content outside the listed subjects. Use Unknown when metadata is insufficient. '
-          + 'Evidence text must occur verbatim in its declared public metadata source and scores must be above zero. '
-          + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.',
+          system,
           {
             taxonomy: topics.map(({ slug, name, description }) => ({ slug, name, description })),
             videos: batch.map(youtubePublicMetadata),
           },
           client,
+          feedback,
         );
         if (!response || typeof response !== 'object' || !Array.isArray((response as any).videos)) {
           throw new Error('AI classification response must contain a videos array');
@@ -254,12 +271,35 @@ export async function classifyYoutubeVideosWithClient(
         lastError = error;
       }
     }
-    if (!validated) throw lastError;
+    if (!validated) {
+      // One stubborn batch must not stall every other video for this
+      // archive; it is retried on the next cycle.
+      failedBatches += 1;
+      firstFailure ??= lastError;
+      console.warn(`personal classification batch skipped after 3 attempts: ${errorText(lastError)}`);
+      return;
+    }
     for (const { video, decision } of validated) {
       repository.savePersonalYoutubeVideoTopic(run, video, decision);
       classified += 1;
     }
-  }
+  };
+  // Batches of one archive fan out up to the shared limiter width; the
+  // limiter still bounds total in-flight model calls across archives.
+  let cursor = 0;
+  const lanes = Math.min(client.concurrency ?? config.ai.concurrency, Math.max(1, batches.length));
+  await Promise.all(Array.from({ length: lanes }, async () => {
+    while (cursor < batches.length) {
+      const batch = batches[cursor]!;
+      cursor += 1;
+      await classifyBatch(batch);
+    }
+  }));
   repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion);
+  if (failedBatches && !classified) throw firstFailure;
   return classified;
+}
+
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 300);
 }

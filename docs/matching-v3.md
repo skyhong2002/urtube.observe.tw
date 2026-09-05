@@ -1,5 +1,24 @@
 # Matching v3：tag 分群與分布配對
 
+## 2026-09-06：與正式 Matches 整合（以下規則優先）
+
+- 唯一正式入口為 `/matches`。啟用 V3 時，同頁提供所有成員、好友邀請與我的主題；`/matching-v3` 轉到 `/matches?view=topics`。不再將 `/matches` 強制轉去匿名列表。
+- 所有成員仍顯示整體合拍度（沒有可計算資料時為 `—`）。主題結果另外標示主題合拍度，保留 V3 等權分布算法、暫定狀態與缺資料語意，不混用兩種分數。
+- V3 結果使用真實姓名、頭像與 Profile 連結，重用同一套好友邀請與 Blend 按鈕。`/api/matching-v3/match` 的候選項目現在包含 handle、displayName、detailsVisible，以及正式 app 提供的 memberHtml；不再使用不可操作的隨機匿名 ID。
+- 代表 tags、权重與詳細推薦理由僅對好友或公開帳號開放，仍需雙方同意所選 V3 類別。非好友私人帳號只提供身分與分數，詳細 reasons/details 為空；服務端在非同步計算全部完成後重新檢查 session、類別、公開狀態、好友關係與輪廓版本。
+- 公開 Profile／直接 Blend 沿用正式站規則，不要求 V3 輪廓完成或 V3 類別同意。好友可看 Overview／Insights；History／Recap 仍需本人或 dashboard key。
+- 好友邀請與舊分類器的資料資格分開：V3-only 成員也能送出／接受邀請，仍保留雙方 opt-in、token 到期、使用者綁定、拒絕與撤銷保護。舊版分數與 legacy discovery token 的資格檢查不變。
+- 衝突合併保留舊分類器的重試回饋、timeout，並加入 V3 的獨立 limiter、用量監控及請求選項。分類／embedding 快取與 profile version 不重建。
+
+### 正式 app 部署
+
+既有 V3 worker／compute 已運作且共用正式 registry 時，可在正式 compose 加上 `compose.matching-v3-app.yml`。設定 `MATCHING_V3_ENV_FILE` 指向與既有 worker 相同版本設定的受保護環境檔，`MATCHING_V3_COMPUTE_NETWORK` 指向 compute 所在 Docker network（預設 `urtube-local_default`）。app 必須能透過該網路解析 `matching-compute:8090`。
+
+此 overlay 只連接既有數值服務，不新增 worker、不更改其併發／API 額度、不刪除已完成快取。應先備份 registry，驗證 app 與 worker 的演算法版本一致，再啟用入口。下方較早的匿名 UI／入口轉址／費用設定段落為開發歷程，以本節與現行環境設定為準。
+
+驗證：`npm run check`、隔離 Python 六項數值測試，以及 `scripts/check-matching-v3.ts` 的瀏覽器測試；測試不讀正式資料或呼叫付費分類 API。
+
+
 實作於目前的 dev 分支。`MATCHING_V3_ENABLED` 預設關閉：不建立 v3 表、不排程 OpenAI，也不改變原本 `/matches` 的行為。新版入口為 `/matching-v3`，原本 `/match-preview/` 仍是獨立互動原型。
 
 ## 文字與費用限制

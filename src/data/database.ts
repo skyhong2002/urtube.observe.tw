@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { digest, normalizeTag, type SourceSnapshot as MatchingSourceSnapshot } from '../matching-v3/model.js';
 import { activityFromEntry } from './activity.js';
 import { taipeiDay } from '../youtube/history-sync.js';
+import { weekdayExposure } from '../youtube/weekday-average.js';
 import type { Activity, SourceSnapshot } from './types.js';
 import type {
   YoutubeChannelMetadata,
@@ -15,6 +16,8 @@ import type {
   YoutubeScanEndReason,
   YoutubeCapturedWatch,
   YoutubeCaptureResult,
+  YoutubeChannelDetail,
+  YoutubeComparisonProfile,
   YoutubeImportResult,
   YoutubeOAuthCredential,
   YoutubeParsedArchive,
@@ -128,6 +131,11 @@ function portableColumnDescription(name: string): string {
   return `Stored ${name.replaceAll('_', ' ')} value.`;
 }
 
+// Ranked comparison lists stop here so an all-time profile stays bounded.
+const YOUTUBE_COMPARISON_LIST_LIMIT = 5000;
+// Crystal windows keep this many channels; the registry projection takes a
+// prefix (see REGISTRY_CRYSTAL_CHANNEL_LIMIT), so it must not be smaller.
+export const YOUTUBE_CRYSTAL_CHANNEL_LIMIT = 250;
 function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
   if (range === 'all') return null;
   const days = Number.parseInt(range, 10);
@@ -370,6 +378,15 @@ export class Repository {
   private readonly path: string;
   private estimatedEventsKey = '';
   private estimatedEventsBuiltAt = 0;
+  private estimatedEventsRevision = '';
+
+  // data_version observes other connections (ingest/worker); total_changes
+  // observes writes through this connection, including updates with no new rows.
+  readRevision(): string {
+    const version = this.db.prepare('PRAGMA main.data_version').get()!.data_version;
+    const changes = this.db.prepare('SELECT total_changes() AS n').get()!.n;
+    return `${version}:${changes}`;
+  }
 
   constructor(path: string) {
     this.path = path;
@@ -377,6 +394,29 @@ export class Repository {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.migrate();
+    this.backfillYoutubeChannelIds();
+  }
+
+  // Extension captures often know the video but not its channel, so those
+  // events fall back to a channel-name key while Takeout rows carry the id.
+  // Once metadata names the channel, copy it onto the events so every reader
+  // (and every cross-user comparison) keys the channel the same way.
+  backfillYoutubeChannelIds(videoIds?: string[]): number {
+    const statement = this.db.prepare(`
+      UPDATE youtube_watch_events SET
+        channel_id=(SELECT v.channel_id FROM youtube_videos v WHERE v.video_id=youtube_watch_events.video_id),
+        channel_title=COALESCE(NULLIF(channel_title, ''),
+          (SELECT v.channel_title FROM youtube_videos v WHERE v.video_id=youtube_watch_events.video_id))
+      WHERE channel_id IS NULL AND video_id IS NOT NULL${videoIds ? ' AND video_id=?' : ''}
+        AND EXISTS (
+          SELECT 1 FROM youtube_videos v
+          WHERE v.video_id=youtube_watch_events.video_id AND v.channel_id IS NOT NULL
+        )
+    `);
+    if (!videoIds) return Number(statement.run().changes);
+    let changed = 0;
+    for (const videoId of videoIds) changed += Number(statement.run(videoId).changes);
+    return changed;
   }
 
   close(): void { this.db.close(); }
@@ -507,6 +547,34 @@ export class Repository {
     if (afterScanSummaries.user_version < 10) this.migrateYoutubeMatchingTopics();
     const afterMatchingTopics = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     if (afterMatchingTopics.user_version < 11) this.migratePersonalTaxonomyRuns();
+    const afterTaxonomy = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterTaxonomy.user_version < 12) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        // App, ingest and worker may start together against the same archive.
+        const columns = this.db.prepare('PRAGMA table_info(youtube_channels)').all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'statistics_json')) this.db.exec('ALTER TABLE youtube_channels ADD COLUMN statistics_json TEXT');
+        if (!columns.some((column) => column.name === 'statistics_fetched_at')) this.db.exec('ALTER TABLE youtube_channels ADD COLUMN statistics_fetched_at TEXT');
+        this.db.exec('PRAGMA user_version = 12; COMMIT;');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
+    const afterChannelStatistics = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterChannelStatistics.user_version < 13) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const columns = this.db.prepare('PRAGMA table_info(youtube_videos)').all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'is_livestream')) {
+          this.db.exec('ALTER TABLE youtube_videos ADD COLUMN is_livestream INTEGER CHECK (is_livestream IN (0, 1))');
+        }
+        this.db.exec('PRAGMA user_version = 13; COMMIT;');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
   }
 
   private migrateYoutube(): void {
@@ -1108,6 +1176,9 @@ export class Repository {
         archive.archiveHash, archive.source, importedAt, archive.watches.length,
         watchesInserted, archive.searches.length, searchesInserted
       );
+      // A Takeout row may carry the channel id that earlier capture rows for the
+      // same video lacked; reconcile before the import becomes visible.
+      this.backfillYoutubeChannelIds();
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -1206,6 +1277,9 @@ export class Repository {
         watch.eventId, activity.id, watch.videoId, watch.watchedAt, watch.title,
         watch.url, null, watch.channelTitle, null, watch.actualWatchedSeconds, importedAt
       );
+      // A Takeout row may carry the channel id that earlier capture rows for the
+      // same video lacked; reconcile before the import becomes visible.
+      this.backfillYoutubeChannelIds();
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -1361,7 +1435,7 @@ export class Repository {
   // What the worker still owes this archive. Cheap COUNTs over the same
   // predicates the enrichment steps use, so "pending" here is exactly what
   // the next cycles will pick up.
-  youtubeProcessingCounts(): YoutubeProcessingCounts {
+  youtubeProcessingCounts(now = new Date()): YoutubeProcessingCounts {
     const row = this.db.prepare(`
       WITH work_run AS (
         SELECT * FROM youtube_taxonomy_runs
@@ -1376,7 +1450,9 @@ export class Repository {
         (SELECT COUNT(DISTINCT v.channel_id)
            FROM youtube_videos v
            LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
-           WHERE v.channel_id IS NOT NULL AND c.metadata_fetched_at IS NULL) channels_pending_metadata,
+           WHERE v.channel_id IS NOT NULL AND (
+             c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?
+           )) channels_pending_metadata,
         (SELECT COUNT(*) FROM youtube_videos v
            WHERE metadata_fetched_at IS NOT NULL AND availability='available'
              AND EXISTS (SELECT 1 FROM youtube_watch_events w
@@ -1396,7 +1472,7 @@ export class Repository {
                  AND vt.model=run.model AND vt.prompt_version=run.prompt_version
              )) videos_pending_topics,
         (SELECT MAX(imported_at) FROM youtube_watch_events) last_import_at
-    `).get() as Record<string, unknown>;
+    `).get(new Date(now.getTime() - 7 * 86400_000).toISOString()) as Record<string, unknown>;
     return {
       videos: Number(row.videos),
       videosPendingMetadata: Number(row.videos_pending_metadata),
@@ -1568,6 +1644,8 @@ export class Repository {
   // window functions. Rebuilt immediately when events, durations, metadata,
   // or saved progress change, and periodically as a final consistency guard.
   private ensureEstimatedEvents(): void {
+    const revision = this.readRevision();
+    if (revision === this.estimatedEventsRevision && Date.now() - this.estimatedEventsBuiltAt < 300_000) return;
     const row = this.db.prepare(`
       SELECT (SELECT COUNT(*) FROM youtube_watch_events) watches,
         (SELECT COUNT(*) FROM youtube_search_events) searches,
@@ -1586,7 +1664,10 @@ export class Repository {
       row.progress, row.progress_seconds, row.progress_latest,
     ].join(':');
     const now = Date.now();
-    if (key === this.estimatedEventsKey && now - this.estimatedEventsBuiltAt < 300_000) return;
+    if (key === this.estimatedEventsKey && now - this.estimatedEventsBuiltAt < 300_000) {
+      this.estimatedEventsRevision = revision;
+      return;
+    }
     this.db.exec(`
       DROP TABLE IF EXISTS temp.youtube_estimated_events;
       CREATE TEMP TABLE youtube_estimated_events AS ${YOUTUBE_ESTIMATED_EVENTS_CTE}
@@ -1596,6 +1677,7 @@ export class Repository {
     `);
     this.estimatedEventsKey = key;
     this.estimatedEventsBuiltAt = now;
+    this.estimatedEventsRevision = this.readRevision();
   }
 
   // Every channel with at least one watch in range, no top-N cut: the
@@ -1730,7 +1812,9 @@ export class Repository {
     return result;
   }
 
-  youtubeDashboard(range: YoutubeRange = '28d', now = new Date()): YoutubeDashboardData {
+  // Overview loads both animations without semantic keywords; history and recap
+  // can keep the lightweight projection. Full projections remain the API default.
+  youtubeDashboard(range: YoutubeRange = '28d', now = new Date(), includeInsights: boolean | 'overview' = true): YoutubeDashboardData {
     this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);
     const where = cutoff
@@ -1748,7 +1832,7 @@ export class Repository {
       )
       SELECT COUNT(*) watch_events,
         COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
-        COUNT(DISTINCT COALESCE(e.channel_id, e.channel_title)) unique_channels,
+        COUNT(DISTINCT COALESCE(e.channel_id, v.channel_id, e.channel_title)) unique_channels,
         COALESCE(SUM(v.duration_seconds), 0) opened_duration_seconds,
         COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
         COALESCE(SUM(CASE WHEN e.actual_watched_seconds IS NULL
@@ -1837,8 +1921,12 @@ export class Repository {
     const shortFormDaily = this.db.prepare(`
       ${estimatedEvents}
       SELECT strftime('%Y-%m-%d', e.watched_at, '+8 hours') day,
-        COALESCE(SUM(CASE WHEN v.duration_seconds<=180
+        COALESCE(SUM(CASE WHEN v.duration_seconds<=180 AND COALESCE(v.is_livestream, 0)=0
           THEN e.estimated_watch_seconds ELSE 0 END), 0) short_watch_seconds,
+        COALESCE(SUM(CASE WHEN v.is_livestream=1
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) live_watch_seconds,
+        COALESCE(SUM(CASE WHEN v.duration_seconds>180 AND COALESCE(v.is_livestream, 0)=0
+          THEN e.estimated_watch_seconds ELSE 0 END), 0) regular_watch_seconds,
         COALESCE(SUM(CASE WHEN v.duration_seconds IS NOT NULL
           THEN e.estimated_watch_seconds ELSE 0 END), 0) known_duration_watch_seconds
       FROM estimated_events e
@@ -1910,7 +1998,7 @@ export class Repository {
     // The race always covers the full history (no range cutoff): a half-life
     // decay only means something when the whole timeline feeds it. Weeks are
     // keyed by their Monday so frames map to real dates.
-    const raceRows = this.db.prepare(`
+    const raceRows = !includeInsights ? [] : this.db.prepare(`
       ${estimatedEvents}
       SELECT date(e.watched_at, '+8 hours', '-6 days', 'weekday 1') week,
         ${channelId} channel_id, ${channelName} name,
@@ -1984,7 +2072,7 @@ export class Repository {
     // evenly spaced pick every `stride` videos in watch order, so a long
     // range is represented across its whole span and both surfaces agree.
     const keywordStride = keywordSampleStride(uniqueVideos);
-    const keywordRows = this.db.prepare(`
+    const keywordRows = includeInsights !== true ? [] : this.db.prepare(`
       WITH ranked AS (
         SELECT w.video_id, w.raw_url, w.raw_title, w.watched_at, w.channel_id,
           ROW_NUMBER() OVER (
@@ -2043,6 +2131,8 @@ export class Repository {
       shortFormDaily: shortFormDaily.map((row) => ({
         day: String(row.day),
         shortWatchSeconds: Number(row.short_watch_seconds),
+        liveWatchSeconds: Number(row.live_watch_seconds),
+        regularWatchSeconds: Number(row.regular_watch_seconds),
         knownDurationWatchSeconds: Number(row.known_duration_watch_seconds),
       })),
       lengthBuckets: lengthBuckets.map((row) => ({ label: String(row.label), videos: Number(row.videos) })),
@@ -2059,8 +2149,8 @@ export class Repository {
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
-      topicTrend: this.youtubeTopicTrend(range, now),
-      keywords: extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT),
+      topicTrend: includeInsights ? this.youtubeTopicTrend(range, now) : [],
+      keywords: includeInsights === true ? extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT) : [],
       keywordCoverage: keywordCoverage(keywordRows.length, uniqueVideos),
       recent: recent.map((row) => ({
         videoId: row.video_id === null ? null : String(row.video_id),
@@ -2117,7 +2207,7 @@ export class Repository {
         AND LOWER(TRIM(${channelName}))<>'unknown channel'
       GROUP BY COALESCE(${channelId}, ${channelName})
       ORDER BY estimated_watch_seconds DESC, watches DESC, name
-      LIMIT 60
+      LIMIT ${YOUTUBE_CRYSTAL_CHANNEL_LIMIT}
     `).all(...params) as Array<Record<string, string | number | null>>;
     const topicRows = this.db.prepare(`
       ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
@@ -2181,8 +2271,8 @@ export class Repository {
     const safeLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
     const rows = this.db.prepare(`
       SELECT video_id FROM youtube_videos
-      WHERE metadata_fetched_at IS NULL
-      ORDER BY video_id LIMIT ?
+      WHERE metadata_fetched_at IS NULL OR (availability='available' AND is_livestream IS NULL)
+      ORDER BY metadata_fetched_at IS NOT NULL, video_id LIMIT ?
     `).all(safeLimit) as Array<{ video_id: string }>;
     return rows.map((row) => row.video_id);
   }
@@ -2192,8 +2282,8 @@ export class Repository {
       INSERT INTO youtube_videos (
         video_id, title, channel_id, channel_title, description, tags_json,
         thumbnail_url, duration_seconds, published_at, category_id,
-        availability, metadata_hash, metadata_fetched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        availability, metadata_hash, metadata_fetched_at, is_livestream
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(video_id) DO UPDATE SET
         title=CASE WHEN excluded.title='' THEN youtube_videos.title ELSE excluded.title END,
         channel_id=COALESCE(excluded.channel_id, youtube_videos.channel_id),
@@ -2202,7 +2292,8 @@ export class Repository {
         thumbnail_url=CASE WHEN excluded.thumbnail_url='' THEN youtube_videos.thumbnail_url ELSE excluded.thumbnail_url END,
         duration_seconds=excluded.duration_seconds, published_at=excluded.published_at,
         category_id=excluded.category_id, availability=excluded.availability,
-        metadata_hash=excluded.metadata_hash, metadata_fetched_at=excluded.metadata_fetched_at
+        metadata_hash=excluded.metadata_hash, metadata_fetched_at=excluded.metadata_fetched_at,
+        is_livestream=COALESCE(excluded.is_livestream, youtube_videos.is_livestream)
     `);
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -2211,9 +2302,11 @@ export class Repository {
           video.videoId, video.title, video.channelId, video.channelTitle,
           video.description, JSON.stringify(video.tags), video.thumbnailUrl,
           video.durationSeconds, video.publishedAt, video.categoryId,
-          video.availability, video.metadataHash, fetchedAt
+          video.availability, video.metadataHash, fetchedAt,
+          video.isLivestream == null ? null : Number(video.isLivestream)
         );
       }
+      this.backfillYoutubeChannelIds(videos.filter((video) => video.channelId).map((video) => video.videoId));
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -2221,17 +2314,31 @@ export class Repository {
     }
   }
 
-  youtubeChannelsNeedingMetadata(limit = 500): string[] {
+  youtubeChannelsNeedingMetadata(limit = 500, now = new Date()): string[] {
     const safeLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
     const rows = this.db.prepare(`
       SELECT DISTINCT v.channel_id
       FROM youtube_videos v
       LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
-      WHERE v.channel_id IS NOT NULL AND c.metadata_fetched_at IS NULL
+      WHERE v.channel_id IS NOT NULL AND (
+        c.metadata_fetched_at IS NULL OR c.statistics_fetched_at IS NULL OR c.statistics_fetched_at < ?
+      )
       ORDER BY v.channel_id
       LIMIT ?
-    `).all(safeLimit) as Array<{ channel_id: string }>;
+    `).all(new Date(now.getTime() - 7 * 86400_000).toISOString(), safeLimit) as Array<{ channel_id: string }>;
     return rows.map((row) => row.channel_id);
+  }
+
+  youtubeChannelMetadata(channelId: string): YoutubeChannelMetadata | null {
+    const row = this.db.prepare(`
+      SELECT * FROM youtube_channels WHERE channel_id=?
+    `).get(channelId) as { name: string; thumbnail_url: string; statistics_json: string | null; statistics_fetched_at: string | null } | undefined;
+    if (!row) return null;
+    return {
+      channelId, name: row.name, thumbnailUrl: row.thumbnail_url,
+      statistics: row.statistics_json ? JSON.parse(row.statistics_json) : undefined,
+      statisticsFetchedAt: row.statistics_fetched_at,
+    };
   }
 
   upsertYoutubeChannelMetadata(
@@ -2239,17 +2346,20 @@ export class Repository {
     fetchedAt = new Date().toISOString(),
   ): void {
     const statement = this.db.prepare(`
-      INSERT INTO youtube_channels(channel_id, name, thumbnail_url, metadata_fetched_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO youtube_channels(channel_id, name, thumbnail_url, metadata_fetched_at, statistics_json, statistics_fetched_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(channel_id) DO UPDATE SET
         name=excluded.name,
         thumbnail_url=excluded.thumbnail_url,
-        metadata_fetched_at=excluded.metadata_fetched_at
+        metadata_fetched_at=excluded.metadata_fetched_at,
+        statistics_json=COALESCE(excluded.statistics_json, youtube_channels.statistics_json),
+        statistics_fetched_at=COALESCE(excluded.statistics_fetched_at, youtube_channels.statistics_fetched_at)
     `);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const channel of channels) {
-        statement.run(channel.channelId, channel.name, channel.thumbnailUrl, fetchedAt);
+        statement.run(channel.channelId, channel.name, channel.thumbnailUrl, fetchedAt,
+          channel.statistics ? JSON.stringify(channel.statistics) : null, channel.statistics ? fetchedAt : null);
       }
       this.db.exec('COMMIT');
     } catch (error) {
@@ -2397,6 +2507,308 @@ export class Repository {
         watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
+    };
+  }
+
+  // One channel through one person's history: totals, rank among their
+  // channels, their top videos from it, and a monthly series.
+  youtubeChannelDetail(channelId: string, range: YoutubeRange = '365d', now = new Date()): YoutubeChannelDetail {
+    this.ensureEstimatedEvents();
+    const cutoff = youtubeCutoff(range, now);
+    const where = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
+    const params = cutoff ? [cutoff] : [];
+    const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_VIEW;
+    const channelIdExpr = 'COALESCE(e.channel_id, v.channel_id)';
+    const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
+    const known = this.youtubeChannelMetadata(channelId);
+    const totals = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COUNT(*) watches,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
+        COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
+        MIN(e.watched_at) first_watched_at, MAX(e.watched_at) last_watched_at,
+        MAX(${channelName}) name
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      LEFT JOIN youtube_channels c ON c.channel_id=${channelIdExpr}
+      ${where} AND ${channelIdExpr}=?
+    `).get(...params, channelId) as Record<string, number | string | null>;
+    const overall = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e ${where}
+    `).get(...params) as Record<string, number>;
+    const rankRow = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT ${channelIdExpr} channel_id,
+          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        ${where} AND ${channelIdExpr} IS NOT NULL
+        GROUP BY ${channelIdExpr}
+      ), ranked AS (
+        SELECT channel_id,
+          ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, channel_id) time_rank,
+          ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, channel_id) watch_rank,
+          COUNT(*) OVER () channels
+        FROM aggregated
+      )
+      SELECT time_rank, watch_rank, channels FROM ranked WHERE channel_id=?
+    `).get(...params, channelId) as Record<string, number> | undefined;
+    const channelCount = rankRow ? Number(rankRow.channels) : Number((this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COUNT(DISTINCT ${channelIdExpr}) channels
+      FROM estimated_events e LEFT JOIN youtube_videos v ON v.video_id=e.video_id ${where}
+    `).get(...params) as Record<string, number>).channels ?? 0);
+    const videoRows = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT e.video_id, COALESCE(NULLIF(v.title, ''), e.raw_title) title,
+        COALESCE(v.thumbnail_url, '') thumbnail_url,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      ${where} AND ${channelIdExpr}=? AND e.video_id IS NOT NULL
+      GROUP BY e.video_id
+      ORDER BY estimated_watch_seconds DESC, watches DESC, e.video_id
+    `).all(...params, channelId) as Array<Record<string, string | number | null>>;
+    const monthlyRows = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT strftime('%Y-%m', e.watched_at, '+8 hours') month,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      ${where} AND ${channelIdExpr}=?
+      GROUP BY month ORDER BY month
+    `).all(...params, channelId) as Array<Record<string, string | number>>;
+    const watches = Number(totals.watches ?? 0);
+    const seconds = Number(totals.estimated_watch_seconds ?? 0);
+    // Metadata may not exist yet and a narrower range may contain no watches.
+    const historic = !known?.name && !totals.name ? this.db.prepare(`
+      SELECT COALESCE(NULLIF(e.channel_title, ''), NULLIF(v.channel_title, '')) name
+      FROM youtube_watch_events e LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      WHERE COALESCE(e.channel_id, v.channel_id)=?
+      ORDER BY e.watched_at DESC LIMIT 1
+    `).get(channelId) as { name: string | null } | undefined : undefined;
+    const name = known?.name || (totals.name ? String(totals.name) : historic?.name) ||
+      (known || historic || watches ? channelId : '');
+    return {
+      range,
+      channel: name ? { ...known, channelId, name, thumbnailUrl: known?.thumbnailUrl ?? '' } : null,
+      stats: {
+        watches,
+        estimatedWatchSeconds: seconds,
+        uniqueVideos: Number(totals.unique_videos ?? 0),
+        firstWatchedAt: totals.first_watched_at ? String(totals.first_watched_at) : null,
+        lastWatchedAt: totals.last_watched_at ? String(totals.last_watched_at) : null,
+        share: Number(overall.estimated_watch_seconds) > 0 ? seconds / Number(overall.estimated_watch_seconds) : 0,
+      },
+      rank: {
+        time: rankRow ? Number(rankRow.time_rank) : null,
+        watches: rankRow ? Number(rankRow.watch_rank) : null,
+        channels: channelCount,
+      },
+      videos: videoRows.map((row) => ({
+        videoId: String(row.video_id),
+        title: String(row.title),
+        thumbnailUrl: String(row.thumbnail_url ?? ''),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      monthly: monthlyRows.map((row) => ({
+        month: String(row.month),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+    };
+  }
+
+  // Everything one side of a two-person comparison needs, in one pass over
+  // the estimated-events temp table. Ranked lists are capped so an all-time
+  // history stays a bounded in-memory object; a peer's item beyond the cap
+  // simply does not count as common.
+  youtubeComparisonProfile(
+    taxonomyVersion: number,
+    range: YoutubeRange = '28d',
+    now = new Date(),
+  ): YoutubeComparisonProfile {
+    this.ensureEstimatedEvents();
+    const cutoff = youtubeCutoff(range, now);
+    const where = cutoff ? 'WHERE e.watched_at>=?' : 'WHERE 1=1';
+    const params = cutoff ? [cutoff] : [];
+    const estimatedEvents = YOUTUBE_ESTIMATED_EVENTS_VIEW;
+    const channelId = 'COALESCE(e.channel_id, v.channel_id)';
+    const channelName = "COALESCE(NULLIF(c.name, ''), NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''))";
+    const channelKey = `COALESCE(${channelId}, ${channelName})`;
+    const totals = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT COUNT(*) watch_events,
+        COUNT(DISTINCT COALESCE(e.video_id, e.raw_url)) unique_videos,
+        COUNT(DISTINCT COALESCE(e.channel_id, v.channel_id, e.channel_title)) unique_channels,
+        COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds,
+        COUNT(DISTINCT strftime('%Y-%m-%d', e.watched_at, '+8 hours')) active_days
+      FROM estimated_events e
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const channelQuery = (extraWhere: string) => this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT ${channelKey} key, ${channelName} name,
+          COALESCE(c.thumbnail_url, '') thumbnail_url,
+          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
+        ${where}
+          AND ${channelName} IS NOT NULL
+          AND LOWER(TRIM(${channelName}))<>'unknown channel'
+          ${extraWhere}
+        GROUP BY ${channelKey}
+      )
+      SELECT key, name, thumbnail_url, watches, estimated_watch_seconds,
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, name) rank,
+        ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, name) watch_rank
+      FROM aggregated
+      ORDER BY rank
+      LIMIT ${YOUTUBE_COMPARISON_LIST_LIMIT}
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    const channelRows = channelQuery('');
+    // Same Shorts proxy as the dashboard: known duration of at most three
+    // minutes. Unknown durations never count as short-form.
+    const shortsChannelRows = channelQuery('AND v.duration_seconds IS NOT NULL AND v.duration_seconds<=180');
+    const videoRows = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT e.video_id,
+          COALESCE(NULLIF(v.title, ''), e.raw_title) title,
+          COALESCE(NULLIF(v.channel_title, ''), NULLIF(e.channel_title, ''), '') channel_title,
+          COALESCE(v.thumbnail_url, '') thumbnail_url,
+          COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        ${where} AND e.video_id IS NOT NULL
+        GROUP BY e.video_id
+      )
+      SELECT video_id, title, channel_title, thumbnail_url, watches, estimated_watch_seconds,
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, title) rank,
+        ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, title) watch_rank
+      FROM aggregated
+      ORDER BY rank
+      LIMIT ${YOUTUBE_COMPARISON_LIST_LIMIT}
+    `).all(...params) as Array<Record<string, string | number | null>>;
+    const topicRows = this.db.prepare(`
+      ${estimatedEvents},
+      aggregated AS (
+        SELECT mt.topic_key, COUNT(*) watches,
+          COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+        FROM estimated_events e
+        JOIN youtube_videos v ON v.video_id=e.video_id
+        JOIN youtube_video_matching_topics mt
+          ON mt.video_id=v.video_id AND mt.taxonomy_version=?
+          AND mt.metadata_hash=v.metadata_hash
+        ${where} AND mt.topic_key IS NOT NULL
+        GROUP BY mt.topic_key
+      )
+      SELECT topic_key, watches, estimated_watch_seconds,
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, topic_key) rank,
+        ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, topic_key) watch_rank
+      FROM aggregated ORDER BY rank
+    `).all(taxonomyVersion, ...params) as Array<Record<string, string | number>>;
+    const rhythmCoverage = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT
+        COALESCE(SUM(CASE WHEN a.occurred_precision='exact' THEN 1 ELSE 0 END), 0) exact_watches,
+        COALESCE(SUM(CASE WHEN a.occurred_precision<>'exact' THEN 1 ELSE 0 END), 0) date_only_watches
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      ${where}
+    `).get(...params) as Record<string, number>;
+    const hourly = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT CAST(strftime('%H', e.watched_at, '+8 hours') AS INTEGER) hour,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      ${where} AND a.occurred_precision='exact'
+      GROUP BY hour ORDER BY hour
+    `).all(...params) as Array<Record<string, string | number>>;
+    const weekdays = this.db.prepare(`
+      ${estimatedEvents}
+      SELECT CAST(strftime('%w', e.watched_at, '+8 hours') AS INTEGER) weekday,
+        COUNT(*) watches, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      ${where}
+      GROUP BY weekday ORDER BY weekday
+    `).all(...params) as Array<Record<string, string | number>>;
+    const channelRow = (row: Record<string, string | number | null>) => ({
+      key: String(row.key),
+      name: String(row.name),
+      thumbnailUrl: String(row.thumbnail_url ?? ''),
+      rank: Number(row.rank),
+      watchRank: Number(row.watch_rank),
+      watches: Number(row.watches),
+      estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+    });
+    const edge = (direction: 'ASC' | 'DESC') => {
+      const row = this.db.prepare(`
+        SELECT COALESCE(NULLIF(v.title, ''), e.raw_title) title, e.watched_at
+        FROM youtube_watch_events e
+        LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+        ${where}
+        ORDER BY e.watched_at ${direction} LIMIT 1
+      `).get(...params) as { title: string; watched_at: string } | undefined;
+      return row ? { title: String(row.title), watchedAt: String(row.watched_at) } : null;
+    };
+    const firstWatch = edge('ASC');
+    const lastWatch = edge('DESC');
+    return {
+      range,
+      stats: {
+        watchEvents: Number(totals.watch_events ?? 0),
+        estimatedWatchSeconds: Number(totals.estimated_watch_seconds ?? 0),
+        uniqueVideos: Number(totals.unique_videos ?? 0),
+        uniqueChannels: Number(totals.unique_channels ?? 0),
+        activeDays: Number(totals.active_days ?? 0),
+      },
+      channels: channelRows.map(channelRow),
+      shortsChannels: shortsChannelRows.map(channelRow),
+      videos: videoRows.map((row) => ({
+        videoId: String(row.video_id),
+        title: String(row.title),
+        channelTitle: String(row.channel_title ?? ''),
+        thumbnailUrl: String(row.thumbnail_url ?? ''),
+        rank: Number(row.rank),
+        watchRank: Number(row.watch_rank),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      topics: topicRows.map((row) => ({
+        key: String(row.topic_key),
+        rank: Number(row.rank),
+        watchRank: Number(row.watch_rank),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      hourly: hourly.map((row) => ({
+        hour: Number(row.hour),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      weekdayDays: cutoff
+        ? weekdayExposure(cutoff, now.toISOString())
+        : weekdayExposure(firstWatch?.watchedAt ?? null, lastWatch?.watchedAt ?? null, true),
+      weekdays: weekdays.map((row) => ({
+        weekday: Number(row.weekday),
+        watches: Number(row.watches),
+        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+      })),
+      rhythmCoverage: {
+        exactWatches: Number(rhythmCoverage.exact_watches ?? 0),
+        dateOnlyWatches: Number(rhythmCoverage.date_only_watches ?? 0),
+      },
+      firstWatch,
+      lastWatch,
     };
   }
 

@@ -32,8 +32,9 @@ test('primary navigation has one anonymous and one signed-in contract in both la
     active: 'matches', dashboardHref: '/alex', languageHref: '/matches?lang=zh',
   }), [
     { label: 'Dashboard', href: '/alex', active: false },
+    { label: 'Channels', href: '/channel/', active: false },
     { label: 'Matches', href: '/matches', active: true },
-    { label: 'Account', href: '/account', active: false },
+    { label: 'Settings', href: '/account', active: false },
     { label: '中文', href: '/matches?lang=zh' },
   ]);
 });
@@ -82,17 +83,18 @@ test('signed-in pages share navigation, active state, and query-preserving langu
     const cases = [
       ['/?lang=zh', undefined, '/?lang=en'],
       ['/alex?range=90d&sort=watches&lang=zh', '儀表板', '/alex?range=90d&sort=watches&lang=en'],
+      ['/channel/?range=90d&sort=watches&lang=zh', '頻道', '/channel/?range=90d&sort=watches&q=&lang=en'],
       ['/matches?page=2&lang=zh', '配對', '/matches?page=2&lang=en'],
-      ['/account?lang=zh', '帳號', '/account?lang=en'],
+      ['/account?lang=zh', '設定', '/account?lang=en'],
       ['/onboarding?lang=zh', undefined, '/onboarding?lang=en'],
-      ['/extension-setup?lang=zh', '帳號', '/extension-setup?lang=en'],
-      ['/account/taxonomy?lang=zh', '帳號', '/account/taxonomy?lang=en'],
+      ['/extension-setup?lang=zh', '設定', '/extension-setup?lang=en'],
+      ['/account/taxonomy?lang=zh', '設定', '/account/taxonomy?lang=en'],
     ] as const;
     for (const [path, active, languageHref] of cases) {
       const response = await app.request(path, { headers: { cookie } });
       assert.ok(response.status === 200 || response.status === 403, `${path} renders a complete page`);
       const links = renderedNav(await response.text());
-      assert.deepEqual(links.map((link) => link.label), ['儀表板', '配對', '帳號', 'EN']);
+      assert.deepEqual(links.map((link) => link.label), ['儀表板', '頻道', '配對', '設定', 'EN']);
       assert.equal(links.find((link) => link.active)?.label, active);
       assert.equal(links.at(-1)?.href, languageHref);
     }

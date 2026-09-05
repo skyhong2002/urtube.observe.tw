@@ -178,7 +178,7 @@ test('v3 Gemini missing key does not fall back to GPT; malformed vectors are rej
   await assert.rejects(matchingProvider({ ...s, embeddingApiKey: 'gemini-key', dimensions: 3 }, '', fakeFetch).embed(['羽球']));
 });
 
-test('v3 API enforces authentication, origin, genre consent and anonymous output', async () => {
+test('v3 API enforces authentication, origin, genre consent and member detail visibility', async () => {
   const registry = new UserRegistry(':memory:');
   try {
     registry.createUser('v3left', 'Left'); registry.createUser('v3right', 'Right');
@@ -197,7 +197,9 @@ test('v3 API enforces authentication, origin, genre consent and anonymous output
     assert.equal((await post(['Custom'])).status, 400);
     assert.equal((await post(['Music'])).status, 403);
     const response = await post(['Sport']); assert.equal(response.status, 200);
-    const body = await response.text(); assert.ok(!/v3right|centroid|testvideo01/.test(body));
+    const body = await response.text(); assert.ok(!/centroid|testvideo01|羽球/.test(body));
+    assert.equal(JSON.parse(body).candidates[0].handle, 'v3right');
+    assert.deepEqual(JSON.parse(body).candidates[0].reasons, []);
     assert.equal(JSON.parse(body).candidates.length, 1);
     registry.setMatchingOptIn('v3right', false);
     assert.equal((await (await post(['Sport'])).json() as { candidates: unknown[] }).candidates.length, 0);
@@ -345,7 +347,7 @@ test('v3 admin monitoring requires allowlisted session and reveals no raw profil
     assert.equal(store.status(viewer.id)!.retry_at, 0);
     assert.equal(store.status(viewer.id)!.attempts, 0);
     assert.ok(!(await (await app.request('/matching-v3', { headers: viewerHeaders })).text()).includes('資料處理監控'));
-    assert.ok((await (await app.request('/matching-v3', { headers })).text()).includes('資料處理監控'));
+    assert.equal((await app.request('/matching-v3', { headers })).headers.get('location'), '/matches?view=topics');
   } finally { registry.close(); }
 });
 

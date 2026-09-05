@@ -288,7 +288,7 @@ test('YouTube imports are idempotent, aggregate-only, and preserve duration sema
       name: 'Channel One',
       thumbnailUrl: 'https://yt3.ggpht.com/channel-one',
     }]);
-    assert.deepEqual(repository.youtubeChannelsNeedingMetadata(), []);
+    assert.deepEqual(repository.youtubeChannelsNeedingMetadata(), ['channel-one'], 'legacy avatar-only metadata still needs public statistics');
     const dashboard = repository.youtubeDashboard('all', new Date('2026-07-29T00:00:00Z'));
     assert.equal(dashboard.stats.watchEvents, 3);
     assert.equal(dashboard.stats.uniqueVideos, 2);
@@ -376,8 +376,8 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { watches: 1, seconds: 120 },
     );
     assert.deepEqual(dashboard.shortFormDaily, [
-      { day: '2026-07-28', shortWatchSeconds: 60, knownDurationWatchSeconds: 60 },
-      { day: '2026-07-29', shortWatchSeconds: 30, knownDurationWatchSeconds: 150 },
+      { day: '2026-07-28', shortWatchSeconds: 60, liveWatchSeconds: 0, regularWatchSeconds: 0, knownDurationWatchSeconds: 60 },
+      { day: '2026-07-29', shortWatchSeconds: 30, liveWatchSeconds: 0, regularWatchSeconds: 120, knownDurationWatchSeconds: 150 },
     ]);
     const overviewPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'overview',
@@ -386,20 +386,26 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(overviewPage, /data-youtube-sort="watches"/);
     assert.match(overviewPage, /data-youtube-sort-list="channels"/);
     assert.match(overviewPage, /history\.pushState/);
-    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos,\.yt-recent\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
     assert.doesNotMatch(overviewPage, /data-rhythm-panel=/);
     const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
-      lang: 'zh', profilePath: '/fixture', page: 'insights',
+      lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: true,
     });
+    assert.match(insightsPage, /預設私密/);
+    assert.match(insightsPage, /aria-label="信任與資料界線"/);
     assert.match(insightsPage, /data-rhythm-panel="watches"/);
     assert.match(insightsPage, /data-rhythm-panel="estimatedWatchSeconds"/);
     assert.match(insightsPage, /data-rhythm-metric="watches"/);
     assert.match(insightsPage, /\.yt-rhythm-clocks\{display:grid;gap:34px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);max-width:none\}/);
     assert.match(insightsPage, /toggle\.hidden=wide\.matches/);
-    assert.match(insightsPage, /Shorts 與一般影片時間/);
+    assert.match(insightsPage, /觀看時間趨勢/);
     assert.match(insightsPage, /yt-short-segment/);
     assert.match(insightsPage, /yt-regular-segment/);
     assert.doesNotMatch(insightsPage, /yt-short-line-chart/);
+    const publicInsightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
+      lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: false,
+    });
+    assert.doesNotMatch(publicInsightsPage, /預設私密/);
     const partialRhythmPage = youtubeDashboardPage('Fixture', {
       ...dashboard, rhythmCoverage: { exactWatches: 2, dateOnlyWatches: 1 },
     }, 'duration', { lang: 'zh', profilePath: '/fixture', page: 'insights' });
@@ -429,7 +435,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     }), /方案 C · 年月熱圖/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'absolute',
-    }), /Shorts 與一般影片時間/);
+    }), /觀看時間趨勢/);
     assert.match(youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', page: 'insights', shortFormVariant: 'dual',
     }), /方案 A2 · 組成＋總時數/);
@@ -1040,7 +1046,7 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
     assert.equal(partial.stats.topicCoverage, 0.5);
     assert.equal(partial.topics[0]?.slug, 'recent-topic');
     const partialPage = youtubeDashboardPage('Fixture', partial, 'duration', {
-      lang: 'en', page: 'insights',
+      lang: 'en', page: 'overview',
     });
     assert.match(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
     assert.match(partialPage, /Effective coverage is below 80%/);
@@ -1148,9 +1154,9 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     ]);
 
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
-      lang: 'zh', page: 'insights',
+      lang: 'zh', page: 'overview',
     });
-    assert.match(html, /主題如何改變/);
+    assert.match(html, /主題動態/);
     assert.match(html, /依頁面範圍/);
     assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);
@@ -1268,6 +1274,7 @@ test('YouTube channel metadata fetches avatars in batches and caches missing cha
   const ids = Array.from({ length: 51 }, (_, index) => `channel-${index + 1}`);
   const requests: string[][] = [];
   const fetchImpl = (async (input: string | URL | Request) => {
+    assert.equal(new URL(String(input)).searchParams.get('part'), 'snippet,statistics,topicDetails');
     const requested = new URL(String(input)).searchParams.get('id')!.split(',');
     requests.push(requested);
     const foundId = requested[0];
@@ -1276,8 +1283,11 @@ test('YouTube channel metadata fetches avatars in batches and caches missing cha
         id: foundId,
         snippet: {
           title: `Channel ${foundId}`,
+          publishedAt: '2017-01-01T00:00:00Z',
           thumbnails: { high: { url: `https://yt3.ggpht.com/${foundId}` } },
         },
+        statistics: { subscriberCount: '3680000', hiddenSubscriberCount: false, videoCount: '81', viewCount: '2000000000' },
+        topicDetails: { topicCategories: ['https://en.wikipedia.org/wiki/Rock_music'] },
       }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
@@ -1285,7 +1295,10 @@ test('YouTube channel metadata fetches avatars in batches and caches missing cha
   assert.deepEqual(requests.map((batch) => batch.length), [50, 1]);
   assert.equal(metadata.length, 51);
   assert.equal(metadata[0].thumbnailUrl, 'https://yt3.ggpht.com/channel-1');
-  assert.deepEqual(metadata[1], { channelId: 'channel-2', name: '', thumbnailUrl: '' });
+  assert.deepEqual(metadata[0].statistics, { subscriberCount: 3680000, hiddenSubscriberCount: false, videoCount: 81, viewCount: 2000000000, publishedAt: '2017-01-01T00:00:00Z', topicCategories: ['https://en.wikipedia.org/wiki/Rock_music'] });
+  assert.deepEqual(metadata[1], { channelId: 'channel-2', name: '', thumbnailUrl: '', statistics: {
+    subscriberCount: null, hiddenSubscriberCount: false, videoCount: null, viewCount: null, publishedAt: null, topicCategories: [],
+  } });
 
   const failingFetch = (async () => new Response('quota exhausted', { status: 403 })) as typeof fetch;
   await assert.rejects(
@@ -1325,6 +1338,79 @@ test('YouTube keywords segment Unicode, ignore URLs, and count each video once',
     { title: 'My full video', description: 'Get more of that here. Follow my Twitter and Discord link.', tags_json: '[]' },
   ]);
   assert.deepEqual(stopWords, []);
+});
+
+test('classification feeds rejections back to the model and skips a stubborn batch', async () => {
+  const repository = new Repository(':memory:');
+  try {
+    const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
+      videoId: `RTRYVID${String(index).padStart(4, "0")}`,
+      title: `Technical Video ${index + 1}`,
+      channelId: `channel-${index % 12 + 1}`,
+      channelTitle: `Channel ${index % 12 + 1}`,
+      description: 'A public description about software and culture.',
+      tags: ['software', 'culture'],
+      thumbnailUrl: '',
+      durationSeconds: 1200,
+      publishedAt: '2026-07-01T00:00:00Z',
+      categoryId: '28',
+      availability: 'available',
+      metadataHash: `hash-${index + 1}`,
+    }));
+    for (const [index, video] of metadata.entries()) {
+      repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+        sessionId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        videoId: video.videoId,
+        title: video.title,
+        url: `https://www.youtube.com/watch?v=${video.videoId}`,
+        channelTitle: video.channelTitle,
+        watchedAt: `2026-07-${String(index % 24 + 1).padStart(2, '0')}T00:00:00.000Z`,
+        actualWatchedSeconds: 300,
+        durationSeconds: 1200,
+      }, new Date('2026-07-28T00:00:00Z')));
+    }
+    repository.upsertYoutubeVideoMetadata(metadata, '2026-07-28T00:00:00Z');
+
+    const requests: Array<{ batch: number; feedback: string | null }> = [];
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      const users = request.messages.filter((message) => message.role === 'user');
+      const payload = JSON.parse(users[0]!.content) as { videos: Array<{ videoId: string }> };
+      const feedback = users[1]?.content ?? null;
+      requests.push({ batch: payload.videos.length, feedback });
+      // The 20-video batch answers with unverifiable evidence once, then
+      // correctly after feedback. The 4-video batch never gets it right.
+      const attemptsForBatch = requests.filter((entry) => entry.batch === payload.videos.length).length;
+      const good = payload.videos.length === 20 && attemptsForBatch >= 2;
+      const content = {
+        videos: payload.videos.map((video) => ({
+          videoId: video.videoId,
+          slug: 'technology',
+          confidence: 0.9,
+          alternativeSlug: null,
+          alternativeConfidence: null,
+          evidence: [{ text: good ? 'Technical Video' : 'Not in the metadata', source: 'title', score: 0.9 }],
+        })),
+      };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const client: YoutubeAiClient = { baseUrl: 'https://ai.example.test/v1', apiKey: 'test-key', model: 'test-model', fetchImpl };
+    await ensureYoutubeTaxonomyWithClient(repository, false, client);
+
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 20);
+    const shape = (entries: typeof requests) => entries
+      .map((entry) => [entry.batch, entry.feedback === null ? null : /rejected: Personal classification evidence must occur/.test(entry.feedback)] as const)
+      .sort((a, b) => b[0] - a[0] || Number(a[1]) - Number(b[1]));
+    assert.deepEqual(shape(requests), [[20, null], [20, true], [4, null], [4, true], [4, true]]);
+    // Only the skipped batch remains; it is retried on the next cycle and
+    // the cycle reports the failure when nothing at all could be saved.
+    await assert.rejects(classifyYoutubeVideosWithClient(repository, 100, client), /must occur in its declared metadata source/);
+    assert.equal(requests.length, 8);
+    assert.equal(requests.slice(5).every((entry) => entry.batch === 4), true);
+  } finally {
+    repository.close();
+  }
 });
 
 test('personal taxonomy v2 is gated, versioned, restart-safe, and public-metadata only', async () => {

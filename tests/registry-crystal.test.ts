@@ -81,6 +81,8 @@ test('registry stores only an opt-in matching projection and joins current ident
   const registry = new UserRegistry(':memory:');
   try {
     const user = registry.createUser('archive', 'Anonymous Archive');
+    // Matching starts on; this test covers the opted-out projection first.
+    registry.setMatchingOptIn(user.handle, false);
     seedReadyCrystal(registry, user);
     registry.markCrystalDirty(user, '2026-09-05T10:00:00.000Z');
     registry.upsertMatchingCrystal(

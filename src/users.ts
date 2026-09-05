@@ -43,6 +43,9 @@ export interface User {
   referenceOptIn: boolean;
   matchingOptIn: boolean;
   matchingDisclosure: MatchingDisclosureLevel;
+  // Whether hour-of-day / weekday shares may appear on comparisons before
+  // mutual consent.
+  matchingRhythm: boolean;
   matchingIntroduction: string;
   matchingContact: string;
   onboardingCompletedAt: string | null;
@@ -70,6 +73,8 @@ export interface MatchableCrystal {
   handle: string;
   displayName: string;
   disclosureLevel: MatchingDisclosureLevel;
+  // Defaults to true; false hides rhythm shares from locked comparisons.
+  rhythmDisclosure?: boolean;
   crystal: RegistryMatchingCrystal;
   dimensions: MatchingDimensions;
 }
@@ -186,6 +191,7 @@ function rowToUser(row: Record<string, unknown>): User {
     referenceOptIn: Number(row.reference_opt_in) === 1,
     matchingOptIn: Number(row.matching_opt_in) === 1,
     matchingDisclosure: row.matching_disclosure as MatchingDisclosureLevel,
+    matchingRhythm: row.matching_rhythm == null ? true : Number(row.matching_rhythm) === 1,
     matchingIntroduction: String(row.matching_introduction ?? ''),
     matchingContact: String(row.matching_contact ?? ''),
     onboardingCompletedAt: row.onboarding_completed_at == null
@@ -227,6 +233,8 @@ export class UserRegistry {
           CHECK (matching_opt_in IN (0, 1)),
         matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
           CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel')),
+        matching_rhythm INTEGER NOT NULL DEFAULT 1
+          CHECK (matching_rhythm IN (0, 1)),
         matching_introduction TEXT NOT NULL DEFAULT '',
         matching_contact TEXT NOT NULL DEFAULT '',
         onboarding_completed_at TEXT,
@@ -264,6 +272,14 @@ export class UserRegistry {
       this.db.exec(`ALTER TABLE users ADD COLUMN matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
         CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel'))`);
     }
+    if (!columns.some((column) => column.name === 'matching_rhythm')) {
+      this.db.exec(`ALTER TABLE users ADD COLUMN matching_rhythm INTEGER NOT NULL DEFAULT 1
+        CHECK (matching_rhythm IN (0, 1))`);
+    }
+    // Joining matching is the single switch: the finer disclosure and rhythm
+    // settings were retired, so stored rows are normalized to "everything".
+    this.db.exec(`UPDATE users SET matching_disclosure='topics_and_channel', matching_rhythm=1
+      WHERE matching_disclosure<>'topics_and_channel' OR matching_rhythm<>1`);
     for (const [name, definition] of [
       ['matching_introduction', "TEXT NOT NULL DEFAULT ''"],
       ['matching_contact', "TEXT NOT NULL DEFAULT ''"],
@@ -397,12 +413,15 @@ export class UserRegistry {
     this.db.prepare(`
       INSERT INTO users (
         handle, display_name, capture_token_hash, dashboard_token_hash,
-        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url,
+        matching_opt_in, matching_disclosure, matching_rhythm
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
       options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
       options.googleSub ?? null, options.googleEmail ?? null, options.avatarUrl ?? null,
+      // Matching switches start on; the account page turns each one off.
+      1, 'topics_and_channel', 1,
     );
     const user = this.userByHandle(handle)!;
     return { ...user, captureToken, dashboardToken };
@@ -458,6 +477,14 @@ export class UserRegistry {
     return rows.map(rowToUser);
   }
 
+  // Everyone who joined matching. Channel pages aggregate across these
+  // people; nobody outside the pool contributes or can look.
+  listMatchingMembers(): User[] {
+    const rows = this.db.prepare('SELECT * FROM users WHERE matching_opt_in=1 ORDER BY id')
+      .all() as Array<Record<string, unknown>>;
+    return rows.map(rowToUser);
+  }
+
   listReferencePopulationUsers(): User[] {
     const rows = this.db.prepare(`
       SELECT * FROM users WHERE reference_opt_in=1 ORDER BY id
@@ -482,8 +509,9 @@ export class UserRegistry {
     handle: string,
     optedIn: boolean,
     disclosureLevel: MatchingDisclosureLevel,
+    rhythm?: boolean,
   ): User {
-    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, false);
+    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, false, rhythm);
   }
 
   completeOnboarding(
@@ -499,6 +527,7 @@ export class UserRegistry {
     optedIn: boolean,
     disclosureLevel: MatchingDisclosureLevel,
     completeOnboarding: boolean,
+    rhythm?: boolean,
   ): User {
     if (!MATCHING_DISCLOSURE_LEVELS.includes(disclosureLevel)) {
       throw new Error('Unknown matching disclosure level');
@@ -509,12 +538,13 @@ export class UserRegistry {
     try {
       const now = new Date().toISOString();
       this.db.prepare(`
-        UPDATE users SET matching_opt_in=?, matching_disclosure=?,
+        UPDATE users SET matching_opt_in=?, matching_disclosure=?, matching_rhythm=?,
           onboarding_completed_at=CASE WHEN ?=1 THEN ? ELSE onboarding_completed_at END
         WHERE id=?
       `).run(
         optedIn ? 1 : 0,
         disclosureLevel,
+        (rhythm ?? user.matchingRhythm) ? 1 : 0,
         completeOnboarding ? 1 : 0,
         now,
         user.id,
@@ -542,20 +572,10 @@ export class UserRegistry {
     return this.userByHandle(handle)!;
   }
 
+  // Every canonical topic is usable for everyone who joined. Stored
+  // per-topic choices from the retired interests UI are ignored.
   matchingDimensionsFor(user: User): MatchingDimensions {
-    const row = this.db.prepare(`
-      SELECT dimension_taxonomy_version, selected_topic_keys,
-        excluded_topic_keys, dimensions_confirmed
-      FROM matching_profiles WHERE user_id=?
-    `).get(user.id) as Record<string, unknown> | undefined;
-    const stored: StoredMatchingDimensions | null = row ? {
-      taxonomyVersion: row.dimension_taxonomy_version == null
-        ? null : Number(row.dimension_taxonomy_version),
-      selectedTopicKeysJson: String(row.selected_topic_keys),
-      excludedTopicKeysJson: String(row.excluded_topic_keys),
-      confirmed: Number(row.dimensions_confirmed) === 1,
-    } : null;
-    return resolveMatchingDimensions(this.matchingCrystalFor(user.handle), stored);
+    return resolveMatchingDimensions(this.matchingCrystalFor(user.handle), null);
   }
 
   setMatchingDimensions(
@@ -656,7 +676,7 @@ export class UserRegistry {
   listMatchableCrystals(limit = 250): MatchableCrystal[] {
     const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
     const rows = this.db.prepare(`
-      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, c.json,
+      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, u.matching_rhythm, c.json,
         p.dimension_taxonomy_version, p.selected_topic_keys,
         p.excluded_topic_keys, p.dimensions_confirmed
       FROM crystals c
@@ -673,20 +693,14 @@ export class UserRegistry {
     ) as Array<Record<string, unknown>>;
     return rows.flatMap((row) => {
       const crystal = parseRegistryMatchingCrystal(String(row.json));
-      const stored: StoredMatchingDimensions | null = row.selected_topic_keys == null ? null : {
-        taxonomyVersion: row.dimension_taxonomy_version == null
-          ? null : Number(row.dimension_taxonomy_version),
-        selectedTopicKeysJson: String(row.selected_topic_keys),
-        excludedTopicKeysJson: String(row.excluded_topic_keys),
-        confirmed: Number(row.dimensions_confirmed) === 1,
-      };
       return crystal ? [{
         userId: Number(row.user_id),
         handle: String(row.handle),
         displayName: String(row.display_name),
-        disclosureLevel: String(row.matching_disclosure) as MatchingDisclosureLevel,
+        disclosureLevel: 'topics_and_channel',
+        rhythmDisclosure: true,
         crystal,
-        dimensions: resolveMatchingDimensions(crystal, stored),
+        dimensions: resolveMatchingDimensions(crystal, null),
       }] : [];
     });
   }
@@ -732,7 +746,8 @@ export class UserRegistry {
     if (!current || current.id !== sender.id || !current.matchingOptIn) {
       throw new Error('Matching is not enabled');
     }
-    if (!this.listMatchingCandidatesFor(current).some((candidate) => candidate.userId === recipientUserId)) {
+    if (!Number.isSafeInteger(recipientUserId) || recipientUserId === current.id
+      || !this.db.prepare('SELECT 1 FROM users WHERE id=? AND matching_opt_in=1').get(recipientUserId)) {
       throw new Error('Candidate is no longer eligible');
     }
     const token = newToken();
@@ -768,12 +783,13 @@ export class UserRegistry {
     return token;
   }
 
-  matchingCandidateForAction(viewer: User, actionToken: string): MatchableCrystal | null {
+  friendshipCandidateForAction(viewer: User, actionToken: string): User | null {
     const current = this.userByHandle(viewer.handle);
     if (!current || current.id !== viewer.id || !current.matchingOptIn
       || !MATCH_ACTION_TOKEN_PATTERN.test(actionToken)) return null;
     const row = this.db.prepare(`
-      SELECT action.recipient_user_id FROM match_action_tokens action
+      SELECT recipient.* FROM match_action_tokens action
+      JOIN users recipient ON recipient.id=action.recipient_user_id AND recipient.matching_opt_in=1
       WHERE action.token_hash=? AND action.sender_user_id=? AND action.expires_at>=?
         AND NOT EXISTS (
           SELECT 1 FROM match_requests request
@@ -785,11 +801,14 @@ export class UserRegistry {
                 AND request.recipient_user_id=action.sender_user_id))
         )
     `).get(tokenHash(actionToken), current.id, new Date().toISOString()) as
-      | { recipient_user_id: number }
+      | Record<string, unknown>
       | undefined;
-    if (!row) return null;
-    return this.listMatchingCandidatesFor(current, 499)
-      .find((candidate) => candidate.userId === Number(row.recipient_user_id)) ?? null;
+    return row ? rowToUser(row) : null;
+  }
+
+  matchingCandidateForAction(viewer: User, actionToken: string): MatchableCrystal | null {
+    const target = this.friendshipCandidateForAction(viewer, actionToken);
+    return target ? this.matchingCandidateByHandle(viewer, target.handle) : null;
   }
 
   avatarUserForMatchAction(viewer: User, actionToken: string, viewerSide = false): User | null {
@@ -798,6 +817,20 @@ export class UserRegistry {
     return viewerSide
       ? this.userByHandle(viewer.handle)
       : this.userByHandle(candidate.handle);
+  }
+
+  // Stable, handle-addressed comparison: the other person must currently be
+  // a candidate for the viewer (both opted in, eligible, not the viewer).
+  matchingCandidateByHandle(viewer: User, handle: string): MatchableCrystal | null {
+    return this.listMatchingCandidatesFor(viewer, 499)
+      .find((candidate) => candidate.handle === handle) ?? null;
+  }
+
+  avatarUserForMember(viewer: User, handle: string): User | null {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn) return null;
+    if (handle === current.handle) return current;
+    return this.matchingCandidateByHandle(current, handle) ? this.userByHandle(handle) : null;
   }
 
   avatarUserForMatchRequest(viewer: User, requestToken: string): User | null {
@@ -822,7 +855,7 @@ export class UserRegistry {
     if (!current || current.id !== sender.id || !current.matchingOptIn || !actionToken) {
       throw new Error('Match request is not allowed');
     }
-    if (!this.matchingCandidateForAction(current, actionToken)) {
+    if (!this.friendshipCandidateForAction(current, actionToken)) {
       // A retried form submission after a successful request remains
       // idempotent. Revoked, declined, or withdrawn pairs cannot be revived
       // by replaying an old action token.
@@ -843,17 +876,8 @@ export class UserRegistry {
       SELECT a.recipient_user_id, a.topics_json
       FROM match_action_tokens a
       JOIN users recipient ON recipient.id=a.recipient_user_id AND recipient.matching_opt_in=1
-      JOIN crystals c ON c.user_id=recipient.id AND c.kind='matching'
-        AND c.version=? AND c.taxonomy_version=? AND c.eligible=1
-      JOIN crystals sender_crystal ON sender_crystal.user_id=a.sender_user_id
-        AND sender_crystal.kind='matching' AND sender_crystal.version=?
-        AND sender_crystal.taxonomy_version=? AND sender_crystal.eligible=1
       WHERE a.token_hash=? AND a.sender_user_id=? AND a.expires_at>=?
     `).get(
-      REGISTRY_CRYSTAL_VERSION,
-      MATCHING_TAXONOMY.version,
-      REGISTRY_CRYSTAL_VERSION,
-      MATCHING_TAXONOMY.version,
       tokenHash(actionToken),
       current.id,
       now,

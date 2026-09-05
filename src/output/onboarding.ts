@@ -3,7 +3,6 @@ import type { GuidedOnboardingState, GuidedScanStatus } from '../onboarding-flow
 import { DEFAULT_HANDLE, type User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
 import type { YoutubeProcessingStatus } from '../youtube/processing.js';
-import type { MatchingDimensions } from '../youtube/dimensions.js';
 import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
 import { html, primaryNav, shell } from './pages.js';
@@ -38,7 +37,7 @@ const formStyles = `
   .ob-google:hover{border-color:var(--muted)}
   .ob-advanced{border-top:1px solid var(--line);padding-top:22px}.ob-advanced>summary{color:var(--accent-text);cursor:pointer;font-size:14px;font-weight:750;list-style-position:outside;margin-left:16px;padding-left:3px}.ob-advanced>summary:hover{color:var(--ink)}
   .ob-advanced-body{padding-top:18px}.ob-success{background:rgba(94,182,125,.1);border:1px solid rgba(94,182,125,.35);border-radius:10px;color:#7ecf9d;font-size:13px;margin-bottom:14px;padding:10px 12px}.ob-help{color:var(--muted)!important;font-size:11px!important;margin:0!important}
-  .ob-dimensions{display:grid;gap:8px;margin:4px 0}.ob-dimension{align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:8px;display:grid;gap:8px;grid-template-columns:minmax(0,1fr) auto auto;padding:9px 10px}.ob-dimension-name{color:var(--ink);font-size:13px;font-weight:700}.ob-dimension code{color:var(--muted);font-size:10px}.ob-dimension .ob-check{font-size:11px;margin:0;white-space:nowrap}
+  .ob-switches{display:grid;gap:8px;margin:4px 0 10px}.ob-switch{align-items:flex-start;background:var(--raised);border:1px solid var(--line);border-radius:10px;cursor:pointer;display:flex;gap:12px;padding:11px 12px}.ob-switch input{flex:0 0 auto;height:18px;margin:2px 0 0;width:18px}.ob-switch strong{color:var(--ink);display:block;font-size:13px}.ob-switch small{color:var(--ink-2);display:block;font-size:11px;line-height:1.5;margin-top:2px}
 `;
 
 function signupNav(lang: Lang) {
@@ -123,7 +122,6 @@ export interface AccountPageState {
   // Background work still owed to this archive; shown right after an import
   // and on every later visit until the worker catches up.
   processing?: YoutubeProcessingStatus;
-  matchingDimensions?: MatchingDimensions;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -159,80 +157,35 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         </form>
       </div>
     </details>`;
-  const dimensions = state.matchingDimensions;
-  const dimensionsReady = dimensions && dimensions.status !== 'pending';
-  const selected = new Set(dimensions?.status === 'confirmed'
-    ? dimensions.selectedTopicKeys
-    : dimensions?.status === 'suggested' ? dimensions.suggestedTopicKeys : []);
-  const excluded = new Set(dimensions?.status === 'confirmed' ? dimensions.excludedTopicKeys : []);
-  const suggestedOrder = new Map(dimensions?.suggestedTopicKeys.map((key, index) => [key, index]) ?? []);
-  const topics = [...MATCHING_TAXONOMY.topics].sort((left, right) =>
-    (suggestedOrder.get(left.key) ?? 999) - (suggestedOrder.get(right.key) ?? 999));
-  const dimensionSettings = dimensionsReady ? `
-      <h2>${t.accountDimensions}</h2>
-      <p>${t.accountDimensionsPara}</p>
-      ${dimensions.status === 'stale' ? `<div class="ob-warn">${t.accountDimensionsStale}</div>` : ''}
-      ${dimensions.status === 'suggested' ? `<p class="ob-help">${t.accountDimensionsSuggested}</p>` : ''}
-      <form method="post" action="/account/matching-dimensions" class="ob-form">
-        <input type="hidden" name="taxonomyVersion" value="${dimensions.taxonomyVersion}">
-        <div class="ob-dimensions">
-          ${topics.map((topic) => `<div class="ob-dimension">
-            <span class="ob-dimension-name">${html(topic.name)} <code>${html(topic.key)}</code></span>
-            <label class="ob-check"><input type="checkbox" name="selectedTopicKeys" value="${html(topic.key)}"${selected.has(topic.key) ? ' checked' : ''}> ${t.accountDimensionsUse}</label>
-            <label class="ob-check"><input type="checkbox" name="excludedTopicKeys" value="${html(topic.key)}"${excluded.has(topic.key) ? ' checked' : ''}> ${t.accountDimensionsExclude}</label>
-          </div>`).join('')}
+  const matchingSettings = `
+      <h2>${t.accountMatching}</h2>
+      <p>${t.accountMatchingPara}</p>
+      <form method="post" action="/account/matching" class="ob-form">
+        <div class="ob-switches">
+          <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong></span></label>
         </div>
-        <p class="ob-help">${t.accountDimensionsFallback}</p>
-        <button type="submit">${t.accountDimensionsSave}</button>
-      </form>
-      <script>(() => { document.querySelectorAll('.ob-dimension').forEach((row) => {
-        const boxes = row.querySelectorAll('input[type=checkbox]');
-        boxes.forEach((box) => box.addEventListener('change', () => {
-          if (box.checked) boxes.forEach((other) => { if (other !== box) other.checked = false; });
-        }));
-      }); })();</script>` : `
-      <h2>${t.accountDimensions}</h2>
-      <p>${t.accountDimensionsPending}</p>`;
-  const body = `<style>${formStyles}${processingStyles}</style><section class="ob-intro ob-profile"><img class="ob-avatar" src="/avatar/${html(user.handle)}" alt="" width="64" height="64"><div><div class="eyebrow">${t.accountEyebrow}</div><h1>${t.accountTitle}</h1>
-    <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p></div></section>
-    <div class="ob-card">
-      ${state.error ? `<div class="ob-error">${html(state.error)}</div>` : ''}
-      <h2>${t.accountDashboard}</h2>
-      <code class="ob-token"><a href="${dashboardHref}">${html(config.publicBaseUrl)}/${html(user.handle)}</a></code>
-      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
+        <details><summary>${t.settingsSharingDetails}</summary><p>${t.accountMatchingOptInHelp}</p><p>${t.accountMatchingFriends}</p></details>
+        <button type="submit">${t.accountMatchingSave}</button>
+      </form>`;
+  const group = (id: string, title: string, content: string, open = false) =>
+    `<details class="st-group" id="${id}"${open ? ' open' : ''}><summary>${title}</summary><div class="st-content">${content}</div></details>`;
+  const body = `<style>${formStyles}${processingStyles}
+    .st-page{max-width:680px;margin:0 auto}.st-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}.st-heading .ob-intro{margin:0}.st-heading a{font-size:13px}
+    .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
+    @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
+    </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
+      ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
       ${state.takeoutResult ? '' : processing}
+      ${group('settings-profile', t.settingsProfile, `
+      <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p>
       <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
         <label for="displayName">${t.signupName}</label>
         <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">
         <button type="submit">${t.accountNameSave}</button>
       </form>
-      <h2>${t.accountExtension}</h2>
-      <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
-      <ol class="ob-steps">
-        ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
-      </ol>
-      ${takeout}
-      <section id="account-export">
-        <h2>${t.accountExportTitle}</h2>
-        <p>${t.accountExportPara}</p>
-        <form method="post" action="/account/export" class="ob-form">
-          <label class="ob-check"><input type="checkbox" name="confirmExport" value="1" required> ${t.accountExportConfirm}</label>
-          <button type="submit">${t.accountExportButton}</button>
-        </form>
-      </section>
-      <h2>${t.accountMatching}</h2>
-      <p>${t.accountMatchingPara}</p>
-      <form method="post" action="/account/matching" class="ob-form">
-        <label class="ob-check"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}> ${t.accountMatchingOptIn}</label>
-        <label for="matchingDisclosure">${t.accountMatchingDisclosure}</label>
-        <select id="matchingDisclosure" name="matchingDisclosure">
-          <option value="topics_only"${user.matchingDisclosure === 'topics_only' ? ' selected' : ''}>${t.accountMatchingTopicsOnly}</option>
-          <option value="topics_and_channel"${user.matchingDisclosure === 'topics_and_channel' ? ' selected' : ''}>${t.accountMatchingTopicsChannel}</option>
-        </select>
-        <p class="ob-help">${t.accountMatchingSeparate}</p>
-        <button type="submit">${t.accountMatchingSave}</button>
-      </form>
-      ${dimensionSettings}
+      `)}
+      ${group('settings-privacy', t.settingsPrivacy, `
+      ${matchingSettings}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
       <form method="post" action="/account/visibility" class="ob-form">
@@ -245,18 +198,52 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
         <button type="submit">${t.accountReferenceSave}</button>
       </form>
+      `)}
+      ${group('settings-sync', t.settingsSync, `
+      <h2>${t.accountExtension}</h2>
+      <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
+      <ol class="ob-steps">
+        ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
+      </ol>
+      `)}
+      ${group('settings-data', t.settingsData, `
+      ${takeout}
+      <section id="account-export">
+        <h2>${t.accountExportTitle}</h2>
+        <p>${t.accountExportPara}</p>
+        <form method="post" action="/account/export" class="ob-form">
+          <label class="ob-check"><input type="checkbox" name="confirmExport" value="1" required> ${t.accountExportConfirm}</label>
+          <button type="submit">${t.accountExportButton}</button>
+        </form>
+      </section>
+      `, !!takeoutFeedback)}
+      ${group('settings-advanced', t.settingsAdvanced, `
+      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
       ${rotatedHtml}
       <h2>${t.accountRotate}</h2>
       <p>${t.accountRotatePara}</p>
       <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
-      <form method="post" action="/logout" class="ob-form" style="margin-top:10px"><button type="submit" style="background:var(--raised);border-color:var(--line-strong);color:var(--ink)">${t.accountLogout}</button></form>
       <details style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
       <form method="post" action="/account/delete" class="ob-form" style="margin-top:10px">
         <p style="margin:0">${t.accountDeletePara(html(user.handle))}</p>
         <input name="confirmHandle" type="text" autocomplete="off" placeholder="${html(user.handle)}">
         <button type="submit">${t.accountDeleteButton}</button>
       </form></details>
-    </div>`;
+      `, !!state.rotated || !!state.error)}
+      <div class="st-footer"><a href="/privacy">${t.privacyLink}</a><form method="post" action="/logout" class="ob-form"><button type="submit">${t.accountLogout}</button></form></div>
+    </div>
+    <script>(() => {
+      const revealTarget = () => {
+        const target = document.getElementById(location.hash.slice(1));
+        if (!target) return;
+        for (let element = target; element; element = element.parentElement) {
+          if (element instanceof HTMLDetailsElement) element.open = true;
+        }
+        target.scrollIntoView();
+      };
+      addEventListener('hashchange', revealTarget);
+      revealTarget();
+    })();</script>`;
   return shell(t.accountTitle, body, primaryNav(lang, {
     active: 'account', dashboardHref,
     languageHref: `/account?lang=${lang === 'zh' ? 'en' : 'zh'}`,
@@ -307,26 +294,11 @@ export function guidedOnboardingPage(
     content = `<h2>${t.onboardingProcessingTitle}</h2><p>${t.onboardingProcessingPara}</p>
       ${notice || `<div class="go-note warn">${t.onboardingMoreData}</div>`}
       <div class="go-actions"><a class="go-primary" href="/onboarding">${t.onboardingRefresh}</a><a class="go-secondary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
-  } else if (state.step === 'interests') {
-    const suggested = new Set(state.dimensions.suggestedTopicKeys);
-    const topics = MATCHING_TAXONOMY.topics.filter((topic) => suggested.has(topic.key));
-    content = `<h2>${t.onboardingInterestsTitle}</h2><p>${t.onboardingInterestsPara}</p>${provisional}
-      <p><a href="${dashboardHref}/insights">${t.onboardingPreview}</a></p>
-      <form method="post" action="/onboarding/interests" class="ob-form">
-        <input type="hidden" name="taxonomyVersion" value="${state.dimensions.taxonomyVersion}">
-        ${topics.length ? `<div class="go-topics">${topics.map((topic) => `<label class="go-topic"><input type="checkbox" name="selectedTopicKeys" value="${html(topic.key)}" checked> ${html(topic.name)}</label>`).join('')}</div>` : `<div class="go-note">${t.onboardingNoTopics}</div>`}
-        <button type="submit">${t.onboardingSaveInterests}</button>
-      </form>`;
   } else if (state.step === 'consent') {
     content = `<h2>${t.onboardingConsentTitle}</h2><p>${t.onboardingConsentPara}</p>${provisional}
       <form method="post" action="/onboarding/finish" class="ob-form">
         <label class="go-choice"><input type="radio" name="choice" value="join" required> <span>${t.onboardingJoin}</span></label>
         <label class="go-choice"><input type="radio" name="choice" value="private" required> <span>${t.onboardingPrivate}</span></label>
-        <label for="matchingDisclosure">${t.onboardingDisclosure}</label>
-        <select id="matchingDisclosure" name="matchingDisclosure">
-          <option value="topics_only">${t.accountMatchingTopicsOnly}</option>
-          <option value="topics_and_channel">${t.accountMatchingTopicsChannel}</option>
-        </select>
         <button type="submit">${t.onboardingFinish}</button>
       </form>`;
   } else {
@@ -430,7 +402,7 @@ export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang =
         badge.hidden = false;
         badge.textContent = status.state === 'running' ? syncing(status.events ?? 0) : connected;
       };
-      window.addEventListener('urtube-youtube-import-status', update);
+      window.addEventListener('urtube-youtube-import-status', update, { signal: window.urtubePageController.signal });
       update();
     })();</script>
   </div>`;

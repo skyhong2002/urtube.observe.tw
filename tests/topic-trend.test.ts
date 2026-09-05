@@ -35,7 +35,7 @@ test('topic trend views share one 12-month, 20-topic model', () => {
   assert.equal(model.frames[9].provisional, true);
 
   const output = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, t);
-  assert.match(output, /Monthly rank/);
+  assert.match(output, /Rank animation/);
   assert.match(output, /All topics/);
   assert.match(output, /Other/);
   assert.match(output, /Select up to 3 topics to compare/);
@@ -68,4 +68,20 @@ test('months without classified time stay unknown instead of becoming zero', () 
   const output = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('en'));
   assert.match(output, /not enough classified data/);
   assert.doesNotMatch(output, /Topic 01 · May 2025 · 0\.0%/);
+});
+
+
+test('topic dynamics renders stable ranked rows and an empty state for an unclassified latest period', () => {
+  const months = trendFixture();
+  const output = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('zh'));
+  assert.match(output, /<h2>主題動態<\/h2>/);
+  assert.match(output, /data-race-slug="topic-20" style="transform:translateY\(0px\)"/);
+  assert.match(output, /data-race-empty hidden/);
+  for (const script of output.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    assert.doesNotThrow(() => Function(script[1]));
+  }
+  months[11] = { ...months[11], classifiedWatchSeconds: 0, classificationCoverage: 0 };
+  const empty = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('zh'));
+  assert.match(empty, /data-race-empty>分類資料不足/);
+  assert.match(empty, /data-race-list style="height:441px"><\/ol>/);
 });

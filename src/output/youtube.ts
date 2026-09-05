@@ -1,3 +1,4 @@
+import { rankRaceSection } from './rank-race.js';
 import {
   YOUTUBE_RANGES,
   type YoutubeDailySummary,
@@ -10,9 +11,9 @@ import {
   PERSONAL_TOPICS,
 } from '../youtube/personal-taxonomy.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
+import { duration, hours, html, shell, timeAgo, trustSignals, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
-import { topicTrendSection, topicTrendStyles } from './topic-trend.js';
+import { buildTopicTrendModel, topicTrendSection, topicTrendStyles } from './topic-trend.js';
 
 function compact(value: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -80,7 +81,7 @@ function polarPoint(angle: number, radius: number): [number, number] {
 
 function radialSector(hour: number, value: number, max: number): string {
   const inner = 9;
-  const outer = inner + value / Math.max(1, max) * 108;
+  const outer = inner + value / (max > 0 ? max : 1) * 108;
   const startAngle = hour * 15 + 1.5;
   const endAngle = (hour + 1) * 15 - 1.5;
   const [innerStartX, innerStartY] = polarPoint(startAngle, inner);
@@ -88,6 +89,34 @@ function radialSector(hour: number, value: number, max: number): string {
   const [outerEndX, outerEndY] = polarPoint(endAngle, outer);
   const [innerEndX, innerEndY] = polarPoint(endAngle, inner);
   return `M${innerStartX.toFixed(2)},${innerStartY.toFixed(2)}L${outerStartX.toFixed(2)},${outerStartY.toFixed(2)}A${outer.toFixed(2)},${outer.toFixed(2)} 0 0 1 ${outerEndX.toFixed(2)},${outerEndY.toFixed(2)}L${innerEndX.toFixed(2)},${innerEndY.toFixed(2)}A${inner},${inner} 0 0 0 ${innerStartX.toFixed(2)},${innerStartY.toFixed(2)}Z`;
+}
+
+// One 24-hour rose chart. Values are any non-negative series (counts,
+// seconds, or shares); the caller formats the tooltip.
+export function radialClock(
+  values: number[],
+  label: string,
+  ariaLabel: string,
+  tip: (hour: number, value: number) => string,
+  panel = '',
+): string {
+  const max = Math.max(1e-9, ...values);
+  const spokes = values.map((_, hour) => {
+    const [x1, y1] = polarPoint(hour * 15, 10);
+    const [x2, y2] = polarPoint(hour * 15, 126);
+    return `<line${hour % 6 === 0 ? ' class="yt-rhythm-major"' : ''} x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
+  }).join('');
+  const sectors = values.map((value, hour) => value > 0
+    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${html(hourLabel(hour))}" data-tip-label="${html(tip(hour, value))}"></path>`
+    : '').join('');
+  return `<figure class="yt-rhythm-clock"${panel ? ` data-rhythm-panel="${html(panel)}"` : ''}><svg viewBox="0 0 300 300" role="img" aria-label="${html(ariaLabel)}">
+    <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
+    <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
+    </svg><figcaption>${label}</figcaption></figure>`;
+}
+
+function hourLabel(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00–${String((hour + 1) % 24).padStart(2, '0')}:00`;
 }
 
 function rhythmClock(
@@ -98,19 +127,13 @@ function rhythmClock(
 ): string {
   const byHour = new Map(hourly.map((entry) => [entry.hour, entry]));
   const values = Array.from({ length: 24 }, (_, hour) => byHour.get(hour)?.[metric] ?? 0);
-  const max = Math.max(1, ...values);
-  const spokes = values.map((_, hour) => {
-    const [x1, y1] = polarPoint(hour * 15, 10);
-    const [x2, y2] = polarPoint(hour * 15, 126);
-    return `<line${hour % 6 === 0 ? ' class="yt-rhythm-major"' : ''} x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
-  }).join('');
-  const sectors = values.map((value, hour) => value > 0
-    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${t.hourRange(hour)}" data-tip-label="${metric === 'watches' ? t.tipVideos(value) : hours(value)}"></path>`
-    : '').join('');
-  return `<figure class="yt-rhythm-clock" data-rhythm-panel="${metric}"><svg viewBox="0 0 300 300" role="img" aria-label="${t.rhythmAria(label)}">
-    <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
-    <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
-    </svg><figcaption>${label}</figcaption></figure>`;
+  return radialClock(
+    values,
+    label,
+    t.rhythmAria(label),
+    (_hour, value) => (metric === 'watches' ? t.tipVideos(value) : hours(value)),
+    metric,
+  );
 }
 
 function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
@@ -149,7 +172,7 @@ function rhythmSection(data: YoutubeDashboardData, t: Messages): string {
     <details class="viz-table"><summary>${t.tableView}</summary><table>
       <thead><tr><th>${t.colHour}</th><th>${t.colVideos}</th><th>${t.colEstTime}</th></tr></thead>
       <tbody>${tableRows}</tbody></table></details>
-    <script>(()=>{const root=document.currentScript?.closest('section');if(!root)return;const toggle=root.querySelector('.yt-metric-toggle');const buttons=[...root.querySelectorAll('[data-rhythm-metric]')];const panels=[...root.querySelectorAll('[data-rhythm-panel]')];const wide=matchMedia('(min-width:900px)');let metric='watches';const apply=(next)=>{metric=next;toggle.hidden=wide.matches;for(const panel of panels)panel.hidden=!wide.matches&&panel.dataset.rhythmPanel!==metric;for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.rhythmMetric===metric))};for(const button of buttons)button.addEventListener('click',()=>apply(button.dataset.rhythmMetric));wide.addEventListener('change',()=>apply(metric));apply(metric)})();</script>
+    <script>(()=>{const root=document.currentScript?.closest('section');if(!root)return;const toggle=root.querySelector('.yt-metric-toggle');const buttons=[...root.querySelectorAll('[data-rhythm-metric]')];const panels=[...root.querySelectorAll('[data-rhythm-panel]')];const wide=matchMedia('(min-width:900px)');let metric='watches';const apply=(next)=>{metric=next;toggle.hidden=wide.matches;for(const panel of panels)panel.hidden=!wide.matches&&panel.dataset.rhythmPanel!==metric;for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.rhythmMetric===metric))};for(const button of buttons)button.addEventListener('click',()=>apply(button.dataset.rhythmMetric));wide.addEventListener('change',()=>apply(metric),{signal:window.urtubePageController.signal});apply(metric)})();</script>
   </section>`;
 }
 
@@ -185,11 +208,54 @@ function shortFormBars(data: YoutubeDashboardData, t: Messages): {
   return { bars, unit: rhythm.unit };
 }
 
+// The main chart uses all estimated time, including measured events without duration.
+function watchTimeSection(data: YoutubeDashboardData, t: Messages): string {
+  const { bars: rhythm, unit } = rhythmBars(data.daily, t);
+  if (!rhythm.length) return '';
+  const zh = t.htmlLang === 'zh-Hant';
+  const labels = zh
+    ? { total: '總觀看時間', regular: '一般影片', short: '短影音（推估）', live: '直播／回放', unknown: '片長未知', method: '短影音以片長 ≤ 3 分鐘推估；直播／回放依 YouTube 標記辨識，包含首播，無法判定觀看當時是否正在直播。舊資料會陸續補齊辨識。' }
+    : { total: 'Total watch time', regular: 'Regular videos', short: 'Short-form (estimated)', live: 'Livestreams / replays', unknown: 'Unknown duration', method: 'Short-form uses duration ≤ 3 minutes. YouTube broadcast metadata identifies streams/replays, including premieres; it does not show whether you watched live. Older metadata is being refreshed.' };
+  const bars = rhythm.map((bar) => ({ ...bar, short: 0, live: 0, regular: 0 }));
+  const byKey = new Map(bars.map((bar) => [bar.key, bar]));
+  for (const day of data.shortFormDaily) {
+    const bar = byKey.get(unit === 'month' ? day.day.slice(0, 7) : day.day);
+    if (!bar) continue;
+    bar.short += day.shortWatchSeconds;
+    bar.live += day.liveWatchSeconds ?? 0;
+    bar.regular += day.regularWatchSeconds ?? Math.max(0, day.knownDurationWatchSeconds - day.shortWatchSeconds - (day.liveWatchSeconds ?? 0));
+  }
+  const categories = ['regular', 'short', 'live', 'unknown'] as const;
+  const values = (bar: typeof bars[number]) => ({ ...bar,
+    unknown: Math.max(0, bar.estimatedWatchSeconds - bar.short - bar.live - bar.regular),
+  });
+  const max = Math.max(1, ...bars.map((bar) => bar.estimatedWatchSeconds));
+  const total = bars.reduce((sum, bar) => sum + bar.estimatedWatchSeconds, 0);
+  const columns = bars.map((bar) => {
+    const amounts = values(bar);
+    const tip = `${labels.total} ${hours(bar.estimatedWatchSeconds)} · ` + categories.map((key) => `${labels[key]} ${hours(amounts[key])}`).join(' · ');
+    const segments = categories.map((key) => `<i class="yt-watch-${key}" style="height:${(bar.estimatedWatchSeconds ? amounts[key] / bar.estimatedWatchSeconds * 100 : 0).toFixed(3)}%"></i>`).join('');
+    return `<div class="yt-short-absolute-col" tabindex="0" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${(bar.estimatedWatchSeconds / max * 100).toFixed(3)}%">${segments}</span></div>`;
+  }).join('');
+  const rows = bars.map((bar) => {
+    const amounts = values(bar);
+    return `<tr><td>${html(bar.label)}</td><td>${hours(bar.estimatedWatchSeconds)}</td>${categories.map((key) => `<td>${hours(amounts[key])}</td>`).join('')}</tr>`;
+  }).join('');
+  return `<section class="section yt-watch-time"><div class="section-head"><h2>${t.shortForm}</h2><span>${labels.total} ${hours(total)}</span></div>
+    <div class="yt-short-absolute-axis"><span>${hours(max)}</span><span>0h</span></div>
+    <div class="yt-short-absolute" role="img" aria-label="${html(t.shortForm + ': ' + categories.map((key) => labels[key]).join(', '))}">${columns}</div>
+    <div class="yt-short-absolute-axis"><span>${html(bars[0].label)}</span><span>${html(bars.at(-1)!.label)}</span></div>
+    <div class="yt-watch-legend">${categories.map((key) => `<span><i class="yt-watch-${key}"></i>${labels[key]}</span>`).join('')}</div>
+    <div class="yt-short-method">${labels.method}</div>
+    <details class="viz-table"><summary>${t.tableView}</summary><table><thead><tr><th>${unit === 'day' ? t.colDay : t.colMonth}</th><th>${labels.total}</th>${categories.map((key) => `<th>${labels[key]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></details></section>`;
+}
+
 function shortFormSection(
   data: YoutubeDashboardData,
   t: Messages,
   variant: ShortFormVariant = 'absolute',
 ): string {
+  if (variant === 'absolute') return watchTimeSection(data, t);
   const { bars, unit } = shortFormBars(data, t);
   if (!bars.length) return '';
   const midpoint = bars.length > 1 ? Math.floor(bars.length / 2) : 0;
@@ -297,19 +363,6 @@ function shortFormSection(
     return `<div class="yt-short-volume-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><i style="height:${(bar.knownDurationWatchSeconds / maxKnown * 100).toFixed(1)}%"></i></div>`;
   }).join('');
 
-  if (variant === 'absolute') {
-    const columns = bars.map((bar) => {
-      const share = shareOf(bar);
-      const totalHeight = bar.knownDurationWatchSeconds / maxKnown * 100;
-      const tip = `${Math.round(share)}% · ${copy.short} ${hours(bar.shortWatchSeconds)} · ${copy.total} ${hours(bar.knownDurationWatchSeconds)}`;
-      return `<div class="yt-short-absolute-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${totalHeight.toFixed(1)}%"><i class="yt-short-segment" style="height:${share.toFixed(1)}%"></i><b class="yt-regular-segment" style="height:${(100 - share).toFixed(1)}%"></b></span></div>`;
-    }).join('');
-    return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.absolute}</span></div>
-      <div class="yt-short-absolute-axis"><span>${hours(maxKnown)}</span><span>0h</span></div>
-      <div class="yt-short-absolute" role="img" aria-label="${t.shortFormAria}">${columns}</div>
-      <div class="yt-short-stack-legend"><span><i></i>${copy.short}</span><span><i></i>${copy.other}</span></div>${method}${details}</section>`;
-  }
-
   if (variant === 'dual') {
     return `<section class="section"><div class="section-head"><h2>${t.shortForm}</h2><span>${copy.dual}</span></div>
       <div class="yt-short-dual-label"><strong>${t.colShare}</strong><span>100%</span></div>
@@ -338,151 +391,52 @@ function shortFormSection(
     ${details}</section>`;
 }
 
-// Row pitch of the race: 32px row + 9px gap. Rows are absolutely positioned
-// and moved with translateY so rank changes slide instead of snapping.
-const RACE_ROW_PITCH = 41;
-
 function channelChase(data: YoutubeDashboardData, t: Messages): string {
-  const race = data.channelRace;
-  if (!race.frames.length) return '';
-  const payload = JSON.stringify({ channels: race.channels, frames: race.frames })
-    .replace(/</g, '\\u003c');
-  const latest = race.frames.at(-1)!;
-  const maxRows = Math.max(...race.frames.map((frame) => frame.entries.length));
-  const trackHeight = maxRows * RACE_ROW_PITCH - 9;
-  const max = Math.max(1, latest.entries[0]?.[1] ?? 1);
-  const initialRows = latest.entries.map(([index, score], rank) => {
-    const channel = race.channels[index];
-    return `<div class="yt-chase-row" data-chase-index="${index}" style="transform:translateY(${rank * RACE_ROW_PITCH}px)">
-    ${channelAvatar(channel)}
-    <div class="yt-chase-copy"><div class="yt-chase-label"><strong>${html(channel.name)}</strong></div>
-      <div class="yt-chase-track"><i style="--share:${(score / max).toFixed(4)}"></i></div></div>
-    <span class="yt-chase-value">${hours(score)}</span>
-  </div>`;
-  }).join('');
-  return `<section class="section"><div class="section-head"><h2>${t.momentum}</h2><span>${t.momentumSub(race.halfLifeDays)}</span></div>
-    <div class="yt-chase">
-      <div class="yt-chase-controls">
-        <button type="button" data-chase-play data-label-play="${t.playHistory}" data-label-pause="${t.pauseHistory}" aria-label="${t.playHistory}" title="${t.playHistory}">▶</button>
-        <strong class="yt-chase-period" data-chase-period>${html(latest.period)}</strong>
-        <input type="range" min="0" max="${race.frames.length - 1}" value="${race.frames.length - 1}" aria-label="${t.momentum}" data-chase-range>
-      </div>
-      <div class="yt-chase-rows" data-chase-rows style="height:${trackHeight}px">${initialRows}</div>
-    </div>
-    <script type="application/json" data-chase-data>${payload}</script>
-    <script>
-      (() => {
-        const root = document.currentScript?.closest('section');
-        if (!root) return;
-        const race = JSON.parse(root.querySelector('[data-chase-data]').textContent || '{}');
-        const frames = race.frames || [];
-        const rows = root.querySelector('[data-chase-rows]');
-        const range = root.querySelector('[data-chase-range]');
-        const period = root.querySelector('[data-chase-period]');
-        const play = root.querySelector('[data-chase-play]');
-        const pitch = ${RACE_ROW_PITCH};
-        const hiddenY = ${trackHeight + RACE_ROW_PITCH};
-        const stepMs = Math.max(120, Math.min(650, Math.round(15000 / frames.length)));
-        let timer = null;
-        const formatHours = (seconds) => (Math.round(seconds / 360) / 10) + 'h';
-        const rowCache = new Map();
-        rows.querySelectorAll('[data-chase-index]').forEach((row) => {
-          rowCache.set(Number(row.dataset.chaseIndex), {
-            row,
-            bar: row.querySelector('.yt-chase-track i'),
-            value: row.querySelector('.yt-chase-value'),
-          });
-        });
-        const makeRow = (index) => {
-          const channel = race.channels[index];
-          const row = document.createElement('div');
-          row.className = 'yt-chase-row';
-          if (channel.thumbnailUrl) {
-            const image = document.createElement('img');
-            image.src = channel.thumbnailUrl;
-            image.alt = '';
-            row.append(image);
-          } else {
-            const fallback = document.createElement('span');
-            fallback.className = 'yt-channel-avatar';
-            fallback.setAttribute('aria-hidden', 'true');
-            fallback.textContent = Array.from(channel.name)[0] || '?';
-            row.append(fallback);
-          }
-          const copy = document.createElement('div');
-          copy.className = 'yt-chase-copy';
-          const label = document.createElement('div');
-          label.className = 'yt-chase-label';
-          const name = document.createElement('strong');
-          name.textContent = channel.name;
-          label.append(name);
-          const track = document.createElement('div');
-          track.className = 'yt-chase-track';
-          const bar = document.createElement('i');
-          track.append(bar);
-          copy.append(label, track);
-          const value = document.createElement('span');
-          value.className = 'yt-chase-value';
-          row.append(copy, value);
-          row.style.transform = 'translateY(' + hiddenY + 'px)';
-          row.style.opacity = '0';
-          rows.append(row);
-          void row.offsetHeight; // commit the off-screen start so entering rows slide in
-          const cached = { row, bar, value };
-          rowCache.set(index, cached);
-          return cached;
-        };
-        const render = (frameIndex) => {
-          const frame = frames[frameIndex];
-          if (!frame) return;
-          const max = Math.max(1, frame.entries[0] ? frame.entries[0][1] : 1);
-          const seen = new Set();
-          frame.entries.forEach((pair, rank) => {
-            const cached = rowCache.get(pair[0]) || makeRow(pair[0]);
-            seen.add(pair[0]);
-            cached.row.style.transform = 'translateY(' + (rank * pitch) + 'px)';
-            cached.row.style.opacity = '1';
-            cached.bar.style.setProperty('--share', String(pair[1] / max));
-            cached.value.textContent = formatHours(pair[1]);
-          });
-          for (const [index, cached] of rowCache) {
-            if (seen.has(index)) continue;
-            cached.row.style.opacity = '0';
-            cached.row.style.transform = 'translateY(' + hiddenY + 'px)';
-          }
-          period.textContent = frame.period;
-          range.value = String(frameIndex);
-        };
-        const stop = () => {
-          if (timer !== null) window.clearInterval(timer);
-          timer = null;
-          play.textContent = '▶';
-          play.setAttribute('aria-label', play.dataset.labelPlay);
-          play.title = play.dataset.labelPlay;
-        };
-        render(frames.length - 1);
-        range.addEventListener('input', () => {
-          stop();
-          render(Number(range.value));
-        });
-        play.addEventListener('click', () => {
-          if (timer !== null) return stop();
-          if (Number(range.value) >= frames.length - 1) render(0);
-          play.textContent = '❚❚';
-          play.setAttribute('aria-label', play.dataset.labelPause);
-          play.title = play.dataset.labelPause;
-          timer = window.setInterval(() => {
-            const next = Number(range.value) + 1;
-            if (next >= frames.length) return stop();
-            render(next);
-          }, stepMs);
-        });
-      })();
-    </script>
-  </section>`;
+  return rankRaceSection({
+    ...data.channelRace, kind: 'channels', title: t.momentum,
+    subtitle: t.momentumSub(data.channelRace.halfLifeDays), format: 'hours',
+    playLabel: t.playHistory, pauseLabel: t.pauseHistory, empty: t.topicTrendEmpty,
+  });
 }
 
-const dashboardStyles = `
+function topicDynamics(data: YoutubeDashboardData, t: Messages): string {
+  const model = buildTopicTrendModel(data.topicTrend, t);
+  const section = rankRaceSection({
+    kind: 'topics', title: t.topicTrendTitle, subtitle: t.topicDynamicsSub, format: 'percent',
+    playLabel: t.topicTrendPlay, pauseLabel: t.topicTrendPause, empty: t.topicTrendUnavailable,
+    channels: model.topics,
+    frames: model.frames.map((frame) => ({
+      period: frame.month,
+      note: frame.coverage === null ? t.topicTrendNoCoverage
+        : t.topicTrendCoverage(Math.round(frame.coverage * 100)) + (frame.provisional ? ` · ${t.provisional}` : ''),
+      entries: frame.values.map((value, index) => [index, value.share] as const)
+        .filter((pair): pair is readonly [number, number] => pair[1] !== null && pair[1] > 0)
+        .sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 8)
+        .map(([index, share]) => [index, share]),
+    })),
+  });
+  return section;
+}
+
+// Shared with the two-person comparison page.
+export const rhythmClockStyles = `
+  .yt-rhythm-clocks{margin:4px auto 8px;max-width:460px}
+  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock[hidden]{display:none}.yt-rhythm-clock svg{display:block;margin:auto;max-width:420px;overflow:visible;width:100%}
+  .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
+  .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
+  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
+  .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
+  .yt-rhythm-quality{align-items:flex-start;background:rgba(208,59,59,.08);border:1px solid rgba(230,103,103,.28);border-radius:12px;display:flex;gap:12px;margin:0 0 20px;padding:14px 16px}
+  .yt-rhythm-quality-mark{align-items:center;background:var(--accent);border-radius:50%;color:#fff;display:flex;flex:0 0 24px;font-size:13px;font-weight:800;height:24px;justify-content:center}
+  .yt-rhythm-quality strong{display:block;font-size:13px;margin-bottom:3px}.yt-rhythm-quality p{color:var(--ink-2);font-size:12px;line-height:1.6;margin:0;max-width:820px}
+  .yt-rhythm-quality-blocking{align-items:center;justify-content:center;margin-bottom:0;min-height:260px;padding:32px}.yt-rhythm-quality-blocking>div{max-width:680px}.yt-rhythm-quality-blocking strong{font-size:17px}.yt-rhythm-quality-blocking p{font-size:13px;margin-top:7px}
+
+  .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
+  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:6px 11px}
+  .yt-metric-toggle button[aria-pressed=true]{background:var(--ink);color:#111}
+`;
+
+const dashboardStyles = `${rhythmClockStyles}
   .yt-import-control{align-items:center;display:flex;gap:12px;margin:0 0 18px}.yt-import-control[hidden]{display:none}
   .yt-import-control button{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:600;padding:7px 14px}
   .yt-import-control button:hover{border-color:var(--muted)}.yt-import-control button:disabled{cursor:wait;opacity:.6}
@@ -499,20 +453,6 @@ const dashboardStyles = `
   .yt-hero-stats{border-top:1px solid var(--line);display:grid;gap:16px 26px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));margin-top:24px;padding-top:20px}
   .yt-hero-foot{border-top:1px solid var(--line);color:var(--muted);font-size:11px;margin-top:18px;padding-top:12px}
 
-  .yt-rhythm-clocks{margin:4px auto 8px;max-width:460px}
-  .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock[hidden]{display:none}.yt-rhythm-clock svg{display:block;margin:auto;max-width:420px;overflow:visible;width:100%}
-  .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
-  .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
-  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
-  .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:11px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
-  .yt-rhythm-quality{align-items:flex-start;background:rgba(208,59,59,.08);border:1px solid rgba(230,103,103,.28);border-radius:12px;display:flex;gap:12px;margin:0 0 20px;padding:14px 16px}
-  .yt-rhythm-quality-mark{align-items:center;background:var(--accent);border-radius:50%;color:#fff;display:flex;flex:0 0 24px;font-size:13px;font-weight:800;height:24px;justify-content:center}
-  .yt-rhythm-quality strong{display:block;font-size:13px;margin-bottom:3px}.yt-rhythm-quality p{color:var(--ink-2);font-size:12px;line-height:1.6;margin:0;max-width:820px}
-  .yt-rhythm-quality-blocking{align-items:center;justify-content:center;margin-bottom:0;min-height:260px;padding:32px}.yt-rhythm-quality-blocking>div{max-width:680px}.yt-rhythm-quality-blocking strong{font-size:17px}.yt-rhythm-quality-blocking p{font-size:13px;margin-top:7px}
-
-  .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
-  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;font-weight:700;padding:6px 11px}
-  .yt-metric-toggle button[aria-pressed=true]{background:var(--ink);color:#111}
 
   .yt-channels{display:grid;gap:4px}
   .yt-channel-row{align-items:center;border-radius:10px;display:grid;gap:12px;grid-template-columns:18px 36px minmax(0,1fr) 92px;padding:6px 8px 6px 2px}
@@ -561,6 +501,7 @@ const dashboardStyles = `
   .yt-short-stack-legend{display:flex;gap:20px;justify-content:center;margin-top:12px}.yt-short-stack-legend span{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px}.yt-short-stack-legend i{background:var(--accent);border-radius:2px;height:10px;width:10px}.yt-short-stack-legend span+span i{background:#55534e;border:0}
   .yt-short-stack-legend .yt-short-total-key i{background:var(--ink-2);border:0}
 
+  .yt-watch-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;margin-top:10px}.yt-watch-legend span{display:flex;align-items:center;gap:5px}.yt-watch-legend i{width:9px;height:9px;border-radius:2px}.yt-watch-regular{background:#55534e}.yt-watch-short{background:var(--accent)}.yt-watch-live{background:#528da8}.yt-watch-unknown{background:#aaa59a}.yt-short-absolute-col>span>i{display:block;width:100%;flex-shrink:0}
   .yt-short-absolute{align-items:end;background:linear-gradient(to bottom,var(--line) 1px,transparent 1px);display:flex;gap:2px;height:190px;overflow:hidden}.yt-short-absolute-col{align-items:end;display:flex;flex:1 1 4px;height:100%;min-width:2px}.yt-short-absolute-col>span{border-radius:3px 3px 0 0;display:flex;flex-direction:column;overflow:hidden;width:100%}.yt-short-absolute-col .yt-short-segment,.yt-short-absolute-col .yt-regular-segment{display:block;width:100%}.yt-short-absolute-col .yt-short-segment{background:var(--accent)}.yt-short-absolute-col .yt-regular-segment{background:#55534e}.yt-short-absolute-axis{color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin-bottom:4px}
 
   .yt-short-dual-label{align-items:center;color:var(--muted);display:flex;font-size:9px;justify-content:space-between;margin:12px 0 5px}.yt-short-dual-label strong{color:var(--ink-2);font-size:10px;font-weight:650;text-transform:uppercase}
@@ -576,6 +517,9 @@ const dashboardStyles = `
   .yt-short-heat-year{align-self:center;color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums}.yt-short-heat-cell,.yt-short-heat-empty{align-items:baseline;aspect-ratio:1.45;border-radius:6px;display:flex;justify-content:center;place-self:stretch}.yt-short-heat-cell{background:rgba(230,103,103,var(--heat));color:#fff;padding-top:9px;text-shadow:0 1px 2px rgba(0,0,0,.35)}.yt-short-heat-cell strong{font-size:12px}.yt-short-heat-cell small{font-size:8px}.yt-short-heat-empty{background:var(--raised);opacity:.35}
   .yt-short-heat-scale{align-items:center;color:var(--muted);display:flex;font-size:9px;gap:8px;justify-content:flex-end;margin-top:8px}.yt-short-heat-scale i{background:linear-gradient(90deg,rgba(230,103,103,.12),rgba(230,103,103,.95));border-radius:999px;height:7px;width:110px}
 
+  .yt-overview-dynamics{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.yt-overview-dynamics>.section{margin-top:18px;min-width:0}.yt-overview-dynamics .section-head{align-items:flex-start;flex-direction:column;gap:4px}.yt-chase-note{color:var(--muted);font-size:10px;margin:-6px 0 12px;min-height:16px}.yt-chase-controls :disabled{cursor:default;opacity:.45}.yt-topic-details{margin:18px 0;color:var(--muted);font-size:12px}.yt-topic-details>summary{cursor:pointer}.yt-topic-details>.section{color:var(--ink)}
+  @media(max-width:800px){.yt-overview-dynamics{grid-template-columns:1fr}}
+  @media(prefers-reduced-motion:reduce){.yt-chase-row,.yt-chase-track i{transition:none}}
   .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px 92px minmax(0,1fr);margin-bottom:18px}
   .yt-chase-controls button{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:50%;color:var(--ink);cursor:pointer;display:flex;font-size:11px;height:34px;justify-content:center;padding:0;width:34px}
   .yt-chase-controls button:hover{border-color:var(--muted)}
@@ -588,7 +532,7 @@ const dashboardStyles = `
   .yt-chase-label{display:flex;font-size:12px;justify-content:space-between;margin-bottom:4px}
   .yt-chase-label strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yt-chase-track{background:var(--raised);border-radius:999px;height:7px;overflow:hidden}
-  .yt-chase-track i{background:var(--accent);border-radius:999px;display:block;height:100%;transform:scaleX(var(--share));transform-origin:left;transition:transform .4s ease;width:100%}
+  .yt-chase-track i{background:var(--race-color,var(--accent));border-radius:999px;display:block;height:100%;transform:scaleX(var(--share));transform-origin:left;transition:transform .4s ease;width:100%}
   .yt-chase-value{color:var(--ink-2);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 
   .yt-taxonomy{display:block}.yt-taxonomy>section{margin-top:18px}
@@ -601,15 +545,15 @@ const dashboardStyles = `
   .yt-keywords a:hover{color:var(--accent-text)}
 
   .yt-recent{display:grid;gap:0;grid-template-columns:1fr}
-  .yt-video{border-bottom:1px solid var(--line);color:inherit;display:grid;gap:14px;grid-template-columns:minmax(120px,190px) minmax(0,1fr);min-width:0;padding:12px 0;text-decoration:none}.yt-video:last-child{border-bottom:0}
-  .yt-video-media{aspect-ratio:16/9;background:var(--raised);border-radius:10px;display:block;overflow:hidden;position:relative;width:100%}
+  .yt-video{align-items:center;border-bottom:1px solid var(--line);color:inherit;display:grid;gap:10px;grid-template-columns:32px minmax(0,1fr) auto;min-width:0;padding:9px 0;text-decoration:none}.yt-video:last-child{border-bottom:0}
+  .yt-video-media{aspect-ratio:16/9;background:var(--raised);border-radius:3px;display:block;overflow:hidden;width:32px}
   .yt-video img,.yt-video-placeholder{display:block;height:100%;object-fit:cover;transition:transform .25s ease;width:100%}
   .yt-video:hover img{transform:scale(1.045)}
   .yt-video-length{background:rgba(0,0,0,.78);border-radius:5px;bottom:6px;color:#fff;font-size:10px;font-variant-numeric:tabular-nums;font-weight:600;padding:2px 5px;position:absolute;right:6px}
-  .yt-video-copy{align-self:center;min-width:0}.yt-video h3{font-size:13px;line-height:1.35;margin:0 0 4px}
+  .yt-video-copy{align-items:center;display:flex;gap:12px;min-width:0}.yt-video h3{flex:1;font-size:12px;font-weight:500;line-height:1.4;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yt-video:hover h3{color:var(--accent-text)}
-  .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0}
-  .yt-video .yt-video-when{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.8}
+  .yt-video p{color:var(--muted);font-size:11px;line-height:1.4;margin:0;max-width:35%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yt-video .yt-video-when{color:var(--muted);font-size:10px;white-space:nowrap}
 
   .yt-history-day{border-top:1px solid var(--line);padding-top:16px}.yt-history-day:first-child{border-top:0;padding-top:0}.yt-history-day>h2{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.04em;margin:0 0 6px}.yt-history-day-rows{display:grid;gap:0;grid-template-columns:1fr}
   .yt-history-row{align-items:center;border-bottom:1px solid var(--line);color:inherit;display:grid;gap:14px;grid-template-columns:90px minmax(0,1fr) auto;padding:10px 0;text-decoration:none}.yt-history-row:last-child{border-bottom:0}.yt-history-row img,.yt-history-placeholder{aspect-ratio:16/9;background:var(--raised);border-radius:7px;height:auto;object-fit:cover;width:90px}.yt-history-copy{min-width:0}.yt-history-copy strong,.yt-history-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yt-history-copy strong{font-size:12px}.yt-history-copy span,.yt-history-when{color:var(--muted);font-size:10px}.yt-history-when{font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -622,7 +566,7 @@ const dashboardStyles = `
     .yt-hero-foot{grid-column:1/-1;margin-top:0}
     .yt-rhythm-clocks{display:grid;gap:34px;grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}
     .yt-rhythm-clock svg{max-width:430px}
-    .yt-channels,.yt-top-videos,.yt-recent{column-gap:28px;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .yt-channels,.yt-top-videos{column-gap:28px;grid-template-columns:repeat(2,minmax(0,1fr))}
     .yt-short-compare{grid-template-columns:repeat(2,minmax(0,1fr))}
     .yt-mix{column-gap:36px;grid-template-columns:repeat(2,minmax(0,1fr))}
     .yt-history-day-rows{column-gap:28px;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -630,7 +574,7 @@ const dashboardStyles = `
     .yt-recap-intro .eyebrow{grid-column:1/-1}.yt-recap-intro h2{margin:0}.yt-recap-intro p{padding-bottom:5px}
     .yt-recap-chapter{align-items:center;display:grid;gap:28px 48px;grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr)}
   }
-  @media(max-width:560px){.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}.yt-video{grid-template-columns:110px minmax(0,1fr)}.yt-history-row{grid-template-columns:72px minmax(0,1fr)}.yt-history-row img,.yt-history-placeholder{width:72px}.yt-history-when{display:none}}
+  @media(max-width:560px){.yt-hero{padding:20px}.yt-channel-row{grid-template-columns:14px 30px minmax(0,1fr) 84px}.yt-channel-row img,.yt-channel-avatar{flex-basis:30px;height:30px;width:30px}.yt-video{gap:8px;grid-template-columns:32px minmax(0,1fr) auto}.yt-video-copy p{display:none}.yt-history-row{grid-template-columns:72px minmax(0,1fr)}.yt-history-row img,.yt-history-placeholder{width:72px}.yt-history-when{display:none}}
 `;
 
 // Ordinal ramp for the length buckets (short → long, light → dark), validated
@@ -662,10 +606,11 @@ function taipeiTimeLabel(iso: string, lang: Lang): string {
 
 function recentSection(data: YoutubeDashboardData, t: Messages, lang: Lang, showRecent: boolean): string {
   if (!showRecent || !data.recent.length) return '';
-  const rows = data.recent.map((video) => `<a class="yt-video" href="${html(video.url)}">
-    <span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span>
-    <span class="yt-video-copy"><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}</p><p class="yt-video-when">${timeAgo(video.watchedAt, lang)}</p></span></a>`).join('');
-  return `<section class="section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${rows}</div></section>`;
+  const rows = data.recent.map((video) => `<a class="yt-video" href="${html(video.url)}" title="${html(video.title)}">
+    <span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy" width="32" height="18">` : '<span class="yt-video-placeholder"></span>'}</span>
+    <span class="yt-video-copy"><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}${video.durationSeconds === null ? '' : ` · ${duration(video.durationSeconds, lang)}`}</p></span>
+    <time class="yt-video-when" datetime="${html(video.watchedAt)}">${timeAgo(video.watchedAt, lang)}</time></a>`).join('');
+  return `<section class="section yt-recent-section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${rows}</div></section>`;
 }
 
 function historySection(
@@ -733,6 +678,10 @@ export interface YoutubeDashboardOptions {
   lang?: Lang;
   // Individual watch rows are private detail, not aggregate dashboard data.
   showRecent?: boolean;
+  showPrivatePages?: boolean;
+  blendHref?: string;
+  // Server-rendered friendship controls, independent of public profile access.
+  friendshipHtml?: string;
   // Local design-review variants for the short-form visualization.
   shortFormVariant?: ShortFormVariant;
   page?: YoutubeDashboardPageKind;
@@ -746,6 +695,8 @@ export interface YoutubeDashboardOptions {
   processingHtml?: string;
   // Insight-only content computed outside the dashboard aggregate cache.
   insightsHtml?: string;
+  // Public examples must not imply that their current dashboard is private.
+  dashboardPrivate?: boolean;
 }
 
 export function youtubeDashboardPage(
@@ -768,7 +719,7 @@ export function youtubeDashboardPage(
   }).replace(/</g, '\\u003c');
   const importControl = `<div class="yt-import-control" data-youtube-import-control hidden>
     <button type="button">${t.syncNow}</button><span aria-live="polite"></span>
-  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=value.lastError||L.failed}else{s.textContent=L.ready}});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));});})();</script>`;
+  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=value.lastError||L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>`;
   const heroHours = data.stats.estimatedWatchSeconds === null ? null : Math.round(data.stats.estimatedWatchSeconds / 3600);
   const hero = `<section class="card yt-hero">
     <div class="yt-hero-figure">
@@ -799,7 +750,7 @@ export function youtubeDashboardPage(
         <span class="yt-channel-rank">${index + 1}</span>
         ${channelAvatar(channel)}
         <div class="yt-channel-main">
-          <span class="yt-channel-name">${channel.channelId ? `<a href="https://www.youtube.com/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
+          <span class="yt-channel-name">${channel.channelId ? `<a href="/channel/${html(channel.channelId)}">${html(channel.name)}</a>` : html(channel.name)}</span>
           <div class="yt-channel-track"><i style="width:${Math.max(1, Math.round(metric / maxChannel * 100))}%"></i></div>
         </div>
         <div class="yt-channel-nums"><strong>${hours(channel.estimatedWatchSeconds)}</strong><span>${t.plays(channel.watches)}</span></div>
@@ -836,11 +787,11 @@ export function youtubeDashboardPage(
   const topicPending = lang === 'zh'
     ? '有效覆蓋未達 80%，暫不顯示主題排名。'
     : 'Effective coverage is below 80%, so topic ranking is hidden for now.';
-  const taxonomy = `<div class="yt-taxonomy"><section class="section"><div class="section-head"><h2>${t.topics}</h2><span>${topicCoverage}</span></div>
+  const stableTopics = `<section class="section yt-stable-topics"><div class="section-head"><h2>${t.topics}</h2><span>${topicCoverage}</span></div>
     <div class="yt-topic-list">${trustedTopics && data.topics.length ? data.topics.map((topic) =>
       `<div class="yt-topic"><strong>${html(localizedTopicName(topic.slug, topic.name))}</strong><span>${t.topicMeta(topic.watches, hours(topic.estimatedWatchSeconds))}</span></div>`
-    ).join('') : `<span class="muted">${topicPending}</span>`}</div></section>
-    <section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub(data.keywordCoverage.sampledVideos, data.keywordCoverage.eligibleVideos)}</span></div>
+    ).join('') : `<span class="muted">${topicPending}</span>`}</div></section>`;
+  const keywords = `<section class="section"><div class="section-head"><h2>${t.keywords}</h2><span>${t.keywordsSub(data.keywordCoverage.sampledVideos, data.keywordCoverage.eligibleVideos)}</span></div>
     <div class="yt-keywords">${data.keywords.length ? data.keywords.map((keyword, index) => {
       // Size follows the commonness score; the tooltip states the distinct
       // video count, channel spread and which metadata sources contributed.
@@ -850,7 +801,7 @@ export function youtubeDashboardPage(
       const query = encodeURIComponent(keyword.term);
       const tip = `${keyword.term} · ${t.keywordTip(keyword.channels, keyword.sources.title, keyword.sources.tag, keyword.sources.description)}`;
       return `<a href="https://www.youtube.com/results?search_query=${query}" data-tip="${t.tipVideos(keyword.videos)}" data-tip-label="${html(tip)}" style="--cloud-size:${size}px;--cloud-color:${colors[index % colors.length]}">${html(keyword.term)}</a>`;
-    }).join('') : `<span class="muted">${t.keywordsEmpty}</span>`}</div></section></div>`;
+    }).join('') : `<span class="muted">${t.keywordsEmpty}</span>`}</div></section>`;
   const pageLabels: Record<YoutubeDashboardPageKind, string> = {
     overview: t.navOverview, insights: t.navInsights, history: t.navHistory, recap: t.navRecap,
   };
@@ -860,7 +811,7 @@ export function youtubeDashboardPage(
     history: `${profilePath}/history`,
     recap: `${profilePath}/recap`,
   };
-  const pageNav = `<nav class="yt-page-nav" aria-label="YouTube profile">${(Object.keys(pagePaths) as YoutubeDashboardPageKind[]).map((key) =>
+  const pageNav = `<nav class="yt-page-nav" aria-label="YouTube profile">${(Object.keys(pagePaths) as YoutubeDashboardPageKind[]).filter(key => options.showPrivatePages !== false || key === 'overview' || key === 'insights').map((key) =>
     `<a href="${html(pagePaths[key])}?range=${data.range}&sort=${sort}"${key === page ? ' aria-current="page"' : ''}>${html(pageLabels[key])}</a>`
   ).join('')}</nav>`;
   // Range and sort ride along in the title so every view is clearly named.
@@ -877,22 +828,28 @@ export function youtubeDashboardPage(
       title: `${ownerName} · YouTube · ${pageLabels.overview} · ${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)} · urtube`,
     },
   }).replace(/</g, '\\u003c');
-  const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url)}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('popstate',()=>apply(new URL(location.href).searchParams.get('sort')==='watches'?'watches':'duration',false));})();</script>`;
-  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}</style><section class="yt-profile">
+  const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}
+    .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin-top:16px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
+  </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
-    <div class="yt-profile-meta"><a href="/">${t.home}</a></div></div></section>`;
+    <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div>${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
-  const overview = hero + (options.setupHtml ?? '') + recentSection(data, t, lang, showRecent)
-    + channelList + topVideos + sortScript;
-  const insights = rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
-    + topicTrendSection(data, t) + channelChase(data, t) + (options.insightsHtml ?? '')
-    + distribution + taxonomy;
+  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + stableTopics
+    + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
+    + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
+    + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
+  const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
+    + (options.insightsHtml ?? '') + distribution + keywords : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
+  const insightTrust = page === 'insights' && options.dashboardPrivate
+    ? trustSignals([t.trustPrivateDefault], t.trustSignalsLabel)
+    : '';
   const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview
-    : page === 'insights' ? insights
+    : page === 'insights' ? insightTrust + insights
       : page === 'history' ? history : recap);
   return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + content,
     options.nav ?? [], '', lang, basePath);

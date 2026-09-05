@@ -1,24 +1,50 @@
 # urtube
 
-A self-hosted, multi-user YouTube attention archive, extracted from
-[Infovore]'s YouTube subsystem. Tracks watch history (Google My
-Activity, YouTube History), measured viewing time (Chrome extension), saved
-progress, metadata, and AI topics — privately, per user.
+**Turn the YouTube history you already own into a private interest map, then
+meet people who share what you are genuinely interested in—without publishing
+your history.**
 
-- Public URL: https://urtube.observe.tw
-- Docs: [MIGRATION_PLAN.md](MIGRATION_PLAN.md) ·
-  [YOUTUBE_BOUNDARY.md](YOUTUBE_BOUNDARY.md) ·
-  [CUTOVER_RUNBOOK.md](CUTOVER_RUNBOOK.md)
+urtube is a self-hosted, multi-user consumer AI product for **Track 02 — AI for
+Everyday Life**. With a person's permission, it imports their YouTube history,
+uses AI to organize public video metadata into reviewable private insights,
+and uses a separate, deterministic 90-day projection for privacy-bounded
+matching.
 
-## Current product flow
+[![urtube — Your YouTube life, remembered](og.png)](https://urtube.observe.tw)
 
-The deployed flow is usable end to end: sign in with Google, provision the
-Chrome extension or import an anonymous Takeout ZIP, follow persisted
-processing states, inspect private insights, confirm matching interests, opt
-in to matching, review bounded candidate cards, mutually consent to a
-deeper comparison, then revoke that consent, export, or delete the archive. Empty,
-insufficient-data, processing, failed, retry, and no-candidate states have
-explicit UI instead of falling through to a misleading result.
+| Try it | Source and evidence |
+| --- | --- |
+| **Live product:** [urtube.observe.tw](https://urtube.observe.tw) | **Public repository:** [skyhong2002/urtube.observe.tw](https://github.com/skyhong2002/urtube.observe.tw) |
+| **No account:** open **Example dashboard** from the top navigation | [Canonical pitch](docs/pitch.md) · [Demo runbook](docs/demo-runbook.md) · [security audit](docs/security-audit.md) · [License](LICENSE) · [system boundary](YOUTUBE_BOUNDARY.md) · [migration disclosure](MIGRATION_PLAN.md) · [operations](CUTOVER_RUNBOOK.md) |
+
+There is no shared test account. To exercise private import and matching,
+choose **Sign up / sign in** and use your own Google account; new dashboards
+remain private. The shortest path is:
+
+1. Sign in, choose a handle, and import a Google Takeout ZIP or provision the
+   Chrome extension.
+2. Follow the persisted processing status, then open the private interest
+   insights and confirm the matching step.
+3. Open **Matches**, select a candidate, and inspect the side-by-side VS page.
+4. Send **Want to meet**; additional comparison details unlock only after the
+   other person also agrees.
+5. Use **Account** to turn matching off, export the archive, or delete it.
+
+Processing, insufficient-data, failure/retry, and no-candidate states have
+explicit UI instead of being presented as a confident result.
+
+## What is real today
+
+- Google login, resumable onboarding, Chrome capture, Takeout import, and Data
+  Portability ingestion.
+- Persisted metadata/topic processing with retry states and quality gates.
+- Private insights, time-range trends, export, and account deletion.
+- A bounded candidate directory, stable percentage VS comparison, mutual
+  **Want to meet** state, withdrawal, and immediate matching opt-out.
+- Anonymous reference-population comparisons and aggregate recommendations
+  that reveal neither contributors nor their histories.
+
+## Architecture
 
 ```text
 Chrome extension / Takeout / Data Portability
@@ -40,7 +66,39 @@ Chrome extension / Takeout / Data Portability
      daily backup snapshots registry + every user database
 ```
 
-## Privacy model
+Raw history stays in an isolated SQLite database for each user. Only a capped,
+versioned 90-day projection crosses into the shared registry; candidate queries
+never read another person's raw archive. Production runs the app, ingest API,
+worker, and daily backup as separate services behind Caddy.
+
+## Why AI, and where it stops
+
+AI solves the semantic problem: titles, channels, descriptions, and tags are
+too inconsistent for hand-written rules to turn into a useful personal map.
+The model sees **public video metadata only** and produces a versioned private
+taxonomy with evidence, confidence, `Unknown` handling, owner review,
+activation, and rollback.
+
+AI does **not** decide who should meet. Cross-user matching uses a
+source-controlled canonical taxonomy and the reproducible `calibrated-v2`
+formula over bounded 90-day topic/channel vectors. Sensitive categories fail
+closed and never become a viewer identity claim.
+
+## Privacy by default
+
+| Boundary | Guarantee |
+| --- | --- |
+| Private archive | Raw events, searches, videos, progress, and timestamps stay in the user's database. |
+| Model input | Only public video metadata is sent for AI classification—never searches, timestamps, watch counts, or progress. |
+| Candidate discovery | Matching is separate from dashboard visibility and uses only a bounded, versioned projection. |
+| Before mutual consent | The VS page is deliberately limited to rounded scores and a small set of broad comparison clues. |
+| Revocation | Turning matching off removes the account from new queries and withdraws active requests/connections immediately. |
+| Portability | A signed-in user can export their own archive or permanently delete the account and derived matching records. |
+
+The following sections document the implementation and operational details
+behind those guarantees.
+
+## Detailed privacy and matching model
 
 Search queries are AES-256-GCM-encrypted server-side before storage and never
 served. Watch progress feeds aggregates only. Dashboards are private per user
@@ -66,58 +124,91 @@ public title/tag/description metadata by the versioned pipeline described in
 `docs/keyword-pipeline.md`; keywords never enter matching. Imports enqueue a projection refresh, and
 the worker atomically publishes it without dropping a newer queued refresh.
 
-The topic trend on Insights follows the selected page range. Short ranges use
-daily points, while yearly and all-time ranges use monthly points. Readers can
-switch between raw and smoothed shares. Incomplete current-taxonomy
-classification remains visibly provisional.
+Overview brings stable topics, channel momentum, and topic dynamics together.
+Both animations share playback controls and smoothly moving ranking bars. Topic
+dynamics follows the selected page range: short ranges use daily points, while
+yearly and all-time ranges use monthly points. Expand the detailed topic view
+to compare raw and smoothed shares. Incomplete current-taxonomy classification
+remains visibly provisional; channel momentum keeps its full-history decay.
 
 Both channel and canonical-topic comparisons use that 90-day window, so old
 history cannot dominate a current match. Pool eligibility is controlled by
 the constants in `src/youtube/matching.ts` (initially 200 recent watch events
 across 14 active days); incomplete topic coverage falls back to channels.
 User-facing matching results are whole percentages from 0–100. Formula version
-`cosine-equal-v1` computes cosine similarity over the mutually allowed
-canonical-topic vector and the aggregate channel vector, then gives each
-available dimension equal weight. If only one dimension is available it is
-used alone. Values are clamped and rounded to the nearest integer; raw shares,
-vectors, event counts, and the activity cutoff never enter the presentation
-model. A processing notice identifies provisional ordering.
-Matching is off by default and independent of `dashboard_public`. After data
-setup, guided onboarding and the account page suggest up to five leading
-canonical interests from the eligible 90-day projection. A signed-in user can
-choose the interests to match on and separately exclude interests that must never reach matching,
-recommendations, or icebreakers. Choices store stable keys plus the taxonomy
-version; a version change disables topic matching until explicit
-reconfirmation. If no mutually usable topic remains, matching falls back to
-aggregate channels when possible. Disclosure is a separate presentation-only
-setting: candidate cards show at most two broad shared topics, plus one common
-channel only when both people allow it. Turning matching off removes the user
-from new candidate queries immediately; it does not change or publish the
-personal dashboard.
+`calibrated-v2` computes cosine similarity over the canonical-topic vector and
+the aggregate channel vector, stretches each with a fixed calibration curve
+(topics: `(cos − 0.4) / 0.55`, channels: `1 − e^(−25·cos)`, both clamped to
+0–1), then gives each available dimension equal weight. If only one dimension
+is available it is used alone. The constants are fixed in
+`src/youtube/candidates.ts`, so a percentage does not depend on who else is in
+the pool. Values are rounded to the nearest integer; raw shares, vectors,
+event counts, and the activity cutoff never enter the presentation model. A processing notice identifies provisional ordering.
+Matching starts on for new accounts and is independent of `dashboard_public`.
+It is a single switch, like a friend-discovery opt-in: joining uses every
+canonical topic and the aggregate channel vector for the percentage, and lets
+the comparison page show what it can (bounded before consent, full after).
+There is no per-topic or per-section setting. Candidate cards show at most
+two broad shared topics plus one common channel. Turning the switch off
+removes the user from new candidate queries immediately, withdraws requests
+and connections, and does not change or publish the personal dashboard.
 `/matches` is session-only and requires that opt-in. It ranks at most 250
 eligible profiles using equal topic/channel weight and renders twenty people per
 finite page. Cards contain only a display name, rounded match percentage, up
 to two allowed canonical topics, an optional mutually allowed channel, and a
 generic icebreaker. The avatar and card action open one split-screen VS
 comparison, with the signed-in person on the left and the candidate on the
-right, without first sending a request. The comparison uses a short-lived,
-session-bound opaque token and adds bounded broad interest names plus rounded
-topic/channel percentages; it never exposes
-handles, emails, crystals, histories, raw shares, full vectors, introductions,
-contacts, or candidate dashboards.
+right, without first sending a request. The comparison lives at the stable
+address `/<my-handle>/compare/<their-handle>` (only the two members involved
+can open it; old `/matches/compare/<token>` links forward while the token is
+valid) and follows the stats.fm compare layout: the same
+sections for every pair, with a range switch (28 days, 90 days, 365 days, all
+time). Before mutual consent it shows only the rounded match percentage, up to
+five broad canonical topics with each person's rank, and each person's hour-of-
+day and weekday rhythm as their own share (no counts). Members see each
+other's handles in these addresses; it never exposes emails, crystals,
+histories, raw shares, full vectors, introductions, contacts, or candidate
+dashboards (a dashboard keeps its own visibility setting).
+The signed-in `/channel/` directory has searchable personal and community
+channel rankings, with time ranges and watch-time/watch-count sorting. Its
+community totals include only current matching members. `/channel` redirects
+to this directory while preserving the query. The primary navigation and each
+channel detail page link back to it.
+Channel and directory pages put member totals and rankings before personal
+history. Compact image rows use the available page width, with controls beside
+the headings. Channel headers include YouTube subscriber counts (rounded by
+YouTube), public video/view counts, creation dates, and official topic labels.
+Missing or hidden counts remain unavailable, never zero. Public statistics
+refresh on channel visits after a day and in the worker after seven days;
+failed lookups keep cached information and back off for five minutes.
+Channel, video, viewer, and personal-stat cards run in single horizontal rows;
+card rows support arrow buttons, touch scrolling, and keyboard navigation.
+Every channel with a YouTube channel id has a page at `/channel/<id>`
+(session only, never indexed): the signed-in person's own watches, hours,
+share, rank, first and last watch, top videos, and a monthly series for that
+channel, with range and watch-time/watch-count switches (one year and time by
+default). Members who joined matching also see a reciprocal community view:
+the members who watch that channel most (linking to the pairwise comparison
+when eligible) and the channel's most watched
+videos across members. Video totals are combined before the top 50 are selected.
+Non-members neither contribute to nor see that view; opting out removes their
+contribution on the next page load. Account settings describe this sharing.
 When at least three of the ten nearest eligible people contribute the same
 unseen item, `/matches` may also show up to five broad topics and five channels
 as a group signal. It never names contributors or exposes their values, videos,
 or source details. Channels from people who allow topic-only disclosure are not
 used. Governed news, editorial, and political channels are excluded. If those
 labels cannot be verified, channel recommendations stay hidden.
-“Want to meet” is a separate action on the VS page and uses its short-lived
-opaque token, so candidate handles and internal ids never enter the page. The
+“Want to meet” is a separate action on the VS page and uses a short-lived
+opaque token minted with the page, so internal ids never enter the page. The
 same person remains in the directory while a request is pending or accepted.
 The recipient can agree or decline, and the sender can withdraw while pending.
-Only mutual consent unlocks additional broad comparison interests and the
-mutually allowed channel clue; it does not reveal introductions or contact
-details. Every comparison read checks the current relationship, topic
+Only mutual consent unlocks the rest of the comparison: watch stats (events,
+estimated minutes and hours, distinct videos and channels, active days), every
+topic in common with watch counts, channels and videos in common with each
+person's rank, absolute clock and weekday counts, and first and last watch as
+a title plus calendar day. Mutual consent does not reveal introductions or
+contact details. Every comparison read checks the current relationship, topic
 exclusions, data eligibility, and both users' opt-in. Either person can revoke
 mutual consent, and turning matching off withdraws active relationships
 immediately.
@@ -135,10 +226,34 @@ has equal weight, and an axis stays hidden until at least five consenting
 accounts have comparable data. The result shows rounded group statistics,
 never identities, histories, matching data, or a claim about society.
 
-## Run
+## Technology choices
+
+- **TypeScript + Hono on Node.js 22:** one small HTTP stack shared by the app,
+  ingest API, and worker, with Zod validation at ingest boundaries.
+- **SQLite (`node:sqlite`) per user:** portable ownership and isolation without
+  placing every person's raw archive in one shared database.
+- **OpenAI-compatible inference:** deployment can choose its model endpoint;
+  the governed input contract remains public metadata only.
+- **Docker Compose + Caddy:** repeatable app/worker/backup processes with TLS
+  terminated in front of localhost-bound services.
+- **Plain server-rendered HTML:** the private dashboard and matching flow do
+  not require a client framework or expose an application API token.
+
+Dependencies are pinned in [`package-lock.json`](package-lock.json). See
+[External services and source material](#external-services-and-source-material)
+for data/model provenance and [License](#license) for reuse terms.
+
+## Run locally
+
+Prerequisites: Node.js 22 and npm. Copy [`.env.example`](.env.example), then
+provide the credentials for the integrations you intend to exercise. Startup
+validation reports missing production-required configuration; no real secret
+is committed to this repository.
 
 ```sh
-cp .env.example .env   # fill in tokens
+git clone https://github.com/skyhong2002/urtube.observe.tw.git
+cd urtube.observe.tw
+cp .env.example .env   # fill in integration credentials
 npm ci
 npm run check          # typecheck + tests
 npm start              # dashboard on :3000
@@ -146,10 +261,18 @@ npm run ingest         # ingest API (separate process, same DB)
 npm run worker         # hourly metadata/topics/portability worker
 ```
 
-Production: `docker compose up -d --build` starts app, ingest, worker, and
-daily multi-user backup services (binds 127.0.0.1:18080/18081; front with
-Caddy — see CUTOVER_RUNBOOK.md). Probe `/healthz` for liveness and `/readyz`
-for worker/backup/config/all-user readiness.
+Run the last three commands in separate terminals. For a production-shaped
+local deployment, Docker and Docker Compose are the only additional
+prerequisites:
+
+```sh
+docker compose up -d --build
+```
+
+This starts app, ingest, worker, and daily multi-user backup services (bound
+to `127.0.0.1:18080` and `127.0.0.1:18081`; front them with Caddy as described
+in the [cutover runbook](CUTOVER_RUNBOOK.md)). Probe `/healthz` for liveness
+and `/readyz` for worker, backup, configuration, and all-user readiness.
 
 ## Users
 

@@ -7,7 +7,7 @@ import {
 } from './youtube/registry-crystal.js';
 import type { YoutubeProgressImportRow, YoutubeScanEndReason } from './youtube/types.js';
 
-export type GuidedOnboardingStep = 'setup' | 'processing' | 'interests' | 'consent' | 'complete';
+export type GuidedOnboardingStep = 'setup' | 'processing' | 'consent' | 'complete';
 export type GuidedScanStatus =
   | 'running'
   | 'history-paused'
@@ -60,8 +60,9 @@ export function guidedOnboardingState(input: GuidedOnboardingInput): GuidedOnboa
     dimensions: input.dimensions,
     scanStatus: scanStatus(input.latestScan),
   };
-  if (input.user.onboardingCompletedAt
-    || (input.user.matchingOptIn && input.dimensions.status === 'confirmed')) {
+  // Matching starts on, so opt-in alone no longer proves the person saw the
+  // consent step; only finishing it does.
+  if (input.user.onboardingCompletedAt) {
     return { ...base, step: 'complete', activeStep: 6 };
   }
   if (input.watchEvents === 0) {
@@ -70,8 +71,6 @@ export function guidedOnboardingState(input: GuidedOnboardingInput): GuidedOnboa
   if (!input.matchingCrystal || !registryCrystalEligible(input.matchingCrystal)) {
     return { ...base, step: 'processing', activeStep: 3 };
   }
-  if (input.dimensions.status !== 'confirmed') {
-    return { ...base, step: 'interests', activeStep: 5 };
-  }
-  return { ...base, step: 'consent', activeStep: 6 };
+  // Topics are always all-in; the only decision left is whether to join.
+  return { ...base, step: 'consent', activeStep: 5 };
 }

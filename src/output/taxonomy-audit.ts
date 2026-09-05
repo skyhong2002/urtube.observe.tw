@@ -112,7 +112,7 @@ export function personalTaxonomyAuditPage(
     noRuns: '尚無分類版本。Metadata 達標後可建立候選版本。',
     prepare: '建立 governed v2 候選版本',
     prepareConfirm: '我了解這會在背景對我的公開影片 metadata 執行有界 AI 分類',
-    noHistory: '尚無啟用或 rollback 紀錄', back: '返回帳號', account: '帳號', dashboard: 'Dashboard',
+    noHistory: '尚無啟用或 rollback 紀錄', back: '返回設定', account: '設定', dashboard: 'Dashboard',
   } : {
     eyebrow: 'OWNER ONLY', title: 'Personal topic review',
     intro: 'Only you can inspect versions here. Public insights show broad topics and coverage only.',
@@ -120,7 +120,7 @@ export function personalTaxonomyAuditPage(
     noRuns: 'No taxonomy run yet. A candidate can be prepared after metadata is ready.',
     prepare: 'Prepare a governed v2 candidate',
     prepareConfirm: 'I understand this starts bounded background AI classification of my public video metadata',
-    noHistory: 'No activation or rollback yet', back: 'Back to account', account: 'Account', dashboard: 'Dashboard',
+    noHistory: 'No activation or rollback yet', back: 'Back to settings', account: 'Settings', dashboard: 'Dashboard',
   };
   const history = data.activations.map((item) => `<li><strong>${html(item.action)}</strong><span>${item.fromVersion === null ? '—' : `v${item.fromVersion}`} → v${item.toVersion} · ${html(item.changedAt)}</span></li>`).join('');
   const prepare = data.canPrepare && data.readiness.ready

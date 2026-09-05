@@ -172,13 +172,25 @@ export interface YoutubeVideoMetadata {
   publishedAt: string | null;
   categoryId: string | null;
   availability: 'available' | 'unavailable';
+  isLivestream?: boolean | null;
   metadataHash: string;
+}
+
+export interface YoutubeChannelStatistics {
+  subscriberCount: number | null;
+  hiddenSubscriberCount: boolean;
+  videoCount: number | null;
+  viewCount: number | null;
+  publishedAt: string | null;
+  topicCategories: string[];
 }
 
 export interface YoutubeChannelMetadata {
   channelId: string;
   name: string;
   thumbnailUrl: string;
+  statistics?: YoutubeChannelStatistics;
+  statisticsFetchedAt?: string | null;
 }
 
 export interface YoutubeRecentVideo {
@@ -215,6 +227,8 @@ export interface YoutubeVideoSummary {
 
 export interface YoutubeShortFormDailySummary {
   day: string;
+  liveWatchSeconds?: number;
+  regularWatchSeconds?: number;
   shortWatchSeconds: number;
   knownDurationWatchSeconds: number;
 }
@@ -277,6 +291,102 @@ export interface YoutubeHourlySummary {
   hour: number;
   watches: number;
   estimatedWatchSeconds: number;
+}
+
+// One person's side of a two-person comparison: aggregate stats plus fully
+// ranked channel/video/topic lists so a peer's rank can be looked up, and
+// clock/weekday histograms. Built from the private repository; the
+// comparison layer decides what crosses to the other person.
+export interface YoutubeComparisonRankedChannel {
+  key: string;
+  name: string;
+  thumbnailUrl: string;
+  // Position by estimated watch time and by watch count, 1-based.
+  rank: number;
+  watchRank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeComparisonRankedVideo {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  rank: number;
+  watchRank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeComparisonRankedTopic {
+  key: string;
+  rank: number;
+  watchRank: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeWeekdaySummary {
+  // 0 = Sunday … 6 = Saturday, Taipei local time.
+  weekday: number;
+  watches: number;
+  estimatedWatchSeconds: number;
+}
+
+export interface YoutubeComparisonWatch {
+  title: string;
+  watchedAt: string;
+}
+
+// One person's view of one channel, for the /channel/<id> page.
+export interface YoutubeChannelDetail {
+  range: YoutubeRange;
+  channel: YoutubeChannelMetadata | null;
+  stats: {
+    watches: number;
+    estimatedWatchSeconds: number;
+    uniqueVideos: number;
+    firstWatchedAt: string | null;
+    lastWatchedAt: string | null;
+    // Fraction of this person's watch time in the range, 0..1.
+    share: number;
+  };
+  // 1-based position among this person's channels in the range; null when
+  // the channel does not appear.
+  rank: { time: number | null; watches: number | null; channels: number };
+  videos: Array<{
+    videoId: string;
+    title: string;
+    thumbnailUrl: string;
+    watches: number;
+    estimatedWatchSeconds: number;
+  }>;
+  monthly: Array<{ month: string; watches: number; estimatedWatchSeconds: number }>;
+}
+
+export interface YoutubeComparisonProfile {
+  range: YoutubeRange;
+  stats: {
+    watchEvents: number;
+    estimatedWatchSeconds: number;
+    uniqueVideos: number;
+    uniqueChannels: number;
+    activeDays: number;
+  };
+  channels: YoutubeComparisonRankedChannel[];
+  // Channels ranked by short-form viewing only (videos of at most three
+  // minutes, the codebase's Shorts proxy).
+  shortsChannels: YoutubeComparisonRankedChannel[];
+  videos: YoutubeComparisonRankedVideo[];
+  topics: YoutubeComparisonRankedTopic[];
+  hourly: YoutubeHourlySummary[];
+  weekdays: YoutubeWeekdaySummary[];
+  // Taipei day exposure for weekday averages; Sunday first, includes inactive days.
+  weekdayDays: number[];
+  rhythmCoverage: YoutubeRhythmCoverage;
+  firstWatch: YoutubeComparisonWatch | null;
+  lastWatch: YoutubeComparisonWatch | null;
 }
 
 export interface YoutubeRhythmCoverage {

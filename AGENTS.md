@@ -58,3 +58,10 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 - Latest requested concurrency ceiling: 10000. Keep all pending account batches eligible immediately, without a fixed send interval or additional RPM quota. Concurrency is simultaneous requests, distinct from observed requests per minute. Preserve provider error backoff and completed caches.
 
 - User explicitly requires Gemini to have its own queue with no local concurrency cap. Keep provider 429 cooldown/retry; GPT retains its configured cap.
+
+- On 2026-09-06 the user explicitly authorized resolving PR #61, merging it,
+  and deploying the integration. If v3 conflicts with the existing discussion,
+  that discussion takes precedence: named profiles, scores for every member,
+  visible friendship requests, public direct Blend, friend Overview/Insights,
+  and restricted History/Recap. Keep /matches as the canonical integrated UI.
+  This integration does not request restarting backfills or changing API budgets.

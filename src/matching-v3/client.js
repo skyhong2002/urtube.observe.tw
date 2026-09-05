@@ -7,14 +7,25 @@ const element = (tag, text, cls) => {
   return node;
 };
 let state, selectedId, editId, mode, requestNumber = 0;
+const lang = document.documentElement.lang.startsWith('zh') ? 'zh' : 'en';
+const showView = view => {
+  for (const [id, value] of [['mv-directory','all'],['mv-invitations','invites'],['mv-topic','topics']]) $(id).hidden = view !== value;
+  $('mv-all').setAttribute('aria-current', String(view === 'all'));
+  $('mv-invites').setAttribute('aria-current', String(view === 'invites'));
+  const url = new URL(location.href); url.searchParams.set('view', view);
+  if (view === 'topics' && selectedId) url.searchParams.set('topic', selectedId); else url.searchParams.delete('topic');
+  history.replaceState(null, '', url);
+};
+$('mv-all').onclick = () => { requestNumber++; selectedId = null; showView('all'); renderTopics(); };
+$('mv-invites').onclick = () => { requestNumber++; selectedId = null; showView('invites'); renderTopics(); };
 const messages = { login_required: '登入已過期，請重新登入。', opt_in_required: '請先在「我的帳號」開啟參與配對。', profile_pending: '興趣輪廓尚未建立，請等待背景處理完成。', profile_changed: '輪廓剛更新，請重新配對。', matching_unavailable: '配對服務暫時無法使用，請稍後再試。', matching_in_progress: '配對仍在計算中。' };
 async function api(path = '', method = 'GET', body) {
-  const response = await fetch('/api/matching-v3' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const response = await fetch('/api/matching-v3' + path + '?lang=' + lang, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
   const data = await response.json();
   if (!response.ok) throw new Error(messages[data.error] || '操作未完成，請稍後再試。');
   return data;
 }
-function error(err) { $('message').textContent = err.message; $('message').className = 'error'; }
+function error(err) { showView('topics'); $('message').textContent = err.message; $('message').className = 'error'; }
 async function load() {
   state = await api();
   $('status').replaceChildren();
@@ -35,15 +46,17 @@ async function load() {
       const rebuild = element('button', '重試建立輪廓'); rebuild.onclick = async () => { try { await api('/rebuild', 'POST'); await load(); } catch (err) { error(err); } }; $('status').append(rebuild);
     }
   }
-  if (!state.preferences.topics.some(t => t.id === selectedId)) selectedId = state.preferences.topics[0]?.id;
-  renderTopics(); renderDetail();
+  if (!state.preferences.topics.some(t => t.id === selectedId)) selectedId = null;
+  const view = new URL(location.href).searchParams.get('view') || 'all';
+  if (view === 'topics' && !selectedId) selectedId = state.preferences.topics.find(t => t.id === new URL(location.href).searchParams.get('topic'))?.id || state.preferences.topics[0]?.id;
+  renderTopics(); renderDetail(); showView(view === 'topics' || view === 'invites' ? view : 'all');
 }
 function renderTopics() {
   const query = $('search').value.toLowerCase(); $('topics').replaceChildren();
   for (const topic of state.preferences.topics.filter(t => (t.name + t.genres.join(' ')).toLowerCase().includes(query))) {
     const button = element('button', undefined, 'topic'); button.setAttribute('aria-current', String(topic.id === selectedId));
     button.append(element('strong', topic.name), element('small', topic.genres.join(' · ')));
-    button.onclick = () => { selectedId = topic.id; requestNumber++; renderTopics(); renderDetail(); };
+    button.onclick = () => { selectedId = topic.id; requestNumber++; showView('topics'); renderTopics(); renderDetail(); };
     $('topics').append(button);
   }
 }
@@ -69,16 +82,12 @@ function renderDetail() {
       if (number !== requestNumber) return;
       result.replaceChildren();
       if (!data.candidates.length) { result.append(element('p', '還沒有同意參與這些類別、且已完成輪廓處理的使用者。', 'empty')); return; }
-      const cards = element('div', undefined, 'cards');
-      data.candidates.forEach((candidate, i) => {
-        const card = element('article', undefined, 'card'); card.append(element('h3', '配對使用者 ' + (i + 1)), element('div', candidate.score === null ? '資料不足，尚無總分' : (candidate.score * 100).toFixed(1) + ' 分', 'score'));
-        card.append(element('p', candidate.provisional ? '暫定結果 · 部分資料不足或掃描未完成' : '所選類別分布相似度', 'muted small'));
-        const why = element('div', undefined, 'reason'); why.append(element('h4', '為什麼匹配給你'));
-        if (!candidate.reasons.length) why.append(element('p', '目前沒有足夠的相似核心興趣可作為推薦依據。'));
-        candidate.reasons.forEach(reason => why.append(element('p', reason.text)));
-        const details = element('details'); details.append(element('summary', '查看各類別與資料覆蓋'));
-        candidate.details.forEach(d => details.append(element('p', d.genre + '：' + (d.score === null ? '資料不足，尚無分數' : (d.score * 100).toFixed(1) + ' 分') + '；' + (d.status === 'ready' ? '已就緒' : '暫定') + '；保留權重覆蓋 ' + Math.round(d.leftCoverage * 100) + '% / ' + Math.round(d.rightCoverage * 100) + '%', 'small muted')));
-        why.append(details); card.append(why); cards.append(card);
+      const cards = element('div', undefined, 'mt-grid');
+      data.candidates.forEach(candidate => {
+        // HTML comes from the same escaped server renderer as the member directory.
+        const template = document.createElement('template');
+        template.innerHTML = candidate.memberHtml || '';
+        if (template.content.querySelector('.mt-card')) cards.append(template.content);
       }); result.append(cards);
     } catch (err) { if (number === requestNumber) result.textContent = err.message; }
     finally { match.disabled = false; }
@@ -112,7 +121,7 @@ $('editor-form').onsubmit = async event => {
   } else {
     const name = $('topic-name').value.trim(); if (!name) return;
     const topic = { id: editId || crypto.randomUUID(), name, genres };
-    prefs.topics = editId ? prefs.topics.map(t => t.id === editId ? topic : t) : [...prefs.topics, topic]; selectedId = topic.id;
+    prefs.topics = editId ? prefs.topics.map(t => t.id === editId ? topic : t) : [...prefs.topics, topic]; selectedId = topic.id; showView('topics');
   }
   const submit = $('editor-form').querySelector('button[type=submit]'); submit.disabled = true;
   try { await save(prefs); $('editor').close(); } catch (err) { $('form-error').textContent = err.message; }
