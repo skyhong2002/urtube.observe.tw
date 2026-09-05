@@ -1,0 +1,107 @@
+{
+  "provenance": "Isolated synthetic microbenchmark; NOT DBSCAN, NOT LP, NOT deployment end-to-end. Random normal unit vectors, fixed seed 20260906; no real data. Three repetitions; dot includes allocation, excludes normalization; JSON Python differs from JS. No production timing claim.",
+  "environment": {
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "numpy": "2.4.6",
+    "platform": "macOS-26.4-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "thread_environment": {
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    }
+  },
+  "unavailable": [
+    "scipy",
+    "sklearn"
+  ],
+  "rows": [
+    {
+      "tags": 500,
+      "dimensions": 768,
+      "float64_vector_bytes": 3072000,
+      "json_utf8_bytes": 8124516,
+      "full_float64_distance_bytes": 2000000,
+      "samples": {
+        "json_dumps_ms": [
+          87.72804168984294,
+          86.40808332711458,
+          86.62462513893843
+        ],
+        "json_loads_ms": [
+          44.06983312219381,
+          43.68645837530494,
+          43.56258315965533
+        ],
+        "cosine_dot_ms": [
+          6.373874843120575,
+          0.6765830330550671,
+          0.5720001645386219
+        ]
+      },
+      "median_ms": {
+        "json_dumps_ms": 86.62462513893843,
+        "json_loads_ms": 43.68645837530494,
+        "cosine_dot_ms": 0.6765830330550671
+      }
+    },
+    {
+      "tags": 1000,
+      "dimensions": 768,
+      "float64_vector_bytes": 6144000,
+      "json_utf8_bytes": 16248729,
+      "full_float64_distance_bytes": 8000000,
+      "samples": {
+        "json_dumps_ms": [
+          172.41804115474224,
+          173.12166700139642,
+          172.75379179045558
+        ],
+        "json_loads_ms": [
+          91.00958378985524,
+          87.18262473121285,
+          86.65737509727478
+        ],
+        "cosine_dot_ms": [
+          4.274500068277121,
+          2.3503750562667847,
+          2.078208141028881
+        ]
+      },
+      "median_ms": {
+        "json_dumps_ms": 172.75379179045558,
+        "json_loads_ms": 87.18262473121285,
+        "cosine_dot_ms": 2.3503750562667847
+      }
+    },
+    {
+      "tags": 2000,
+      "dimensions": 768,
+      "float64_vector_bytes": 12288000,
+      "json_utf8_bytes": 32497720,
+      "full_float64_distance_bytes": 32000000,
+      "samples": {
+        "json_dumps_ms": [
+          347.88970882073045,
+          349.8889156617224,
+          348.8729582168162
+        ],
+        "json_loads_ms": [
+          183.42612497508526,
+          183.50950023159385,
+          183.00358299165964
+        ],
+        "cosine_dot_ms": [
+          12.5898327678442,
+          9.330209344625473,
+          14.86574998125434
+        ]
+      },
+      "median_ms": {
+        "json_dumps_ms": 348.8729582168162,
+        "json_loads_ms": 183.42612497508526,
+        "cosine_dot_ms": 12.5898327678442
+      }
+    }
+  ]
+}

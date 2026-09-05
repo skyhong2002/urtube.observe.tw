@@ -1,0 +1,236 @@
+{
+  "node": "v24.2.0",
+  "sqlite": "3.50.0",
+  "plans": {
+    "estimate": [
+      {
+        "id": 2,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CO-ROUTINE ordered"
+      },
+      {
+        "id": 5,
+        "parent": 2,
+        "notused": 0,
+        "detail": "CO-ROUTINE (subquery-7)"
+      },
+      {
+        "id": 6,
+        "parent": 5,
+        "notused": 0,
+        "detail": "MERGE (UNION ALL)"
+      },
+      {
+        "id": 8,
+        "parent": 6,
+        "notused": 0,
+        "detail": "LEFT"
+      },
+      {
+        "id": 12,
+        "parent": 8,
+        "notused": 223,
+        "detail": "SCAN youtube_watch_events USING INDEX youtube_watch_time_idx"
+      },
+      {
+        "id": 36,
+        "parent": 8,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+      },
+      {
+        "id": 55,
+        "parent": 6,
+        "notused": 0,
+        "detail": "RIGHT"
+      },
+      {
+        "id": 59,
+        "parent": 55,
+        "notused": 224,
+        "detail": "SCAN youtube_search_events USING INDEX youtube_search_time_idx"
+      },
+      {
+        "id": 81,
+        "parent": 55,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+      },
+      {
+        "id": 129,
+        "parent": 2,
+        "notused": 219,
+        "detail": "SCAN (subquery-7)"
+      },
+      {
+        "id": 181,
+        "parent": 0,
+        "notused": 219,
+        "detail": "SCAN o"
+      },
+      {
+        "id": 186,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH w USING INDEX sqlite_autoindex_youtube_watch_events_1 (event_id=?)"
+      },
+      {
+        "id": 194,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH a USING INDEX sqlite_autoindex_activities_1 (id=?)"
+      },
+      {
+        "id": 199,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH v USING INDEX sqlite_autoindex_youtube_videos_1 (video_id=?) LEFT-JOIN"
+      },
+      {
+        "id": 207,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH vp USING INDEX sqlite_autoindex_youtube_video_progress_1 (video_id=?) LEFT-JOIN"
+      },
+      {
+        "id": 220,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 225,
+        "parent": 220,
+        "notused": 62,
+        "detail": "SEARCH measured USING INDEX youtube_watch_video_idx (video_id=?)"
+      }
+    ],
+    "placeholder": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 216,
+        "detail": "SCAN a"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH w USING INDEX sqlite_autoindex_youtube_watch_events_2 (activity_id=?)"
+      }
+    ],
+    "backfill": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 216,
+        "detail": "SCAN youtube_watch_events"
+      },
+      {
+        "id": 11,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 16,
+        "parent": 11,
+        "notused": 39,
+        "detail": "SEARCH v USING INDEX sqlite_autoindex_youtube_videos_1 (video_id=?)"
+      },
+      {
+        "id": 42,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 47,
+        "parent": 42,
+        "notused": 39,
+        "detail": "SEARCH v USING INDEX sqlite_autoindex_youtube_videos_1 (video_id=?)"
+      },
+      {
+        "id": 62,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 67,
+        "parent": 62,
+        "notused": 39,
+        "detail": "SEARCH v USING INDEX sqlite_autoindex_youtube_videos_1 (video_id=?)"
+      }
+    ],
+    "source": [
+      {
+        "id": 12,
+        "parent": 0,
+        "notused": 216,
+        "detail": "SCAN w"
+      },
+      {
+        "id": 16,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH v USING INDEX sqlite_autoindex_youtube_videos_1 (video_id=?)"
+      },
+      {
+        "id": 22,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR GROUP BY"
+      },
+      {
+        "id": 76,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  "measurements": [
+    {
+      "mode": "unique",
+      "n": 250,
+      "medianMs": 0.436
+    },
+    {
+      "mode": "unique",
+      "n": 500,
+      "medianMs": 0.688
+    },
+    {
+      "mode": "unique",
+      "n": 1000,
+      "medianMs": 1.77
+    },
+    {
+      "mode": "unique",
+      "n": 2000,
+      "medianMs": 3.596
+    },
+    {
+      "mode": "repeat",
+      "n": 250,
+      "medianMs": 5.317
+    },
+    {
+      "mode": "repeat",
+      "n": 500,
+      "medianMs": 19.777
+    },
+    {
+      "mode": "repeat",
+      "n": 1000,
+      "medianMs": 79.202
+    },
+    {
+      "mode": "repeat",
+      "n": 2000,
+      "medianMs": 313.681
+    }
+  ]
+}
