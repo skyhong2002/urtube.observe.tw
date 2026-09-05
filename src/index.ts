@@ -688,6 +688,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       }
       const created = registry.createUser(handle, displayName, {
         googleSub: pending.sub, googleEmail: pending.email, avatarUrl: pending.avatarUrl ?? undefined,
+        dashboardPublic: true,
       });
       finish(created);
       c.header('Cache-Control', 'no-store');
@@ -712,11 +713,16 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       return c.text('Onboarding step is no longer available', 409);
     }
     const form = await c.req.parseBody();
-    const choice = String(form.choice ?? '');
-    if (choice !== 'join' && choice !== 'private') return c.text('Choose a matching option', 400);
+    if (form.preferencesSubmitted !== '1'
+      || (form.matchingOptIn !== undefined && form.matchingOptIn !== '1')
+      || (form.dashboardPublic !== undefined && form.dashboardPublic !== '1')) {
+      return c.text('Invalid sharing preferences', 400);
+    }
     try {
-      const updated = registry.completeOnboarding(me.handle, choice === 'join', 'topics_and_channel');
-      return c.redirect(choice === 'join' ? '/matches' : `/${updated.handle}`);
+      const updated = registry.completeOnboarding(
+        me.handle, form.matchingOptIn === '1', 'topics_and_channel', form.dashboardPublic === '1',
+      );
+      return c.redirect(updated.matchingOptIn ? '/matches' : `/${updated.handle}`);
     } catch {
       return c.text('Matching choice is invalid', 400);
     }

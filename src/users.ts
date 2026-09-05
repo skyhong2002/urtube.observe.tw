@@ -549,8 +549,9 @@ export class UserRegistry {
     handle: string,
     optedIn: boolean,
     disclosureLevel: MatchingDisclosureLevel,
+    dashboardPublic?: boolean,
   ): User {
-    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, true);
+    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, true, undefined, dashboardPublic);
   }
 
   private writeMatchingPreferences(
@@ -559,6 +560,7 @@ export class UserRegistry {
     disclosureLevel: MatchingDisclosureLevel,
     completeOnboarding: boolean,
     rhythm?: boolean,
+    dashboardPublic?: boolean,
   ): User {
     if (!MATCHING_DISCLOSURE_LEVELS.includes(disclosureLevel)) {
       throw new Error('Unknown matching disclosure level');
@@ -570,7 +572,8 @@ export class UserRegistry {
       const now = new Date().toISOString();
       this.db.prepare(`
         UPDATE users SET matching_opt_in=?, matching_disclosure=?, matching_rhythm=?,
-          onboarding_completed_at=CASE WHEN ?=1 THEN ? ELSE onboarding_completed_at END
+          onboarding_completed_at=CASE WHEN ?=1 THEN ? ELSE onboarding_completed_at END,
+          dashboard_public=COALESCE(?, dashboard_public)
         WHERE id=?
       `).run(
         optedIn ? 1 : 0,
@@ -578,6 +581,7 @@ export class UserRegistry {
         (rhythm ?? user.matchingRhythm) ? 1 : 0,
         completeOnboarding ? 1 : 0,
         now,
+        dashboardPublic === undefined ? null : dashboardPublic ? 1 : 0,
         user.id,
       );
       this.db.prepare(`

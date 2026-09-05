@@ -247,7 +247,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
 }
 
 const guidedStyles = `
-  .go-progress{display:grid;gap:7px;grid-template-columns:repeat(6,minmax(0,1fr));margin:0 0 24px;padding:0}.go-progress li{border-top:3px solid var(--line);color:var(--muted);font-size:10px;list-style:none;padding-top:8px}.go-progress li.done{border-color:#5eb67d;color:var(--ink-2)}.go-progress li.current{border-color:var(--accent);color:var(--ink);font-weight:750}
+  .go-progress{display:grid;gap:7px;grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 24px;padding:0}.go-progress li{border-top:3px solid var(--line);color:var(--muted);font-size:10px;list-style:none;padding-top:8px}.go-progress li.done{border-color:#5eb67d;color:var(--ink-2)}.go-progress li.current{border-color:var(--accent);color:var(--ink);font-weight:750}
   .go-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);max-width:680px;padding:28px}.go-card h2{font-size:20px;margin:0 0 9px}.go-card p{color:var(--ink-2);font-size:14px;line-height:1.65}.go-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px}.go-actions a,.go-actions button{border-radius:999px;font:inherit;font-size:13px;font-weight:750;padding:10px 16px;text-decoration:none}.go-primary{background:var(--accent);border:1px solid var(--accent);color:#fff}.go-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink)}
   .go-note{background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--ink-2);font-size:13px;margin:16px 0;padding:12px 14px}.go-note.warn{border-color:rgba(250,178,25,.35);color:#f5c95e}.go-topics{display:grid;gap:8px;margin:18px 0}.go-topic{align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:9px;display:flex;font-size:13px;font-weight:700;gap:9px;padding:11px 12px}.go-topic input{accent-color:var(--accent)}.go-choice{align-items:flex-start;background:var(--raised);border:1px solid var(--line);border-radius:10px;display:flex;gap:9px;padding:12px}.go-choice input{accent-color:var(--accent);margin-top:3px}
   @media(max-width:640px){.go-progress{grid-template-columns:repeat(3,minmax(0,1fr))}.go-card{padding:21px}}
@@ -294,17 +294,20 @@ export function guidedOnboardingPage(
   } else if (state.step === 'consent') {
     content = `<h2>${t.onboardingConsentTitle}</h2><p>${t.onboardingConsentPara}</p>${provisional}
       <form method="post" action="/onboarding/finish" class="ob-form">
-        <label class="go-choice"><input type="radio" name="choice" value="join" required> <span>${t.onboardingJoin}</span></label>
-        <label class="go-choice"><input type="radio" name="choice" value="private" required> <span>${t.onboardingPrivate}</span></label>
+        <input type="hidden" name="preferencesSubmitted" value="1">
+        <div class="ob-switches">
+          <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong><small>${t.accountMatchingOptInHelp}</small></span></label>
+          <label class="ob-switch"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}><span><strong>${t.accountVisibilityToggle}</strong><small>${t.accountVisibilityPara}</small></span></label>
+        </div>
         <button type="submit">${t.onboardingFinish}</button>
       </form>`;
   } else {
     content = `<h2>${t.onboardingCompleteTitle}</h2><p>${t.onboardingCompletePara}</p>
       <div class="go-actions">${user.matchingOptIn ? `<a class="go-primary" href="/matches">${t.onboardingOpenMatches}</a>` : ''}<a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
   }
-  const refresh = state.step === 'processing' || state.scanStatus === 'running'
+  const refresh = state.step === 'processing' || (state.step === 'setup' && state.scanStatus === 'running')
     ? '<script>setTimeout(()=>location.reload(),15000)</script>' : '';
-  const body = `<style>${formStyles}${v3ProcessingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}</section>${refresh}`;
+  const body = `<style>${formStyles}${v3ProcessingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}${state.step === 'setup' || state.step === 'processing' ? `<p><a href="/account#settings-privacy">${t.onboardingSharingSettings}</a></p>` : ''}</section>${refresh}`;
   return shell(t.onboardingTitle, body, primaryNav(lang, {
     dashboardHref,
     languageHref: `/onboarding?lang=${lang === 'zh' ? 'en' : 'zh'}`,

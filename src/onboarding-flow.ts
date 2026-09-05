@@ -63,7 +63,7 @@ export function guidedOnboardingState(input: GuidedOnboardingInput): GuidedOnboa
   // Matching starts on, so opt-in alone no longer proves the person saw the
   // consent step; only finishing it does.
   if (input.user.onboardingCompletedAt) {
-    return { ...base, step: 'complete', activeStep: 6 };
+    return { ...base, step: 'complete', activeStep: 5 };
   }
   if (input.watchEvents === 0) {
     return { ...base, step: 'setup', activeStep: 2 };
@@ -71,6 +71,6 @@ export function guidedOnboardingState(input: GuidedOnboardingInput): GuidedOnboa
   if (!input.matchingCrystal || !registryCrystalEligible(input.matchingCrystal)) {
     return { ...base, step: 'processing', activeStep: 3 };
   }
-  // Topics are always all-in; the only decision left is whether to join.
-  return { ...base, step: 'consent', activeStep: 5 };
+  // Review the independent discovery and public profile settings.
+  return { ...base, step: 'consent', activeStep: 4 };
 }

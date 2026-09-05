@@ -104,12 +104,13 @@ test('guided onboarding resumes from stored data and records either matching cho
     const consentHtml = await (await app.request('/onboarding', {
       headers: { cookie: privateCookie },
     })).text();
-    assert.match(consentHtml, /Choose whether to enter matching/);
-    assert.doesNotMatch(consentHtml, /name="choice"[^>]*checked/);
+    assert.match(consentHtml, /Discover people and share your page/);
+    assert.match(consentHtml, /name="matchingOptIn"[^>]*checked/);
+    assert.doesNotMatch(consentHtml, /name="dashboardPublic"[^>]*checked/);
     assert.doesNotMatch(consentHtml, /matchingDisclosure|<select/);
 
     const finishedPrivate = await app.request('/onboarding/finish', {
-      ...form({ choice: 'private' }),
+      ...form({ preferencesSubmitted: '1' }),
       headers: { ...form({}).headers, cookie: privateCookie },
     });
     assert.equal(finishedPrivate.headers.get('location'), '/guided-private');
@@ -123,7 +124,7 @@ test('guided onboarding resumes from stored data and records either matching cho
     seedWatch(registry, joinedUser);
     const joinedCookie = `urtube_session=${registry.createSession(joinedUser)}`;
     const joined = await app.request('/onboarding/finish', {
-      ...form({ choice: 'join' }),
+      ...form({ preferencesSubmitted: '1', matchingOptIn: '1', dashboardPublic: '1' }),
       headers: { ...form({}).headers, cookie: joinedCookie },
     });
     assert.equal(joined.headers.get('location'), '/matches');
@@ -143,7 +144,7 @@ test('guided onboarding rejects skipped or forged steps', async () => {
     const user = registry.createUser('guided-guard', 'Guard');
     const cookie = `urtube_session=${registry.createSession(user)}`;
     const skipped = await app.request('/onboarding/finish', {
-      ...form({ choice: 'join' }),
+      ...form({ preferencesSubmitted: '1', matchingOptIn: '1', dashboardPublic: '1' }),
       headers: { ...form({}).headers, cookie },
     });
     assert.equal(skipped.status, 409);
@@ -209,6 +210,70 @@ test('scan diagnostics and provisional readiness are derived without a second st
       matchesPage({ handle: 'guided-state', displayName: 'State' }, '/guided-state', { kind: 'empty' }, 'en', true),
       /candidate order may change/,
     );
+  } finally {
+    registry.close();
+  }
+});
+
+
+test('onboarding independently saves all sharing combinations and preserves them on return', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    for (const matchingOptIn of [true, false]) {
+      for (const dashboardPublic of [true, false]) {
+        const user = registry.createUser(`sharing-${Number(matchingOptIn)}-${Number(dashboardPublic)}`, 'Sharing', { dashboardPublic: true });
+        seedWatch(registry, user);
+        const cookie = `urtube_session=${registry.createSession(user)}`;
+        const before = await (await app.request('/onboarding', { headers: { cookie } })).text();
+        assert.match(before, /name="matchingOptIn"[^>]*checked/);
+        assert.match(before, /name="dashboardPublic"[^>]*checked/);
+        const values: Record<string, string> = { preferencesSubmitted: '1' };
+        if (matchingOptIn) values.matchingOptIn = '1';
+        if (dashboardPublic) values.dashboardPublic = '1';
+        const result = await app.request('/onboarding/finish', {
+          ...form(values), headers: { ...form({}).headers, cookie },
+        });
+        assert.equal(result.status, 302);
+        assert.equal(result.headers.get('location'), matchingOptIn ? '/matches' : `/${user.handle}`);
+        const saved = registry.userByHandle(user.handle)!;
+        assert.equal(saved.matchingOptIn, matchingOptIn);
+        assert.equal(saved.dashboardPublic, dashboardPublic);
+        assert.ok(saved.onboardingCompletedAt);
+        await app.request('/onboarding', { headers: { cookie } });
+        assert.equal(registry.userByHandle(user.handle)!.matchingOptIn, matchingOptIn);
+        assert.equal(registry.userByHandle(user.handle)!.dashboardPublic, dashboardPublic);
+      }
+    }
+  } finally {
+    registry.close();
+  }
+});
+
+test('sharing form reflects saved opt-outs, does not refresh during edits, and rejects invalid submissions', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const user = registry.createUser('sharing-off', 'Off');
+    registry.setMatchingPreferences(user.handle, false, 'topics_and_channel');
+    seedWatch(registry, user);
+    const saved = registry.userByHandle(user.handle)!;
+    const state = guidedOnboardingState({ user: saved, watchEvents: 240, processing: idleProcessing,
+      dimensions: registry.matchingDimensionsFor(saved), matchingCrystal: eligibleCrystal(), latestScan: null });
+    for (const lang of ['en', 'zh'] as const) {
+      const page = guidedOnboardingPage(saved, { ...state, scanStatus: 'running' }, lang);
+      assert.doesNotMatch(page, /name="(?:matchingOptIn|dashboardPublic)"[^>]*checked/);
+      assert.doesNotMatch(page, /setTimeout\(\(\)=>location.reload\(\),15000\)|Insight preview|洞察預覽/);
+    }
+    const cookie = `urtube_session=${registry.createSession(user)}`;
+    for (const values of [{}, { preferencesSubmitted: '1', matchingOptIn: 'invalid' }] as Record<string, string>[]) {
+      const result = await app.request('/onboarding/finish', {
+        ...form(values), headers: { ...form({}).headers, cookie },
+      });
+      assert.equal(result.status, 400);
+      assert.equal(registry.userByHandle(user.handle)!.onboardingCompletedAt, null);
+      assert.equal(registry.userByHandle(user.handle)!.dashboardPublic, false);
+    }
   } finally {
     registry.close();
   }
