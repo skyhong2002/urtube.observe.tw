@@ -222,9 +222,9 @@ AI 不只是聊天介面，而是用來解決無法靠手工規則穩定完成�
 - [ ] 主賽道只選 Track 02 — AI for Everyday Life。
 - [x] 100–200 字問題／解法摘要已依實際成果更新並校稿。
 - [x] 公開 GitHub repository 可在無痕視窗開啟。
-- [ ] Repository 內有 LICENSE；等待 owner 在 [#27](https://github.com/skyhong2002/urtube.observe.tw/issues/27) 指定法律授權。
+- [x] Repository 採用標準 MIT License，GitHub 可直接辨識。
 - [x] README 說明問題、核心功能、架構、技術、安裝／執行、限制與未來工作。
-- [x] 第三方套件、模型、資料與素材來源已列出；正式提交仍須隨 LICENSE 決策複核授權相容性。
+- [x] 第三方套件、模型、資料與素材來源已列出；安裝依賴的授權 metadata 已複核為 MIT、ISC、BSD-2-Clause 或 Apache-2.0，外部資料仍依各服務條款。
 - [x] README 與 migration/boundary 文件已揭露從 Infovore 抽出的既有範圍。
 - [x] Demo URL 可在無痕視窗開啟；登入後最短操作路徑見 README。
 - [ ] YouTube 影片不超過兩分鐘，聲音、字幕、畫面與權限均已驗證。

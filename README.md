@@ -239,5 +239,8 @@ limit, while the bounded My Activity pass supplies the complete event archive.
 - Matching needs enough recent activity and consenting peers, so a valid
   result may still be “not enough data” or “no candidates.” External metadata,
   AI, and governance outages surface as retry/processing states or fail closed.
-- This public repository does not yet grant a reuse license. License selection
-  requires an explicit owner decision tracked in Issue #27.
+
+## License
+
+urtube is licensed under the [MIT License](LICENSE). Third-party packages and
+external data sources retain their respective licenses and terms.
