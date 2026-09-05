@@ -1512,11 +1512,19 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       c.header('Cache-Control', 'private, no-store');
       c.header('X-Robots-Tag', 'noindex');
       const lang = langOf(c);
+      const range = comparisonRange(c.req.query('range'));
+      const connected = Boolean(card && registry.matchingRelationshipFor(me, user.id).status === 'connected');
+      const comparison = connected ? compareWatchProfiles(
+        cachedComparisonProfileFor(registry, me, range),
+        cachedComparisonProfileFor(registry, user, range),
+        range, { connected: true },
+      ) : null;
       return c.html(memberProfilePage(me.handle, {
         handle: user.handle, displayName: user.displayName,
         avatarVisible: Boolean(registry.avatarUserForMember(me, user.handle)),
-        interests: card?.interests.slice(0, 3) ?? [],
-        comparisonHref: card ? `${comparisonPath(me, user.handle)}?lang=${lang}` : null,
+        interests: card?.interests.slice(0, connected ? 5 : 3) ?? [],
+        comparison,
+        comparisonHref: card ? `${comparisonPath(me, user.handle)}?range=${range}&lang=${lang}` : null,
       }, lang));
     }
     return dashboardResponse(c, user, `/${user.handle}`);
