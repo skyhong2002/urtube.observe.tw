@@ -18,8 +18,8 @@ Codex CLI subscription.
   the `app` and `worker` services in `docker-compose.yml`, so `.env` keeps
   `AI_BASE_URL=http://host.docker.internal:8320/v1`.
 - `AI_API_KEY` in `.env` must equal the unit's `SHIM_KEY`.
-- The shim runs at most `SHIM_CONCURRENCY` (4) `codex exec` processes. The
-  worker keeps `AI_CONCURRENCY` (4) requests in flight across all archives and
+- The shim runs at most `SHIM_CONCURRENCY` (6) `codex exec` processes. The
+  worker keeps `AI_CONCURRENCY` (6) requests in flight across all archives and
   fans one archive's batches out to the same width. One 20-video batch takes
   ~50 s, so `.env` sets `AI_TIMEOUT_MS=300000` to cover any queueing.
 
