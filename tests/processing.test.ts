@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { strToU8, zipSync } from 'fflate';
 import { Repository } from '../src/data/database.js';
+import { v3ProcessingNotice } from '../src/output/v3-processing.js';
+import { describeV3Processing } from '../src/youtube/v3-processing.js';
 import { processingNotice } from '../src/output/processing.js';
 import { youtubeDashboardPage } from '../src/output/youtube.js';
 import { accountPage } from '../src/output/onboarding.js';
@@ -216,27 +218,27 @@ test('dashboard and account pages carry the notice while work is pending', () =>
   const registry = new UserRegistry(':memory:');
   try {
     repository.ingestYoutubeArchive(parseYoutubeArchive(archiveJson(['video-one']), SECRET, 'takeout'));
-    const status = describeYoutubeProcessing(repository.youtubeProcessingCounts(), BOTH);
-    const notice = processingNotice(status, 'en');
+    const status = describeV3Processing({ metadata: repository.youtubeMetadataProcessingCounts(), metadataEnabled: true, enabled: true, profileVersion: 'test', backfillVideoLimit: 2000, profile: null, job: null });
+    const notice = v3ProcessingNotice(status, 'en', { ownerDetails: true });
     const data = repository.youtubeDashboard('all');
     const withNotice = youtubeDashboardPage('Fixture', data, 'duration', { processingHtml: notice, page: 'insights' });
-    assert.match(withNotice, /class="yt-processing"/);
+    assert.match(withNotice, /class="yt-v3-processing"/);
     const overview = youtubeDashboardPage('Fixture', data, 'duration', { processingHtml: notice });
     assert.match(overview, /class="yt-provisional">provisional</);
     const settled = youtubeDashboardPage('Fixture', data, 'duration', {});
-    assert.doesNotMatch(settled, /class="yt-processing"|class="yt-provisional"/);
+    assert.doesNotMatch(settled, /class="yt-v3-processing"|class="yt-provisional"/);
 
     const user = registry.createUser('sky', 'Sky');
     const afterUpload = accountPage(user, {
       takeoutResult: { archiveHash: 'x', watchesSeen: 1, watchesInserted: 1, searchesSeen: 0, searchesInserted: 0 },
-      processing: status,
+      v3Processing: status,
     }, 'zh');
     assert.match(afterUpload, /紀錄已經存好/);
-    assert.equal(afterUpload.match(/class="yt-processing"/g)?.length, 1);
-    const laterVisit = accountPage(user, { processing: status }, 'en');
-    assert.equal(laterVisit.match(/class="yt-processing"/g)?.length, 1);
+    assert.equal(afterUpload.match(/class="yt-v3-processing"/g)?.length, 1);
+    const laterVisit = accountPage(user, { v3Processing: status }, 'en');
+    assert.equal(laterVisit.match(/class="yt-v3-processing"/g)?.length, 1);
     assert.doesNotMatch(laterVisit, /Your records are saved/);
-    assert.doesNotMatch(accountPage(user, {}, 'en'), /yt-processing"/);
+    assert.doesNotMatch(accountPage(user, {}, 'en'), /yt-v3-processing"/);
   } finally {
     repository.close();
     registry.close();

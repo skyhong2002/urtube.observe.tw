@@ -6,7 +6,8 @@ import type { YoutubeProcessingStatus } from '../youtube/processing.js';
 import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
 import { html, primaryNav, shell } from './pages.js';
-import { processingNotice, processingStyles } from './processing.js';
+import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
+import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 
 const formStyles = `
   .ob-intro{margin:14px 0 26px}
@@ -122,6 +123,7 @@ export interface AccountPageState {
   // Background work still owed to this archive; shown right after an import
   // and on every later visit until the worker catches up.
   processing?: YoutubeProcessingStatus;
+  v3Processing?: V3ProcessingStatus;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -133,7 +135,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <code class="ob-token">${html(state.rotated.captureToken)}</code>
       <p style="margin-bottom:2px">${t.accountDashboardKey}</p>
       <code class="ob-token">${html(state.rotated.dashboardToken)}</code>` : '';
-  const processing = processingNotice(state.processing, lang, { dashboardHref });
+  const processing = v3ProcessingNotice(state.v3Processing, lang, { dashboardHref, ownerDetails: true, alwaysShow: true });
   const takeoutFeedback = state.takeoutResult
     ? `<div class="ob-success" role="status">${t.accountTakeoutSuccess(
       state.takeoutResult.watchesSeen, state.takeoutResult.watchesInserted,
@@ -169,13 +171,13 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       </form>`;
   const group = (id: string, title: string, content: string, open = false) =>
     `<details class="st-group" id="${id}"${open ? ' open' : ''}><summary>${title}</summary><div class="st-content">${content}</div></details>`;
-  const body = `<style>${formStyles}${processingStyles}
+  const body = `<style>${formStyles}${v3ProcessingStyles}
     .st-page{max-width:680px;margin:0 auto}.st-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}.st-heading .ob-intro{margin:0}.st-heading a{font-size:13px}
     .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
     @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
     </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
       ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
-      ${state.takeoutResult ? '' : processing}
+      <div id="processing">${state.takeoutResult ? '' : processing}</div>
       ${group('settings-profile', t.settingsProfile, `
       <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p>
       <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
@@ -218,7 +220,6 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       </section>
       `, !!takeoutFeedback)}
       ${group('settings-advanced', t.settingsAdvanced, `
-      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
       ${rotatedHtml}
       <h2>${t.accountRotate}</h2>
       <p>${t.accountRotatePara}</p>
@@ -270,6 +271,7 @@ export function guidedOnboardingPage(
   user: User,
   state: GuidedOnboardingState,
   lang: Lang = 'en',
+  processingStatus?: V3ProcessingStatus,
 ): string {
   const t = messages(lang);
   const dashboardHref = `/${user.handle}`;
@@ -289,7 +291,7 @@ export function guidedOnboardingPage(
       <ol class="ob-steps">${t.onboardingInstallSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
       <div class="go-actions"><a class="go-primary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="/onboarding">${t.onboardingRefresh}</a></div>`;
   } else if (state.step === 'processing') {
-    const notice = processingNotice(state.processing, lang, { dashboardHref });
+    const notice = v3ProcessingNotice(processingStatus, lang, { dashboardHref, ownerDetails: true, alwaysShow: true });
     content = `<h2>${t.onboardingProcessingTitle}</h2><p>${t.onboardingProcessingPara}</p>
       ${notice || `<div class="go-note warn">${t.onboardingMoreData}</div>`}
       <div class="go-actions"><a class="go-primary" href="/onboarding">${t.onboardingRefresh}</a><a class="go-secondary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
@@ -306,7 +308,7 @@ export function guidedOnboardingPage(
   }
   const refresh = state.step === 'processing' || state.scanStatus === 'running'
     ? '<script>setTimeout(()=>location.reload(),15000)</script>' : '';
-  const body = `<style>${formStyles}${processingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}</section>${refresh}`;
+  const body = `<style>${formStyles}${v3ProcessingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}</section>${refresh}`;
   return shell(t.onboardingTitle, body, primaryNav(lang, {
     dashboardHref,
     languageHref: `/onboarding?lang=${lang === 'zh' ? 'en' : 'zh'}`,
