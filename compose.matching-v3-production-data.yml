@@ -1,0 +1,9 @@
+# Apply LAST, only when intentionally processing the shared production data.
+# App and v3 worker must use the same registry/volume and production owner config.
+services:
+  matching-worker:
+    env_file:
+      - .env.production-data
+      - .env.matching-v3
+    volumes:
+      - production-data:/data

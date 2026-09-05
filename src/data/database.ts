@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { digest, normalizeTag, type SourceSnapshot as MatchingSourceSnapshot } from '../matching-v3/model.js';
 import { activityFromEntry } from './activity.js';
 import { taipeiDay } from '../youtube/history-sync.js';
 import { weekdayExposure } from '../youtube/weekday-average.js';
@@ -1574,6 +1575,28 @@ export class Repository {
       endReason: row.end_reason as YoutubeScanEndReason,
       completedAt: row.completed_at,
     };
+  }
+
+  // Read-only, all available history; DISTINCT prevents replays/rescans from
+  // changing matching weights. No watch timestamps leave this repository.
+  matchingV3Source(): MatchingSourceSnapshot {
+    const rows = this.db.prepare(`SELECT DISTINCT v.video_id, v.title, v.tags_json,
+      v.description, v.channel_id, v.channel_title
+      FROM youtube_videos v JOIN youtube_watch_events w ON w.video_id=v.video_id
+      WHERE w.activity_type='video' ORDER BY v.video_id`).all();
+    const videos = rows.map(row => {
+      const parsed: unknown = JSON.parse(String(row.tags_json));
+      const original = Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+      const hashtags = `${row.title} ${row.description}`.match(/#[\p{L}\p{N}_]+/gu) ?? [];
+      return { id: String(row.video_id), title: String(row.title),
+        tags: [...new Set([...original, ...hashtags].map(normalizeTag).filter(t => t.length > 0))].sort(),
+        channelId: row.channel_id === null ? null : String(row.channel_id),
+        channelTitle: row.channel_title === null ? null : String(row.channel_title) };
+    });
+    const latest = this.youtubeProgressImports(1)[0];
+    const complete = Boolean(this.youtubeHistoryCoverage()) && (!latest || Boolean(latest.completedAt)
+      && !latest.error && latest.endReason !== null && YOUTUBE_SCAN_COVERING_REASONS.has(latest.endReason));
+    return { videos, complete, fingerprint: digest([videos, complete]) };
   }
 
   // Private, chronological event rows for the owner's History page. Unlike

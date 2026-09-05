@@ -1,0 +1,42 @@
+# Optional overlay for compose.local.yml. See docs/matching-v3.md before use.
+# For shared data, also apply compose.matching-v3-production-data.yml last.
+services:
+  app:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env.matching-v3
+    environment:
+      MATCHING_V3_ENABLED: "true"
+      MATCHING_V3_COMPUTE_URL: http://matching-compute:8090
+    depends_on:
+      matching-compute:
+        condition: service_started
+  matching-compute:
+    build: ./services/matching-compute
+    image: urtube-matching-compute:dev
+    restart: unless-stopped
+    env_file: .env.matching-v3
+    mem_limit: 2g
+    cpus: 2
+    # Internal Docker network only; no host port or database mount.
+  matching-worker:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    image: urtube-local:dev
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/matching-v3/worker.ts"]
+    env_file:
+      - .env.local
+      - .env.matching-v3
+    environment:
+      MATCHING_V3_ENABLED: "true"
+      MATCHING_V3_COMPUTE_URL: http://matching-compute:8090
+      DATABASE_PATH: /data/urtube.sqlite
+      USERS_DATABASE_PATH: /data/users.sqlite
+    volumes:
+      - ./src:/app/src:ro
+      - local-data:/data
+    depends_on:
+      matching-compute:
+        condition: service_started
