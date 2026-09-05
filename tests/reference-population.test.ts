@@ -210,7 +210,7 @@ test('reference consent is separate, owner-only, withdrawable, and rendered with
     }
 
     const account = await (await app.request('/account', { headers: { cookie } })).text();
-    assert.match(account, /Anonymous reference population/);
+    assert.match(account, /Contribute to anonymous statistics/);
     assert.doesNotMatch(account, /name="referenceOptIn" value="1" checked/);
     assert.equal((await app.request('/account/reference-population', { method: 'POST' })).status, 302);
 

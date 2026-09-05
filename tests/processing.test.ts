@@ -231,11 +231,11 @@ test('dashboard and account pages carry the notice while work is pending', () =>
       takeoutResult: { archiveHash: 'x', watchesSeen: 1, watchesInserted: 1, searchesSeen: 0, searchesInserted: 0 },
       processing: status,
     }, 'zh');
-    assert.match(afterUpload, /紀錄已經存好/);
+    assert.match(afterUpload, /影片資訊與主題仍在背景處理中/);
     assert.equal(afterUpload.match(/class="yt-processing"/g)?.length, 1);
     const laterVisit = accountPage(user, { processing: status }, 'en');
     assert.equal(laterVisit.match(/class="yt-processing"/g)?.length, 1);
-    assert.doesNotMatch(laterVisit, /Your records are saved/);
+    assert.doesNotMatch(laterVisit, /Video details and topics are still processing/);
     assert.doesNotMatch(accountPage(user, {}, 'en'), /yt-processing"/);
   } finally {
     repository.close();

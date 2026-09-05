@@ -145,7 +145,6 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
   const takeout = `<details class="ob-advanced"${takeoutFeedback ? ' open' : ''}>
       <summary>${t.accountTakeoutSummary}</summary>
       <div class="ob-advanced-body">
-        <h2>${t.accountTakeoutTitle}</h2>
         <p>${t.accountTakeoutPara}</p>
         <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
         ${takeoutFeedback}
@@ -158,56 +157,53 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       </div>
     </details>`;
   const matchingSettings = `
-      <h2>${t.accountMatching}</h2>
-      <p>${t.accountMatchingPara}</p>
       <form method="post" action="/account/matching" class="ob-form">
         <div class="ob-switches">
           <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong></span></label>
         </div>
-        <details><summary>${t.settingsSharingDetails}</summary><p>${t.accountMatchingOptInHelp}</p><p>${t.accountMatchingFriends}</p></details>
+        <p class="ob-help">${t.accountMatchingOptInHelp}</p>
         <button type="submit">${t.accountMatchingSave}</button>
       </form>`;
   const group = (id: string, title: string, content: string, open = false) =>
-    `<details class="st-group" id="${id}"${open ? ' open' : ''}><summary>${title}</summary><div class="st-content">${content}</div></details>`;
+    id === 'settings-advanced'
+      ? `<details class="st-group" id="${id}"${open ? ' open' : ''}><summary>${title}</summary><div class="st-content">${content}</div></details>`
+      : `<section class="st-group" id="${id}" aria-labelledby="${id}-title"><h2 class="st-title" id="${id}-title">${title}</h2><div class="st-content">${content}</div></section>`;
   const body = `<style>${formStyles}${processingStyles}
     .st-page{max-width:680px;margin:0 auto}.st-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}.st-heading .ob-intro{margin:0}.st-heading a{font-size:13px}
-    .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
+    .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-title{font-size:15px;margin:0;padding:18px 24px}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start;font-size:12px;margin-top:4px;padding:7px 14px}.st-content .ob-form+.ob-form{border-top:1px solid var(--line);margin-top:20px;padding-top:20px}.st-content .ob-check{color:var(--ink);font-size:14px}.st-content .ob-switch{background:none;border:0;padding:0}.st-content .ob-switches{margin:0}.st-content .ob-help{font-size:12px!important}.st-profile{grid-template-columns:minmax(0,1fr) auto;align-items:end}.st-profile label{grid-column:1/-1}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
     @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
     </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
       ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
       ${state.takeoutResult ? '' : processing}
       ${group('settings-profile', t.settingsProfile, `
       <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p>
-      <form method="post" action="/account/profile" class="ob-form" style="margin-top:6px">
+      <form method="post" action="/account/profile" class="ob-form st-profile">
         <label for="displayName">${t.signupName}</label>
         <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(user.displayName)}">
         <button type="submit">${t.accountNameSave}</button>
       </form>
       `)}
-      ${group('settings-privacy', t.settingsPrivacy, `
-      ${matchingSettings}
-      <h2>${t.accountVisibility}</h2>
-      <p>${t.accountVisibilityPara}</p>
-      <form method="post" action="/account/visibility" class="ob-form">
-        <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}> ${t.accountVisibilityToggle}</label>
-        <button type="submit">${t.accountVisibilitySave}</button>
-      </form>
-      <h2>${t.accountReferenceTitle}</h2>
-      <p>${t.accountReferencePara}</p>
-      <form method="post" action="/account/reference-population" class="ob-form">
-        <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
-        <button type="submit">${t.accountReferenceSave}</button>
-      </form>
-      `)}
       ${group('settings-sync', t.settingsSync, `
-      <h2>${t.accountExtension}</h2>
       <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
       <ol class="ob-steps">
         ${t.accountExtensionSteps.map((step) => `<li>${step}</li>`).join('\n        ')}
       </ol>
+      ${takeout}
+      `)}
+      ${group('settings-privacy', t.settingsPrivacy, `
+      ${matchingSettings}
+      <form method="post" action="/account/visibility" class="ob-form">
+        <label class="ob-check"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}> ${t.accountVisibilityToggle}</label>
+        <p class="ob-help">${t.accountVisibilityPara}</p>
+        <button type="submit">${t.accountVisibilitySave}</button>
+      </form>
+      <form method="post" action="/account/reference-population" class="ob-form">
+        <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
+        <p class="ob-help">${t.accountReferencePara}</p>
+        <button type="submit">${t.accountReferenceSave}</button>
+      </form>
       `)}
       ${group('settings-data', t.settingsData, `
-      ${takeout}
       <section id="account-export">
         <h2>${t.accountExportTitle}</h2>
         <p>${t.accountExportPara}</p>
@@ -216,19 +212,19 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
           <button type="submit">${t.accountExportButton}</button>
         </form>
       </section>
-      `, !!takeoutFeedback)}
-      ${group('settings-advanced', t.settingsAdvanced, `
-      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
-      ${rotatedHtml}
-      <h2>${t.accountRotate}</h2>
-      <p>${t.accountRotatePara}</p>
-      <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
       <details style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
       <form method="post" action="/account/delete" class="ob-form" style="margin-top:10px">
         <p style="margin:0">${t.accountDeletePara(html(user.handle))}</p>
         <input name="confirmHandle" type="text" autocomplete="off" placeholder="${html(user.handle)}">
         <button type="submit">${t.accountDeleteButton}</button>
       </form></details>
+      `)}
+      ${group('settings-advanced', t.settingsAdvanced, `
+      <p><a href="/account/taxonomy">${lang === 'zh' ? '檢查個人主題版本與品質' : 'Review personal topic versions and quality'}</a></p>
+      ${rotatedHtml}
+      <h2>${t.accountRotate}</h2>
+      <p>${t.accountRotatePara}</p>
+      <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
       `, !!state.rotated || !!state.error)}
       <div class="st-footer"><a href="/privacy">${t.privacyLink}</a><form method="post" action="/logout" class="ob-form"><button type="submit">${t.accountLogout}</button></form></div>
     </div>
