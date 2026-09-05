@@ -678,6 +678,8 @@ export interface YoutubeDashboardOptions {
   lang?: Lang;
   // Individual watch rows are private detail, not aggregate dashboard data.
   showRecent?: boolean;
+  showPrivatePages?: boolean;
+  blendHref?: string;
   // Local design-review variants for the short-form visualization.
   shortFormVariant?: ShortFormVariant;
   page?: YoutubeDashboardPageKind;
@@ -807,7 +809,7 @@ export function youtubeDashboardPage(
     history: `${profilePath}/history`,
     recap: `${profilePath}/recap`,
   };
-  const pageNav = `<nav class="yt-page-nav" aria-label="YouTube profile">${(Object.keys(pagePaths) as YoutubeDashboardPageKind[]).map((key) =>
+  const pageNav = `<nav class="yt-page-nav" aria-label="YouTube profile">${(Object.keys(pagePaths) as YoutubeDashboardPageKind[]).filter(key => options.showPrivatePages !== false || key === 'overview' || key === 'insights').map((key) =>
     `<a href="${html(pagePaths[key])}?range=${data.range}&sort=${sort}"${key === page ? ' aria-current="page"' : ''}>${html(pageLabels[key])}</a>`
   ).join('')}</nav>`;
   // Range and sort ride along in the title so every view is clearly named.
@@ -829,7 +831,7 @@ export function youtubeDashboardPage(
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
-    <div class="yt-profile-meta"><a href="/">${t.home}</a></div></div></section>`;
+    <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div></div></section>`;
   const showRecent = options.showRecent !== false;
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`

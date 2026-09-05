@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { load } from 'cheerio';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,7 +51,7 @@ function form(values: Record<string, string>): RequestInit {
   };
 }
 
-test('candidate directory keeps every relationship in one comparison-first flow', async () => {
+test('private candidates become friends before Overview, Insights and Blend are available', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
@@ -58,172 +59,62 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     const bob = registry.createUser('bob-match', 'Bob');
     const carol = registry.createUser('carol-match', 'Carol');
     for (const user of [alice, bob, carol]) publish(registry, user);
-    const aliceCookie = `urtube_session=${registry.createSession(alice)}`;
-    const bobCookie = `urtube_session=${registry.createSession(bob)}`;
-    const carolCookie = `urtube_session=${registry.createSession(carol)}`;
-
-    // Legacy rows may still contain the retired profile/contact fields; the
-    // comparison-first UI must never render them.
-    registry.setMatchingProfile(alice.handle, 'Alice likes making things.', '@alice-private');
-    registry.setMatchingProfile(bob.handle, 'Bob likes live music.', '@bob-private');
-
-    const tokenIn = (html: string): string => {
-      const match = html.match(/name="actionToken" value="([A-Za-z0-9_-]+)"/);
-      assert.ok(match, 'comparison page mints an action token for its forms');
-      return match[1]!;
-    };
-    const candidates = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    assert.match(candidates, /<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/alice-match\/compare\/bob-match"/);
-    assert.doesNotMatch(candidates, /@bob-private|candidateUserId|actionToken/);
-    assert.match(candidates, />100%<small>match<\/small>/);
-    assert.match(candidates, /<a class="mt-person-link" href="\/bob-match"><img class="mt-avatar" src="\/avatar\/member\/bob-match"/);
-    assert.doesNotMatch(candidates, /matches\/profile|matches\/compare|You both said yes|Bob likes live music/);
-    assert.doesNotMatch(candidates, /Strong fit|Aligned|Some overlap|Different/);
-
-    // Legacy token links forward to the stable address while valid.
-    const legacyToken = registry.issueMatchActionToken(alice, bob.id, ['Music']);
-    for (const legacyPath of [`/matches/profile/${legacyToken}?lang=zh`, `/matches/compare/${legacyToken}?lang=zh`]) {
-      const legacy = await app.request(legacyPath, { headers: { cookie: aliceCookie } });
-      assert.equal(legacy.status, 302);
-      assert.equal(legacy.headers.get('location'), '/alice-match/compare/bob-match?lang=zh');
+    const headers = (user: User) => ({ cookie: `urtube_session=${registry.createSession(user)}` });
+    const aliceHeaders = headers(alice), bobHeaders = headers(bob), carolHeaders = headers(carol);
+    registry.setMatchingProfile(bob.handle, 'Legacy private biography', '@bob-private');
+    const directory = load(await (await app.request('/matches', { headers: aliceHeaders })).text());
+    const bobCard = directory('.mt-card').filter((_, el) => directory(el).find('h2').text() === 'Bob');
+    const bobToken = bobCard.find('[name=actionToken]').attr('value')!;
+    assert.ok(bobToken);
+    assert.equal(bobCard.find('.mt-person-link').attr('href'), '/bob-match');
+    assert.equal(bobCard.find('.mt-actions form').attr('action'), '/matches/request');
+    assert.equal(bobCard.find('a[href*="/compare/"],.mt-percent').length, 0);
+    assert.doesNotMatch(directory.html(), /@bob-private|Legacy private biography/);
+    const locked = await app.request('/alice-match/compare/bob-match', { headers: aliceHeaders });
+    assert.equal(locked.status, 302);
+    assert.equal(locked.headers.get('location'), '/bob-match');
+    assert.equal((await app.request('/alice-match/compare/bob-match', { headers: carolHeaders })).status, 404);
+    assert.equal((await app.request('/alice-match/compare/bob-match')).status, 302);
+    const legacyToken = bobToken;
+    for (const path of [`/matches/profile/${legacyToken}?lang=zh`, `/matches/compare/${legacyToken}?lang=zh`]) {
+      assert.equal((await app.request(path, { headers: aliceHeaders })).headers.get('location'), '/alice-match/compare/bob-match?lang=zh');
     }
-    // The address is symmetric for the two people involved and closed to everyone else.
-    const swapped = await app.request('/bob-match/compare/alice-match', { headers: { cookie: aliceCookie } });
-    assert.equal(swapped.status, 302);
-    assert.equal(swapped.headers.get('location'), '/alice-match/compare/bob-match');
-    assert.equal((await app.request('/alice-match/compare/bob-match')).status, 302, 'anonymous visitors sign in first');
-
-    const comparison = await app.request('/alice-match/compare/bob-match', {
-      headers: { cookie: aliceCookie },
-    });
-    assert.equal(comparison.status, 200);
-    const comparisonHtml = await comparison.text();
-    const bobToken = tokenIn(comparisonHtml);
-    assert.match(comparisonHtml, /Alice/);
-    assert.match(comparisonHtml, /Bob/);
-    assert.match(comparisonHtml, /100%/);
-    assert.match(comparisonHtml, /Topic intersection/);
-    assert.match(comparisonHtml, /Channel intersection/);
-    assert.match(comparisonHtml, /Shared interests/);
-    assert.doesNotMatch(comparisonHtml, /Private by default|Recent 90 days|Mutual consent gates details/);
-    assert.match(comparisonHtml, /Opening or liking a comparison sends no private details/);
-    assert.match(comparisonHtml, /action="\/matches\/request"/);
-    assert.doesNotMatch(comparisonHtml, /@bob-private|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
-    assert.equal((await app.request('/avatar/member/alice-match', {
-      headers: { cookie: aliceCookie },
-    })).status, 200);
-    assert.equal((await app.request('/alice-match/compare/bob-match', {
-      headers: { cookie: carolCookie },
-    })).status, 404);
-    assert.equal((await app.request('/carol-match/compare/nobody-match', {
-      headers: { cookie: carolCookie },
-    })).status, 404);
-    assert.equal((await app.request('/dashboard', { headers: { cookie: aliceCookie } })).headers.get('location'),
-      '/alice-match');
-    assert.equal((await app.request('/dashboard')).headers.get('location'),
-      '/auth/google?next=%2Fdashboard');
-
-    const unscoped = await app.request('/matches/request', {
-      ...form({ actionToken: bobToken }),
-      headers: { ...form({}).headers, cookie: carolCookie },
-    });
-    assert.equal(unscoped.status, 400);
-    const invalid = await app.request('/matches/request', {
-      ...form({ actionToken: 'not-a-valid-action-token' }),
-      headers: { ...form({}).headers, cookie: aliceCookie },
-    });
-    assert.equal(invalid.status, 400);
-
-    const sent = await app.request('/matches/request', {
-      ...form({ actionToken: bobToken }),
-      headers: { ...form({}).headers, cookie: aliceCookie },
-    });
-    assert.equal(sent.status, 302);
-    assert.equal(sent.headers.get('location'), '/alice-match/compare/bob-match');
-    const duplicate = await app.request('/matches/request', {
-      ...form({ actionToken: bobToken }),
-      headers: { ...form({}).headers, cookie: aliceCookie },
-    });
-    assert.equal(duplicate.status, 302);
+    const post = (path: string, values: Record<string, string>, auth: Record<string, string>) =>
+      app.request(path, { ...form(values), headers: { ...form({}).headers, ...auth } });
+    assert.equal((await post('/matches/request', { actionToken: bobToken }, carolHeaders)).status, 400);
+    assert.equal((await post('/matches/request', { actionToken: 'invalid' }, aliceHeaders)).status, 400);
+    const sent = await post('/matches/request', { actionToken: bobToken, returnTo: '/matches' }, aliceHeaders);
+    assert.equal(sent.headers.get('location'), '/matches');
+    await post('/matches/request', { actionToken: bobToken, returnTo: '/matches' }, aliceHeaders);
     assert.equal(registry.matchingInboxFor(alice).sent.length, 1);
-    const sentComparison = await app.request('/alice-match/compare/bob-match', {
-      headers: { cookie: aliceCookie },
-    });
-    assert.equal(sentComparison.status, 200, 'sending a request keeps comparison available');
-    const sentComparisonHtml = await sentComparison.text();
-    assert.match(sentComparisonHtml, /You want to meet/);
-    assert.match(sentComparisonHtml, /Deeper data stays locked until both people choose to meet/);
-
-    const chinesePending = await (await app.request('/alice-match/compare/bob-match?lang=zh', {
-      headers: { cookie: aliceCookie },
-    })).text();
-    assert.doesNotMatch(chinesePending, /預設私密|只看近 90 天|雙向同意才解鎖/);
-    assert.match(chinesePending, /打開或喜歡這份比較都不會送出私人細節/);
-
-    const request = registry.matchingInboxFor(bob).incoming[0];
-    assert.ok(request);
-    const beforeAlice = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    const beforeBob = await (await app.request('/matches', { headers: { cookie: bobCookie } })).text();
-    assert.match(beforeBob, /Alice/);
-    assert.match(beforeAlice, /You want to meet/);
-    assert.match(beforeBob, /Wants to meet you/);
-    assert.doesNotMatch(beforeAlice, /@bob-private/);
-    assert.doesNotMatch(beforeBob, /@alice-private/);
-
-    assert.match(beforeBob, /href="\/bob-match\/compare\/alice-match"/);
-    const incomingComparison = await (await app.request('/bob-match/compare/alice-match', {
-      headers: { cookie: bobCookie },
-    })).text();
-    const aliceToken = tokenIn(incomingComparison);
-    assert.match(incomingComparison, /Want to meet too/);
-    assert.doesNotMatch(incomingComparison, /@alice-private|Alice likes making things/);
-
-    const forged = await app.request('/matches/respond', {
-      ...form({ requestToken: request.requestToken, response: 'accept' }),
-      headers: { ...form({}).headers, cookie: carolCookie },
-    });
-    assert.equal(forged.status, 400);
-    assert.equal(registry.matchingInboxFor(alice).connections.length, 0);
-
-    const accepted = await app.request('/matches/respond', {
-      ...form({ actionToken: aliceToken, requestToken: request.requestToken, response: 'accept' }),
-      headers: { ...form({}).headers, cookie: bobCookie },
-    });
-    assert.equal(accepted.status, 302);
-    assert.equal(accepted.headers.get('location'), '/bob-match/compare/alice-match');
-    const afterAlice = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    const afterBob = await (await app.request('/matches', { headers: { cookie: bobCookie } })).text();
-    const afterCarol = await (await app.request('/matches', { headers: { cookie: carolCookie } })).text();
-    assert.match(afterAlice, /Bob/);
-    assert.match(afterBob, /Alice/);
-    assert.match(afterAlice, /Deeper comparison unlocked/);
-    assert.match(afterBob, /Deeper comparison unlocked/);
-    const unlocked = await (await app.request('/bob-match/compare/alice-match', {
-      headers: { cookie: bobCookie },
-    })).text();
-    const unlockedToken = tokenIn(unlocked);
-    assert.match(unlocked, /More shared interests unlocked/);
-    assert.match(unlocked, /Both people chose to meet\. Either person can revoke this deeper comparison at any time/);
-    assert.match(unlocked, /action="\/matches\/withdraw"/);
-    assert.doesNotMatch(unlocked, /@alice-private|Alice likes making things/);
-    assert.doesNotMatch(afterCarol, /@alice-private|@bob-private/);
-    assert.doesNotMatch(afterAlice, /@bob-private|Bob likes live music|candidateUserId|watchEvents|exact score/);
-
-    const connectionToken = registry.matchingInboxFor(alice).connections[0]?.requestToken;
-    assert.ok(connectionToken);
-    const disconnected = await app.request('/matches/withdraw', {
-      ...form({ actionToken: unlockedToken, requestToken: connectionToken }),
-      headers: { ...form({}).headers, cookie: bobCookie },
-    });
-    assert.equal(disconnected.status, 302);
-    assert.equal(registry.matchingInboxFor(alice).connections.length, 0);
-    const afterDisconnect = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    assert.match(afterDisconnect, /Bob/);
-    assert.match(afterDisconnect, /Open comparison/);
-    assert.doesNotMatch(afterDisconnect, /@bob-private/);
-  } finally {
-    registry.close();
-  }
+    const pending = load(await (await app.request('/bob-match', { headers: aliceHeaders })).text());
+    assert.equal(pending('.mt-state.sent').length, 1);
+    assert.equal(pending('a[href*="/compare/"]').length, 0);
+    const incoming = load(await (await app.request('/alice-match', { headers: bobHeaders })).text());
+    const aliceToken = incoming('[name=actionToken]').attr('value')!;
+    const requestToken = registry.matchingInboxFor(bob).incoming[0]!.requestToken;
+    assert.equal(incoming('form').attr('action'), '/matches/respond');
+    assert.equal((await post('/matches/respond', { actionToken: aliceToken, requestToken, response: 'accept' }, carolHeaders)).status, 400);
+    assert.equal((await post('/matches/withdraw', { actionToken: bobToken, requestToken }, carolHeaders)).status, 400);
+    const accepted = await post('/matches/respond', { actionToken: aliceToken, requestToken, response: 'accept', returnTo: '/matches' }, bobHeaders);
+    assert.equal(accepted.headers.get('location'), '/matches');
+    assert.equal(registry.matchingRelationshipFor(alice, bob.id).status, 'connected');
+    for (const path of ['/bob-match', '/bob-match/insights', '/alice-match/compare/bob-match']) {
+      assert.equal((await app.request(path, { headers: aliceHeaders })).status, 200, path);
+    }
+    const connected = load(await (await app.request('/matches', { headers: aliceHeaders })).text());
+    const connectedCard = connected('.mt-card').filter((_, el) => connected(el).find('h2').text() === 'Bob');
+    assert.equal(connectedCard.find('.mt-actions a').attr('href'), '/alice-match/compare/bob-match');
+    assert.equal(connectedCard.find('.mt-percent').length, 1);
+    const disconnected = await post('/matches/withdraw', { actionToken: connectedCard.find('[name=actionToken]').attr('value')!, requestToken, returnTo: '/matches' }, aliceHeaders);
+    assert.equal(disconnected.headers.get('location'), '/matches');
+    assert.equal(registry.matchingRelationshipFor(alice, bob.id).status, 'none');
+    assert.equal((await app.request('/bob-match/insights', { headers: aliceHeaders })).status, 404);
+    assert.equal((await app.request('/alice-match/compare/bob-match', { headers: aliceHeaders })).status, 302);
+    const refreshed = load(await (await app.request('/bob-match', { headers: aliceHeaders })).text());
+    const safeRedirect = await post('/matches/request', { actionToken: refreshed('[name=actionToken]').attr('value')!, returnTo: 'https://evil.example/' }, aliceHeaders);
+    assert.equal(safeRedirect.headers.get('location'), '/alice-match/compare/bob-match');
+  } finally { registry.close(); }
 });
 
 test('decline and withdrawal keep people comparable but revoke stale action access', () => {
@@ -309,8 +200,8 @@ test('expired discovery tokens revoke profiles, comparisons, avatars, and reques
 
     assert.equal((await app.request(`/matches/profile/${token}`, { headers: { cookie } })).status, 404);
     assert.equal((await app.request(`/matches/compare/${token}`, { headers: { cookie } })).status, 404);
-    // The stable address keeps working; only the token-based forms expire.
-    assert.equal((await app.request('/expiry-alice/compare/expiry-bob', { headers: { cookie } })).status, 200);
+    // The stable address still resolves to the private member's friendship page.
+    assert.equal((await app.request('/expiry-alice/compare/expiry-bob', { headers: { cookie } })).status, 302);
     assert.throws(() => registry.createMatchRequest(alice, token), /no longer valid/);
   } finally {
     registry.close();
