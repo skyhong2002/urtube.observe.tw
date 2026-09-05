@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -89,6 +90,9 @@ function seed(
 
 const alice = registry.createUser('alice-demo', 'Alice');
 const bob = registry.createUser('bob-demo', 'Bob');
+const newcomer = registry.createUser('new-demo', 'New member');
+registry.setMatchingOptIn(newcomer.handle, true);
+assert.equal(registry.matchingCrystalFor(newcomer.handle), null, 'newcomer must not receive an invented matching signal');
 
 seed(alice, [topic('music', 0.65), topic('learning', 0.35)], [
   watch('alice-1', 'DEMOALICE01', 'Songwriting basics', 'shared-studio', 'Shared Studio', '2026-09-01T01:00:00Z', 1_800),
@@ -104,8 +108,9 @@ seed(bob, [topic('music', 0.55), topic('learning', 0.45)], [
 const sessions = new Map([
   [randomBytes(24).toString('base64url'), registry.createSession(alice)],
   [randomBytes(24).toString('base64url'), registry.createSession(bob)],
+  [randomBytes(24).toString('base64url'), registry.createSession(newcomer)],
 ]);
-const [aliceAccess, bobAccess] = sessions.keys();
+const [aliceAccess, bobAccess, newcomerAccess] = sessions.keys();
 
 const noTaggedChannels = async (): Promise<TagListSnapshot> => ({
   lists: {
@@ -141,6 +146,7 @@ const server = serve({ fetch: demo.fetch, hostname: host, port: requestedPort },
   console.log('Synthetic matching demo ready. Open each URL in a separate browser profile:');
   console.log(`Alice: ${base}/__demo/session/${aliceAccess}`);
   console.log(`Bob:   ${base}/__demo/session/${bobAccess}`);
+  console.log(`New member (no history): ${base}/__demo/session/${newcomerAccess}`);
   console.log('Restart this command to reset every request and connection. Press Ctrl-C to stop.');
 });
 
