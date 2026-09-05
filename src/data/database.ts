@@ -55,6 +55,7 @@ import {
   type PersonalTaxonomySampleManifest,
 } from '../youtube/personal-taxonomy.js';
 import { decryptPrivateValue } from '../youtube/crypto.js';
+import type { SemanticTagResult } from '../youtube/semantic-tags.js';
 
 export interface PersistResult { inserted: number; updated: number }
 
@@ -114,6 +115,7 @@ const PORTABLE_TABLES = [
   ['personal-taxonomy-activations.json', 'youtube_taxonomy_activations', 'Personal taxonomy activation and rollback history.'],
   ['personal-topic-assignments.json', 'youtube_video_topics', 'Personal topic classifications and their provenance.'],
   ['matching-topic-assignments.json', 'youtube_video_matching_topics', 'Canonical matching-topic classifications.'],
+  ['semantic-tags.json', 'youtube_semantic_tags', 'Evidence-backed canonical semantic tags, contracts and processing status.'],
   ['sync-state.json', 'youtube_sync_state', 'Data Portability and worker checkpoints.'],
   ['time-ledger.json', 'time_ledger', 'Derived daily measured and estimated time.'],
   ['time-ledger-state.json', 'time_ledger_state', 'Time-ledger processing checkpoints.'],
@@ -573,6 +575,22 @@ export class Repository {
         this.db.exec('ROLLBACK');
         throw error;
       }
+    }
+    if (Number((this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version) < 14) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE IF NOT EXISTS youtube_semantic_tags (
+          video_id TEXT PRIMARY KEY REFERENCES youtube_videos(video_id) ON DELETE CASCADE,
+          metadata_hash TEXT NOT NULL,
+          contract TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('ready','empty','excluded','unavailable','error')),
+          tags_json TEXT NOT NULL CHECK(json_valid(tags_json)),
+          error TEXT,
+          updated_at TEXT NOT NULL
+        );
+        PRAGMA user_version = 14;
+        COMMIT;
+      `);
     }
   }
 
@@ -2405,6 +2423,56 @@ export class Repository {
       Math.max(1, Math.min(5000, Math.floor(limit))),
     ) as Array<Record<string, unknown>>;
     return this.youtubeMetadataRows(rows);
+  }
+
+  youtubeVideosForSemanticTags(contract: string, limit = 250, now = new Date()): YoutubeVideoMetadata[] {
+    const rows = this.db.prepare(`
+      SELECT v.* FROM youtube_videos v
+      LEFT JOIN youtube_semantic_tags s ON s.video_id=v.video_id
+      LEFT JOIN (SELECT video_id, MAX(watched_at) latest FROM youtube_watch_events
+        WHERE activity_type='video' GROUP BY video_id) watched ON watched.video_id=v.video_id
+      WHERE v.metadata_fetched_at IS NOT NULL AND (
+        s.video_id IS NULL OR s.metadata_hash<>v.metadata_hash OR s.contract<>?
+        OR (s.status='error' AND s.updated_at<=?)
+      )
+      ORDER BY watched.latest DESC, v.video_id LIMIT ?
+    `).all(contract, new Date(now.getTime() - 3600_000).toISOString(),
+      Math.max(1, Math.min(1000, Math.floor(limit)))) as Array<Record<string, unknown>>;
+    return this.youtubeMetadataRows(rows);
+  }
+
+  youtubeSemanticTagCounts(contract: string): { pending: number; errors: number; completed: number; metadataPending: number } {
+    const row = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(v.metadata_fetched_at IS NOT NULL AND s.video_id IS NULL), 0) pending,
+        COALESCE(SUM(s.status='error'), 0) errors,
+        COALESCE(SUM(s.status<>'error'), 0) completed,
+        COALESCE(SUM(v.metadata_fetched_at IS NULL), 0) metadataPending
+      FROM youtube_videos v LEFT JOIN youtube_semantic_tags s
+        ON s.video_id=v.video_id AND s.metadata_hash=v.metadata_hash AND s.contract=?
+    `).get(contract) as { pending: number; errors: number; completed: number; metadataPending: number };
+    return row;
+  }
+
+  saveYoutubeSemanticTagResult(input: SemanticTagResult, at = new Date().toISOString()): boolean {
+    return this.db.prepare(`
+      INSERT INTO youtube_semantic_tags(video_id, metadata_hash, contract, status, tags_json, error, updated_at)
+      SELECT video_id, metadata_hash, ?, ?, ?, ?, ? FROM youtube_videos
+      WHERE video_id=? AND metadata_hash=?
+      ON CONFLICT(video_id) DO UPDATE SET metadata_hash=excluded.metadata_hash,
+        contract=excluded.contract, status=excluded.status, tags_json=excluded.tags_json,
+        error=excluded.error, updated_at=excluded.updated_at
+    `).run(input.contract, input.status, JSON.stringify(input.tags), input.error, at,
+      input.videoId, input.metadataHash).changes > 0;
+  }
+
+  youtubeSemanticTagResult(videoId: string, contract: string): SemanticTagResult | null {
+    const row = this.db.prepare(`
+      SELECT s.* FROM youtube_semantic_tags s JOIN youtube_videos v ON v.video_id=s.video_id
+      WHERE s.video_id=? AND s.contract=? AND s.metadata_hash=v.metadata_hash
+    `).get(videoId, contract) as Record<string, string> | undefined;
+    return row ? { videoId, contract, metadataHash: row.metadata_hash,
+      status: row.status as SemanticTagResult['status'], tags: JSON.parse(row.tags_json), error: row.error } : null;
   }
 
   saveYoutubeVideoMatchingTopic(input: {

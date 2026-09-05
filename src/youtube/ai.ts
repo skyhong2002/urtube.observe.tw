@@ -26,7 +26,7 @@ export interface YoutubeAiClient {
   fetchImpl?: typeof fetch;
 }
 
-function defaultClient(): YoutubeAiClient {
+export function defaultClient(): YoutubeAiClient {
   return {
     baseUrl: config.ai.baseUrl,
     apiKey: config.ai.apiKey,
@@ -35,7 +35,7 @@ function defaultClient(): YoutubeAiClient {
   };
 }
 
-function configured(client: YoutubeAiClient): boolean {
+export function configured(client: YoutubeAiClient): boolean {
   return Boolean(client.apiKey && client.model && (client.fetchImpl || config.ai.enabled));
 }
 
@@ -48,7 +48,7 @@ function parseJson(content: string): unknown {
   return JSON.parse(cleaned);
 }
 
-async function chatJson(
+export async function chatJson(
   system: string,
   input: unknown,
   client: YoutubeAiClient,
