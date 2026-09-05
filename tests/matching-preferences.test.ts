@@ -146,7 +146,7 @@ test('privacy page explains optional matching and withdrawal in both languages',
   const app = createApp(registry);
   try {
     const english = await (await app.request('/privacy')).text();
-    assert.match(english, /Matching is enabled for new accounts/);
+    assert.match(english, /New accounts enable matching and public Overview and Insights by default/);
     assert.match(english, /Accepted friendships grant Overview, Insights and Blend access/);
     assert.match(english, /turning matching off withdraws requests and friendships/);
     assert.match(english, /independently of matching opt-in/);
