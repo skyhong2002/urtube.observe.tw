@@ -131,7 +131,7 @@ function evictUserCaches(handle: string): void {
   clearReadCaches();
   warmedHandles.delete(handle);
 }
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights = false): YoutubeDashboardData {
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' = false): YoutubeDashboardData {
   return cachedRead(repository, `dashboard:${range}:${includeInsights}`, () => repository.youtubeDashboard(range, new Date(), includeInsights));
 }
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): YoutubeComparisonProfile {
@@ -283,7 +283,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'absolute'
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
-    const data = cachedDashboardFor(registry, user, range, repository, page === 'insights');
+    const data = cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
     const hasData = counts.watches > 0;
     const me = sessionUser(c);
     const viewerOwns = me?.id === user.id;
@@ -1559,7 +1559,7 @@ async function warmDashboards(registry: UserRegistry): Promise<void> {
       const counts = countsFor(repository);
       if (counts.watches === 0) continue;
       for (const range of YOUTUBE_RANGES) {
-        cachedDashboardFor(registry, user, range, repository);
+        cachedDashboardFor(registry, user, range, repository, 'overview');
         await yieldToRequests();
       }
     } catch (error) {

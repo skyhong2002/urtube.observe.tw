@@ -1789,9 +1789,9 @@ export class Repository {
     return result;
   }
 
-  // Overview/history/recap do not consume semantic keywords, topic trends or
-  // the full-history animation. Full projections remain the default for APIs.
-  youtubeDashboard(range: YoutubeRange = '28d', now = new Date(), includeInsights = true): YoutubeDashboardData {
+  // Overview loads both animations without semantic keywords; history and recap
+  // can keep the lightweight projection. Full projections remain the API default.
+  youtubeDashboard(range: YoutubeRange = '28d', now = new Date(), includeInsights: boolean | 'overview' = true): YoutubeDashboardData {
     this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);
     const where = cutoff
@@ -2049,7 +2049,7 @@ export class Repository {
     // evenly spaced pick every `stride` videos in watch order, so a long
     // range is represented across its whole span and both surfaces agree.
     const keywordStride = keywordSampleStride(uniqueVideos);
-    const keywordRows = !includeInsights ? [] : this.db.prepare(`
+    const keywordRows = includeInsights !== true ? [] : this.db.prepare(`
       WITH ranked AS (
         SELECT w.video_id, w.raw_url, w.raw_title, w.watched_at, w.channel_id,
           ROW_NUMBER() OVER (
@@ -2127,7 +2127,7 @@ export class Repository {
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
       topicTrend: includeInsights ? this.youtubeTopicTrend(range, now) : [],
-      keywords: includeInsights ? extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT) : [],
+      keywords: includeInsights === true ? extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT) : [],
       keywordCoverage: keywordCoverage(keywordRows.length, uniqueVideos),
       recent: recent.map((row) => ({
         videoId: row.video_id === null ? null : String(row.video_id),
