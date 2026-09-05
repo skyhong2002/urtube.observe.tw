@@ -82,18 +82,20 @@ available dimension equal weight. If only one dimension is available it is
 used alone. Values are clamped and rounded to the nearest integer; raw shares,
 vectors, event counts, and the activity cutoff never enter the presentation
 model. A processing notice identifies provisional ordering.
-Matching is off by default and independent of `dashboard_public`. After data
-setup, guided onboarding and the account page suggest up to five leading
-canonical interests from the eligible 90-day projection. A signed-in user can
-choose the interests to match on and separately exclude interests that must never reach matching,
-recommendations, or icebreakers. Choices store stable keys plus the taxonomy
-version; a version change disables topic matching until explicit
-reconfirmation. If no mutually usable topic remains, matching falls back to
-aggregate channels when possible. Disclosure is a separate presentation-only
-setting: candidate cards show at most two broad shared topics, plus one common
-channel only when both people allow it. Turning matching off removes the user
-from new candidate queries immediately; it does not change or publish the
-personal dashboard.
+Matching starts on for new accounts and is independent of `dashboard_public`.
+The account page has four switches, all on by default: join the matching
+pool, match on broad topics, show channels and videos in common, and show
+viewing rhythm. Turning topics off stores every canonical topic as excluded, so
+topics are never used or named downstream and matching falls back to
+aggregate channels when possible; turning it on stores every topic as usable.
+Guided onboarding still suggests up to five leading canonical interests from
+the eligible 90-day projection for people who want a narrower choice. Choices
+store stable keys plus the taxonomy version; a version change disables topic
+matching until the switch is saved again. Channels and videos are a
+presentation-only setting: candidate cards show at most two broad shared
+topics, plus one common channel only when both people allow it. Turning the
+pool switch off removes the user from new candidate queries immediately; it
+does not change or publish the personal dashboard.
 `/matches` is session-only and requires that opt-in. It ranks at most 250
 eligible profiles using equal topic/channel weight and renders twenty people per
 finite page. Cards contain only a display name, rounded match percentage, up

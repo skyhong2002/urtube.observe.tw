@@ -49,15 +49,20 @@ function publish(registry: UserRegistry, user: User, crystal = readyCrystal()): 
   registry.upsertMatchingCrystal(user, crystal);
 }
 
-test('interest choices stay hidden before eligibility and suggest the top five safe canonical topics', async () => {
+test('every canonical topic is usable until the topic switch is turned off', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
     const user = registry.createUser('dimension-user', 'Dimension User');
     const cookie = `urtube_session=${registry.createSession(user)}`;
-    const pending = await (await app.request('/account', { headers: { cookie } })).text();
-    assert.match(pending, /will appear here after your recent 90-day history/);
-    assert.doesNotMatch(pending, /name="selectedTopicKeys"/);
+    const allKeys = MATCHING_TAXONOMY.topics.map((topic) => topic.key);
+    const pending = registry.matchingDimensionsFor(user);
+    assert.equal(pending.status, 'pending');
+    assert.deepEqual(pending.selectedTopicKeys, allKeys);
+    assert.deepEqual(pending.excludedTopicKeys, []);
+    const account = await (await app.request('/account', { headers: { cookie } })).text();
+    assert.match(account, /name="matchingTopics" value="1" checked/);
+    assert.doesNotMatch(account, /name="selectedTopicKeys"|Exclude/);
 
     publish(registry, user, readyCrystal([
       topic('gaming', 0.1), topic('music', 0.4), topic('learning', 0.2),
@@ -65,19 +70,17 @@ test('interest choices stay hidden before eligibility and suggest the top five s
     ]));
     const dimensions = registry.matchingDimensionsFor(user);
     assert.equal(dimensions.status, 'suggested');
+    assert.deepEqual(dimensions.selectedTopicKeys, allKeys);
     assert.deepEqual(dimensions.suggestedTopicKeys, [
       'music', 'learning', 'comedy', 'science-technology', 'gaming',
     ]);
-    const ready = await (await app.request('/account', { headers: { cookie } })).text();
-    assert.equal((ready.match(/name="selectedTopicKeys"/g) ?? []).length, MATCHING_TAXONOMY.topics.length);
-    assert.match(ready, /value="music" checked/);
-    assert.doesNotMatch(ready, /politic|taglean/i);
+    assert.doesNotMatch(account, /politic|taglean/i);
   } finally {
     registry.close();
   }
 });
 
-test('dimension settings are session-only, versioned, durable, and reject unsafe input atomically', async () => {
+test('the topic switch is session-only, versioned, and durable', async () => {
   const root = mkdtempSync(join(tmpdir(), 'urtube-matching-dimensions-'));
   const registryPath = join(root, 'users.sqlite');
   const registry = new UserRegistry(registryPath, join(root, 'data'));
@@ -86,39 +89,35 @@ test('dimension settings are session-only, versioned, durable, and reject unsafe
     const user = registry.createUser('dimension-save', 'Dimension Save');
     publish(registry, user);
     const cookie = `urtube_session=${registry.createSession(user)}`;
-    assert.equal((await app.request('/account/matching-dimensions', { method: 'POST' })).status, 302);
+    const allKeys = MATCHING_TAXONOMY.topics.map((topic) => topic.key);
+    assert.equal((await app.request('/account/matching', { method: 'POST' })).status, 302);
+    assert.equal(registry.matchingDimensionsFor(user).status, 'suggested', 'anonymous posts change nothing');
 
-    const saved = await app.request('/account/matching-dimensions', {
+    const off = await app.request('/account/matching', {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: `taxonomyVersion=${MATCHING_TAXONOMY.version}&selectedTopicKeys=music&selectedTopicKeys=gaming&excludedTopicKeys=learning`,
+      body: 'matchingOptIn=1&matchingChannels=1&matchingRhythm=1',
     });
-    assert.equal(saved.status, 302);
+    assert.equal(off.status, 302);
     assert.deepEqual(registry.matchingDimensionsFor(user), {
       status: 'confirmed',
       taxonomyVersion: MATCHING_TAXONOMY.version,
-      selectedTopicKeys: ['music', 'gaming'],
-      excludedTopicKeys: ['learning'],
+      selectedTopicKeys: [],
+      excludedTopicKeys: allKeys,
       suggestedTopicKeys: ['music', 'gaming', 'learning'],
     });
-    assert.equal(registry.userByHandle(user.handle)?.matchingDisclosure, 'topics_only');
+    const account = await (await app.request('/account', { headers: { cookie } })).text();
+    assert.match(account, /name="matchingTopics" value="1">/);
+    assert.match(account, /name="matchingOptIn" value="1" checked/);
 
-    const invalidBodies = [
-      `taxonomyVersion=${MATCHING_TAXONOMY.version}&selectedTopicKeys=unknown`,
-      `taxonomyVersion=${MATCHING_TAXONOMY.version}&selectedTopicKeys=music&selectedTopicKeys=music`,
-      `taxonomyVersion=${MATCHING_TAXONOMY.version}&selectedTopicKeys=music&excludedTopicKeys=music`,
-      'taxonomyVersion=999&selectedTopicKeys=music',
-    ];
-    for (const body of invalidBodies) {
-      const response = await app.request('/account/matching-dimensions', {
-        method: 'POST',
-        headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-      assert.equal(response.status, 400);
-      assert.match(await response.text(), /Matching dimensions|taxonomy|both used and excluded/i);
-      assert.deepEqual(registry.matchingDimensionsFor(user).selectedTopicKeys, ['music', 'gaming']);
-    }
+    const on = await app.request('/account/matching', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'matchingOptIn=1&matchingTopics=1&matchingChannels=1&matchingRhythm=1',
+    });
+    assert.equal(on.status, 302);
+    assert.deepEqual(registry.matchingDimensionsFor(user).selectedTopicKeys, allKeys);
+    assert.deepEqual(registry.matchingDimensionsFor(user).excludedTopicKeys, []);
 
     registry.close();
     const db = new DatabaseSync(registryPath);
@@ -129,8 +128,8 @@ test('dimension settings are session-only, versioned, durable, and reject unsafe
     `).get() as Record<string, unknown>;
     assert.deepEqual({ ...stored }, {
       version: MATCHING_TAXONOMY.version,
-      selected: '["music","gaming"]',
-      excluded: '["learning"]',
+      selected: JSON.stringify(allKeys),
+      excluded: '[]',
       confirmed: 1,
     });
     db.close();
@@ -140,20 +139,21 @@ test('dimension settings are session-only, versioned, durable, and reject unsafe
   }
 });
 
-test('a crafted request cannot create choices before recent data is ready', async () => {
+test('the topic switch can be saved before recent data is ready', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
     const user = registry.createUser('not-ready', 'Not Ready');
     const cookie = `urtube_session=${registry.createSession(user)}`;
-    const response = await app.request('/account/matching-dimensions', {
+    const response = await app.request('/account/matching', {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: `taxonomyVersion=${MATCHING_TAXONOMY.version}&selectedTopicKeys=music`,
+      body: 'matchingOptIn=1&matchingChannels=1&matchingRhythm=1',
     });
-    assert.equal(response.status, 400);
-    assert.match(await response.text(), /not ready/);
-    assert.equal(registry.matchingDimensionsFor(user).status, 'pending');
+    assert.equal(response.status, 302);
+    const dimensions = registry.matchingDimensionsFor(user);
+    assert.equal(dimensions.status, 'confirmed');
+    assert.deepEqual(dimensions.selectedTopicKeys, []);
   } finally {
     registry.close();
   }

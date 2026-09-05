@@ -82,30 +82,38 @@ test('matching settings are session-only and independent from dashboard visibili
     publish(registry, viewer, 'Viewer aggregate channel');
     const session = `urtube_session=${registry.createSession(candidate)}`;
 
+    // Every matching switch starts on; the dashboard stays private.
     assert.equal(candidate.dashboardPublic, false);
-    assert.equal(candidate.matchingOptIn, false);
-    assert.equal(candidate.matchingDisclosure, 'topics_only');
-    assert.equal(registry.listMatchableCrystals().length, 0);
+    assert.equal(candidate.matchingOptIn, true);
+    assert.equal(candidate.matchingDisclosure, 'topics_and_channel');
+    assert.equal(candidate.matchingRhythm, true);
+    assert.equal(registry.listMatchableCrystals().length, 2);
     assert.equal((await app.request('/account/matching', { method: 'POST' })).status, 302);
 
     const account = await (await app.request('/account', { headers: { cookie: session } })).text();
     assert.ok(account.indexOf('/account/matching') > account.indexOf('/account/takeout'));
     assert.match(account, /Matching and dashboard visibility are independent/);
-    assert.match(account, /value="topics_only" selected/);
+    for (const name of ['matchingOptIn', 'matchingTopics', 'matchingChannels', 'matchingRhythm']) {
+      assert.match(account, new RegExp(`name="${name}" value="1" checked`));
+    }
+    assert.doesNotMatch(account, /name="selectedTopicKeys"|name="excludedTopicKeys"|<select/);
     assert.doesNotMatch(await (await app.request('/signup')).text(), /Join the matching pool/);
 
-    const enabled = await app.request('/account/matching', {
+    // Turning channels and rhythm off keeps the person in the pool.
+    const narrowed = await app.request('/account/matching', {
       method: 'POST',
       headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingOptIn=1&matchingDisclosure=topics_only',
+      body: 'matchingOptIn=1&matchingTopics=1',
     });
-    assert.equal(enabled.status, 302);
-    assert.equal(registry.userByHandle(candidate.handle)?.matchingOptIn, true);
-    assert.equal(registry.listMatchableCrystals()[0]?.handle, candidate.handle);
+    assert.equal(narrowed.status, 302);
+    const narrowedUser = registry.userByHandle(candidate.handle)!;
+    assert.equal(narrowedUser.matchingOptIn, true);
+    assert.equal(narrowedUser.matchingDisclosure, 'topics_only');
+    assert.equal(narrowedUser.matchingRhythm, false);
+    assert.equal(registry.listMatchableCrystals().find(({ handle }) => handle === candidate.handle)?.rhythmDisclosure, false);
     assert.equal((await app.request(`/${candidate.handle}`)).status, 404);
     assert.equal((await app.request(`/u/${candidate.handle}/crystal.json`)).status, 404);
 
-    registry.setMatchingPreferences(viewer.handle, true, 'topics_and_channel');
     assert.deepEqual(
       registry.listMatchingCandidatesFor(viewer).map(({ handle }) => handle),
       [candidate.handle],
@@ -113,19 +121,12 @@ test('matching settings are session-only and independent from dashboard visibili
     const crystalBefore = registry.matchingCrystalFor(candidate.handle);
     registry.setMatchingPreferences(candidate.handle, true, 'topics_and_channel');
     assert.deepEqual(registry.matchingCrystalFor(candidate.handle), crystalBefore);
-
-    const invalid = await app.request('/account/matching', {
-      method: 'POST',
-      headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingOptIn=1&matchingDisclosure=everything',
-    });
-    assert.equal(invalid.status, 400);
-    assert.equal(registry.userByHandle(candidate.handle)?.matchingDisclosure, 'topics_and_channel');
+    assert.equal(registry.userByHandle(candidate.handle)?.matchingRhythm, false, 'omitted rhythm keeps the stored value');
 
     const disabled = await app.request('/account/matching', {
       method: 'POST',
       headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingDisclosure=topics_only',
+      body: 'matchingTopics=1&matchingChannels=1&matchingRhythm=1',
     });
     assert.equal(disabled.status, 302);
     assert.equal(registry.listMatchableCrystals().some(({ handle }) => handle === candidate.handle), false);
@@ -159,14 +160,14 @@ test('privacy page explains optional matching and withdrawal in both languages',
   const app = createApp(registry);
   try {
     const english = await (await app.request('/privacy')).text();
-    assert.match(english, /Matching is off by default/);
+    assert.match(english, /Matching starts on for new accounts/);
     assert.match(english, /mutual consent unlocks more broad, mutually allowed comparison clues/);
     assert.match(english, /never introductions or contact details/);
     assert.match(english, /Every read rechecks the token, relationship/);
     assert.match(english, /Turning matching off withdraws requests and connections immediately/);
     assert.match(english, /separate from making a dashboard public/);
     const chinese = await (await app.request('/privacy?lang=zh')).text();
-    assert.match(chinese, /配對預設關閉/);
+    assert.match(chinese, /新帳號的配對預設開啟/);
     assert.match(chinese, /雙向同意後只解鎖更多雙方允許的概括比較線索/);
     assert.match(chinese, /不顯示自介或聯絡資訊/);
     assert.match(chinese, /每次讀取都會重新確認 token、關係狀態/);

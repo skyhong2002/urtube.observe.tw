@@ -32,6 +32,9 @@ export interface ComparisonAccess {
   channelsAllowed: boolean;
   // Union of both people's excluded matching topics; never named.
   hiddenTopicKeys: ReadonlySet<string>;
+  // Both people allow rhythm shares before consent. Irrelevant once
+  // connected, when absolute rhythm is part of the unlocked comparison.
+  rhythmAllowed: boolean;
 }
 
 export interface ComparisonPair<T> {
@@ -106,6 +109,8 @@ export interface WatchComparison {
   range: ComparisonRange;
   connected: boolean;
   channelsAllowed: boolean;
+  // Clock and weekday sections are withheld (locked pair, one person opted out).
+  rhythmHidden: boolean;
   empty: ComparisonPair<boolean>;
   stats: ComparisonStatRow[] | null;
   topics: ComparisonList<CommonTopic>;
@@ -261,6 +266,7 @@ export function compareWatchProfiles(
     range,
     connected: access.connected,
     channelsAllowed: access.channelsAllowed,
+    rhythmHidden: !access.connected && !access.rhythmAllowed,
     empty: { a: a.stats.watchEvents === 0, b: b.stats.watchEvents === 0 },
     stats: access.connected ? statRows(a, b) : null,
     topics: commonTopics(a, b, access),

@@ -75,10 +75,13 @@ export function resolveMatchingDimensions(
       suggestedTopicKeys: suggestions,
     };
   }
+  // Nothing confirmed yet: every canonical topic is usable and none is
+  // excluded, so matching works out of the box. Suggestions stay the
+  // leading five for the guided onboarding list.
   return {
     status: suggestions.length ? 'suggested' : 'pending',
     taxonomyVersion: MATCHING_TAXONOMY.version,
-    selectedTopicKeys: suggestions,
+    selectedTopicKeys: MATCHING_TAXONOMY.topics.map((topic) => topic.key),
     excludedTopicKeys: [],
     suggestedTopicKeys: suggestions,
   };

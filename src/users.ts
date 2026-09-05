@@ -42,6 +42,9 @@ export interface User {
   referenceOptIn: boolean;
   matchingOptIn: boolean;
   matchingDisclosure: MatchingDisclosureLevel;
+  // Whether hour-of-day / weekday shares may appear on comparisons before
+  // mutual consent.
+  matchingRhythm: boolean;
   matchingIntroduction: string;
   matchingContact: string;
   onboardingCompletedAt: string | null;
@@ -69,6 +72,8 @@ export interface MatchableCrystal {
   handle: string;
   displayName: string;
   disclosureLevel: MatchingDisclosureLevel;
+  // Defaults to true; false hides rhythm shares from locked comparisons.
+  rhythmDisclosure?: boolean;
   crystal: RegistryMatchingCrystal;
   dimensions: MatchingDimensions;
 }
@@ -185,6 +190,7 @@ function rowToUser(row: Record<string, unknown>): User {
     referenceOptIn: Number(row.reference_opt_in) === 1,
     matchingOptIn: Number(row.matching_opt_in) === 1,
     matchingDisclosure: row.matching_disclosure as MatchingDisclosureLevel,
+    matchingRhythm: row.matching_rhythm == null ? true : Number(row.matching_rhythm) === 1,
     matchingIntroduction: String(row.matching_introduction ?? ''),
     matchingContact: String(row.matching_contact ?? ''),
     onboardingCompletedAt: row.onboarding_completed_at == null
@@ -222,6 +228,8 @@ export class UserRegistry {
           CHECK (matching_opt_in IN (0, 1)),
         matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
           CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel')),
+        matching_rhythm INTEGER NOT NULL DEFAULT 1
+          CHECK (matching_rhythm IN (0, 1)),
         matching_introduction TEXT NOT NULL DEFAULT '',
         matching_contact TEXT NOT NULL DEFAULT '',
         onboarding_completed_at TEXT,
@@ -258,6 +266,10 @@ export class UserRegistry {
     if (!columns.some((column) => column.name === 'matching_disclosure')) {
       this.db.exec(`ALTER TABLE users ADD COLUMN matching_disclosure TEXT NOT NULL DEFAULT 'topics_only'
         CHECK (matching_disclosure IN ('topics_only', 'topics_and_channel'))`);
+    }
+    if (!columns.some((column) => column.name === 'matching_rhythm')) {
+      this.db.exec(`ALTER TABLE users ADD COLUMN matching_rhythm INTEGER NOT NULL DEFAULT 1
+        CHECK (matching_rhythm IN (0, 1))`);
     }
     for (const [name, definition] of [
       ['matching_introduction', "TEXT NOT NULL DEFAULT ''"],
@@ -392,12 +404,15 @@ export class UserRegistry {
     this.db.prepare(`
       INSERT INTO users (
         handle, display_name, capture_token_hash, dashboard_token_hash,
-        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url,
+        matching_opt_in, matching_disclosure, matching_rhythm
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
       options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
       options.googleSub ?? null, options.googleEmail ?? null, options.avatarUrl ?? null,
+      // Matching switches start on; the account page turns each one off.
+      1, 'topics_and_channel', 1,
     );
     const user = this.userByHandle(handle)!;
     return { ...user, captureToken, dashboardToken };
@@ -477,8 +492,9 @@ export class UserRegistry {
     handle: string,
     optedIn: boolean,
     disclosureLevel: MatchingDisclosureLevel,
+    rhythm?: boolean,
   ): User {
-    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, false);
+    return this.writeMatchingPreferences(handle, optedIn, disclosureLevel, false, rhythm);
   }
 
   completeOnboarding(
@@ -494,6 +510,7 @@ export class UserRegistry {
     optedIn: boolean,
     disclosureLevel: MatchingDisclosureLevel,
     completeOnboarding: boolean,
+    rhythm?: boolean,
   ): User {
     if (!MATCHING_DISCLOSURE_LEVELS.includes(disclosureLevel)) {
       throw new Error('Unknown matching disclosure level');
@@ -504,12 +521,13 @@ export class UserRegistry {
     try {
       const now = new Date().toISOString();
       this.db.prepare(`
-        UPDATE users SET matching_opt_in=?, matching_disclosure=?,
+        UPDATE users SET matching_opt_in=?, matching_disclosure=?, matching_rhythm=?,
           onboarding_completed_at=CASE WHEN ?=1 THEN ? ELSE onboarding_completed_at END
         WHERE id=?
       `).run(
         optedIn ? 1 : 0,
         disclosureLevel,
+        (rhythm ?? user.matchingRhythm) ? 1 : 0,
         completeOnboarding ? 1 : 0,
         now,
         user.id,
@@ -651,7 +669,7 @@ export class UserRegistry {
   listMatchableCrystals(limit = 250): MatchableCrystal[] {
     const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
     const rows = this.db.prepare(`
-      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, c.json,
+      SELECT u.id user_id, u.handle, u.display_name, u.matching_disclosure, u.matching_rhythm, c.json,
         p.dimension_taxonomy_version, p.selected_topic_keys,
         p.excluded_topic_keys, p.dimensions_confirmed
       FROM crystals c
@@ -680,6 +698,7 @@ export class UserRegistry {
         handle: String(row.handle),
         displayName: String(row.display_name),
         disclosureLevel: String(row.matching_disclosure) as MatchingDisclosureLevel,
+        rhythmDisclosure: Number(row.matching_rhythm) === 1,
         crystal,
         dimensions: resolveMatchingDimensions(crystal, stored),
       }] : [];
