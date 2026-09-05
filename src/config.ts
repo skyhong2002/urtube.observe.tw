@@ -85,6 +85,12 @@ export const config = {
     // fan-out. Match the gateway's own concurrency (docs/ai-gateway.md).
     concurrency: Math.max(1, Math.min(16, Number(process.env.AI_CONCURRENCY ?? 4) || 4)),
   },
+  embeddings: {
+    baseUrl: (process.env.EMBEDDING_BASE_URL ?? '').replace(/\/$/, ''),
+    apiKey: process.env.EMBEDDING_API_KEY ?? '',
+    model: process.env.EMBEDDING_MODEL ?? '',
+    revision: process.env.EMBEDDING_MODEL_REVISION ?? '',
+  },
   opsStatusDirectory: process.env.OPS_STATUS_DIRECTORY
     ?? dirname(process.env.DATABASE_PATH ?? './data/urtube.sqlite'),
   backup: {
