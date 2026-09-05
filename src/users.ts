@@ -271,6 +271,10 @@ export class UserRegistry {
       this.db.exec(`ALTER TABLE users ADD COLUMN matching_rhythm INTEGER NOT NULL DEFAULT 1
         CHECK (matching_rhythm IN (0, 1))`);
     }
+    // Joining matching is the single switch: the finer disclosure and rhythm
+    // settings were retired, so stored rows are normalized to "everything".
+    this.db.exec(`UPDATE users SET matching_disclosure='topics_and_channel', matching_rhythm=1
+      WHERE matching_disclosure<>'topics_and_channel' OR matching_rhythm<>1`);
     for (const [name, definition] of [
       ['matching_introduction', "TEXT NOT NULL DEFAULT ''"],
       ['matching_contact', "TEXT NOT NULL DEFAULT ''"],
@@ -555,20 +559,10 @@ export class UserRegistry {
     return this.userByHandle(handle)!;
   }
 
+  // Every canonical topic is usable for everyone who joined. Stored
+  // per-topic choices from the retired interests UI are ignored.
   matchingDimensionsFor(user: User): MatchingDimensions {
-    const row = this.db.prepare(`
-      SELECT dimension_taxonomy_version, selected_topic_keys,
-        excluded_topic_keys, dimensions_confirmed
-      FROM matching_profiles WHERE user_id=?
-    `).get(user.id) as Record<string, unknown> | undefined;
-    const stored: StoredMatchingDimensions | null = row ? {
-      taxonomyVersion: row.dimension_taxonomy_version == null
-        ? null : Number(row.dimension_taxonomy_version),
-      selectedTopicKeysJson: String(row.selected_topic_keys),
-      excludedTopicKeysJson: String(row.excluded_topic_keys),
-      confirmed: Number(row.dimensions_confirmed) === 1,
-    } : null;
-    return resolveMatchingDimensions(this.matchingCrystalFor(user.handle), stored);
+    return resolveMatchingDimensions(this.matchingCrystalFor(user.handle), null);
   }
 
   setMatchingDimensions(
@@ -686,21 +680,14 @@ export class UserRegistry {
     ) as Array<Record<string, unknown>>;
     return rows.flatMap((row) => {
       const crystal = parseRegistryMatchingCrystal(String(row.json));
-      const stored: StoredMatchingDimensions | null = row.selected_topic_keys == null ? null : {
-        taxonomyVersion: row.dimension_taxonomy_version == null
-          ? null : Number(row.dimension_taxonomy_version),
-        selectedTopicKeysJson: String(row.selected_topic_keys),
-        excludedTopicKeysJson: String(row.excluded_topic_keys),
-        confirmed: Number(row.dimensions_confirmed) === 1,
-      };
       return crystal ? [{
         userId: Number(row.user_id),
         handle: String(row.handle),
         displayName: String(row.display_name),
-        disclosureLevel: String(row.matching_disclosure) as MatchingDisclosureLevel,
-        rhythmDisclosure: Number(row.matching_rhythm) === 1,
+        disclosureLevel: 'topics_and_channel',
+        rhythmDisclosure: true,
         crystal,
-        dimensions: resolveMatchingDimensions(crystal, stored),
+        dimensions: resolveMatchingDimensions(crystal, null),
       }] : [];
     });
   }

@@ -40,7 +40,6 @@ import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
-import type { MatchingDisclosureLevel } from './youtube/disclosure.js';
 import {
   MATCHING_CANDIDATE_POOL_LIMIT,
   matchingCandidateBatch,
@@ -181,7 +180,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
     processing: processingFor(registry.repositoryFor(user)),
-    matchingDimensions: registry.matchingDimensionsFor(user),
     ...state,
   });
   const onboardingStateFor = (user: User): GuidedOnboardingState => {
@@ -588,34 +586,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.html(guidedOnboardingPage(me, onboardingStateFor(me), langOf(c)));
   });
 
-  app.post('/onboarding/interests', async (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
-    const state = onboardingStateFor(me);
-    if (state.step !== 'interests') return c.text('Onboarding step is no longer available', 409);
-    const form = await c.req.parseBody({ all: true });
-    const values = (value: string | File | Array<string | File> | undefined): string[] =>
-      (Array.isArray(value) ? value : value == null ? [] : [value])
-        .filter((item): item is string => typeof item === 'string');
-    const selected = values(form.selectedTopicKeys);
-    const suggested = state.dimensions.suggestedTopicKeys;
-    const allowed = new Set(suggested);
-    if (new Set(selected).size !== selected.length || selected.some((key) => !allowed.has(key))) {
-      return c.text('Matching interests are invalid', 400);
-    }
-    try {
-      registry.setMatchingDimensions(
-        me.handle,
-        Number(form.taxonomyVersion),
-        selected,
-        suggested.filter((key) => !selected.includes(key)),
-      );
-      return c.redirect('/onboarding');
-    } catch {
-      return c.text('Matching interests changed. Reload onboarding and try again.', 409);
-    }
-  });
-
   app.post('/onboarding/finish', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fonboarding');
@@ -626,11 +596,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const choice = String(form.choice ?? '');
     if (choice !== 'join' && choice !== 'private') return c.text('Choose a matching option', 400);
     try {
-      const updated = registry.completeOnboarding(
-        me.handle,
-        choice === 'join',
-        String(form.matchingDisclosure ?? '') as MatchingDisclosureLevel,
-      );
+      const updated = registry.completeOnboarding(me.handle, choice === 'join', 'topics_and_channel');
       return c.redirect(choice === 'join' ? '/matches' : `/${updated.handle}`);
     } catch {
       return c.text('Matching choice is invalid', 400);
@@ -792,7 +758,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       userId: me.id,
       handle: me.handle,
       displayName: me.displayName,
-      disclosureLevel: me.matchingDisclosure,
+      disclosureLevel: 'topics_and_channel',
       crystal,
       dimensions: registry.matchingDimensionsFor(me),
     };
@@ -840,7 +806,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       userId: me.id,
       handle: me.handle,
       displayName: me.displayName,
-      disclosureLevel: me.matchingDisclosure,
+      disclosureLevel: 'topics_and_channel',
       crystal,
       dimensions: registry.matchingDimensionsFor(me),
     };
@@ -864,25 +830,16 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const actionable = actionableCandidate(me, actionToken);
     const other = actionable ? registry.userByHandle(actionable.candidate.handle) : null;
     if (!actionable || !other) return notFoundPage(c);
-    const { card, candidate } = actionable;
+    const { card } = actionable;
     const lang = langOf(c);
     const range = comparisonRange(c.req.query('range'));
-    // Consent and disclosure are re-read on every request: a withdrawal or
-    // a stricter setting takes effect on the next page load.
+    // Consent is re-read on every request: a withdrawal takes effect on the
+    // next page load.
     const comparison = compareWatchProfiles(
       cachedComparisonProfileFor(registry, me, range),
       cachedComparisonProfileFor(registry, other, range),
       range,
-      {
-        connected: card.relationship.status === 'connected',
-        channelsAllowed: me.matchingDisclosure === 'topics_and_channel'
-          && candidate.disclosureLevel === 'topics_and_channel',
-        hiddenTopicKeys: new Set([
-          ...registry.matchingDimensionsFor(me).excludedTopicKeys,
-          ...candidate.dimensions.excludedTopicKeys,
-        ]),
-        rhythmAllowed: me.matchingRhythm && candidate.rhythmDisclosure !== false,
-      },
+      { connected: card.relationship.status === 'connected' },
     );
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
@@ -988,27 +945,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.redirect('/account');
   });
 
-  // Four switches in one form. Unchecked boxes are simply absent from the
-  // body, so every switch is read as "present and '1'".
+  // One switch: joining matching shares everything the comparison page can
+  // show (topics, channels, videos, rhythm) with people who also joined,
+  // gated only by mutual consent. Leaving withdraws everything at once.
   app.post('/account/matching', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
-    const on = (name: string) => form[name] === '1';
     try {
-      registry.setMatchingPreferences(
-        me.handle,
-        on('matchingOptIn'),
-        on('matchingChannels') ? 'topics_and_channel' : 'topics_only',
-        on('matchingRhythm'),
-      );
-      const keys = MATCHING_TAXONOMY.topics.map((topic) => topic.key);
-      registry.setMatchingDimensions(
-        me.handle,
-        MATCHING_TAXONOMY.version,
-        on('matchingTopics') ? keys : [],
-        on('matchingTopics') ? [] : keys,
-      );
+      registry.setMatchingPreferences(me.handle, form.matchingOptIn === '1', 'topics_and_channel', true);
       return c.redirect('/account');
     } catch (error) {
       const current = registry.userByHandle(me.handle) ?? me;

@@ -91,34 +91,25 @@ test('guided onboarding resumes from stored data and records either matching cho
     seedWatch(registry, privateUser);
     const privateCookie = `urtube_session=${registry.createSession(privateUser)}`;
 
-    const interests = await app.request('/onboarding', { headers: { cookie: privateCookie } });
-    assert.equal(interests.headers.get('cache-control'), 'no-store');
-    assert.equal(interests.headers.get('x-robots-tag'), 'noindex');
-    const interestsHtml = await interests.text();
-    assert.match(interestsHtml, /Review what should help you meet people/);
-    assert.match(interestsHtml, /Music/);
-    assert.match(interestsHtml, /Gaming/);
-    assert.match(interestsHtml, /guided-private\/insights/);
-    assert.equal((interestsHtml.match(/name="selectedTopicKeys"/g) ?? []).length, 2);
-    assert.doesNotMatch(interestsHtml, /watchEvents|estimatedWatchSeconds|topicCoverage/);
-
-    const confirmed = await app.request('/onboarding/interests', {
+    const consent = await app.request('/onboarding', { headers: { cookie: privateCookie } });
+    assert.equal(consent.headers.get('cache-control'), 'no-store');
+    assert.equal(consent.headers.get('x-robots-tag'), 'noindex');
+    assert.doesNotMatch(await consent.text(), /selectedTopicKeys|watchEvents|estimatedWatchSeconds|topicCoverage/);
+    assert.equal((await app.request('/onboarding/interests', {
       ...form({ taxonomyVersion: String(MATCHING_TAXONOMY.version), selectedTopicKeys: 'music' }),
       headers: { ...form({}).headers, cookie: privateCookie },
-    });
-    assert.equal(confirmed.status, 302);
-    assert.equal(confirmed.headers.get('location'), '/onboarding');
-    assert.deepEqual(registry.matchingDimensionsFor(privateUser).selectedTopicKeys, ['music']);
-    assert.deepEqual(registry.matchingDimensionsFor(privateUser).excludedTopicKeys, ['gaming']);
+    })).status, 404, 'the interests step is gone');
+    assert.deepEqual(registry.matchingDimensionsFor(privateUser).excludedTopicKeys, []);
 
     const consentHtml = await (await app.request('/onboarding', {
       headers: { cookie: privateCookie },
     })).text();
     assert.match(consentHtml, /Choose whether to enter matching/);
     assert.doesNotMatch(consentHtml, /name="choice"[^>]*checked/);
+    assert.doesNotMatch(consentHtml, /matchingDisclosure|<select/);
 
     const finishedPrivate = await app.request('/onboarding/finish', {
-      ...form({ choice: 'private', matchingDisclosure: 'topics_only' }),
+      ...form({ choice: 'private' }),
       headers: { ...form({}).headers, cookie: privateCookie },
     });
     assert.equal(finishedPrivate.headers.get('location'), '/guided-private');
@@ -131,12 +122,8 @@ test('guided onboarding resumes from stored data and records either matching cho
     const joinedUser = registry.createUser('guided-join', 'Join Guide');
     seedWatch(registry, joinedUser);
     const joinedCookie = `urtube_session=${registry.createSession(joinedUser)}`;
-    await app.request('/onboarding/interests', {
-      ...form({ taxonomyVersion: String(MATCHING_TAXONOMY.version), selectedTopicKeys: ['music', 'gaming'] }),
-      headers: { ...form({}).headers, cookie: joinedCookie },
-    });
     const joined = await app.request('/onboarding/finish', {
-      ...form({ choice: 'join', matchingDisclosure: 'topics_only' }),
+      ...form({ choice: 'join' }),
       headers: { ...form({}).headers, cookie: joinedCookie },
     });
     assert.equal(joined.headers.get('location'), '/matches');
@@ -152,21 +139,15 @@ test('guided onboarding rejects skipped or forged steps', async () => {
   const app = createApp(registry);
   try {
     assert.equal((await app.request('/onboarding')).status, 302);
-    assert.equal((await app.request('/onboarding/interests', { method: 'POST' })).status, 302);
+    // No history yet: the flow is still at setup, so finishing is refused.
     const user = registry.createUser('guided-guard', 'Guard');
-    seedWatch(registry, user);
     const cookie = `urtube_session=${registry.createSession(user)}`;
     const skipped = await app.request('/onboarding/finish', {
-      ...form({ choice: 'join', matchingDisclosure: 'topics_only' }),
+      ...form({ choice: 'join' }),
       headers: { ...form({}).headers, cookie },
     });
     assert.equal(skipped.status, 409);
-    const forged = await app.request('/onboarding/interests', {
-      ...form({ taxonomyVersion: String(MATCHING_TAXONOMY.version), selectedTopicKeys: 'news' }),
-      headers: { ...form({}).headers, cookie },
-    });
-    assert.equal(forged.status, 400);
-    assert.equal(registry.matchingDimensionsFor(user).status, 'suggested');
+    assert.equal(registry.matchingDimensionsFor(user).status, 'pending');
   } finally {
     registry.close();
   }

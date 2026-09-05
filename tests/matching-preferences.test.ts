@@ -57,7 +57,8 @@ test('registry upgrade preserves the #6 opt-in and defaults disclosure safely', 
     const upgraded = new UserRegistry(registryPath, join(root, 'users'));
     const user = upgraded.userByHandle('legacy')!;
     assert.equal(user.matchingOptIn, true);
-    assert.equal(user.matchingDisclosure, 'topics_only');
+    // The retired disclosure column is normalized to "everything" on open.
+    assert.equal(user.matchingDisclosure, 'topics_and_channel');
     assert.equal(user.onboardingCompletedAt, null);
     upgraded.close();
 
@@ -82,35 +83,19 @@ test('matching settings are session-only and independent from dashboard visibili
     publish(registry, viewer, 'Viewer aggregate channel');
     const session = `urtube_session=${registry.createSession(candidate)}`;
 
-    // Every matching switch starts on; the dashboard stays private.
+    // Matching starts on; the dashboard stays private.
     assert.equal(candidate.dashboardPublic, false);
     assert.equal(candidate.matchingOptIn, true);
     assert.equal(candidate.matchingDisclosure, 'topics_and_channel');
-    assert.equal(candidate.matchingRhythm, true);
     assert.equal(registry.listMatchableCrystals().length, 2);
     assert.equal((await app.request('/account/matching', { method: 'POST' })).status, 302);
 
     const account = await (await app.request('/account', { headers: { cookie: session } })).text();
     assert.ok(account.indexOf('/account/matching') > account.indexOf('/account/takeout'));
     assert.match(account, /Matching and dashboard visibility are independent/);
-    for (const name of ['matchingOptIn', 'matchingTopics', 'matchingChannels', 'matchingRhythm']) {
-      assert.match(account, new RegExp(`name="${name}" value="1" checked`));
-    }
-    assert.doesNotMatch(account, /name="selectedTopicKeys"|name="excludedTopicKeys"|<select/);
-    assert.doesNotMatch(await (await app.request('/signup')).text(), /Join the matching pool/);
-
-    // Turning channels and rhythm off keeps the person in the pool.
-    const narrowed = await app.request('/account/matching', {
-      method: 'POST',
-      headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingOptIn=1&matchingTopics=1',
-    });
-    assert.equal(narrowed.status, 302);
-    const narrowedUser = registry.userByHandle(candidate.handle)!;
-    assert.equal(narrowedUser.matchingOptIn, true);
-    assert.equal(narrowedUser.matchingDisclosure, 'topics_only');
-    assert.equal(narrowedUser.matchingRhythm, false);
-    assert.equal(registry.listMatchableCrystals().find(({ handle }) => handle === candidate.handle)?.rhythmDisclosure, false);
+    assert.match(account, /name="matchingOptIn" value="1" checked/);
+    assert.doesNotMatch(account, /matchingTopics|matchingChannels|matchingRhythm|selectedTopicKeys|<select/);
+    assert.doesNotMatch(await (await app.request('/signup')).text(), /Join matching/);
     assert.equal((await app.request(`/${candidate.handle}`)).status, 404);
     assert.equal((await app.request(`/u/${candidate.handle}/crystal.json`)).status, 404);
 
@@ -121,12 +106,13 @@ test('matching settings are session-only and independent from dashboard visibili
     const crystalBefore = registry.matchingCrystalFor(candidate.handle);
     registry.setMatchingPreferences(candidate.handle, true, 'topics_and_channel');
     assert.deepEqual(registry.matchingCrystalFor(candidate.handle), crystalBefore);
-    assert.equal(registry.userByHandle(candidate.handle)?.matchingRhythm, false, 'omitted rhythm keeps the stored value');
+    // The retired finer settings are normalized to "everything" on write.
+    assert.equal(registry.listMatchableCrystals().find(({ handle }) => handle === candidate.handle)?.disclosureLevel, 'topics_and_channel');
 
     const disabled = await app.request('/account/matching', {
       method: 'POST',
       headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingTopics=1&matchingChannels=1&matchingRhythm=1',
+      body: 'unrelated=1',
     });
     assert.equal(disabled.status, 302);
     assert.equal(registry.listMatchableCrystals().some(({ handle }) => handle === candidate.handle), false);

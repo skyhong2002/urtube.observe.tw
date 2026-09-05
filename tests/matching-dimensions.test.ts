@@ -49,7 +49,7 @@ function publish(registry: UserRegistry, user: User, crystal = readyCrystal()): 
   registry.upsertMatchingCrystal(user, crystal);
 }
 
-test('every canonical topic is usable until the topic switch is turned off', async () => {
+test('every canonical topic is usable for everyone who joined matching', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
@@ -61,8 +61,7 @@ test('every canonical topic is usable until the topic switch is turned off', asy
     assert.deepEqual(pending.selectedTopicKeys, allKeys);
     assert.deepEqual(pending.excludedTopicKeys, []);
     const account = await (await app.request('/account', { headers: { cookie } })).text();
-    assert.match(account, /name="matchingTopics" value="1" checked/);
-    assert.doesNotMatch(account, /name="selectedTopicKeys"|Exclude/);
+    assert.doesNotMatch(account, /name="selectedTopicKeys"|Exclude|matchingTopics/);
 
     publish(registry, user, readyCrystal([
       topic('gaming', 0.1), topic('music', 0.4), topic('learning', 0.2),
@@ -74,86 +73,11 @@ test('every canonical topic is usable until the topic switch is turned off', asy
     assert.deepEqual(dimensions.suggestedTopicKeys, [
       'music', 'learning', 'comedy', 'science-technology', 'gaming',
     ]);
-    assert.doesNotMatch(account, /politic|taglean/i);
-  } finally {
-    registry.close();
-  }
-});
-
-test('the topic switch is session-only, versioned, and durable', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'urtube-matching-dimensions-'));
-  const registryPath = join(root, 'users.sqlite');
-  const registry = new UserRegistry(registryPath, join(root, 'data'));
-  const app = createApp(registry);
-  try {
-    const user = registry.createUser('dimension-save', 'Dimension Save');
-    publish(registry, user);
-    const cookie = `urtube_session=${registry.createSession(user)}`;
-    const allKeys = MATCHING_TAXONOMY.topics.map((topic) => topic.key);
-    assert.equal((await app.request('/account/matching', { method: 'POST' })).status, 302);
-    assert.equal(registry.matchingDimensionsFor(user).status, 'suggested', 'anonymous posts change nothing');
-
-    const off = await app.request('/account/matching', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingOptIn=1&matchingChannels=1&matchingRhythm=1',
-    });
-    assert.equal(off.status, 302);
-    assert.deepEqual(registry.matchingDimensionsFor(user), {
-      status: 'confirmed',
-      taxonomyVersion: MATCHING_TAXONOMY.version,
-      selectedTopicKeys: [],
-      excludedTopicKeys: allKeys,
-      suggestedTopicKeys: ['music', 'gaming', 'learning'],
-    });
-    const account = await (await app.request('/account', { headers: { cookie } })).text();
-    assert.match(account, /name="matchingTopics" value="1">/);
-    assert.match(account, /name="matchingOptIn" value="1" checked/);
-
-    const on = await app.request('/account/matching', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingOptIn=1&matchingTopics=1&matchingChannels=1&matchingRhythm=1',
-    });
-    assert.equal(on.status, 302);
-    assert.deepEqual(registry.matchingDimensionsFor(user).selectedTopicKeys, allKeys);
+    // Choices stored by the retired per-topic UI are ignored, never reinterpreted.
+    registry.setMatchingDimensions(user.handle, MATCHING_TAXONOMY.version, ['music'], ['gaming']);
     assert.deepEqual(registry.matchingDimensionsFor(user).excludedTopicKeys, []);
-
-    registry.close();
-    const db = new DatabaseSync(registryPath);
-    const stored = db.prepare(`
-      SELECT dimension_taxonomy_version version, selected_topic_keys selected,
-        excluded_topic_keys excluded, dimensions_confirmed confirmed
-      FROM matching_profiles
-    `).get() as Record<string, unknown>;
-    assert.deepEqual({ ...stored }, {
-      version: MATCHING_TAXONOMY.version,
-      selected: JSON.stringify(allKeys),
-      excluded: '[]',
-      confirmed: 1,
-    });
-    db.close();
-  } finally {
-    try { registry.close(); } catch { /* closed above after persistence check */ }
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('the topic switch can be saved before recent data is ready', async () => {
-  const registry = new UserRegistry(':memory:');
-  const app = createApp(registry);
-  try {
-    const user = registry.createUser('not-ready', 'Not Ready');
-    const cookie = `urtube_session=${registry.createSession(user)}`;
-    const response = await app.request('/account/matching', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'matchingOptIn=1&matchingChannels=1&matchingRhythm=1',
-    });
-    assert.equal(response.status, 302);
-    const dimensions = registry.matchingDimensionsFor(user);
-    assert.equal(dimensions.status, 'confirmed');
-    assert.deepEqual(dimensions.selectedTopicKeys, []);
+    assert.deepEqual(registry.listMatchableCrystals()[0]?.dimensions.selectedTopicKeys, allKeys);
+    assert.doesNotMatch(account, /politic|taglean/i);
   } finally {
     registry.close();
   }
