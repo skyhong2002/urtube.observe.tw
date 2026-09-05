@@ -34,7 +34,7 @@ function setup(customCompute = compute) {
   return { registry, alice, bob, session, bobSession, headers, app, match };
 }
 
-test('one matching workspace keeps directory, invitations and member actions alongside v3 scores', async () => {
+test('one matching workspace keeps directory actions and compact topic cards with permitted Blend access', async () => {
   const f = setup();
   try {
     const { registry, alice, bob, headers, app } = f;
@@ -62,10 +62,11 @@ test('one matching workspace keeps directory, invitations and member actions alo
     assert.equal(card('.mt-person-link').attr('href'), '/integrate-bob');
     assert.equal(card('h2').text(), bob.displayName);
     assert.equal(card('script').length, 0);
-    assert.equal(card('.mv-topic-score strong').text(), '65.0%');
-    assert.equal(card('.mt-percent').text(), '—整體合拍度');
+    assert.equal(card('.mv-topic-score, .mv-reasons, .mt-percent, .mt-icebreaker').length, 0);
+    assert.equal(card('.mt-card').attr('data-compatibility'), '-1');
     assert.equal(card('.mt-actions a[href*="/compare/"]').length, 0);
-    const actionToken = card('[name=actionToken]').attr('value')!;
+    const refreshedDirectory = load(await (await app.request('/matches?lang=zh', { headers })).text());
+    const actionToken = refreshedDirectory('#mv-directory [name=actionToken]').attr('value')!;
     const send = await app.request('/matches/request', { method: 'POST', headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ actionToken, returnTo: '/matches' }) });
     assert.equal(send.status, 302);
     assert.equal(send.headers.get('location'), '/matches');
@@ -79,13 +80,17 @@ test('one matching workspace keeps directory, invitations and member actions alo
     const friends = await (await f.match()).json() as any;
     assert.equal(friends.candidates[0].detailsVisible, true);
     assert.match(friends.candidates[0].reasons[0].text, /private-detail-tag/);
-    assert.match(friends.candidates[0].memberHtml, /\/integrate-alice\/compare\/integrate-bob/);
+    const friendCard = load(friends.candidates[0].memberHtml);
+    assert.equal(friendCard('.mt-actions a').attr('href'), '/integrate-alice/compare/integrate-bob');
+    assert.equal(friendCard('.mv-reasons, .mt-percent, .mv-topic-score').length, 0);
     for (const path of ['/integrate-bob','/integrate-bob/insights','/integrate-alice/compare/integrate-bob']) assert.equal((await app.request(path,{headers})).status,200,path);
     for (const path of ['/integrate-bob/history','/integrate-bob/recap']) assert.equal((await app.request(path,{headers})).status,404,path);
     registry.withdrawMatchRequest(alice, requestToken);
     assert.equal((await (await f.match()).json() as any).candidates[0].detailsVisible, false);
     registry.setDashboardPublic(bob.handle, true);
-    assert.equal((await (await f.match()).json() as any).candidates[0].detailsVisible, true);
+    const publicCandidate = (await (await f.match()).json() as any).candidates[0];
+    assert.equal(publicCandidate.detailsVisible, true);
+    assert.equal(load(publicCandidate.memberHtml)('.mt-actions a').attr('href'), '/integrate-alice/compare/integrate-bob');
     registry.setDashboardPublic(bob.handle, false);
     assert.equal((await (await f.match()).json() as any).candidates[0].detailsVisible, false);
     registry.setMatchingOptIn(bob.handle, false);
