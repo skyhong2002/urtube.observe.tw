@@ -6,6 +6,7 @@ import type { YoutubeProcessingStatus } from '../youtube/processing.js';
 import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
 import { html, primaryNav, shell } from './pages.js';
+import { processingVisibilitySetting } from './processing-visibility.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 
@@ -140,11 +141,11 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     ? `<div class="ob-success" role="status">${t.accountTakeoutSuccess(
       state.takeoutResult.watchesSeen, state.takeoutResult.watchesInserted,
       state.takeoutResult.searchesSeen, state.takeoutResult.searchesInserted,
-    )}</div>${processing ? `<p>${t.accountTakeoutNext}</p>${processing}` : ''}`
+    )}</div>${processing ? `<p data-processing-status>${t.accountTakeoutNext}</p>${processing}` : ''}`
     : state.takeoutError
       ? `<div class="ob-error" role="alert">${t.accountTakeoutFailed(html(state.takeoutError))}</div>`
       : '';
-  const takeout = `<section class="ob-advanced" id="account-takeout">
+  const takeout = `<section id="account-takeout">
       <h2>${t.accountTakeoutSummary}</h2>
       <h3>${t.accountTakeoutTitle}</h3>
       <p>${t.accountTakeoutPara}</p>
@@ -175,6 +176,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
     </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
       ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
+      ${processingVisibilitySetting(lang)}
       <div id="processing">${state.takeoutResult ? '' : processing}</div>
       ${group('settings-profile', t.settingsProfile, `
       <p>${t.accountSignedInAs(html(user.googleEmail ?? ''))}</p>
@@ -208,7 +210,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       `)}
       ${group('settings-data', t.settingsData, `
       ${takeout}
-      <section id="account-export">
+      <section class="ob-advanced" id="account-export">
         <h2>${t.accountExportTitle}</h2>
         <p>${t.accountExportPara}</p>
         <form method="post" action="/account/export" class="ob-form">
@@ -279,7 +281,7 @@ export function guidedOnboardingPage(
     return `<li class="${status}"${status === 'current' ? ' aria-current="step"' : ''}>${html(label)}</li>`;
   }).join('')}</ol>`;
   const provisional = state.provisional
-    ? `<div class="go-note warn">${t.onboardingProvisional}</div>` : '';
+    ? `<div class="go-note warn" data-processing-status>${t.onboardingProvisional}</div>` : '';
   let content: string;
   if (state.step === 'setup') {
     const scan = guidedScanMessage(state.scanStatus, lang);
@@ -290,8 +292,8 @@ export function guidedOnboardingPage(
       <div class="go-actions"><a class="go-primary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="/onboarding">${t.onboardingRefresh}</a></div>`;
   } else if (state.step === 'processing') {
     const notice = v3ProcessingNotice(processingStatus, lang, { dashboardHref, ownerDetails: true, alwaysShow: true });
-    content = `<h2>${t.onboardingProcessingTitle}</h2><p>${t.onboardingProcessingPara}</p>
-      ${notice || `<div class="go-note warn">${t.onboardingMoreData}</div>`}
+    content = `<div data-processing-status><h2>${t.onboardingProcessingTitle}</h2><p>${t.onboardingProcessingPara}</p></div>
+      ${notice || `<div class="go-note warn" data-processing-status>${t.onboardingMoreData}</div>`}
       <div class="go-actions"><a class="go-primary" href="/onboarding">${t.onboardingRefresh}</a><a class="go-secondary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
   } else if (state.step === 'consent') {
     content = `<h2>${t.onboardingConsentTitle}</h2><p>${t.onboardingConsentPara}</p>${provisional}

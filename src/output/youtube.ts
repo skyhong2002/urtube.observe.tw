@@ -697,7 +697,7 @@ export interface YoutubeDashboardOptions {
   statsProvisional?: boolean;
   // Insight-only content computed outside the dashboard aggregate cache.
   insightsHtml?: string;
-  // Current v3 interests only; legacy taxonomy renderers are not used here.
+  // Current v3 interests coexist with range-based channel and topic analysis.
   v3Html?: string;
   // Public examples must not imply that their current dashboard is private.
   dashboardPrivate?: boolean;
@@ -840,11 +840,14 @@ export function youtubeDashboardPage(
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
     <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div>${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
-  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '')
-    + `<div class="yt-overview-dynamics yt-channel-dynamics">${channelChase(data, t)}</div>`
-    + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
+  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '') + stableTopics
+    + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
+    + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
+    + keywords + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
-    + (options.v3Html ?? '') + (options.insightsHtml ?? '') + distribution : '';
+    + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
+    + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
+    + distribution + keywords : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   const insightTrust = page === 'insights' && options.dashboardPrivate

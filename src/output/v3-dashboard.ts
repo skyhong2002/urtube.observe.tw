@@ -28,9 +28,9 @@ export function v3DashboardSection(profile: Profile | null, options: {
   const scope = zh
     ? `以最近最多 ${options.backfillVideoLimit.toLocaleString('en')} 部影片建立，不隨上方日期範圍切換。影片可以屬於多個類別。`
     : `Based on up to ${options.backfillVideoLimit.toLocaleString('en')} recent videos, independently of the date filter above. Videos may belong to multiple categories.`;
-  return `<section class="section yt-v3-interests" data-v3-interests>
+  return `<section class="section yt-v3-interests" data-v3-interests${!current ? ' data-processing-status' : ''}>
     <style>.yt-v3-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}.yt-v3-genre{flex:0 1 calc((100% - 80px)/9);background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center;min-width:0}.yt-v3-genre strong,.yt-v3-genre span{display:block}.yt-v3-genre strong{font-size:14px}.yt-v3-genre span{font-size:12px;color:var(--muted);margin-top:6px}.yt-v3-scope{font-size:12px;line-height:1.6;color:var(--muted)}@media(max-width:1000px){.yt-v3-genre{flex-basis:calc((100% - 20px)/3)}}</style>
-    <div class="section-head"><h2>${zh ? 'v3 興趣分析' : 'v3 interests'}</h2>${current ? `<span>${provisional ? (zh ? '暫定結果' : 'Provisional') : (zh ? '已建立' : 'Ready')}</span>` : ''}</div>
+    <div class="section-head"><h2>${zh ? 'v3 興趣分析' : 'v3 interests'}</h2>${current ? `<span${provisional ? ' data-processing-status' : ''}>${provisional ? (zh ? '暫定結果' : 'Provisional') : (zh ? '已建立' : 'Ready')}</span>` : ''}</div>
     <p class="yt-v3-scope">${html(scope)}</p>
     ${current ? `<div class="yt-v3-grid">${visible.map(genre => {
       const item = current.genres[genre];

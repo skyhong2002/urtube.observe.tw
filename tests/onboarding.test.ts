@@ -224,7 +224,7 @@ test('account Takeout import is always visible, session-only, and idempotent', a
     }, '10.1.9.1'));
     const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
     const account = await (await app.request('/account', { headers: { cookie: session } })).text();
-    assert.match(account, /<section class="ob-advanced" id="account-takeout">/);
+    assert.match(account, /<section id="account-takeout">/);
     assert.doesNotMatch(account, /<details class="ob-advanced"/);
     assert.match(account, /action="\/account\/takeout"/);
     assert.match(account, /takeout\.google\.com/);

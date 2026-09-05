@@ -64,11 +64,13 @@ test('v3 notice is bilingual, hides private details and optional completed notic
   assert.match(owner, /最近輪廓更新/);
   assert.match(owner, /目前分析階段/);
   assert.match(owner, /&lt;script&gt;/);
-  assert.doesNotMatch(owner, /<script>|120 分鐘|分類審核/);
+  assert.doesNotMatch(owner, /<script>bad|120 分鐘|分類審核/);
   const visitor = v3ProcessingNotice(status, 'en');
   assert.match(visitor, /Interest analysis in progress/);
   assert.doesNotMatch(visitor, /19,000|2,000|bad|tags|<progress/);
   assert.equal(v3ProcessingNotice(describeV3Processing(input)), '');
+  assert.match(v3ProcessingNotice(describeV3Processing(input), 'en', { ownerDetails: true }), /data-processing-monitor/, 'owners can still monitor completed jobs');
+  assert.doesNotMatch(visitor, /data-processing-monitor|api\/matching-v3/);
   assert.match(v3ProcessingNotice(describeV3Processing(input), 'en', { alwaysShow: true }), /Interest profile ready/);
   assert.equal(v3ProcessingNotice(describeV3Processing({ ...input, enabled: false })), '');
   const metadata = describeV3Processing({ ...input, metadata: { ...input.metadata, videosPendingMetadata: 4 } });

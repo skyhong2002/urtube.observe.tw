@@ -9,7 +9,7 @@ import { UserRegistry } from '../src/users.js';
 import { youtubeDashboardPage } from '../src/output/youtube.js';
 import { rankRaceSection } from '../src/output/rank-race.js';
 
-test('overview keeps channel history and v3 summaries without displaying retained legacy topics', async () => {
+test('overview routes load stable topics and both races with scoped topic frames', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'urtube-overview-dynamics-'));
   const registry = new UserRegistry(join(directory, 'registry.sqlite'));
   try {
@@ -25,7 +25,7 @@ test('overview keeps channel history and v3 summaries without displaying retaine
     })) });
     repository.upsertYoutubeVideoMetadata(dates.map((_, index) => ({
       videoId: `OVERVIEW00${index}`, title: `Video ${index}`, channelId: 'UCaaaaaaaaaaaaaaaaaaaaaa',
-      channelTitle: 'Fixture channel', description: '', tags: [], thumbnailUrl: '', durationSeconds: 300,
+      channelTitle: 'Fixture channel', description: '', tags: ['astronomy', 'telescope'], thumbnailUrl: '', durationSeconds: 300,
       publishedAt: null, categoryId: '10', availability: 'available' as const, metadataHash: `metadata-${index}`,
     })));
     const [topic] = repository.replaceYoutubeTaxonomy([{ version: 1, slug: 'fixture-topic', name: 'Fixture topic', description: 'Music' }]);
@@ -34,28 +34,29 @@ test('overview keeps channel history and v3 summaries without displaying retaine
     const all = await app.request('/overview-fixture?range=all&sort=duration&lang=zh');
     assert.equal(all.status, 200);
     const $ = load(await all.text());
-    assert.equal($('.yt-stable-topics,.yt-topic-details,[data-rank-race="topics"],[data-topic-trend]').length, 0);
-    assert.doesNotMatch($('body').text(), /Fixture topic|AI 主題涵蓋/);
-    const channelRace = $('[data-rank-race="channels"]');
-    assert.equal(channelRace.length, 1);
-    assert.equal(channelRace.find('[data-chase-play]').length, 1);
-    assert.equal(channelRace.find('[data-chase-range]').length, 1);
-    assert.ok(JSON.parse(channelRace.find('[data-chase-data]').text()).frames.length > 1);
-    assert.match($('.yt-channels').text(), /Fixture channel/);
+    assert.equal($('.yt-stable-topics h2').text(), '穩定主題');
+    assert.equal($('.yt-keywords').length, 1);
+    assert.match($('.yt-keywords').text(), /astronomy/);
+    assert.match($('.yt-stable-topics').text(), /Fixture topic/);
+    assert.equal($('.yt-overview-dynamics [data-rank-race]').length, 2);
+    for (const kind of ['channels', 'topics']) {
+      const root = $(`[data-rank-race="${kind}"]`);
+      assert.equal(root.find('[data-chase-play]').length, 1);
+      assert.equal(root.find('[data-chase-range]').length, 1);
+      assert.ok(JSON.parse(root.find('[data-chase-data]').text()).frames.length > 1);
+    }
+    assert.equal($('.yt-topic-details').attr('open'), undefined);
     const recent = load(await (await app.request('/overview-fixture?range=7d&lang=zh')).text());
-    const frames = JSON.parse(recent('[data-rank-race="channels"] [data-chase-data]').text()).frames;
+    const frames = JSON.parse(recent('[data-rank-race="topics"] [data-chase-data]').text()).frames;
     assert.ok(frames.length <= 9);
     assert.ok(frames.every((frame: { period: string }) => /^\d{4}-\d{2}-\d{2}$/.test(frame.period)));
     const insights = load(youtubeDashboardPage('Fixture', repository.youtubeDashboard('all'), 'duration', { page: 'insights', lang: 'zh' }));
-    assert.equal(insights('[data-rank-race],.yt-stable-topics,[data-topic-trend]').length, 0);
+    assert.equal(insights('[data-rank-race="topics"]').length, 1);
+    assert.equal(insights('[data-rank-race="channels"],.yt-stable-topics').length, 0);
+    assert.equal(insights('.yt-topic-details').length, 1);
+    assert.equal(insights('.yt-keywords').length, 1);
+    assert.match(insights('.yt-keywords').text(), /astronomy/);
     assert.equal(insights('.yt-watch-time').length, 1);
-    assert.equal(insights('.yt-keywords').length, 0);
-    const summary = load(youtubeDashboardPage('Fixture', repository.youtubeDashboard('all'), 'duration', {
-      v3Html: '<section data-v3-summary>Current v3 interests</section>',
-    }));
-    assert.equal(summary('[data-v3-summary]').text(), 'Current v3 interests');
-    assert.equal(repository.youtubeTopics().find(value => value.id === topic.id)?.name, 'Fixture topic',
-      'displaying v3 keeps stored legacy classifications available');
     registry.setDashboardPublic(user.handle, false);
     assert.notEqual((await app.request('/overview-fixture?range=all')).status, 200, 'private dashboard remains protected');
   } finally { registry.close(); rmSync(directory, { recursive: true, force: true }); }
