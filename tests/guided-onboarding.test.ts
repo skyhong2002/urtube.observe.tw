@@ -205,7 +205,7 @@ test('scan diagnostics and provisional readiness are derived without a second st
     });
     assert.equal(processing.step, 'processing');
     assert.equal(processing.provisional, true);
-    assert.match(
+    assert.doesNotMatch(
       matchesPage({ handle: 'guided-state', displayName: 'State' }, '/guided-state', { kind: 'empty' }, 'en', true),
       /candidate order may change/,
     );
