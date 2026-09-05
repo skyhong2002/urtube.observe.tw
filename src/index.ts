@@ -14,6 +14,8 @@ import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
+import { landingContent } from './output/landing.js';
+import { communityStatsProvider } from './youtube/community.js';
 import { matchesPage, matchingCandidatePage, friendshipActions, type ActionableMatchingCandidateCard } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
 import { memberProfilePage } from './output/member-profile.js';
@@ -413,46 +415,32 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     }));
   }
 
+  const publicCommunityStats = communityStatsProvider(registry);
   app.get('/', (c) => {
     const lang = langOf(c);
     const t = messages(lang);
-    const landingStyles = `
-      .lp-hero{margin:8vh 0 60px;max-width:760px}
-      .lp-hero .lp-mark{height:52px;margin-bottom:26px;width:52px}
-      .lp-hero h1{font-size:clamp(38px,6.5vw,68px);font-weight:750;letter-spacing:-.045em;line-height:1.02;margin:0 0 18px}
-      .lp-hero h1 em{color:var(--accent-text);font-style:normal}
-      .lp-hero p{color:var(--ink-2);font-size:16px;line-height:1.65;margin:0;max-width:600px}
-      .lp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
-      .lp-actions a{border-radius:999px;font-size:14px;font-weight:700;padding:12px 20px;text-decoration:none}
-      .lp-actions a.lp-primary{background:var(--accent);color:#fff}
-      .lp-actions a.lp-primary:hover{background:#b02f2f}
-      .lp-actions a.lp-ghost{border:1px solid var(--line-strong);color:var(--ink)}
-      .lp-actions a.lp-ghost:hover{border-color:var(--muted)}
-      .lp-points{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:56px}
-      .lp-point{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px}
-      .lp-point strong{display:block;font-size:14px;margin-bottom:6px}
-      .lp-point p{color:var(--ink-2);font-size:13px;line-height:1.6;margin:0}
-      .lp-note{color:var(--muted);font-size:12px;margin-top:34px}
-    `;
-    const points = t.landingPoints.map(([title, copy]) =>
-      `<div class="lp-point"><strong>${title}</strong><p>${copy}</p></div>`
-    ).join('');
     const me = sessionUser(c);
     const primaryAction = me
       ? `<a class="lp-primary" href="/${html(me.handle)}">${t.landingMyDashboard}</a>`
       : config.signupEnabled ? `<a class="lp-primary" href="/signup">${t.landingCta}</a>` : '';
-    const body = `<style>${landingStyles}</style><section class="lp-hero">
-      <div class="lp-mark">${brandMark}</div>
-      <h1>${t.landingTitle}</h1>
-      <p>${t.landingPara}</p>
-      <div class="lp-actions">
-        ${primaryAction}
-        <a class="lp-ghost" href="/${registry.ensureDefaultUser().handle}">${t.landingExample(html(config.ownerName))}</a>
-      </div>
-    </section>
-    <div class="lp-points">${points}</div>
-    ${me ? '' : `<p class="lp-note">${t.landingNote}</p>`}`;
-    return c.html(shell(t.landingDocTitle, body, siteNav(c, lang), '', lang, '/'));
+    c.header('Cache-Control', 'no-store');
+    const title = lang === 'zh' ? '你的 YouTube 人生，都記得。' : 'Your YouTube life, remembered.';
+    return c.html(shell(title, landingContent(lang, primaryAction, publicCommunityStats()), siteNav(c, lang), '', lang, '/'));
+  });
+
+  // Only these public, user-supplied product screenshots can be served.
+  const landingImages = new Map<string, Buffer>();
+  app.get('/landing-assets/:name', (c) => {
+    const name = c.req.param('name');
+    if (!['dashboard.png', 'channel.png', 'matching.png'].includes(name)) return c.notFound();
+    let data = landingImages.get(name);
+    if (!data) {
+      data = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'public', 'landing', name));
+      landingImages.set(name, data);
+    }
+    c.header('Content-Type', 'image/png');
+    c.header('Cache-Control', 'public, max-age=3600');
+    return c.body(new Uint8Array(data));
   });
 
   // The brand mark, served for browser tabs and OG scrapers.

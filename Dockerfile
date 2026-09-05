@@ -7,6 +7,7 @@ RUN npm ci --omit=dev
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY public/landing ./public/landing
 COPY scripts ./scripts
 COPY chrome-extension ./chrome-extension
 COPY favicon.svg og.png ./
