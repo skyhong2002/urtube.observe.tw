@@ -401,7 +401,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const crystalHtml = page === 'insights' && hasData
       ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
     let leaningsHtml = '';
-    if (page === 'insights' && hasData) {
+    if (page === 'insights' && hasData && viewerOwns) {
       try {
         const snapshot = await loadTagLists();
         const tagLean = computeTagLean(

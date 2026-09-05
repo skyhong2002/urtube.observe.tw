@@ -2,38 +2,67 @@ import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type { YoutubeChannelSummary, YoutubeRange } from './types.js';
 
-// Audience tag lists from the shared channels_list API. Two independent axes:
-// content type (news / editorial, where "editorial shows" is the tagid=1,9
-// intersection — channels carrying both tags) and political leaning. A channel
-// can sit on both axes at once, so shares are computed per axis, never summed
-// across them.
-export const CONTENT_KEYS = ['news', 'editorial', 'editorialShows'] as const;
-export const POLITICAL_KEYS = ['blue', 'green', 'white', 'red'] as const;
-export type TagGroupKey = typeof CONTENT_KEYS[number] | typeof POLITICAL_KEYS[number];
-
-// Full query per group: comma = tag intersection, not= excludes tags. 社論 is
-// the "personal editorial" definition supplied by the tag API's maintainer:
-// tag 1 minus shows, news, simplified-Chinese channels, and other non-personal
-// categories.
-export const TAG_GROUP_QUERIES: Record<TagGroupKey, string> = {
-  news: 'tagid=13',
-  editorial: 'tagid=1&not=2,9,10,12,13,33,36,81',
-  editorialShows: 'tagid=1,9',
-  blue: 'tagid=3',
-  green: 'tagid=4',
-  white: 'tagid=6',
-  red: 'tagid=5',
-};
-
-export type TagLists = Record<TagGroupKey, Set<string>>;
-
-const ALL_KEYS = [...CONTENT_KEYS, ...POLITICAL_KEYS] as TagGroupKey[];
-
 export const TAG_POLICY = {
   version: '2026-09-05',
   url: 'https://github.com/skyhong2002/urtube.observe.tw/blob/main/docs/channel-tag-policy.md',
   reportUrl: 'https://github.com/skyhong2002/urtube.observe.tw/issues/new',
 } as const;
+
+interface TagGroupDefinition {
+  names: { en: string; zh: string };
+  axis: 'content' | 'political';
+  query: string;
+  description: string;
+  policyVersion: string;
+  source: string;
+}
+
+// Keys and queries are governed definitions, never inferred from viewing data.
+// Commas mean intersection; `not` excludes any of the listed upstream tags.
+export const TAG_GROUPS = {
+  news: {
+    names: { en: 'News', zh: '新聞' }, axis: 'content', query: 'tagid=13',
+    description: 'Channels carrying upstream news tag 13.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw channels_list: news tag',
+  },
+  editorial: {
+    names: { en: 'Personal commentary', zh: '個人社論' }, axis: 'content',
+    query: 'tagid=1&not=2,9,10,12,13,33,36,81',
+    description: 'Tag 1 excluding shows, news, simplified-Chinese and curator-selected non-personal categories.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw maintainer: personal editorial definition',
+  },
+  editorialShows: {
+    names: { en: 'Commentary shows', zh: '社論節目' }, axis: 'content', query: 'tagid=1,9',
+    description: 'Channels carrying both upstream commentary tag 1 and show tag 9.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw channels_list: commentary/show intersection',
+  },
+  blue: {
+    names: { en: 'Pan-Blue', zh: '泛藍' }, axis: 'political', query: 'tagid=3',
+    description: 'Channels carrying upstream political tag 3.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw channels_list: political labels',
+  },
+  green: {
+    names: { en: 'Pan-Green', zh: '泛綠' }, axis: 'political', query: 'tagid=4',
+    description: 'Channels carrying upstream political tag 4.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw channels_list: political labels',
+  },
+  white: {
+    names: { en: 'Pan-White', zh: '泛白' }, axis: 'political', query: 'tagid=6',
+    description: 'Channels carrying upstream political tag 6.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw channels_list: political labels',
+  },
+  red: {
+    names: { en: 'Pan-Red', zh: '泛紅' }, axis: 'political', query: 'tagid=5',
+    description: 'Channels carrying upstream political tag 5.',
+    policyVersion: TAG_POLICY.version, source: 'analysis.tw channels_list: political labels',
+  },
+} as const satisfies Record<string, TagGroupDefinition>;
+
+export type TagGroupKey = keyof typeof TAG_GROUPS;
+export type TagLists = Record<TagGroupKey, Set<string>>;
+const ALL_KEYS = Object.keys(TAG_GROUPS) as TagGroupKey[];
+export const CONTENT_KEYS = ALL_KEYS.filter((key) => TAG_GROUPS[key].axis === 'content');
+export const POLITICAL_KEYS = ALL_KEYS.filter((key) => TAG_GROUPS[key].axis === 'political');
 
 export interface TagListProvenance {
   sourceUrl: string;
@@ -73,7 +102,12 @@ function isChannelRow(value: unknown): value is { youtube_id: string } {
     && /^UC[A-Za-z0-9_-]{22}$/.test(value.youtube_id);
 }
 
-async function fetchList(query: string): Promise<{ ids: Set<string>; sourceUpdatedAt: string }> {
+async function fetchList(definition: TagGroupDefinition): Promise<{ ids: Set<string>; sourceUpdatedAt: string }> {
+  if ([definition.query, definition.description, definition.source, definition.policyVersion,
+    definition.names.en, definition.names.zh].some((value) => !value.trim())) {
+    throw new Error('tag list: missing governed definition');
+  }
+  const { query } = definition;
   const response = await fetch(`${config.tagListsUrl}?${query}`, {
     headers: { 'User-Agent': config.userAgent },
     signal: AbortSignal.timeout(15_000),
@@ -101,7 +135,7 @@ export async function fetchTagLists(now = Date.now()): Promise<TagListSnapshot> 
   if (cached && now - cached.at < TAG_LISTS_TTL_MS) return cached.snapshot;
   if (!pending) {
     pending = (async () => {
-      const responses = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUP_QUERIES[key])));
+      const responses = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUPS[key])));
       const lists = Object.fromEntries(
         ALL_KEYS.map((key, index) => [key, responses[index].ids]),
       ) as TagLists;
@@ -146,6 +180,7 @@ export interface TagLeanData {
   provenance: TagListProvenance;
   totals: { watches: number; estimatedWatchSeconds: number; channels: number };
   matched: { watches: number; estimatedWatchSeconds: number; channels: number };
+  unmatched: { estimatedWatchSeconds: number; channels: number; topChannels: YoutubeChannelSummary[] };
   content: TagLeanGroup[];
   political: TagLeanGroup[];
 }
@@ -164,6 +199,7 @@ export function computeTagLean(
   const { lists } = snapshot;
   const totals = { watches: 0, estimatedWatchSeconds: 0, channels: channels.length };
   const matched = { watches: 0, estimatedWatchSeconds: 0, channels: 0 };
+  const unmatched: YoutubeChannelSummary[] = [];
   for (const channel of channels) {
     totals.watches += channel.watches;
     totals.estimatedWatchSeconds += channel.estimatedWatchSeconds;
@@ -171,6 +207,8 @@ export function computeTagLean(
       matched.watches += channel.watches;
       matched.estimatedWatchSeconds += channel.estimatedWatchSeconds;
       matched.channels += 1;
+    } else {
+      unmatched.push(channel);
     }
   }
   const group = (key: TagGroupKey): TagLeanGroup => {
@@ -192,6 +230,13 @@ export function computeTagLean(
     provenance: snapshot.provenance,
     totals,
     matched,
+    unmatched: {
+      estimatedWatchSeconds: totals.estimatedWatchSeconds - matched.estimatedWatchSeconds,
+      channels: unmatched.length,
+      topChannels: unmatched.sort((a, b) => b.estimatedWatchSeconds - a.estimatedWatchSeconds
+        || b.watches - a.watches
+        || (a.channelId ?? a.name).localeCompare(b.channelId ?? b.name, 'en')).slice(0, 10),
+    },
     content: CONTENT_KEYS.map(group),
     political: POLITICAL_KEYS.map(group),
   };
