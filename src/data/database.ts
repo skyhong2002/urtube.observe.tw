@@ -2441,7 +2441,7 @@ export class Repository {
       LEFT JOIN youtube_videos v ON v.video_id=e.video_id
       ${where}
     `).get(...params) as Record<string, number>;
-    const channelRows = this.db.prepare(`
+    const channelQuery = (extraWhere: string) => this.db.prepare(`
       ${estimatedEvents},
       aggregated AS (
         SELECT ${channelKey} key, ${channelName} name,
@@ -2453,14 +2453,20 @@ export class Repository {
         ${where}
           AND ${channelName} IS NOT NULL
           AND LOWER(TRIM(${channelName}))<>'unknown channel'
+          ${extraWhere}
         GROUP BY ${channelKey}
       )
       SELECT key, name, thumbnail_url, watches, estimated_watch_seconds,
-        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, name) rank
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, name) rank,
+        ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, name) watch_rank
       FROM aggregated
       ORDER BY rank
       LIMIT ${YOUTUBE_COMPARISON_LIST_LIMIT}
     `).all(...params) as Array<Record<string, string | number | null>>;
+    const channelRows = channelQuery('');
+    // Same Shorts proxy as the dashboard: known duration of at most three
+    // minutes. Unknown durations never count as short-form.
+    const shortsChannelRows = channelQuery('AND v.duration_seconds IS NOT NULL AND v.duration_seconds<=180');
     const videoRows = this.db.prepare(`
       ${estimatedEvents},
       aggregated AS (
@@ -2475,7 +2481,8 @@ export class Repository {
         GROUP BY e.video_id
       )
       SELECT video_id, title, channel_title, thumbnail_url, watches, estimated_watch_seconds,
-        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, title) rank
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, title) rank,
+        ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, title) watch_rank
       FROM aggregated
       ORDER BY rank
       LIMIT ${YOUTUBE_COMPARISON_LIST_LIMIT}
@@ -2494,7 +2501,8 @@ export class Repository {
         GROUP BY mt.topic_key
       )
       SELECT topic_key, watches, estimated_watch_seconds,
-        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, topic_key) rank
+        ROW_NUMBER() OVER (ORDER BY estimated_watch_seconds DESC, watches DESC, topic_key) rank,
+        ROW_NUMBER() OVER (ORDER BY watches DESC, estimated_watch_seconds DESC, topic_key) watch_rank
       FROM aggregated ORDER BY rank
     `).all(taxonomyVersion, ...params) as Array<Record<string, string | number>>;
     const rhythmCoverage = this.db.prepare(`
@@ -2523,6 +2531,15 @@ export class Repository {
       ${where}
       GROUP BY weekday ORDER BY weekday
     `).all(...params) as Array<Record<string, string | number>>;
+    const channelRow = (row: Record<string, string | number | null>) => ({
+      key: String(row.key),
+      name: String(row.name),
+      thumbnailUrl: String(row.thumbnail_url ?? ''),
+      rank: Number(row.rank),
+      watchRank: Number(row.watch_rank),
+      watches: Number(row.watches),
+      estimatedWatchSeconds: Number(row.estimated_watch_seconds),
+    });
     const edge = (direction: 'ASC' | 'DESC') => {
       const row = this.db.prepare(`
         SELECT COALESCE(NULLIF(v.title, ''), e.raw_title) title, e.watched_at
@@ -2542,26 +2559,22 @@ export class Repository {
         uniqueChannels: Number(totals.unique_channels ?? 0),
         activeDays: Number(totals.active_days ?? 0),
       },
-      channels: channelRows.map((row) => ({
-        key: String(row.key),
-        name: String(row.name),
-        thumbnailUrl: String(row.thumbnail_url ?? ''),
-        rank: Number(row.rank),
-        watches: Number(row.watches),
-        estimatedWatchSeconds: Number(row.estimated_watch_seconds),
-      })),
+      channels: channelRows.map(channelRow),
+      shortsChannels: shortsChannelRows.map(channelRow),
       videos: videoRows.map((row) => ({
         videoId: String(row.video_id),
         title: String(row.title),
         channelTitle: String(row.channel_title ?? ''),
         thumbnailUrl: String(row.thumbnail_url ?? ''),
         rank: Number(row.rank),
+        watchRank: Number(row.watch_rank),
         watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
       topics: topicRows.map((row) => ({
         key: String(row.topic_key),
         rank: Number(row.rank),
+        watchRank: Number(row.watch_rank),
         watches: Number(row.watches),
         estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),

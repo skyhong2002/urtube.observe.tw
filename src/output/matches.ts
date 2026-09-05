@@ -5,6 +5,8 @@ import {
   COMPARISON_LOCKED_TOPIC_LIMIT,
   COMPARISON_RANGES,
   type CommonChannel,
+  type CommonItemMeasures,
+  type CommonMeasure,
   type CommonTopic,
   type CommonVideo,
   type ComparisonList,
@@ -94,6 +96,9 @@ function metric(label: string, percentage: number | null): string {
 
 const COMPARISON_PREVIEW_ROWS = 6;
 
+export type ComparisonMetric = 'seconds' | 'watches';
+export const COMPARISON_METRICS: readonly ComparisonMetric[] = ['seconds', 'watches'];
+
 function count(value: number): string {
   return new Intl.NumberFormat('en').format(value);
 }
@@ -109,8 +114,31 @@ function taipeiDate(iso: string, t: Messages): string {
   return t.fullDate(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate());
 }
 
-function rankCell(rank: number, watches: number | null, name: string, t: Messages): string {
-  return `<span class="mt-rank" aria-label="${html(t.matchesRankFor(name))}"><b>#${rank}</b>${watches === null ? '' : `<small>${html(t.matchesTimes(watches))}</small>`}</span>`;
+function metricValue(metric: ComparisonMetric, value: number, t: Messages): string {
+  return metric === 'seconds' ? hours(value) : t.matchesTimes(value);
+}
+
+function rankCell(
+  measure: CommonMeasure,
+  side: 'a' | 'b',
+  metric: ComparisonMetric,
+  showValue: boolean,
+  name: string,
+  t: Messages,
+): string {
+  return `<span class="mt-rank" aria-label="${html(t.matchesRankFor(name))}"><b>#${measure.rank[side]}</b>${showValue ? `<small>${html(metricValue(metric, measure.value[side], t))}</small>` : ''}</span>`;
+}
+
+// One panel per metric; the page-level toggle shows one at a time. Rows are
+// re-sorted by that metric's blend so both people always see the same order.
+function metricPanels(render: (metric: ComparisonMetric) => string): string {
+  return COMPARISON_METRICS.map((metric) =>
+    `<div data-metric-panel="${metric}"${metric === 'seconds' ? '' : ' hidden'}>${render(metric)}</div>`).join('');
+}
+
+function sortedBy<T extends CommonItemMeasures>(items: T[], metric: ComparisonMetric): T[] {
+  return [...items].sort((x, y) => y[metric].blend - x[metric].blend
+    || (x[metric].rank.a + x[metric].rank.b) - (y[metric].rank.a + y[metric].rank.b));
 }
 
 // Six rows stay visible; the rest fold into a native disclosure so the page
@@ -122,11 +150,11 @@ function foldedRows(rows: string[], t: Messages): string {
   return `<div class="mt-rows">${visible}</div><details class="mt-more"><summary>${html(t.matchesShowMore(rest.length))}</summary><div class="mt-rows">${rest.join('')}</div></details>`;
 }
 
-function listSection(
+function listSection<T extends CommonItemMeasures>(
   title: string,
   subtitle: string,
-  list: ComparisonList<unknown>,
-  rows: string[],
+  list: ComparisonList<T>,
+  row: (item: T, metric: ComparisonMetric) => string,
   t: Messages,
   // Topics stay visible (bounded, ranks only) while locked; channels and
   // videos do not.
@@ -135,34 +163,43 @@ function listSection(
   let body: string;
   if (list.state === 'locked' && !previewWhileLocked) {
     body = `<p class="mt-gate mt-gate-locked">${t.matchesUnlockNote}</p>`;
-  } else if (!rows.length) {
+  } else if (!list.items.length) {
     body = `<p class="mt-gate">${t.matchesNothingInCommon}</p>`;
   } else {
-    body = foldedRows(rows, t);
+    body = metricPanels((metric) => foldedRows(sortedBy(list.items, metric).map((item) => row(item, metric)), t));
   }
   return `<section class="mt-panel"><div class="mt-panel-head"><h2>${html(title)}</h2><span>${html(subtitle)}</span></div>${body}</section>`;
 }
 
-function topicRows(topics: CommonTopic[], names: ComparisonPair<string>, t: Messages): string[] {
-  return topics.map((topic) => `<div class="mt-row">${rankCell(topic.rank.a, topic.watches?.a ?? null, names.a, t)}<div class="mt-row-main"><strong>${html(topic.name)}</strong></div>${rankCell(topic.rank.b, topic.watches?.b ?? null, names.b, t)}</div>`);
+function topicRow(names: ComparisonPair<string>, t: Messages) {
+  return (topic: CommonTopic, metric: ComparisonMetric) =>
+    `<div class="mt-row">${rankCell(topic[metric], 'a', metric, topic.valuesVisible, names.a, t)}<div class="mt-row-main"><strong>${html(topic.name)}</strong></div>${rankCell(topic[metric], 'b', metric, topic.valuesVisible, names.b, t)}</div>`;
 }
 
-function channelRows(channels: CommonChannel[], names: ComparisonPair<string>, t: Messages): string[] {
-  return channels.map((channel) => {
+// Channels keyed by a YouTube channel id link straight to the channel;
+// name-only keys (older capture rows) fall back to a YouTube search.
+export function channelHref(channel: { key: string; name: string }): string {
+  return /^UC[A-Za-z0-9_-]{22}$/.test(channel.key)
+    ? `https://www.youtube.com/channel/${channel.key}`
+    : `https://www.youtube.com/results?search_query=${encodeURIComponent(channel.name)}`;
+}
+
+function channelRow(names: ComparisonPair<string>, t: Messages) {
+  return (channel: CommonChannel, metric: ComparisonMetric) => {
     const avatar = channel.thumbnailUrl
       ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="36" height="36">`
       : `<span class="mt-row-avatar" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
-    return `<div class="mt-row">${rankCell(channel.rank.a, channel.watches.a, names.a, t)}<div class="mt-row-main">${avatar}<strong>${html(channel.name)}</strong></div>${rankCell(channel.rank.b, channel.watches.b, names.b, t)}</div>`;
-  });
+    return `<div class="mt-row">${rankCell(channel[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${avatar}<strong><a href="${html(channelHref(channel))}" rel="noopener" target="_blank">${html(channel.name)}</a></strong></div>${rankCell(channel[metric], 'b', metric, true, names.b, t)}</div>`;
+  };
 }
 
-function videoRows(videos: CommonVideo[], names: ComparisonPair<string>, t: Messages): string[] {
-  return videos.map((video) => {
+function videoRow(names: ComparisonPair<string>, t: Messages) {
+  return (video: CommonVideo, metric: ComparisonMetric) => {
     const thumb = video.thumbnailUrl
       ? `<img class="mt-thumb" src="${html(video.thumbnailUrl)}" alt="" loading="lazy" width="64" height="36">`
       : `<span class="mt-thumb" aria-hidden="true"></span>`;
-    return `<div class="mt-row">${rankCell(video.rank.a, video.watches.a, names.a, t)}<div class="mt-row-main">${thumb}<div><strong><a href="https://www.youtube.com/watch?v=${html(video.videoId)}" rel="noopener" target="_blank">${html(video.title)}</a></strong>${video.channelTitle ? `<small>${html(video.channelTitle)}</small>` : ''}</div></div>${rankCell(video.rank.b, video.watches.b, names.b, t)}</div>`;
-  });
+    return `<div class="mt-row">${rankCell(video[metric], 'a', metric, true, names.a, t)}<div class="mt-row-main">${thumb}<div><strong><a href="https://www.youtube.com/watch?v=${html(video.videoId)}" rel="noopener" target="_blank">${html(video.title)}</a></strong>${video.channelTitle ? `<small>${html(video.channelTitle)}</small>` : ''}</div></div>${rankCell(video[metric], 'b', metric, true, names.b, t)}</div>`;
+  };
 }
 
 function statsSection(comparison: WatchComparison, t: Messages): string {
@@ -175,36 +212,36 @@ function statsSection(comparison: WatchComparison, t: Messages): string {
 
 function clockSection(comparison: WatchComparison, names: ComparisonPair<string>, t: Messages): string {
   const share = comparison.clock.mode === 'share';
-  const figure = (side: 'a' | 'b', metric: 'watches' | 'seconds') => {
+  const figure = (side: 'a' | 'b', metric: ComparisonMetric) => {
     const data = comparison.clock[side];
-    if (!data.reliable) return `<div class="mt-clock-empty" data-clock-panel="${metric}"><span>${html(names[side])}</span><p>${t.matchesClockUnreliable}</p></div>`;
+    if (!data.reliable) return `<div class="mt-clock-empty"><span>${html(names[side])}</span><p>${t.matchesClockUnreliable}</p></div>`;
     const values = metric === 'watches' ? data.watches : data.seconds;
     const tip = (_hour: number, value: number) => {
       if (share) return metric === 'watches' ? t.matchesClockShare(percent(value)) : t.matchesClockShareTime(percent(value));
       return metric === 'watches' ? t.tipVideos(value) : hours(value);
     };
-    return radialClock(values, names[side], t.rhythmAria(names[side]), tip, metric);
+    return radialClock(values, names[side], t.rhythmAria(names[side]), tip);
   };
-  return `<section class="mt-panel" data-clock-section><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesClock}</h2><span>${t.matchesClockSub}</span></div>
-    <div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesClock)}"><button type="button" data-clock-metric="watches" aria-pressed="true">${t.rhythmWatches}</button><button type="button" data-clock-metric="seconds" aria-pressed="false">${t.rhythmTime}</button></div></div>
-    <div class="mt-clocks">${figure('a', 'watches')}${figure('b', 'watches')}${figure('a', 'seconds')}${figure('b', 'seconds')}</div>
+  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesClock}</h2><span>${t.matchesClockSub}</span></div></div>
+    ${metricPanels((metric) => `<div class="mt-clocks">${figure('a', metric)}${figure('b', metric)}</div>`)}
     ${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}
-    <script>(()=>{const root=document.currentScript?.closest('[data-clock-section]');if(!root)return;const buttons=[...root.querySelectorAll('[data-clock-metric]')];const panels=[...root.querySelectorAll('[data-clock-panel],[data-rhythm-panel]')];const apply=(metric)=>{for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.clockMetric===metric));for(const p of panels)p.hidden=(p.dataset.clockPanel||p.dataset.rhythmPanel)!==metric;};for(const b of buttons)b.addEventListener('click',()=>apply(b.dataset.clockMetric));apply('watches');})();</script>
   </section>`;
 }
 
 function weekdaySection(comparison: WatchComparison, t: Messages): string {
   const share = comparison.weekdays.mode === 'share';
-  const max = Math.max(1e-9, ...comparison.weekdays.rows.flatMap((row) => [row.watches.a, row.watches.b]));
-  const label = (value: number) => (share ? percent(value) : count(value));
-  const bar = (side: 'a' | 'b', row: WatchComparison['weekdays']['rows'][number]) => {
-    const value = row.watches[side];
-    const seconds = row.seconds[side];
-    const tipLabel = share ? t.matchesClockShareTime(percent(seconds)) : hours(seconds);
-    return `<div class="mt-bar mt-bar-${side}" data-tip="${html(label(value))}" data-tip-label="${html(tipLabel)}" tabindex="0"><i style="width:${Math.round(value / max * 100)}%"></i><b>${html(label(value))}</b></div>`;
+  const rowsFor = (metric: ComparisonMetric) => {
+    const pick = (row: WatchComparison['weekdays']['rows'][number], side: 'a' | 'b') =>
+      metric === 'watches' ? row.watches[side] : row.seconds[side];
+    const max = Math.max(1e-9, ...comparison.weekdays.rows.flatMap((row) => [pick(row, 'a'), pick(row, 'b')]));
+    const label = (value: number) => (share ? percent(value) : metricValue(metric, value, t));
+    const bar = (side: 'a' | 'b', row: WatchComparison['weekdays']['rows'][number]) => {
+      const value = pick(row, side);
+      return `<div class="mt-bar mt-bar-${side}" data-tip="${html(label(value))}" tabindex="0"><i style="width:${Math.round(value / max * 100)}%"></i><b>${html(label(value))}</b></div>`;
+    };
+    return `<div class="mt-week">${comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('')}</div>`;
   };
-  const rows = comparison.weekdays.rows.map((row) => `<div class="mt-week-row">${bar('a', row)}<span>${html(t.matchesWeekdayNames[row.weekday] ?? '')}</span>${bar('b', row)}</div>`).join('');
-  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2><span>${t.matchesWeekdaysSub}</span></div></div><div class="mt-week">${rows}</div>${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}</section>`;
+  return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2><span>${t.matchesWeekdaysSub}</span></div></div>${metricPanels(rowsFor)}${share ? `<p class="mt-gate">${t.matchesShareMode}</p>` : ''}</section>`;
 }
 
 function edgeSection(
@@ -219,6 +256,11 @@ function edgeSection(
   };
   return `<section class="mt-panel"><div class="mt-panel-head"><h2>${html(title)}</h2></div><div class="mt-edges">${row('a')}${row('b')}</div></section>`;
 }
+
+// The single page-level metric switch. Panels for both metrics are in the
+// HTML, so switching is instant and needs no request; the choice persists
+// in the query string of the range links and in localStorage.
+const metricScript = `(()=>{const buttons=[...document.querySelectorAll('[data-metric]')];const panels=[...document.querySelectorAll('[data-metric-panel]')];const links=[...document.querySelectorAll('.mt-range a')];const valid=['seconds','watches'];const fromQuery=new URLSearchParams(location.search).get('metric');let stored=null;try{stored=localStorage.getItem('urtube-compare-metric')}catch{}const apply=(metric)=>{if(!valid.includes(metric))metric='seconds';for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.metric===metric));for(const p of panels)p.hidden=p.dataset.metricPanel!==metric;for(const a of links){const u=new URL(a.getAttribute('href'),location.href);u.searchParams.set('metric',metric);a.setAttribute('href',u.pathname+u.search)}try{localStorage.setItem('urtube-compare-metric',metric)}catch{}};for(const b of buttons)b.addEventListener('click',()=>apply(b.dataset.metric));apply(fromQuery||stored||'seconds');})();`;
 
 export function matchingCandidatePage(
   viewer: { handle: string; displayName: string },
@@ -263,9 +305,10 @@ export function matchingCandidatePage(
     : t.matchesInCommon(comparison.topics.total, card.displayName);
   const sections = [
     statsSection(comparison, t),
-    listSection(t.matchesCommonTopics, topicsSubtitle, comparison.topics, topicRows(comparison.topics.items, names, t), t, true),
-    listSection(t.matchesCommonChannels, comparison.channels.state === 'unlocked' ? t.matchesInCommon(comparison.channels.total, card.displayName) : '', comparison.channels, channelRows(comparison.channels.items, names, t), t),
-    listSection(t.matchesCommonVideos, comparison.videos.state === 'unlocked' ? t.matchesInCommon(comparison.videos.total, card.displayName) : '', comparison.videos, videoRows(comparison.videos.items, names, t), t),
+    listSection(t.matchesCommonTopics, topicsSubtitle, comparison.topics, topicRow(names, t), t, true),
+    listSection(t.matchesCommonChannels, comparison.channels.state === 'unlocked' ? t.matchesInCommon(comparison.channels.total, card.displayName) : '', comparison.channels, channelRow(names, t), t),
+    listSection(t.matchesCommonShorts, comparison.shortsChannels.state === 'unlocked' ? t.matchesInCommon(comparison.shortsChannels.total, card.displayName) : '', comparison.shortsChannels, channelRow(names, t), t),
+    listSection(t.matchesCommonVideos, comparison.videos.state === 'unlocked' ? t.matchesInCommon(comparison.videos.total, card.displayName) : '', comparison.videos, videoRow(names, t), t),
     clockSection(comparison, names, t),
     weekdaySection(comparison, t),
     comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
@@ -277,7 +320,8 @@ export function matchingCandidatePage(
     t.trustRecent90,
     t.trustMutualConsent,
   ], t.trustSignalsLabel);
-  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${signals}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div>`;
+  const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${signals}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${metricToggle}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div><script>${metricScript}</script>`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
@@ -285,6 +329,7 @@ export function matchingCandidatePage(
 
 const comparisonStyles = `
   .mt-profile{max-width:960px}.mt-range{flex-wrap:wrap;justify-content:center;margin:18px 0 6px}
+  .mt-metric-bar{align-items:center;display:flex;flex-direction:column;gap:8px;margin:6px 0 16px;text-align:center}.mt-metric-bar .mt-gate{max-width:560px}[data-metric-panel][hidden]{display:none}
   .mt-profile>.trust-signals{justify-content:center;margin-top:-5px}.mt-consent-note{color:var(--muted);font-size:11px;margin:9px auto 14px;max-width:620px;text-align:center}
   .mt-panel-head{align-items:center;display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;margin-bottom:14px}.mt-panel-head h2{margin:0}.mt-panel-head span{color:var(--muted);font-size:11px}.mt-panel-title{display:flex;flex-direction:column;gap:2px}
   .mt-gate{color:var(--muted);font-size:12px;line-height:1.6;margin:0}.mt-gate-locked{background:var(--raised);border-radius:10px;padding:12px 14px}
