@@ -248,7 +248,7 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     const bobCookie = `urtube_session=${registry.createSession(bob)}`;
 
     const directory = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    assert.match(directory, /<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/alice-cmp\/compare\/bob-cmp"/);
+    assert.match(directory, /action="\/matches\/request"/);
     const comparePath = '/alice-cmp/compare/bob-cmp';
     const actionTokenIn = (html: string) => {
       const match = html.match(/name="actionToken" value="([A-Za-z0-9_-]+)"/);
@@ -257,29 +257,16 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     };
 
     const locked = await app.request(`${comparePath}?range=all`, { headers: { cookie: aliceCookie } });
-    assert.equal(locked.status, 200);
-    assert.equal(locked.headers.get('cache-control'), 'no-store');
-    const lockedHtml = await locked.text();
-    assert.match(lockedHtml, /Watch stats/);
-    assert.match(lockedHtml, /Topics in common/);
-    assert.match(lockedHtml, /Channels in common/);
-    assert.match(lockedHtml, /Videos in common/);
-    assert.match(lockedHtml, /Shorts channels in common/);
-    assert.match(lockedHtml, /data-metric="watches"/);
-    assert.match(lockedHtml, /Watch clock/);
-    assert.match(lockedHtml, /Weekdays/);
-    assert.match(lockedHtml, /Unlocks when you both choose to meet/);
-    assert.match(lockedHtml, /href="\/alice-cmp\/compare\/bob-cmp\?range=28d"/);
-    assert.match(lockedHtml, /\?range=all" aria-current="page"/);
-    // Rhythm is shown as shares only; nothing names a video, channel, or count.
-    assert.match(lockedHtml, /own watches/);
-    assert.doesNotMatch(lockedHtml, /Video AAAAAAAAAA1|Channel A|Channel B|First watch|Last watch|class="mt-stat-row"|youtube\.com\/watch/);
-    assert.doesNotMatch(lockedHtml, /candidateUserId|watchEvents|estimatedWatchSeconds/);
+    assert.equal(locked.status, 302);
+    assert.equal(locked.headers.get('location'), '/bob-cmp?range=all');
+    const lockedHtml = await (await app.request('/bob-cmp', { headers: { cookie: aliceCookie } })).text();
+    assert.match(lockedHtml, /Add friend/);
+    assert.doesNotMatch(lockedHtml, /class="mt-stat-row"|youtube\.com\/watch/);
 
     await app.request('/matches/request', form({ actionToken: actionTokenIn(lockedHtml) }, aliceCookie));
     const request = registry.matchingInboxFor(bob).incoming[0];
     assert.ok(request);
-    const bobView = await (await app.request('/bob-cmp/compare/alice-cmp', { headers: { cookie: bobCookie } })).text();
+    const bobView = await (await app.request('/alice-cmp', { headers: { cookie: bobCookie } })).text();
     await app.request('/matches/respond', form({
       actionToken: actionTokenIn(bobView), requestToken: request.requestToken, response: 'accept',
     }, bobCookie));
@@ -287,7 +274,7 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     const unlockedHtml = await (await app.request(`${comparePath}?range=all`, {
       headers: { cookie: aliceCookie },
     })).text();
-    assert.match(unlockedHtml, /Deeper comparison unlocked/);
+    assert.match(unlockedHtml, /You are friends/);
     // Stats block: Alice 4 events, Bob 3; distinct channels 2 and 2.
     assert.match(unlockedHtml, /<div class="mt-stat-row"><strong>4<\/strong><span>Watch events<\/span><strong>3<\/strong><\/div>/);
     assert.match(unlockedHtml, /<strong>2<\/strong><span>Distinct channels<\/span><strong>2<\/strong>/);
@@ -321,11 +308,11 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.match(narrow, /\?range=28d" aria-current="page"/);
     assert.match(narrow, /Video AAAAAAAAAA1/);
 
-    // Leaving matching ends the comparison entirely; there is no finer switch.
+    // Leaving matching revokes Blend and returns to the basic identity page.
     registry.setMatchingPreferences(bob.handle, false, 'topics_and_channel');
     assert.equal((await app.request(`${comparePath}?range=all`, {
       headers: { cookie: aliceCookie },
-    })).status, 404);
+    })).status, 302);
   } finally {
     registry.close();
     rmSync(root, { recursive: true, force: true });

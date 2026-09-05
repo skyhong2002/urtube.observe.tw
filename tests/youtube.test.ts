@@ -386,7 +386,7 @@ test('dashboard ranks individual videos and tracks short-form time using known d
     assert.match(overviewPage, /data-youtube-sort="watches"/);
     assert.match(overviewPage, /data-youtube-sort-list="channels"/);
     assert.match(overviewPage, /history\.pushState/);
-    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos,\.yt-recent\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+    assert.match(overviewPage, /\.yt-channels,\.yt-top-videos\{column-gap:28px;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
     assert.doesNotMatch(overviewPage, /data-rhythm-panel=/);
     const insightsPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'insights', dashboardPrivate: true,
@@ -1046,7 +1046,7 @@ test('AI taxonomy and classification queues prioritize recently watched videos',
     assert.equal(partial.stats.topicCoverage, 0.5);
     assert.equal(partial.topics[0]?.slug, 'recent-topic');
     const partialPage = youtubeDashboardPage('Fixture', partial, 'duration', {
-      lang: 'en', page: 'insights',
+      lang: 'en', page: 'overview',
     });
     assert.match(partialPage, /Processed 50% · effective 50% · Unknown 0%/);
     assert.match(partialPage, /Effective coverage is below 80%/);
@@ -1154,9 +1154,9 @@ test('topic trend uses exact-time events, current classifications, and weighted 
     ]);
 
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
-      lang: 'zh', page: 'insights',
+      lang: 'zh', page: 'overview',
     });
-    assert.match(html, /主題如何改變/);
+    assert.match(html, /主題動態/);
     assert.match(html, /依頁面範圍/);
     assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);

@@ -14,9 +14,11 @@ import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
-import { matchesPage, matchingCandidatePage } from './output/matches.js';
+import { matchesPage, matchingCandidatePage, type ActionableMatchingCandidateCard } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
 import { memberProfilePage } from './output/member-profile.js';
+import { registryMatchingCrystal } from './youtube/registry-crystal.js';
+import { resolveMatchingDimensions } from './youtube/dimensions.js';
 import {
   YOUTUBE_CHANNEL_ID_PATTERN,
   channelPage,
@@ -131,7 +133,7 @@ function evictUserCaches(handle: string): void {
   clearReadCaches();
   warmedHandles.delete(handle);
 }
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights = false): YoutubeDashboardData {
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' = false): YoutubeDashboardData {
   return cachedRead(repository, `dashboard:${range}:${includeInsights}`, () => repository.youtubeDashboard(range, new Date(), includeInsights));
 }
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): YoutubeComparisonProfile {
@@ -265,6 +267,41 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return dashboardKeyAccess(c, user);
   }
 
+  function mutualFriends(viewer: User | null, target: User): boolean {
+    return Boolean(viewer?.matchingOptIn && target.matchingOptIn
+      && registry.matchingRelationshipFor(viewer, target.id).status === 'connected');
+  }
+
+  function privateDashboardAccess(c: Context, user: User): boolean {
+    return sessionUser(c)?.id === user.id || dashboardKeyAccess(c, user);
+  }
+
+  function profileAccess(c: Context, user: User, page: YoutubeDashboardPageKind = 'overview'): boolean {
+    const current = registry.userByHandle(user.handle);
+    if (!current || current.id !== user.id) return false;
+    if (privateDashboardAccess(c, current)) return true;
+    return (page === 'overview' || page === 'insights')
+      && (current.dashboardPublic || mutualFriends(sessionUser(c), current));
+  }
+
+  function blendIdentity(user: User): MatchableCrystal {
+    const crystal = registry.matchingCrystalFor(user.handle)
+      ?? registryMatchingCrystal(cachedCrystalFor(registry, user));
+    return { userId: user.id, handle: user.handle, displayName: user.displayName,
+      disclosureLevel: 'topics_and_channel', crystal, dimensions: resolveMatchingDimensions(crystal, null) };
+  }
+
+  function blendCard(me: User, target: User): ActionableMatchingCandidateCard {
+    const card = rankedMatchingCandidateCards(blendIdentity(me), [blendIdentity(target)])[0];
+    return { ...(card ?? {
+      candidateUserId: target.id, handle: target.handle, displayName: target.displayName,
+      matchPercent: 0, topicPercent: null, channelPercent: null, method: 'channels' as const,
+      percentageVersion: 'calibrated-v2' as const, viewerInterests: [], interests: [], sharedInterests: [],
+      disclosure: { topics: [] },
+    }), comparisonReady: Boolean(card), targetPublic: target.dashboardPublic,
+      relationship: registry.matchingRelationshipFor(me, target.id) };
+  }
+
   async function dashboardResponse(
     c: Context,
     user: User,
@@ -283,13 +320,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'absolute'
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
-    const data = cachedDashboardFor(registry, user, range, repository, page === 'insights');
+    const data = cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
     const hasData = counts.watches > 0;
-    const me = sessionUser(c);
-    const viewerOwns = me?.id === user.id;
-    // Public visitors see only aggregates. A signed-in owner or someone with
-    // the dashboard key may also see individual recent watches.
-    const showRecent = viewerOwns || dashboardKeyAccess(c, user);
     const crystalHtml = page === 'insights' && hasData
       ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
     let leaningsHtml = '';
@@ -328,18 +360,23 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         leaningsHtml = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
       }
     }
+    // Insights may await external classification. Recheck visibility and
+    // the session before rendering any data from the earlier snapshot.
+    if (!profileAccess(c, user, page)) return notFoundPage(c);
+    user = registry.userByHandle(user.handle)!;
+    const me = sessionUser(c);
+    const viewerOwns = me?.id === user.id;
+    // Only the owner or an explicit dashboard key can expose individual watches.
+    const showRecent = privateDashboardAccess(c, user);
     const history = page === 'history' && showRecent
       ? repository.youtubeWatchHistory(range, 100) : undefined;
     warmedHandles.add(user.handle);
-    c.header('Cache-Control', 'no-cache');
+    c.header('Cache-Control', me || !user.dashboardPublic || showRecent ? 'private, no-store' : 'no-cache');
     // Private dashboards reached via key/session must not end up in search
     // engines even if a keyed link leaks into a crawler.
-    if (!user.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
-    // Setup instructions are for people who can act on them: the owner, a
-    // viewer of a private archive — or anyone on a still-empty dashboard,
-    // which is otherwise a blank page (and how a CLI-created owner with no
-    // session learns the setup steps).
-    const showSetup = viewerOwns || !user.dashboardPublic || !hasData;
+    if (!user.dashboardPublic || showRecent) c.header('X-Robots-Tag', 'noindex');
+    // Setup credentials are limited to the owner or a private dashboard key holder.
+    const showSetup = viewerOwns || (showRecent && !user.dashboardPublic);
     const suffix: Record<YoutubeDashboardPageKind, string> = {
       overview: '', insights: '/insights', history: '/history', recap: '/recap',
     };
@@ -359,6 +396,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       insightsHtml: crystalHtml + leaningsHtml,
       history,
       showRecent,
+      showPrivatePages: showRecent,
+      blendHref: !viewerOwns && (user.dashboardPublic || mutualFriends(me, user))
+        ? `/blend/${user.handle}?range=${range}&lang=${lang}` : undefined,
       dashboardPrivate: !user.dashboardPublic,
       shortFormVariant,
     }));
@@ -444,10 +484,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // Avatar URLs remain same-origin: neither email hashes nor Google/Gravatar
   // URLs reach the browser. Matching variants resolve an existing opaque
   // token and re-check consent on every request.
-  // Members of the matching pool see each other's avatars; nobody else does.
+  // Signed-in members can see public profiles, friends and discovery avatars.
   app.get('/avatar/member/:handle', async (c) => {
     const me = sessionUser(c);
-    const user = me ? registry.avatarUserForMember(me, c.req.param('handle')) : null;
+    const target = registry.userByHandle(c.req.param('handle'));
+    const user = me && target && (target.id === me.id || target.dashboardPublic || mutualFriends(me, target))
+      ? target : me ? registry.avatarUserForMember(me, c.req.param('handle')) : null;
     if (!user) return c.body(null, 404);
     return avatarResponse(c, user, 'private, no-store');
   });
@@ -461,7 +503,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   app.get('/avatar/:handle', async (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
-    if (!user || !dashboardAccess(c, user)) return c.body(null, 404);
+    if (!user || !profileAccess(c, user)) return c.body(null, 404);
     return avatarResponse(c, user, user.dashboardPublic
       ? 'public, max-age=3600' : 'private, no-store');
   });
@@ -746,20 +788,16 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         langToggle(c, lang).href,
       ), status);
     };
-    if (!me.matchingOptIn) return respond({ kind: 'opt_in_required' }, 403);
+    const publicUsers = registry.listUsers().filter(user => user.id !== me.id && user.dashboardPublic);
+    if (!me.matchingOptIn && !publicUsers.length) return respond({ kind: 'opt_in_required' }, 403);
     const crystal = registry.matchingCrystalFor(me.handle);
-    if (!crystal || !registryCrystalEligible(crystal)) return respond({ kind: 'data_pending' });
-    const viewer: MatchableCrystal = {
-      userId: me.id,
-      handle: me.handle,
-      displayName: me.displayName,
-      disclosureLevel: 'topics_and_channel',
-      crystal,
-      dimensions: registry.matchingDimensionsFor(me),
-    };
-    const pool = registry.listMatchableCrystals(MATCHING_CANDIDATE_POOL_LIMIT + 1);
+    const eligible = Boolean(crystal && registryCrystalEligible(crystal));
+    if (!eligible && !publicUsers.length) return respond({ kind: 'data_pending' });
+    const viewer = blendIdentity(me);
+    const privatePool = eligible ? registry.listMatchingCandidatesFor(me, MATCHING_CANDIDATE_POOL_LIMIT) : [];
+    const pool = [...new Map([...privatePool, ...publicUsers.map(blendIdentity)].map(member => [member.userId, member])).values()];
     let channelPolicy: CohortChannelPolicy | undefined;
-    if (pool.length >= 4) {
+    if (pool.length + 1 >= 4) {
       try {
         const snapshot = await loadTagLists();
         channelPolicy = cohortChannelPolicy(
@@ -771,11 +809,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           error instanceof Error ? error.message : 'unknown error');
       }
     }
-    const recommendations = cohortRecommendations(viewer, pool, channelPolicy);
-    const cards = rankedMatchingCandidateCards(
-      viewer,
-      registry.listMatchingCandidatesFor(me, MATCHING_CANDIDATE_POOL_LIMIT),
-    );
+    const currentMe = sessionUser(c);
+    if (!currentMe || currentMe.id !== me.id) return c.redirect('/auth/google?next=%2Fmatches');
+    const visiblePool = pool.filter(member => {
+      const target = registry.userByHandle(member.handle);
+      return target && (target.dashboardPublic || (currentMe.matchingOptIn && target.matchingOptIn));
+    });
+    const recommendations = cohortRecommendations(viewer, [viewer, ...visiblePool], channelPolicy);
+    const ranked = rankedMatchingCandidateCards(viewer, visiblePool);
+    const cards = [...ranked, ...publicUsers.filter(user => registry.userByHandle(user.handle)?.dashboardPublic && !ranked.some(card => card.candidateUserId === user.id)).map(user => blendCard(me, user))];
     if (!cards.length) return respond({ kind: 'empty' }, 200, recommendations);
     const batch = matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1));
     return respond({ kind: 'ready', batch: {
@@ -783,6 +825,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       cards: batch.cards.map((card) => ({
         ...card,
         relationship: registry.matchingRelationshipFor(me, card.candidateUserId),
+        targetPublic: Boolean(registry.userByHandle(card.handle)?.dashboardPublic),
+        actionToken: registry.matchingCandidateByHandle(currentMe, card.handle)
+          ? registry.issueMatchActionToken(currentMe, card.candidateUserId, card.disclosure.topics) : undefined,
       })),
     } }, 200, recommendations);
   });
@@ -960,6 +1005,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // Stable, shareable between the two people: /<me>/compare/<them>. The
   // short-lived action token is minted per render for the request/respond
   // forms, so it never has to survive in a URL.
+  app.get('/blend/:handle', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path + querySuffix(c))}`);
+    return c.redirect(`${comparisonPath(me, c.req.param('handle'))}${querySuffix(c)}`);
+  });
+
   app.get('/:handle/compare/:other', (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
@@ -970,25 +1021,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         ? c.redirect(`${comparisonPath(me, handle)}${querySuffix(c)}`)
         : notFoundPage(c);
     }
-    const candidate = registry.matchingCandidateByHandle(me, otherHandle);
-    const crystal = registry.matchingCrystalFor(me.handle);
-    const other = candidate ? registry.userByHandle(candidate.handle) : null;
-    if (!candidate || !other || !crystal || !registryCrystalEligible(crystal)) return notFoundPage(c);
-    const viewer: MatchableCrystal = {
-      userId: me.id,
-      handle: me.handle,
-      displayName: me.displayName,
-      disclosureLevel: 'topics_and_channel',
-      crystal,
-      dimensions: registry.matchingDimensionsFor(me),
-    };
-    const ranked = rankedMatchingCandidateCards(viewer, [candidate])[0];
-    if (ranked?.candidateUserId !== candidate.userId) return notFoundPage(c);
-    const card = {
-      ...ranked,
-      actionToken: registry.issueMatchActionToken(me, candidate.userId, ranked.disclosure.topics),
-      relationship: registry.matchingRelationshipFor(me, candidate.userId),
-    };
+    const other = registry.userByHandle(otherHandle);
+    if (!other || other.id === me.id) return notFoundPage(c);
+    if (!other.dashboardPublic && !mutualFriends(me, other)) {
+      return c.redirect(`/${other.handle}${querySuffix(c)}`);
+    }
+    const card = blendCard(me, other);
+    if (registry.matchingCandidateByHandle(me, other.handle)) {
+      card.actionToken = registry.issueMatchActionToken(me, other.id, card.disclosure.topics);
+    }
     const lang = langOf(c);
     const range = comparisonRange(c.req.query('range'));
     // Consent is re-read on every request: a withdrawal takes effect on the
@@ -997,7 +1038,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       cachedComparisonProfileFor(registry, me, range),
       cachedComparisonProfileFor(registry, other, range),
       range,
-      { connected: card.relationship.status === 'connected' },
+      { connected: other.dashboardPublic || mutualFriends(me, other) },
     );
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
@@ -1018,8 +1059,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.text(messages(langOf(c)).matchesActionInvalid, 400);
   };
 
-  const comparisonAfterAction = (c: Context, me: User, actionToken: unknown) => {
+  const comparisonAfterAction = (c: Context, me: User, actionToken: unknown, returnTo?: unknown) => {
     const candidate = registry.matchingCandidateForAction(me, String(actionToken ?? ''));
+    if (returnTo === '/matches' || (candidate && returnTo === `/${candidate.handle}`)) return c.redirect(String(returnTo));
     return candidate ? c.redirect(comparisonPath(me, candidate.handle)) : c.redirect('/matches');
   };
 
@@ -1029,7 +1071,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     try {
       registry.createMatchRequest(me, String(form.actionToken ?? ''));
-      return comparisonAfterAction(c, me, form.actionToken);
+      return comparisonAfterAction(c, me, form.actionToken, form.returnTo);
     } catch {
       return matchingActionError(c);
     }
@@ -1043,7 +1085,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (response !== 'accept' && response !== 'decline') return matchingActionError(c);
     try {
       registry.respondToMatchRequest(me, String(form.requestToken ?? ''), response);
-      return comparisonAfterAction(c, me, form.actionToken);
+      return comparisonAfterAction(c, me, form.actionToken, form.returnTo);
     } catch {
       return matchingActionError(c);
     }
@@ -1055,7 +1097,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     try {
       registry.withdrawMatchRequest(me, String(form.requestToken ?? ''));
-      return comparisonAfterAction(c, me, form.actionToken);
+      return comparisonAfterAction(c, me, form.actionToken, form.returnTo);
     } catch {
       return matchingActionError(c);
     }
@@ -1266,7 +1308,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     for (const user of registry.listUsers()) {
       if (!user.dashboardPublic) continue;
       const root = `/${user.handle}`;
-      paths.push(root, `${root}/insights`, `${root}/history`, `${root}/recap`);
+      paths.push(root, `${root}/insights`);
     }
     const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${paths.map((path) => `  <url><loc>${html(config.publicBaseUrl + path)}</loc></url>`).join('\n')}\n</urlset>\n`;
     c.header('Content-Type', 'application/xml');
@@ -1469,8 +1511,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   }
 
   const profilePage = (page: YoutubeDashboardPageKind) => (c: Context) => {
+    c.header('Cache-Control', 'private, no-store');
     const user = registry.userByHandle(c.req.param('handle') ?? '');
-    if (!user || !dashboardAccess(c, user)) return notFoundPage(c);
+    if (!user || !profileAccess(c, user, page)) {
+      c.header('X-Robots-Tag', 'noindex');
+      return notFoundPage(c);
+    }
     return dashboardResponse(c, user, `/${user.handle}`, page);
   };
 
@@ -1481,10 +1527,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   // Former fifth page: tags now render inside Insights. Keep old bookmarks
   // working, and drop a one-time dashboard key from the redirected URL after
-  // dashboardAccess has persisted it in the HttpOnly cookie.
+  // profileAccess has persisted it in the HttpOnly cookie.
   app.get('/:handle/tags', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
-    if (!user || !dashboardAccess(c, user)) return notFoundPage(c);
+    if (!user || !profileAccess(c, user, 'insights')) return notFoundPage(c);
     const url = new URL(c.req.url);
     url.searchParams.delete('key');
     return c.redirect(`/${user.handle}/insights${url.search}`, 301);
@@ -1496,7 +1542,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/:handle', (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
     if (!user) return notFoundPage(c);
-    if (!dashboardAccess(c, user)) {
+    if (!profileAccess(c, user)) {
       const me = sessionUser(c);
       if (!me) return notFoundPage(c);
       // Every signed-in member has a browsable identity page. Interests use
@@ -1512,19 +1558,13 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       c.header('Cache-Control', 'private, no-store');
       c.header('X-Robots-Tag', 'noindex');
       const lang = langOf(c);
-      const range = comparisonRange(c.req.query('range'));
-      const connected = Boolean(card && registry.matchingRelationshipFor(me, user.id).status === 'connected');
-      const comparison = connected ? compareWatchProfiles(
-        cachedComparisonProfileFor(registry, me, range),
-        cachedComparisonProfileFor(registry, user, range),
-        range, { connected: true },
-      ) : null;
       return c.html(memberProfilePage(me.handle, {
         handle: user.handle, displayName: user.displayName,
         avatarVisible: Boolean(registry.avatarUserForMember(me, user.handle)),
-        interests: card?.interests.slice(0, connected ? 5 : 3) ?? [],
-        comparison,
-        comparisonHref: card ? `${comparisonPath(me, user.handle)}?range=${range}&lang=${lang}` : null,
+        interests: card?.interests.slice(0, 3) ?? [],
+        comparisonHref: null,
+        friendship: card ? { ...card, relationship: registry.matchingRelationshipFor(me, user.id),
+          targetPublic: false, actionToken: registry.issueMatchActionToken(me, user.id, card.disclosure.topics) } : null,
       }, lang));
     }
     return dashboardResponse(c, user, `/${user.handle}`);
@@ -1559,7 +1599,7 @@ async function warmDashboards(registry: UserRegistry): Promise<void> {
       const counts = countsFor(repository);
       if (counts.watches === 0) continue;
       for (const range of YOUTUBE_RANGES) {
-        cachedDashboardFor(registry, user, range, repository);
+        cachedDashboardFor(registry, user, range, repository, 'overview');
         await yieldToRequests();
       }
     } catch (error) {

@@ -15,7 +15,7 @@ import {
   type WatchComparison,
 } from '../youtube/comparison.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { hours, html, primaryNav, shell, trustSignals } from './pages.js';
+import { hours, html, primaryNav, shell } from './pages.js';
 import { radialClock, rhythmClockStyles } from './youtube.js';
 import { YOUTUBE_CHANNEL_ID_PATTERN } from './channel.js';
 import { channelPreviewDrawer } from './channel-preview.js';
@@ -27,9 +27,11 @@ export type MatchesPageState =
   | { kind: 'ready'; batch: ActionableMatchingCandidateBatch };
 
 export interface ActionableMatchingCandidateCard extends MatchingCandidateCard {
-  // Minted only for the comparison page's request/respond forms.
+  // Scoped to the viewer and candidate for friendship forms.
   actionToken?: string;
   relationship: MatchRelationship;
+  targetPublic?: boolean;
+  comparisonReady?: boolean;
 }
 
 export interface ActionableMatchingCandidateBatch extends Omit<MatchingCandidateBatch, 'cards'> {
@@ -46,10 +48,10 @@ const matchesStyles = `
   .mt-person{align-items:center;display:flex;gap:12px}.mt-person-link{align-items:center;color:inherit;display:flex;gap:12px;text-decoration:none}.mt-avatar{background:linear-gradient(140deg,#e66767,#9b2b2b);border:2px solid transparent;border-radius:50%;display:block;flex:0 0 54px;height:54px;object-fit:cover;transition:border-color .15s,transform .15s;width:54px}.mt-person-link:hover .mt-avatar,.mt-person-link:focus-visible .mt-avatar{border-color:var(--accent);transform:scale(1.04)}.mt-person h2{font-size:17px;margin:0}
   .mt-percent{color:var(--accent-text);font-size:22px;font-variant-numeric:tabular-nums;font-weight:850;letter-spacing:-.03em}.mt-percent small{color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.02em;margin-left:5px}
   .mt-clues{display:grid;gap:9px;margin:20px 0 16px}.mt-clue-label{color:var(--muted);display:block;font-size:9px;font-weight:700;letter-spacing:.08em;margin-bottom:5px;text-transform:uppercase}.mt-pills{display:flex;flex-wrap:wrap;gap:6px}.mt-pill{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:11px;padding:3px 9px}.mt-channel{color:var(--ink-2);font-size:12px}
-  .mt-icebreaker{color:var(--ink-2);font-size:12px;line-height:1.6;margin:auto 0 16px}.mt-actions{align-items:center;display:flex;flex-wrap:wrap;gap:8px}.mt-actions a,.mt-actions button,.mt-profile-actions button{border-radius:999px;font:inherit;font-size:12px;font-weight:700;padding:8px 12px;text-decoration:none}.mt-want{background:var(--accent);border:1px solid var(--accent);color:#fff;cursor:pointer}.mt-secondary-link,.mt-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);cursor:pointer}.mt-state{background:var(--raised);border-radius:999px;color:var(--muted);font-size:10px;font-weight:750;padding:5px 9px}.mt-state.connected{background:rgba(78,190,130,.12);color:#71d9a1}.mt-state.incoming{background:rgba(250,178,25,.12);color:#f5c95e}
+  .mt-icebreaker{color:var(--ink-2);font-size:12px;line-height:1.6;margin:auto 0 16px}.mt-actions{align-items:center;display:flex;flex-wrap:wrap;gap:8px}.mt-actions form{display:flex;flex-wrap:wrap;gap:10px;margin:0}.mt-actions a,.mt-actions button,.mt-profile-actions button{align-items:center;border-radius:999px;display:inline-flex;font:inherit;font-size:14px;font-weight:700;justify-content:center;min-height:44px;padding:10px 20px;text-decoration:none}.mt-want{background:var(--accent);border:1px solid var(--accent);color:#fff;cursor:pointer}.mt-secondary-link,.mt-secondary{background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);cursor:pointer}.mt-state{background:var(--raised);border-radius:999px;color:var(--muted);font-size:10px;font-weight:750;padding:5px 9px}.mt-state.connected{background:rgba(78,190,130,.12);color:#71d9a1}.mt-state.incoming{background:rgba(250,178,25,.12);color:#f5c95e}
   .mt-pagination{align-items:center;display:flex;gap:9px;justify-content:center;margin-top:22px}.mt-pagination a{border:1px solid var(--line-strong);border-radius:999px;color:var(--ink-2);font-size:12px;font-weight:700;padding:8px 13px;text-decoration:none}.mt-page{color:var(--muted);font-size:11px}
   .mt-empty{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);max-width:620px;padding:26px}.mt-empty h2{font-size:18px;margin:0 0 8px}.mt-empty p{color:var(--ink-2);margin:0 0 16px}.mt-empty a{background:var(--accent);border-radius:999px;color:#fff;display:inline-block;font-size:13px;font-weight:700;padding:9px 15px;text-decoration:none}
-  .mt-profile{margin:10px auto 40px;max-width:900px}.mt-profile-back{color:var(--ink-2);font-size:12px}.mt-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-top:16px;padding:22px}.mt-panel h2{font-size:15px;margin:0 0 13px}.mt-panel>p{color:var(--ink-2);font-size:12px;line-height:1.6}.mt-metrics{display:grid;gap:10px}.mt-metric{align-items:center;display:flex;gap:12px}.mt-metric span{color:var(--ink-2);font-size:12px;min-width:108px}.mt-meter{background:var(--raised);border-radius:999px;flex:1;height:8px;overflow:hidden}.mt-meter i{background:var(--accent);display:block;height:100%}.mt-metric strong{font-size:13px;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}.mt-profile-actions{align-items:center;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}.mt-profile-actions form{margin:0}.mt-unlock{border-color:rgba(78,190,130,.35);background:rgba(78,190,130,.06)}.mt-locked{background:var(--raised)}
+  .mt-profile{margin:10px auto 40px;max-width:900px}.mt-profile-back{color:var(--ink-2);font-size:12px}.mt-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-top:16px;padding:22px}.mt-panel h2{font-size:15px;margin:0 0 13px}.mt-panel>p{color:var(--ink-2);font-size:12px;line-height:1.6}.mt-metrics{display:grid;gap:10px}.mt-metric{align-items:center;display:flex;gap:12px}.mt-metric span{color:var(--ink-2);font-size:12px;min-width:108px}.mt-meter{background:var(--raised);border-radius:999px;flex:1;height:8px;overflow:hidden}.mt-meter i{background:var(--accent);display:block;height:100%}.mt-metric strong{font-size:13px;font-variant-numeric:tabular-nums;min-width:38px;text-align:right}.mt-profile-actions{align-items:center;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}.mt-profile-actions form{display:flex;flex-wrap:wrap;gap:10px;margin:0}.mt-unlock{border-color:rgba(78,190,130,.35);background:rgba(78,190,130,.06)}.mt-locked{background:var(--raised)}
   .mt-vs{align-items:stretch;display:grid;grid-template-columns:minmax(0,1fr) 116px minmax(0,1fr);margin:20px 0}.mt-side{background:var(--surface);border:1px solid var(--line);min-height:360px;padding:clamp(20px,5vw,48px);text-align:center}.mt-side:first-child{border-radius:var(--radius) 0 0 var(--radius)}.mt-side:last-child{border-radius:0 var(--radius) var(--radius) 0}.mt-side img{border-radius:50%;height:clamp(72px,12vw,116px);object-fit:cover;width:clamp(72px,12vw,116px)}.mt-side h2{font-size:clamp(20px,3vw,32px);margin:13px 0 14px}.mt-side-label{color:var(--muted);font-size:10px;letter-spacing:.09em;text-transform:uppercase}.mt-side .mt-pills{justify-content:center}.mt-vs-center{align-items:center;display:flex;flex-direction:column;justify-content:center;position:relative;z-index:1}.mt-vs-center::before{background:var(--line);content:'';height:100%;left:50%;position:absolute;width:1px;z-index:-1}.mt-vs-score{align-items:center;background:var(--accent);border:7px solid var(--bg);border-radius:50%;color:#fff;display:flex;flex-direction:column;height:104px;justify-content:center;width:104px}.mt-vs-score strong{font-size:25px;font-variant-numeric:tabular-nums}.mt-vs-score span{font-size:9px;font-weight:700;text-transform:uppercase}.mt-version{color:var(--muted);font-size:10px;margin-top:9px;text-align:center}
   @media(max-width:620px){.mt-vs{grid-template-columns:minmax(0,1fr) 66px minmax(0,1fr)}.mt-vs-score{border-width:4px;height:62px;width:62px}.mt-vs-score strong{font-size:16px}.mt-vs-score span{font-size:7px}.mt-side{min-height:300px;padding:20px 8px}.mt-side h2{overflow-wrap:anywhere}.mt-side .mt-pill{font-size:9px;padding:3px 6px}}
 `;
@@ -61,6 +63,19 @@ function icebreaker(topics: string[], lang: Lang): string {
     : t.matchesIcebreakerGeneric;
 }
 
+export function friendshipActions(card: ActionableMatchingCandidateCard, viewerHandle: string, t: Messages, returnTo: string): string {
+  const canBlend = card.targetPublic || card.relationship.status === 'connected';
+  const blend = canBlend ? `<a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a>` : '';
+  if (card.targetPublic) return blend;
+  const token = `<input type="hidden" name="actionToken" value="${html(card.actionToken ?? '')}"><input type="hidden" name="returnTo" value="${html(returnTo)}">`;
+  switch (card.relationship.status) {
+    case 'none': return `${blend}<form method="post" action="/matches/request">${token}<button class="mt-want" type="submit">${html(t.matchesAddFriend)}</button></form>`;
+    case 'incoming': return `<form method="post" action="/matches/respond">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-want" name="response" value="accept">${html(t.matchesAcceptFriend)}</button><button class="mt-secondary" name="response" value="decline">${html(t.matchesDecline)}</button></form>`;
+    case 'sent': return `<span class="mt-state sent">${html(t.matchesFriendSent)}</span><form method="post" action="/matches/withdraw">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${html(t.matchesWithdraw)}</button></form>`;
+    case 'connected': return `${blend}<form method="post" action="/matches/withdraw">${token}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${html(t.matchesDisconnect)}</button></form>`;
+  }
+}
+
 function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang): string {
   const t = messages(lang);
   const topics = card.disclosure.topics;
@@ -69,21 +84,15 @@ function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: stri
     : card.disclosure.channel
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
-  const comparisonHref = `/${html(viewerHandle)}/compare/${html(card.handle)}`;
-  const relationshipLabel = {
-    none: t.matchesCompareFirst,
-    incoming: t.matchesIncomingStatus,
-    sent: t.matchesSentStatus,
-    connected: t.matchesConnectedStatus,
-  }[card.relationship.status];
+  const canBlend = card.targetPublic || card.relationship.status === 'connected';
   return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2>${canBlend ? `<div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div>` : ''}</div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
     </div>
     <p class="mt-icebreaker">${html(prompt)}</p>
-    <div class="mt-actions"><a class="mt-want" href="${comparisonHref}">${t.matchesCompare}</a><span class="mt-state ${card.relationship.status}">${relationshipLabel}</span></div>
+    <div class="mt-actions">${friendshipActions(card, viewerHandle, t, '/matches')}</div>
   </article>`;
 }
 
@@ -281,7 +290,7 @@ export function matchingCandidatePage(
 ): string {
   const viewerName = viewer.displayName;
   const t = messages(lang);
-  const connected = card.relationship.status === 'connected';
+  const connected = comparison.connected;
   const names: ComparisonPair<string> = { a: viewerName, b: card.displayName };
   const viewerInterests = card.viewerInterests.length
     ? interestPills(card.viewerInterests.slice(0, connected ? 5 : 3))
@@ -292,7 +301,9 @@ export function matchingCandidatePage(
   const metrics = `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
   const actionToken = `<input type="hidden" name="actionToken" value="${html(card.actionToken ?? '')}">`;
   let actions: string;
-  if (card.relationship.status === 'none') {
+  if (card.targetPublic) {
+    actions = '';
+  } else if (card.relationship.status === 'none') {
     actions = `<form method="post" action="/matches/request">${actionToken}<button class="mt-want" type="submit">${t.matchesWant}</button></form>`;
   } else if (card.relationship.status === 'incoming') {
     actions = `<form method="post" action="/matches/respond">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-want" name="response" value="accept">${t.matchesWantToo}</button><button class="mt-secondary" name="response" value="decline">${t.matchesDecline}</button></form>`;
@@ -301,12 +312,12 @@ export function matchingCandidatePage(
   } else {
     actions = `<span class="mt-state connected">${t.matchesConnectedStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form>`;
   }
-  const consentNote = connected ? t.matchesConsentConnectedNote : t.matchesConsentPendingNote;
+  const consentNote = card.targetPublic ? t.matchesPublicBlendNote : connected ? t.matchesConsentConnectedNote : t.matchesConsentPendingNote;
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
-  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
-  const gate = connected
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
+  const gate = card.targetPublic ? '' : connected
     ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p></section>`
     : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p></section>`;
   const topicsSubtitle = comparison.topics.state === 'locked'
@@ -389,12 +400,7 @@ export function matchesPage(
         ${batch.hasNext ? `<a href="/matches?page=${batch.page + 1}">${t.matchesNext}</a>` : ''}
       </nav>`;
   }
-  const signals = trustSignals([
-    t.trustPrivateDefault,
-    t.trustRecent90,
-    t.trustMutualConsent,
-  ], t.trustSignalsLabel);
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section>${signals}<div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);

@@ -5,7 +5,7 @@
 ## 盤點基準與範圍
 
 - 查核日期：2026-09-05。
-- 原始碼基準：[`b06fd35`](https://github.com/skyhong2002/urtube.observe.tw/tree/b06fd35)，專案版本 `0.1.0`。
+- 原始碼基準：[`d082b3a`](https://github.com/skyhong2002/urtube.observe.tw/tree/d082b3a)，專案版本 `0.1.0`。
 - 套件依據：[`package-lock.json`](package-lock.json)，SHA-256：`8b4e70021abac85c62d730fcab1efb7be81b9e98569d101c194d9e1a35fcd290`。
 - 涵蓋 lockfile 的 **59 個套件安裝項目**，包括直接、間接、開發與各平台選用依賴；同名不同版本分別列出。實際安裝項目依作業系統與部署設定而定；正式容器元件另由映像盤點記錄。
 - 每個套件的 registry tarball 皆依 lockfile `resolved` 下載，並驗證 `integrity`；授權文字取自套件內檔案，缺件時使用下方明列的官方來源補足。
