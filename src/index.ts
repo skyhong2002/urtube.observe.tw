@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -126,7 +125,8 @@ function clientIp(c: Context): string {
 
 // Shared revision-aware data cache. Every route still checks the current
 // session, visibility, membership and consent before reading cached data.
-const warmedHandles = new Set<string>();
+// Fill aggregates on demand: speculative range sweeps run synchronous SQLite
+// queries and block unrelated requests, even if they yield between ranges.
 function countsFor(repository: Repository) {
   return cachedRead(repository, 'counts', () => repository.youtubeCounts());
 }
@@ -134,10 +134,6 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
   // ETA and stale-worker status also depend on the clock.
   return cachedRead(repository, 'processing', () =>
     describeYoutubeProcessing(repository.youtubeProcessingCounts(), youtubeProcessingCapabilities()), 5000);
-}
-function evictUserCaches(handle: string): void {
-  clearReadCaches();
-  warmedHandles.delete(handle);
 }
 function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' = false): YoutubeDashboardData {
   return cachedRead(repository, `dashboard:${range}:${includeInsights}`, () => repository.youtubeDashboard(range, new Date(), includeInsights));
@@ -384,7 +380,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const showRecent = privateDashboardAccess(c, user);
     const history = page === 'history' && showRecent
       ? repository.youtubeWatchHistory(range, 100) : undefined;
-    warmedHandles.add(user.handle);
     c.header('Cache-Control', me || !user.dashboardPublic || showRecent ? 'private, no-store' : 'no-cache');
     // Private dashboards reached via key/session must not end up in search
     // engines even if a keyed link leaks into a crawler.
@@ -744,7 +739,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           ? (lang === 'zh' ? '此部署未啟用 AI 分類' : 'AI classification is not enabled on this deployment')
           : (lang === 'zh' ? 'Metadata 尚未達到建立候選版本的門檻' : 'Metadata is not ready for a candidate yet'), 503);
       }
-      evictUserCaches(me.handle);
+      clearReadCaches();
       return c.redirect('/account/taxonomy');
     } catch (caught) {
       return renderError(caught instanceof Error ? caught.message : 'Candidate creation failed');
@@ -765,7 +760,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     }
     try {
       registry.repositoryFor(me).activatePersonalTaxonomy(version);
-      evictUserCaches(me.handle);
+      clearReadCaches();
       return c.redirect('/account/taxonomy');
     } catch (caught) {
       c.header('Cache-Control', 'no-store');
@@ -1137,7 +1132,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       registry.setDisplayName(me.handle, String(form.displayName ?? ''));
       // The crystal embeds the display name; drop it so /compare and
       // crystal.json pick up the rename immediately.
-      evictUserCaches(me.handle);
+      clearReadCaches();
       return c.redirect('/account');
     } catch (error) {
       return c.html(accountPage(me, accountStateFor(me, {
@@ -1221,7 +1216,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       const repository = registry.repositoryFor(me);
       const result = repository.ingestYoutubeArchive(parsed);
       registry.markCrystalDirty(me);
-      evictUserCaches(me.handle);
+      clearReadCaches();
       c.header('Cache-Control', 'no-store');
       return c.html(accountPage(me, accountStateFor(me, {
         takeoutResult: result,
@@ -1286,7 +1281,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         error: error instanceof Error ? error.message : String(error),
       }), lang), 500);
     }
-    evictUserCaches(me.handle);
+    clearReadCaches();
     deleteCookie(c, 'urtube_session', { path: '/' });
     return c.redirect('/');
   });
@@ -1591,39 +1586,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   return app;
 }
 
-// Best-effort pre-warm of dashboard caches, re-run just inside the TTL so
-// the first visitor after a deploy or quiet stretch never pays the aggregate
-// cost. Only the owner and handles visited since boot are swept, using the
-// exact same cache fills as the serve path.
-async function warmDashboards(registry: UserRegistry): Promise<void> {
-  // The whole sweep runs inside timer callbacks: any escape here would crash
-  // the process (registry reads can throw on SQLITE_BUSY during backups).
-  try {
-    warmedHandles.add(registry.ensureDefaultUser().handle);
-  } catch (error) {
-    console.error('dashboard warm failed:', error instanceof Error ? error.message : error);
-    return;
-  }
-  for (const handle of warmedHandles) {
-    try {
-      const user = registry.userByHandle(handle);
-      if (!user) {
-        warmedHandles.delete(handle);
-        continue;
-      }
-      const repository = registry.repositoryFor(user);
-      const counts = countsFor(repository);
-      if (counts.watches === 0) continue;
-      for (const range of YOUTUBE_RANGES) {
-        cachedDashboardFor(registry, user, range, repository, 'overview');
-        await yieldToRequests();
-      }
-    } catch (error) {
-      console.error(`dashboard warm failed for ${handle}:`, error instanceof Error ? error.message : error);
-    }
-  }
-}
-
 if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   registry.ensureDefaultUser();
@@ -1631,6 +1593,4 @@ if (process.env.NODE_ENV !== 'test') {
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);
   });
-  setTimeout(() => warmDashboards(registry), 2000);
-  setInterval(() => warmDashboards(registry), 240_000).unref();
 }

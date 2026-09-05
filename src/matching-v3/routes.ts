@@ -48,15 +48,18 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
     c.header('Content-Type', 'text/javascript; charset=utf-8');
     return c.body(readFileSync(new URL('./admin.js', import.meta.url), 'utf8'));
   });
-  app.get('/api/matching-v3/admin', c => {
-    const users = registry.listUsers().map(user => {
-      const p = store.profile(user.id), currentVersion = p?.version === version(s);
-      return { id: user.id, handle: user.handle, job: store.status(user.id), currentVersion,
-        usable: Boolean(currentVersion && p && Object.values(p.genres).some(g => g.status === 'ready')),
-        profile: p ? { builtAt: p.builtAt, totalVideos: p.totalVideos, processedVideos: p.processedVideos,
-          genres: Object.fromEntries(Object.entries(p.genres).map(([genre, value]) => [genre, { status: value.status, clusterCount: value.clusters.length }])) } : null };
-    });
-    return c.json({ ...store.monitoring(), now: Date.now(), backfillVideoLimit: s.backfillVideoLimit, dailyLimit: s.dailyApiCalls, concurrency: s.concurrency, batchSize: s.classificationBatchSize, classificationModel: s.classificationModel, reasoningEffort: 'low', genres: GENRES, users });
+  app.get('/api/matching-v3/admin', async c => {
+    let snapshot;
+    try { snapshot = await registry.matchingV3Monitoring(version(s)); }
+    catch { return c.json({ error: 'monitoring_unavailable' }, 503); }
+    // Sessions and allowlisted handles can change while the reader is running.
+    const viewer = registry.userBySession(getCookie(c, 'urtube_session') ?? '');
+    if (!viewer || viewer.id !== c.get('user').id) return c.json({ error: 'login_required' }, 401);
+    if (!isAdmin(viewer)) return c.json({ error: 'admin_required' }, 403);
+    const currentUsers = new Map(registry.listUsers().map(user => [user.id, user.handle]));
+    const users = snapshot.users.filter(user => currentUsers.has(user.id))
+      .map(user => ({ ...user, handle: currentUsers.get(user.id)! }));
+    return c.json({ ...snapshot, now: Date.now(), backfillVideoLimit: s.backfillVideoLimit, dailyLimit: s.dailyApiCalls, concurrency: s.concurrency, batchSize: s.classificationBatchSize, classificationModel: s.classificationModel, reasoningEffort: 'low', genres: GENRES, users });
   });
   app.post('/api/matching-v3/admin/retry/:id', c => {
     const id = Number(c.req.param('id'));

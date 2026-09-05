@@ -1,3 +1,4 @@
+import { readMonitoring } from './monitoring-read.js';
 import type { TokenObservation } from './telemetry.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -66,17 +67,9 @@ export class MatchingStore {
       .run(Date.now(), error ? validItems && validItems > 0 ? 'partial' : 'failed' : 'success', error, validItems ?? null, error, id);
   }
   monitoring() {
-    return {
-      heartbeat: this.db.prepare('SELECT heartbeat FROM matching_v3_worker_status WHERE id=1').get()?.heartbeat ?? null,
-      cache: this.db.prepare(`SELECT CASE WHEN json_type(value_json)='array' THEN 'embedding'
-        WHEN json_type(value_json,'$.assignments')='array' THEN 'classification' ELSE 'channel' END kind,
-        count(*) count,max(created_at) latest FROM matching_v3_cache GROUP BY kind`).all(),
-      budget: this.db.prepare('SELECT day,calls FROM matching_v3_api_budget WHERE day=?').get(new Date().toISOString().slice(0,10)) ?? { calls: 0 },
-      operations: this.db.prepare('SELECT * FROM matching_v3_operations ORDER BY id DESC LIMIT 50').all(),
-      recent: this.db.prepare(`SELECT kind,status,count(*) calls,sum(items) items,sum(COALESCE(valid_items,CASE WHEN status='success' THEN items ELSE 0 END)) valid_items,max(finished_at) latest,avg(finished_at-started_at) average_ms
-        FROM matching_v3_operations WHERE started_at>=? GROUP BY kind,status`).all(Date.now()-300000),
-    };
+    return readMonitoring(this.db);
   }
+
   reserveApiCall(limit: number, now = new Date()): boolean {
     // Shared across worker processes and restarts; reset at midnight UTC.
     return Boolean(this.db.prepare(`INSERT INTO matching_v3_api_budget(day,calls) VALUES (?,1)
