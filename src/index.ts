@@ -555,7 +555,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const avatar: AvatarImage = await avatarService.avatarFor(user);
     c.header('Content-Type', avatar.contentType);
     c.header('Content-Length', String(avatar.body.byteLength));
-    c.header('Cache-Control', cacheControl);
+    c.header('Cache-Control', avatar.source !== 'google' && cacheControl.startsWith('public') ? 'public, max-age=60' : cacheControl);
     c.header('Cross-Origin-Resource-Policy', 'same-origin');
     return c.body(avatar.body.buffer.slice(
       avatar.body.byteOffset,

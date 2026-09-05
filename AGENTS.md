@@ -77,5 +77,6 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 - User instruction (2026-09-06): deployments are handled by CD. After tests,
   commit and push to `main`; do not manually build, restart, or deploy services.
   Observe CI/CD status and report it accurately instead of triggering a manual deployment.
-- User approved removing the Gravatar avatar fallback. Fetch only the Google
-  login picture; when unavailable, use the locally generated initial image.
+- Latest avatar instruction: request Google basic profile and obtain the Google
+  login/UserInfo picture. Temporarily use Gravatar if unavailable, then local
+  initials. Keep Google first and retry temporary fallbacks promptly.

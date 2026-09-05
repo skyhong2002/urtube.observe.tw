@@ -79,15 +79,15 @@ test('existing registries gain the nullable avatar column without losing users',
   }
 });
 
-test('Google picture claims are accepted without requesting a new OAuth scope', async () => {
+test('Google login requests profile scope and accepts picture claims', async () => {
   const registry = new UserRegistry(':memory:');
   const previous = { ...config.login };
   try {
     config.login.googleClientId = 'avatar-client';
     config.login.googleClientSecret = 'avatar-secret';
     const login = new URL(googleLoginUrl(registry, '/account'));
-    assert.deepEqual(login.searchParams.get('scope')?.split(' ').sort(), ['email', 'openid']);
-    assert.ok(!login.searchParams.get('scope')?.includes('profile'));
+    assert.deepEqual(login.searchParams.get('scope')?.split(' ').sort(), ['email', 'openid', 'profile']);
+    assert.ok(login.searchParams.get('scope')?.includes('profile'));
 
     const state = login.searchParams.get('state')!;
     const claims = Buffer.from(JSON.stringify({
@@ -113,7 +113,7 @@ test('Google picture claims are accepted without requesting a new OAuth scope', 
   }
 });
 
-test('avatar service only fetches Google and uses local initials without external email lookups', async () => {
+test('avatar service prefers Google and temporarily uses Gravatar when no Google picture exists', async () => {
   const registry = new UserRegistry(':memory:');
   try {
     const googleUser = registry.createUser('google-avatar', 'Google Avatar', {
@@ -141,8 +141,8 @@ test('avatar service only fetches Google and uses local initials without externa
       externalCalls++;
       return new Response(new Uint8Array([4, 5, 6]), { headers: { 'content-type': 'image/png' } });
     }) as typeof fetch);
-    assert.equal((await localService.avatarFor(noPictureUser)).source, 'fallback');
-    assert.equal(externalCalls, 0, 'an email address must never trigger an avatar lookup');
+    assert.equal((await localService.avatarFor(noPictureUser)).source, 'gravatar');
+    assert.equal(externalCalls, 1, 'Gravatar is the temporary fallback');
     assert.equal(AVATAR_FETCH_TIMEOUT_MS, 3_000);
   } finally {
     registry.close();
@@ -166,9 +166,9 @@ test('invalid, oversized, and unavailable remote avatars fail closed to a local 
         });
     }) as typeof fetch);
     const avatar = await service.avatarFor(user);
-    assert.equal(calls, 1, 'a failed Google image goes directly to the local fallback');
+    assert.equal(calls, 2, 'failed Google and oversized Gravatar images use the local fallback');
     assert.equal((await service.avatarFor({ ...user, avatarUrl: user.avatarUrl + '-oversized' })).source, 'fallback');
-    assert.equal(calls, 2, 'oversized Google images also use the local fallback');
+    assert.equal(calls, 4, 'both failed remote sources use the local fallback');
     assert.equal(avatar.source, 'fallback');
     assert.equal(avatar.contentType, 'image/svg+xml');
     const svg = Buffer.from(avatar.body).toString();
@@ -231,4 +231,48 @@ test('same-origin avatar routes enforce dashboard and matching authorization', a
   } finally {
     registry.close();
   }
+});
+
+test('missing token picture uses same-account UserInfo and keeps login working on failure', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    for (const scenario of ['valid', 'different-account', 'failed']) {
+      const claims = Buffer.from(JSON.stringify({ sub: 'userinfo-user', email: 'fixture@example.test' })).toString('base64url');
+      let requests = 0;
+      const identity = await completeGoogleLogin(registry, 'code', registry.createLoginState('/account'), (async (input, init) => {
+        if (++requests === 1) return Response.json({ id_token: `header.${claims}.sig`, access_token: 'fixture-token' });
+        assert.equal(String(input), 'https://openidconnect.googleapis.com/v1/userinfo');
+        assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fixture-token');
+        assert.ok(init?.signal);
+        if (scenario === 'failed') throw new Error('unavailable');
+        return Response.json({ sub: scenario === 'valid' ? 'userinfo-user' : 'another-user', picture: 'https://lh3.googleusercontent.com/a/fixture' });
+      }) as typeof fetch);
+      assert.equal(requests, 2);
+      assert.equal(identity.avatarUrl, scenario === 'valid' ? 'https://lh3.googleusercontent.com/a/fixture' : null);
+      assert.equal(identity.next, '/account');
+    }
+  } finally { registry.close(); }
+});
+
+test('temporary Gravatar fallback retries Google after a minute', async t => {
+  let now = 1000000;
+  t.mock.method(Date, 'now', () => now);
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('retry-picture', 'Retry', { googleEmail: 'fixture@example.test', avatarUrl: 'https://lh3.googleusercontent.com/a/fixture' });
+    const requests: string[] = [];
+    let recovered = false;
+    const service = new AvatarService((async input => {
+      requests.push(String(input));
+      if (String(input).includes('googleusercontent') && !recovered) return new Response('', { status: 503 });
+      return new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } });
+    }) as typeof fetch);
+    assert.equal((await service.avatarFor(user)).source, 'gravatar');
+    assert.match(requests[1]!, /^https:\/\/gravatar.com\/avatar\/[a-f0-9]{64}\?/);
+    assert.equal((await service.avatarFor(user)).source, 'gravatar');
+    assert.equal(requests.length, 2);
+    now += 60001; recovered = true;
+    assert.equal((await service.avatarFor(user)).source, 'google');
+    assert.equal(requests.length, 3);
+  } finally { registry.close(); }
 });

@@ -130,7 +130,7 @@ JS
 | --- | --- |
 | `PUBLIC_BASE_URL` | 本機使用 `http://localhost:3000`；正式部署填自己的 HTTPS origin，用來建立 callback 與 cookie 設定。 |
 | 三個安全金鑰 | 上方指令會建立；各至少 32 字元，服務共用同一份設定。 |
-| `GOOGLE_LOGIN_CLIENT_ID`、`GOOGLE_LOGIN_CLIENT_SECRET` | 真實帳號登入必填。在 [Google Cloud Console](https://console.cloud.google.com/) 建立專案、設定 OAuth 同意畫面／測試使用者，再建立 Web application OAuth client；Authorized redirect URI 填 `http://localhost:3000/auth/google/callback`。登入使用 `openid email`。 |
+| `GOOGLE_LOGIN_CLIENT_ID`、`GOOGLE_LOGIN_CLIENT_SECRET` | 真實帳號登入必填。在 [Google Cloud Console](https://console.cloud.google.com/) 建立專案、設定 OAuth 同意畫面／測試使用者，再建立 Web application OAuth client；Authorized redirect URI 填 `http://localhost:3000/auth/google/callback`。登入使用 `openid email profile` 取得帳號身分與頭像；既有帳號需重新登入以補齊頭像網址。 |
 | `YOUTUBE_API_KEY` | 補齊公開影片／頻道 metadata 時需要；在同一控制台啟用 YouTube Data API v3 並建立適用伺服器呼叫的 API key。沒有 metadata 會限制分類與配對。 |
 | `AI_CLASSIFICATION_ENABLED`、`AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL` | AI 分類需要全部設定；enabled 設為 `true`，base URL 指向服務的 `/v1` 根路徑，model 填該服務實際可用名稱。預設關閉。自架服務亦需符合程式要求的 API key 設定。 |
 | `GOOGLE_DATA_PORTABILITY_CLIENT_ID`、`GOOGLE_DATA_PORTABILITY_CLIENT_SECRET` | 選用的定期匯入；callback 為 `<PUBLIC_BASE_URL>/api/ingest/youtube/oauth/callback`。需要 API 啟用、適用 scopes 與 Google 要求的驗證；現行實作僅供 instance owner 使用。 |
