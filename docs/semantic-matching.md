@@ -138,9 +138,56 @@ restart/lease recovery, stale writes, privacy and failure isolation. The GPU
 image/model was not started in this development workspace; external service
 capability and deployment acceptance remain to be run on the intended host.
 
+## Stage 3: owner interest groups (#46)
+
+`interests.ts` implements the selected weighted DBSCAN policy: cosine distance
+`1 - dot(unit vectors)`, epsilon 0.2 and minimum neighborhood mass 3, including
+the point itself. Expansion follows standard core/border/noise semantics;
+border points cannot bridge core components. Fixed label ordering resolves
+ambiguous borders deterministically. This follows the documented
+[weighted DBSCAN definition](https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html).
+The installed dependencies contain no weighted clustering primitive. The
+small weighted expansion remains in TypeScript; no second runtime or
+unweighted-neighbor approximation is introduced.
+
+Only distinct identified videos watched in the last 90 days contribute.
+Repeated watches do not multiply support. Each video contributes one unit
+in each canonical category, equally split across its deduplicated valid
+labels. Missing vectors and dropped labels retain their missing share;
+remaining samples are not inflated. Each resulting cluster also needs at
+least three distinct videos. A support-weighted centroid is normalized,
+and the five largest groups per category survive, with stable tie ordering.
+Zero-norm centroids and unsupported/noise groups are not emitted. Up to three
+member labels nearest the centroid are retained as evidence-backed
+representatives for the downstream extractive summary.
+
+The SQL window reads at most 2000 videos, newest first with video-ID ties.
+Preprocessing accepts at most 15 tags per video and uses at most 256 labels
+per category, selected by support then key. Categories are processed in
+sequence; each retains at most 256 vectors of 1024 values plus a bounded
+256-by-256 neighborhood graph. The quadratic radius scan never runs over
+the entire archive. Snapshot coverage records the full identified-video
+count, considered/processed/unavailable video counts, and each category's
+total versus used label count and mass. Truncation is `partial`, pending
+inputs are `processing`, failures are `error`, and missing service settings
+are `unavailable`. Unidentified Takeout events are counted separately as
+`unidentifiedEvents`; a missing video ID cannot become permanent queued work.
+
+Schema 15 adds one owner-only `youtube_interests` snapshot, exported as
+`semantic-interests.json` and covered by existing database backup/deletion.
+It includes private supporting video IDs, vectors, mass, representatives,
+model/tag/algorithm versions, input hash, generation time and next window
+expiration. `currentInterests()` checks the current bounded input hash and
+returns null after relevant import, deletion, metadata/tag/model change,
+embedding-readiness change or window movement; consumers must use this
+freshness-checked read instead of displaying a raw stored snapshot. The
+worker rebuilds after embeddings, including partial failures, without
+blocking the existing private classifier. No group evidence is published to
+the shared registry in this stage.
+
 ## Delivery boundary
 
-Tags and vectors do not yet replace candidate scores or publish semantic
-interests. #46 adds weighted DBSCAN groups; #47–#49 integrate projection,
+Tags, vectors and owner groups do not yet replace candidate scores or publish
+semantic interests. #47–#49 integrate projection,
 scores, explanations and category filters. Until those stages are integrated,
 existing matching must not be described as semantic matching.

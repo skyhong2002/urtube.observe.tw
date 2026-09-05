@@ -106,6 +106,7 @@ test('worker embeds completed tags after partial tag failure and isolates accoun
   const alice = archive(registry, 'failure-alice', ['Failed label']);
   const bob = archive(registry, 'success-bob', ['Successful label']);
   const tagged = new Set<string>();
+  const embedded = new Set<string>();
   const classified = new Set<string>();
   const mocked: EmbeddingClient = { ...client, fetchImpl: async (_url, options) => {
     const request = JSON.parse(String(options?.body));
@@ -123,8 +124,10 @@ test('worker embeds completed tags after partial tag failure and isolates accoun
       },
       embeddings: async (cache, repository, user) => {
         assert.ok(tagged.has(user.handle));
-        return embedSemanticTags(cache, repository, mocked, tagsContract);
+        try { return await embedSemanticTags(cache, repository, mocked, tagsContract); }
+        finally { embedded.add(user.handle); }
       },
+      interests: async (_cache, _repository, user) => { assert.ok(embedded.has(user.handle)); return 1; },
       classification: async (_repository, user) => { classified.add(user.handle); return 1; },
     });
     assert.equal(results.find(result => result.user === bob.user.handle)?.embedded, 1);
@@ -133,6 +136,7 @@ test('worker embeds completed tags after partial tag failure and isolates accoun
     assert.match(failed.error ?? '', /Embedding request/);
     assert.equal(failed.metadata, 2);
     assert.equal(failed.classified, 1);
+    assert.equal(failed.interestsBuilt, 1);
     assert.equal(classified.size, 2);
     assert.equal(youtubeWorkerMadeProgress(results), true);
   } finally { registry.close(); }

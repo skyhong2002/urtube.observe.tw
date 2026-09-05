@@ -13,7 +13,8 @@ import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
 import { extractSemanticTags, semanticTagContract } from './youtube/semantic-tags.js';
-import { embedSemanticTags, embeddingWorkPending } from './youtube/embeddings.js';
+import { embedSemanticTags, embeddingWorkPending, embeddingsConfigured } from './youtube/embeddings.js';
+import { buildSemanticInterests, currentInterests } from './youtube/interests.js';
 import {
   YOUTUBE_WORKER_CATCHUP_MINUTES,
   YOUTUBE_WORKER_FULL_CYCLE_MINUTES,
@@ -33,6 +34,7 @@ export interface YoutubeWorkerSteps {
   matchingClassification(repository: Repository, user: User): Promise<number>;
   semanticTags(repository: Repository, user: User): Promise<number>;
   embeddings(registry: UserRegistry, repository: Repository, user: User): Promise<number>;
+  interests(registry: UserRegistry, repository: Repository, user: User): Promise<number>;
   classification(repository: Repository, user: User): Promise<number>;
 }
 
@@ -44,6 +46,7 @@ export interface YoutubeWorkerUserResult {
   matchingClassified?: number;
   semanticTagged?: number;
   embedded?: number;
+  interestsBuilt?: number;
   classified?: number;
   error?: string;
 }
@@ -59,6 +62,7 @@ const defaultSteps: YoutubeWorkerSteps = {
     classifyYoutubeVideosForMatching(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   semanticTags: (repository) => extractSemanticTags(repository, YOUTUBE_WORKER_TOPICS_PER_CYCLE),
   embeddings: (registry, repository) => embedSemanticTags(registry, repository),
+  interests: async (registry, repository) => buildSemanticInterests(registry, repository),
   // A deep extension backfill can also contain tens of thousands of videos.
   // Recency ordering makes the current dashboard useful first; a larger
   // cycle keeps new extension-only accounts from waiting days for analysis.
@@ -100,10 +104,11 @@ export async function runYoutubeWorkerCycle(
       const tagging = steps.semanticTags(repository, user);
       // A partially failed tag cycle may still have fresh completed batches to embed.
       const embedding = tagging.catch(() => {}).then(() => steps.embeddings(registry, repository, user));
-      const [semantic, embedded, personal] = await Promise.allSettled([
-        tagging, embedding, steps.classification(repository, user),
+      const interests = embedding.catch(() => {}).then(() => steps.interests(registry, repository, user));
+      const [semantic, embedded, grouped, personal] = await Promise.allSettled([
+        tagging, embedding, interests, steps.classification(repository, user),
       ]);
-      const errors = [semantic, embedded, personal].flatMap(result => result.status === 'rejected'
+      const errors = [semantic, embedded, grouped, personal].flatMap(result => result.status === 'rejected'
         ? [errorMessage(result.reason)] : []).join('\n');
       repository.setYoutubeSyncState('last_error', errors.slice(0, 2000));
       return {
@@ -114,6 +119,7 @@ export async function runYoutubeWorkerCycle(
         matchingClassified,
         semanticTagged: semantic.status === 'fulfilled' ? semantic.value : 0,
         embedded: embedded.status === 'fulfilled' ? embedded.value : 0,
+        interestsBuilt: grouped.status === 'fulfilled' ? grouped.value : 0,
         classified: personal.status === 'fulfilled' ? personal.value : 0,
         ...(errors ? { error: errors } : {}),
       };
@@ -129,7 +135,7 @@ export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): b
   return results.some((result) =>
     (result.metadata ?? 0) + (result.channelMetadata ?? 0)
       + (result.matchingClassified ?? 0) + (result.semanticTagged ?? 0)
-      + (result.embedded ?? 0) + (result.classified ?? 0) > 0);
+      + (result.embedded ?? 0) + (result.interestsBuilt ?? 0) + (result.classified ?? 0) > 0);
 }
 
 export function youtubeWorkerShouldContinue(
@@ -167,6 +173,7 @@ export function youtubeWorkPending(
     const repository = registry.repositoryFor(user);
     return youtubeMatchingWorkPending(repository)
       || embeddingWorkPending(registry, repository)
+      || (embeddingsConfigured() && !currentInterests(registry, repository))
       || (youtubeClassificationConfigured()
         && repository.youtubeVideosForSemanticTags(semanticTagContract(), 1).length > 0)
       || describeYoutubeProcessing(repository.youtubeProcessingCounts(), capabilities).pending > 0;

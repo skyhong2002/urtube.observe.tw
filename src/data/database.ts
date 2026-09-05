@@ -56,6 +56,7 @@ import {
 } from '../youtube/personal-taxonomy.js';
 import { decryptPrivateValue } from '../youtube/crypto.js';
 import type { SemanticTagResult } from '../youtube/semantic-tags.js';
+import type { InterestSnapshot, InterestVideo } from '../youtube/interests.js';
 
 export interface PersistResult { inserted: number; updated: number }
 
@@ -116,6 +117,7 @@ const PORTABLE_TABLES = [
   ['personal-topic-assignments.json', 'youtube_video_topics', 'Personal topic classifications and their provenance.'],
   ['matching-topic-assignments.json', 'youtube_video_matching_topics', 'Canonical matching-topic classifications.'],
   ['semantic-tags.json', 'youtube_semantic_tags', 'Evidence-backed canonical semantic tags, contracts and processing status.'],
+  ['semantic-interests.json', 'youtube_interests', 'Owner-only weighted interest groups, evidence, contracts and coverage.'],
   ['sync-state.json', 'youtube_sync_state', 'Data Portability and worker checkpoints.'],
   ['time-ledger.json', 'time_ledger', 'Derived daily measured and estimated time.'],
   ['time-ledger-state.json', 'time_ledger_state', 'Time-ledger processing checkpoints.'],
@@ -591,6 +593,14 @@ export class Repository {
         PRAGMA user_version = 14;
         COMMIT;
       `);
+    }
+    if (Number((this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version) < 15) {
+      this.db.exec(`BEGIN IMMEDIATE;
+        CREATE TABLE IF NOT EXISTS youtube_interests (
+          id INTEGER PRIMARY KEY CHECK(id=1),
+          json TEXT NOT NULL CHECK(json_valid(json))
+        );
+        PRAGMA user_version=15; COMMIT;`);
     }
   }
 
@@ -2464,6 +2474,34 @@ export class Repository {
         error=excluded.error, updated_at=excluded.updated_at
     `).run(input.contract, input.status, JSON.stringify(input.tags), input.error, at,
       input.videoId, input.metadataHash).changes > 0;
+  }
+
+  youtubeInterestWindow(contract: string, start: string, end: string, limit: number): { total: number; unidentifiedEvents: number; firstExpiryWatch: string | null; videos: InterestVideo[] } {
+    const watched = `SELECT video_id, MAX(watched_at) watched_at FROM youtube_watch_events
+      WHERE activity_type='video' AND video_id IS NOT NULL AND watched_at>? AND watched_at<=? GROUP BY video_id`;
+    const stats = this.db.prepare(`SELECT COUNT(*) total, MIN(watched_at) firstExpiryWatch FROM (${watched})`)
+      .get(start, end) as { total: number; firstExpiryWatch: string | null };
+    const rows = this.db.prepare(`SELECT w.video_id, w.watched_at, v.metadata_hash,
+      s.status, s.tags_json FROM (${watched}) w LEFT JOIN youtube_videos v ON v.video_id=w.video_id
+      LEFT JOIN youtube_semantic_tags s ON s.video_id=w.video_id AND s.metadata_hash=v.metadata_hash AND s.contract=?
+      ORDER BY w.watched_at DESC, w.video_id LIMIT ?
+    `).all(start, end, contract, limit) as Array<Record<string, string | null>>;
+    const unidentifiedEvents = Number((this.db.prepare(`SELECT COUNT(*) count FROM youtube_watch_events
+      WHERE activity_type='video' AND video_id IS NULL AND watched_at>? AND watched_at<=?`)
+      .get(start, end) as { count: number }).count);
+    return { ...stats, unidentifiedEvents, videos: rows.map(row => ({ videoId: row.video_id!, watchedAt: row.watched_at!,
+      metadataHash: row.metadata_hash, status: (row.status ?? 'pending') as InterestVideo['status'],
+      tags: row.status === 'ready' ? JSON.parse(row.tags_json!) : [] })) };
+  }
+
+  saveYoutubeInterests(snapshot: InterestSnapshot): void {
+    this.db.prepare(`INSERT INTO youtube_interests(id,json) VALUES (1,?)
+      ON CONFLICT(id) DO UPDATE SET json=excluded.json`).run(JSON.stringify(snapshot));
+  }
+
+  youtubeInterests(): InterestSnapshot | null {
+    const row = this.db.prepare('SELECT json FROM youtube_interests WHERE id=1').get() as { json: string } | undefined;
+    return row ? JSON.parse(row.json) : null;
   }
 
   youtubeSemanticLabels(contract: string): string[] {
