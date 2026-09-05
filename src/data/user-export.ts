@@ -110,7 +110,7 @@ export function userDataExport(options: UserDataExportOptions): {
       description: 'Account identity and archive visibility owned by the exporting user.',
       source: 'user registry',
       fields: fieldDescriptions([
-        'handle', 'displayName', 'googleAccountId', 'googleEmail',
+        'handle', 'displayName', 'googleAccountId', 'googleEmail', 'avatarUrl',
         'dashboardPublic', 'referenceOptIn', 'createdAt', 'onboardingCompletedAt',
       ]),
       value: options.account.account,

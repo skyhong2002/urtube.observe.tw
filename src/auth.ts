@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import type { UserRegistry } from './users.js';
+import { safeGoogleAvatarUrl } from './avatars.js';
 
 // "Sign in with Google" (openid + email only). The point is account
 // uniqueness: Google's `sub` claim is a permanent per-account id, so one
@@ -9,6 +10,7 @@ import type { UserRegistry } from './users.js';
 export interface GoogleIdentity {
   sub: string;
   email: string;
+  avatarUrl: string | null;
   // Same-site path to continue to after login, carried through OAuth state.
   next: string;
 }
@@ -62,7 +64,12 @@ export async function completeGoogleLogin(
   if (!sub) throw new Error('Google id_token is missing the sub claim');
   // Only same-site absolute paths may be continued to after login.
   const next = consumed.next.startsWith('/') && !consumed.next.startsWith('//') ? consumed.next : '';
-  return { sub, email: claims.email ? String(claims.email) : '', next };
+  return {
+    sub,
+    email: claims.email ? String(claims.email) : '',
+    avatarUrl: safeGoogleAvatarUrl(claims.picture),
+    next,
+  };
 }
 
 // Suggest a handle from the Gmail local part, squeezed into the handle rules.

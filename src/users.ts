@@ -50,11 +50,13 @@ export interface User {
   createdAt: string;
   googleSub: string | null;
   googleEmail: string | null;
+  avatarUrl: string | null;
 }
 
 export interface PendingSignup {
   sub: string;
   email: string;
+  avatarUrl: string | null;
 }
 
 export interface CreatedUser extends User {
@@ -99,6 +101,7 @@ export interface PortableAccountData {
     displayName: string;
     googleAccountId: string | null;
     googleEmail: string | null;
+    avatarUrl: string | null;
     dashboardPublic: boolean;
     referenceOptIn: boolean;
     createdAt: string;
@@ -184,6 +187,7 @@ function rowToUser(row: Record<string, unknown>): User {
     createdAt: String(row.created_at),
     googleSub: row.google_sub == null ? null : String(row.google_sub),
     googleEmail: row.google_email == null ? null : String(row.google_email),
+    avatarUrl: row.avatar_url == null ? null : String(row.avatar_url),
   };
 }
 
@@ -216,6 +220,9 @@ export class UserRegistry {
         onboarding_completed_at TEXT,
         data_key_mode TEXT NOT NULL DEFAULT 'derived'
           CHECK (data_key_mode IN ('legacy-env', 'derived')),
+        google_sub TEXT,
+        google_email TEXT,
+        avatar_url TEXT,
         created_at TEXT NOT NULL
       );
     `);
@@ -228,7 +235,7 @@ export class UserRegistry {
     this.db.exec('UPDATE users SET key_seed=handle WHERE key_seed IS NULL');
     // Google identity: sub is Google's permanent account id (emails can
     // change), unique so one Google account maps to at most one user.
-    for (const name of ['google_sub', 'google_email']) {
+    for (const name of ['google_sub', 'google_email', 'avatar_url']) {
       if (!columns.some((column) => column.name === name)) {
         this.db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
       }
@@ -366,6 +373,7 @@ export class UserRegistry {
       dashboardPublic?: boolean;
       googleSub?: string;
       googleEmail?: string;
+      avatarUrl?: string;
     } = {},
   ): CreatedUser {
     if (!HANDLE_PATTERN.test(handle)) {
@@ -377,12 +385,12 @@ export class UserRegistry {
     this.db.prepare(`
       INSERT INTO users (
         handle, display_name, capture_token_hash, dashboard_token_hash,
-        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        dashboard_public, data_key_mode, key_seed, created_at, google_sub, google_email, avatar_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
       options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
-      options.googleSub ?? null, options.googleEmail ?? null,
+      options.googleSub ?? null, options.googleEmail ?? null, options.avatarUrl ?? null,
     );
     const user = this.userByHandle(handle)!;
     return { ...user, captureToken, dashboardToken };
@@ -715,6 +723,37 @@ export class UserRegistry {
     return token;
   }
 
+  avatarUserForMatchAction(viewer: User, actionToken: string): User | null {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn || !actionToken) return null;
+    const row = this.db.prepare(`
+      SELECT recipient.* FROM match_action_tokens action
+      JOIN users recipient ON recipient.id=action.recipient_user_id
+        AND recipient.matching_opt_in=1
+      WHERE action.token_hash=? AND action.sender_user_id=? AND action.expires_at>=?
+    `).get(tokenHash(actionToken), current.id, new Date().toISOString()) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToUser(row) : null;
+  }
+
+  avatarUserForMatchRequest(viewer: User, requestToken: string): User | null {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn || !requestToken) return null;
+    const row = this.db.prepare(`
+      SELECT other.* FROM match_requests request
+      JOIN users other ON other.id=CASE
+        WHEN request.sender_user_id=? THEN request.recipient_user_id ELSE request.sender_user_id END
+        AND other.matching_opt_in=1
+      WHERE request.request_token=?
+        AND request.status IN ('pending', 'accepted')
+        AND (request.sender_user_id=? OR request.recipient_user_id=?)
+    `).get(current.id, requestToken, current.id, current.id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToUser(row) : null;
+  }
+
   createMatchRequest(sender: User, actionToken: string): void {
     const current = this.userByHandle(sender.handle);
     if (!current || current.id !== sender.id || !current.matchingOptIn || !actionToken) {
@@ -863,6 +902,7 @@ export class UserRegistry {
         displayName: current.displayName,
         googleAccountId: current.googleSub,
         googleEmail: current.googleEmail,
+        avatarUrl: current.avatarUrl,
         dashboardPublic: current.dashboardPublic,
         referenceOptIn: current.referenceOptIn,
         createdAt: current.createdAt,
@@ -1010,15 +1050,24 @@ export class UserRegistry {
     return row ? rowToUser(row) : null;
   }
 
-  linkGoogle(handle: string, sub: string, email: string): User {
+  linkGoogle(handle: string, sub: string, email: string, avatarUrl: string | null = null): User {
     const user = this.userByHandle(handle);
     if (!user) throw new Error(`Unknown user: ${handle}`);
     const taken = this.userByGoogleSub(sub);
     if (taken && taken.id !== user.id) {
       throw new Error(`That Google account is already linked to another user`);
     }
-    this.db.prepare('UPDATE users SET google_sub=?, google_email=? WHERE id=?').run(sub, email, user.id);
+    this.db.prepare('UPDATE users SET google_sub=?, google_email=?, avatar_url=COALESCE(?, avatar_url) WHERE id=?')
+      .run(sub, email, avatarUrl, user.id);
     return this.userByHandle(handle)!;
+  }
+
+  refreshGoogleIdentity(user: User, email: string, avatarUrl: string | null): User {
+    const current = this.userByGoogleSub(user.googleSub ?? '');
+    if (!current || current.id !== user.id) throw new Error('Google identity is no longer linked');
+    this.db.prepare('UPDATE users SET google_email=?, avatar_url=COALESCE(?, avatar_url) WHERE id=?')
+      .run(email, avatarUrl, current.id);
+    return this.userByHandle(current.handle)!;
   }
 
   // --- Google login plumbing: OAuth states, pending signups, sessions ---
@@ -1045,11 +1094,11 @@ export class UserRegistry {
 
   // A verified Google identity waiting for the user to pick a handle. The
   // returned token travels in an HttpOnly cookie, never in a URL.
-  createPendingSignup(sub: string, email: string): string {
+  createPendingSignup(sub: string, email: string, avatarUrl: string | null = null): string {
     this.expireLoginState();
     const token = newToken();
     this.db.prepare("INSERT INTO login_states (state, kind, payload, expires_at) VALUES (?, 'pending', ?, ?)")
-      .run(token, JSON.stringify({ sub, email }), new Date(Date.now() + 30 * 60_000).toISOString());
+      .run(token, JSON.stringify({ sub, email, avatarUrl }), new Date(Date.now() + 30 * 60_000).toISOString());
     return token;
   }
 
@@ -1060,7 +1109,11 @@ export class UserRegistry {
       .get(token) as { payload: string } | undefined;
     if (!row) return null;
     const parsed = JSON.parse(row.payload) as PendingSignup;
-    return { sub: String(parsed.sub), email: String(parsed.email ?? '') };
+    return {
+      sub: String(parsed.sub),
+      email: String(parsed.email ?? ''),
+      avatarUrl: typeof parsed.avatarUrl === 'string' ? parsed.avatarUrl : null,
+    };
   }
 
   consumePendingSignup(token: string): void {

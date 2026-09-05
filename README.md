@@ -174,6 +174,15 @@ Google OAuth env: `GOOGLE_LOGIN_CLIENT_ID` / `GOOGLE_LOGIN_CLIENT_SECRET`
 (fall back to the `GOOGLE_DATA_PORTABILITY_*` pair); the redirect URI is
 `<PUBLIC_BASE_URL>/auth/google/callback`.
 
+Profile pictures are served only through same-origin `/avatar/...` routes.
+When Google's existing ID token includes an allowlisted `googleusercontent.com`
+picture URL, the server uses it without adding the `profile` OAuth scope. If it
+does not, the server tries Gravatar with the normalized email's SHA-256 hash,
+then falls back to a local generated initial. Remote responses have a three
+second timeout, a 1 MiB limit, and an image MIME allowlist; matching avatar
+routes additionally require the current session and an opaque action/request
+token. Browser HTML never receives an email hash or remote avatar URL.
+
 Admin equivalents:
 
 ```sh

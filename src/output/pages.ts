@@ -87,7 +87,7 @@ const styles = `
   details.viz-table td,details.viz-table th{border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;padding:4px 14px 4px 0;text-align:left}
 
   .yt-profile{align-items:center;display:flex;gap:18px;margin:14px 0 22px}
-  .yt-avatar{align-items:center;background:linear-gradient(140deg,#e66767,#a92f2f);border-radius:50%;color:#fff;display:flex;flex:0 0 70px;font-size:30px;font-weight:800;height:70px;justify-content:center;width:70px}
+  .yt-avatar{background:linear-gradient(140deg,#e66767,#a92f2f);border-radius:50%;display:block;flex:0 0 70px;height:70px;object-fit:cover;width:70px}
   .yt-profile-copy h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.05;margin:2px 0 4px}
   .yt-profile-meta{color:var(--muted);font-size:12px}.yt-profile-meta a{color:var(--ink-2)}
   h1 .h1-scope{color:var(--muted);font-size:.42em;font-style:normal;font-weight:600;letter-spacing:0;margin-left:8px;vertical-align:.22em;white-space:nowrap}

@@ -5,6 +5,7 @@ import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
+import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import { userDataExport } from './data/user-export.js';
@@ -141,11 +142,13 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 
 interface AppServices {
   loadTagLists: () => Promise<TagListSnapshot>;
+  avatarService: Pick<AvatarService, 'avatarFor'>;
 }
 
 export function createApp(registry: UserRegistry, services: Partial<AppServices> = {}): Hono {
   const app = new Hono();
   const loadTagLists = services.loadTagLists ?? fetchTagLists;
+  const avatarService = services.avatarService ?? new AvatarService();
   app.use('*', securityHeaders(true));
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
@@ -397,6 +400,42 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.body(ogImage.buffer.slice(ogImage.byteOffset, ogImage.byteOffset + ogImage.byteLength) as ArrayBuffer);
   });
 
+  const avatarResponse = async (c: Context, user: User, cacheControl: string) => {
+    const avatar: AvatarImage = await avatarService.avatarFor(user);
+    c.header('Content-Type', avatar.contentType);
+    c.header('Content-Length', String(avatar.body.byteLength));
+    c.header('Cache-Control', cacheControl);
+    c.header('Cross-Origin-Resource-Policy', 'same-origin');
+    return c.body(avatar.body.buffer.slice(
+      avatar.body.byteOffset,
+      avatar.body.byteOffset + avatar.body.byteLength,
+    ) as ArrayBuffer);
+  };
+
+  // Avatar URLs remain same-origin: neither email hashes nor Google/Gravatar
+  // URLs reach the browser. Matching variants resolve an existing opaque
+  // token and re-check consent on every request.
+  app.get('/avatar/match/:token', async (c) => {
+    const me = sessionUser(c);
+    const user = me ? registry.avatarUserForMatchAction(me, c.req.param('token')) : null;
+    if (!user) return c.body(null, 404);
+    return avatarResponse(c, user, 'private, no-store');
+  });
+
+  app.get('/avatar/request/:token', async (c) => {
+    const me = sessionUser(c);
+    const user = me ? registry.avatarUserForMatchRequest(me, c.req.param('token')) : null;
+    if (!user) return c.body(null, 404);
+    return avatarResponse(c, user, 'private, no-store');
+  });
+
+  app.get('/avatar/:handle', async (c) => {
+    const user = registry.userByHandle(c.req.param('handle'));
+    if (!user || !dashboardAccess(c, user)) return c.body(null, 404);
+    return avatarResponse(c, user, user.dashboardPublic
+      ? 'public, max-age=3600' : 'private, no-store');
+  });
+
   app.get('/login', (c) => c.redirect('/auth/google'));
 
   // Google sign-in entry point: also the login for existing accounts, so it
@@ -420,12 +459,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       const identity = await completeGoogleLogin(registry, code, state);
       const existing = registry.userByGoogleSub(identity.sub);
       if (existing) {
-        startSession(c, existing);
-        return c.redirect(identity.next || onboardingDestinationFor(existing));
+        const refreshed = registry.refreshGoogleIdentity(existing, identity.email, identity.avatarUrl);
+        startSession(c, refreshed);
+        return c.redirect(identity.next || onboardingDestinationFor(refreshed));
       }
       // New Google account: park the verified identity and let them pick a
       // handle (or claim a pre-Google account).
-      setCookie(c, 'urtube_signup', registry.createPendingSignup(identity.sub, identity.email), {
+      setCookie(c, 'urtube_signup', registry.createPendingSignup(
+        identity.sub, identity.email, identity.avatarUrl,
+      ), {
         httpOnly: true, sameSite: 'Lax', path: '/', secure: secureCookies, maxAge: 1800,
       });
       return c.redirect('/signup');
@@ -465,7 +507,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       const user = registry.userByDashboardToken(claimHandle, claimKey);
       if (!user) return c.html(signupCompletePage(pageInput, t.errClaimInvalid, lang), 400);
       try {
-        const linked = registry.linkGoogle(user.handle, pending.sub, pending.email);
+        const linked = registry.linkGoogle(user.handle, pending.sub, pending.email, pending.avatarUrl);
         finish(linked);
         return c.redirect(onboardingDestinationFor(linked));
       } catch (error) {
@@ -491,7 +533,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         return c.html(signupCompletePage(pageInput, t.errHandleTaken(handle), lang), 409);
       }
       const created = registry.createUser(handle, displayName, {
-        googleSub: pending.sub, googleEmail: pending.email,
+        googleSub: pending.sub, googleEmail: pending.email, avatarUrl: pending.avatarUrl ?? undefined,
       });
       finish(created);
       c.header('Cache-Control', 'no-store');
