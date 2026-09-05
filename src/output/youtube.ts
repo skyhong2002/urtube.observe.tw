@@ -915,9 +915,9 @@ export function youtubeDashboardPage(
   const showRecent = options.showRecent !== false;
   const overview = hero + (options.setupHtml ?? '') + recentSection(data, t, lang, showRecent)
     + channelList + topVideos + sortScript;
-  const insights = rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
+  const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
     + topicTrendSection(data, t) + channelChase(data, t) + (options.insightsHtml ?? '')
-    + distribution + taxonomy;
+    + distribution + taxonomy : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   const insightTrust = page === 'insights' && options.dashboardPrivate

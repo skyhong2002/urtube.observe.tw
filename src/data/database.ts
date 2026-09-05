@@ -1774,7 +1774,9 @@ export class Repository {
     return result;
   }
 
-  youtubeDashboard(range: YoutubeRange = '28d', now = new Date()): YoutubeDashboardData {
+  // Overview/history/recap do not consume semantic keywords, topic trends or
+  // the full-history animation. Full projections remain the default for APIs.
+  youtubeDashboard(range: YoutubeRange = '28d', now = new Date(), includeInsights = true): YoutubeDashboardData {
     this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);
     const where = cutoff
@@ -1954,7 +1956,7 @@ export class Repository {
     // The race always covers the full history (no range cutoff): a half-life
     // decay only means something when the whole timeline feeds it. Weeks are
     // keyed by their Monday so frames map to real dates.
-    const raceRows = this.db.prepare(`
+    const raceRows = !includeInsights ? [] : this.db.prepare(`
       ${estimatedEvents}
       SELECT date(e.watched_at, '+8 hours', '-6 days', 'weekday 1') week,
         ${channelId} channel_id, ${channelName} name,
@@ -2028,7 +2030,7 @@ export class Repository {
     // evenly spaced pick every `stride` videos in watch order, so a long
     // range is represented across its whole span and both surfaces agree.
     const keywordStride = keywordSampleStride(uniqueVideos);
-    const keywordRows = this.db.prepare(`
+    const keywordRows = !includeInsights ? [] : this.db.prepare(`
       WITH ranked AS (
         SELECT w.video_id, w.raw_url, w.raw_title, w.watched_at, w.channel_id,
           ROW_NUMBER() OVER (
@@ -2103,8 +2105,8 @@ export class Repository {
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
-      topicTrend: this.youtubeTopicTrend(range, now),
-      keywords: extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT),
+      topicTrend: includeInsights ? this.youtubeTopicTrend(range, now) : [],
+      keywords: includeInsights ? extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT) : [],
       keywordCoverage: keywordCoverage(keywordRows.length, uniqueVideos),
       recent: recent.map((row) => ({
         videoId: row.video_id === null ? null : String(row.video_id),
