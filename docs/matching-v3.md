@@ -371,3 +371,11 @@ from `/home/urtube/urtube.observe.tw`; do not implicitly deploy another main tip
 Only the production URL https://urtube.observe.tw/matches is the test endpoint.
 The topic card exposes the uncalibrated score as a percentage for debugging;
 it is not a probability or a claim of validated compatibility.
+
+### 儀表板與帳號處理狀態（2026-09-06）
+
+儀表板總覽／洞察改為顯示目前版本的 v3 九類摘要；移除舊主題覆蓋率、主題排行／趨勢、crystal 興趣變化、關鍵字雲與外部分類分布。基本觀看統計、頻道、影片、觀看節奏及回顧保留。v3 摘要依配對輪廓的影片上限建立，明示它不跟隨儀表板日期範圍，也不把類別影片數當作觀看時數占比。本人可查看九類；其他有權查看 profile 的訪客僅看到對方已選擇分享的類別，退出配對後不顯示其 v3 摘要。
+
+帳號頁與個人頁的處理提示讀取影片 metadata 數量及 v3 job/profile 摘要，不讀取 v2 主題完成量、不推算剩餘時間。分類顯示本輪影片數；embedding 顯示目前批次／類別的 tags；頻道階段只顯示來源影片範圍，因 worker 尚未回報逐頻道完成量。工作版本不符、失敗、等待重試及暫定結果都有不同狀態；詳細數量和輪廓更新時間僅顯示給本人。metadata-only 查詢共用五秒 revision-aware 快取。
+
+`GET /account/taxonomy` 導向 `/account#processing`，舊審核 POST 回傳 410，不再建立或啟用分類版本。v1/v2 的資料、演算法及背景工作仍保留；這是顯示與進度來源的切換，未停止舊版背景生成，也未重新分類既有 v3 快取。

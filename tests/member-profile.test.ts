@@ -38,7 +38,7 @@ test('member links open identity profiles while private history and dashboard ke
     const headers = { cookie: `urtube_session=${token}` };
     const directory = load(await (await app.request('/matches', { headers })).text());
     assert.equal(directory('.mt-person-link').first().attr('href'), '/profile-bob');
-    assert.equal(directory('.mt-actions form').first().attr('action'), '/matches/request');
+    assert.equal(directory('[data-friendship-tools] form').first().attr('action'), '/matches/request');
     const response = await app.request('/profile-bob?lang=zh', { headers });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');

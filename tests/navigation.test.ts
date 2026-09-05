@@ -88,7 +88,6 @@ test('signed-in pages share navigation, active state, and query-preserving langu
       ['/account?lang=zh', '設定', '/account?lang=en'],
       ['/onboarding?lang=zh', undefined, '/onboarding?lang=en'],
       ['/extension-setup?lang=zh', '設定', '/extension-setup?lang=en'],
-      ['/account/taxonomy?lang=zh', '設定', '/account/taxonomy?lang=en'],
     ] as const;
     for (const [path, active, languageHref] of cases) {
       const response = await app.request(path, { headers: { cookie } });
