@@ -4,10 +4,10 @@
 
 ## 盤點基準與範圍
 
-- 查核日期：2026-09-06。
-- 原始碼基準：[`ebd5a92`](https://github.com/skyhong2002/urtube.observe.tw/tree/ebd5a92)，專案版本 `0.1.0`。
-- 套件依據：[`package-lock.json`](package-lock.json)，SHA-256：`8b4e70021abac85c62d730fcab1efb7be81b9e98569d101c194d9e1a35fcd290`。
-- 涵蓋 lockfile 的 **59 個套件安裝項目**，包括直接、間接、開發與各平台選用依賴；同名不同版本分別列出。實際安裝項目依作業系統與部署設定而定；正式容器元件另由映像盤點記錄。
+- 查核日期：2026-09-06（第二次盤點，補入 `js-tiktoken` 及其相依、matching-compute Python 元件與正式部署的模型版本）。
+- 原始碼基準：`main` 於 2026-09-06 的投稿版本（[`ebd5a92`](https://github.com/skyhong2002/urtube.observe.tw/tree/ebd5a92) 之後僅新增 `js-tiktoken`、`base64-js` 兩個套件），專案版本 `0.1.0`。
+- 套件依據：[`package-lock.json`](package-lock.json)，SHA-256：`6bc6b6576e673776d6354b1a4f299e5482caf917b9575f82e81f57386724a5a4`。
+- 涵蓋 lockfile 的 **61 個套件安裝項目**，包括直接、間接、開發與各平台選用依賴；同名不同版本分別列出。實際安裝項目依作業系統與部署設定而定；正式容器元件另由映像盤點記錄。
 - 每個套件的 registry tarball 皆依 lockfile `resolved` 下載，並驗證 `integrity`；授權文字取自套件內檔案，缺件時使用下方明列的官方來源補足。
 - 模型、外部資料、部署基礎設施與素材以程式、版本歷史及公開來源核對。正式環境的確切模型與映像組成仍需部署者補充。
 
@@ -45,6 +45,7 @@
 | `@esbuild/win32-x64` | `0.28.2` | 選用／平台相依；間接 | MIT | [發布套件](https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz) |
 | `@hono/node-server` | `2.1.1` | 執行；直接 | MIT | [發布套件](https://registry.npmjs.org/@hono/node-server/-/node-server-2.1.1.tgz) |
 | `@types/node` | `26.2.0` | 開發；直接 | MIT | [發布套件](https://registry.npmjs.org/@types/node/-/node-26.2.0.tgz) |
+| `base64-js` | `1.5.1` | 執行；間接（`js-tiktoken` 相依） | MIT | [發布套件](https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz) |
 | `boolbase` | `1.0.0` | 執行；間接 | ISC | [發布套件](https://registry.npmjs.org/boolbase/-/boolbase-1.0.0.tgz) |
 | `cheerio` | `1.2.0` | 執行；直接 | MIT | [發布套件](https://registry.npmjs.org/cheerio/-/cheerio-1.2.0.tgz) |
 | `cheerio-select` | `2.1.0` | 執行；間接 | BSD-2-Clause | [發布套件](https://registry.npmjs.org/cheerio-select/-/cheerio-select-2.1.0.tgz) |
@@ -63,6 +64,7 @@
 | `htmlparser2` | `10.1.0` | 執行；間接 | MIT | [發布套件](https://registry.npmjs.org/htmlparser2/-/htmlparser2-10.1.0.tgz) |
 | `entities` | `7.0.1` | 執行；間接 | BSD-2-Clause | [發布套件](https://registry.npmjs.org/entities/-/entities-7.0.1.tgz) |
 | `iconv-lite` | `0.6.3` | 執行；間接 | MIT | [發布套件](https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz) |
+| `js-tiktoken` | `1.0.21` | 執行；直接（配對監控的 token 估算） | MIT | [發布套件](https://registry.npmjs.org/js-tiktoken/-/js-tiktoken-1.0.21.tgz) |
 | `nth-check` | `2.1.1` | 執行；間接 | BSD-2-Clause | [發布套件](https://registry.npmjs.org/nth-check/-/nth-check-2.1.1.tgz) |
 | `parse5` | `7.3.0` | 執行；間接 | MIT | [發布套件](https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz) |
 | `parse5-htmlparser2-tree-adapter` | `7.1.0` | 執行；間接 | MIT | [發布套件](https://registry.npmjs.org/parse5-htmlparser2-tree-adapter/-/parse5-htmlparser2-tree-adapter-7.1.0.tgz) |
@@ -82,6 +84,7 @@
 - `@esbuild/*@0.28.2` 的平台套件未附個別 LICENSE；其 package metadata 宣告 MIT，並指向 esbuild。本文附上主套件及[同版本官方 LICENSE.md](https://github.com/evanw/esbuild/blob/v0.28.2/LICENSE.md) 的授權文字。
 - `boolbase@1.0.0` 的封存檔只有 package metadata、README 與程式，metadata 宣告 ISC；本文補附[官方新增的 ISC LICENSE](https://github.com/fb55/boolbase/blob/be0bcd8a4e917a0a5895e95b523fbbed05a64871/LICENSE)。
 - `undici@7.29.0` 除根目錄 LICENSE 外，也保留 `lib/web/fetch/LICENSE`。`typescript@6.0.3` 的 `ThirdPartyNoticeText.txt` 另含內嵌程式與資料聲明，全文收錄於授權附錄。
+- `js-tiktoken@1.0.21` 的封存檔沒有 LICENSE 檔，package metadata 宣告 MIT；本文附上[上游 dqbd/tiktoken 的 MIT LICENSE](https://github.com/dqbd/tiktoken/blob/main/LICENSE)（Copyright OpenAI, Shantanu Jain）。套件內含 OpenAI [tiktoken](https://github.com/openai/tiktoken) 的 BPE 排名資料（`o200k_base` 等），上游同為 MIT。本專案只用它估算送往模型的文字 token 數，估算值不用於計費。`base64-js@1.5.1` 為其唯一相依，封存檔附 `package/LICENSE`。
 - 發布時需隨所散布的套件保留其 copyright、license 與 notices。本文提供中文索引與授權原文。
 
 ## 模型、外部服務與資料
@@ -93,12 +96,13 @@
 | Google Data Portability API | 可選的 instance owner 定期匯入；[官方資料來源](https://developers.google.com/data-portability)。 | [Data Portability user data and developer policy](https://developers.google.com/data-portability/policy) 與適用 Google API 條款。服務權限與驗證由部署者設定。 |
 | YouTube Data API v3／Google | 取得公開影片、頻道 metadata、圖片 URL 與公開統計；[API 文件](https://developers.google.com/youtube/v3)。 | [YouTube API Services Terms](https://developers.google.com/youtube/terms/api-services-terms-of-service)、[Developer Policies](https://developers.google.com/youtube/terms/developer-policies) 與 [Branding Guidelines](https://developers.google.com/youtube/terms/branding-guidelines)。影片、縮圖與頻道圖片依權利人授權及平台條款使用。 |
 | analysis.tw 頻道標籤清單 | 以 [channels_list API](https://urtubeapi.analysis.tw/api/channels_list.php) 取得新聞／社論與政治內容標籤；使用 query、來源時間與內容版本見[專案政策](docs/channel-tag-policy.md)。 | **資料再利用授權待確認**：待維護者提供授權／使用條款，補充展示、快取與再散布範圍。此清單用於頻道內容標籤。 |
-| OpenAI GPT 5.6 Luna／OpenAI | 團隊採用 GPT 5.6 Luna 處理所有需要語言模型的內容理解與生成工作，包含依公開影片資訊整理興趣主題。分類服務透過 `AI_BASE_URL`、`AI_MODEL` 設定，程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | 模型服務依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。實際部署的 model ID／revision 與可公開的模型及資料來源文件待補充。 |
-| Google Gemini embedding／Google | 團隊採用 Gemini embedding 進行語意分析，理解內容與興趣之間的關聯；[官方來源與使用文件](https://ai.google.dev/gemini-api/docs/embeddings)。 | 服務條款見 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)。實際採用的 embedding model ID／revision 與可公開的模型及資料來源文件待補充。 |
-| Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；shim 原始碼不在本 repository，現行部署版本待確認。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。shim 自身來源與授權亦待部署者補充。 |
+| OpenAI GPT 5.6 Luna／OpenAI | 主題配對（matching v3）以 Chat Completions 對公開影片標題與 tags 做多類別 genre 分類，並判斷頻道經營類型；正式部署的 model ID 為 `gpt-5.6-luna`、`reasoning_effort=low`，端點為 OpenAI 官方 `https://api.openai.com/v1`（`MATCHING_V3_BASE_URL`／`MATCHING_V3_CLASSIFICATION_MODEL`），程式見 [`src/matching-v3/provider.ts`](src/matching-v3/provider.ts)，設計見 [`docs/matching-v3.md`](docs/matching-v3.md)。 | 外部服務，依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)與 [Usage policies](https://openai.com/policies/usage-policies/)；模型卡見 [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)。OpenAI 未公開此模型的訓練資料來源，本文列為「未公開／無法確認」。回應僅快取分類結果，不散布模型輸出以外的內容。 |
+| OpenAI GPT 5.6 Sol／OpenAI（經自架 gateway） | 個人私密興趣 taxonomy 分類（[`src/youtube/ai.ts`](src/youtube/ai.ts)）透過 `AI_BASE_URL` 指向的自架 chat-completions gateway，正式部署 `AI_MODEL=gpt-5.6-sol`。 | 模型與訂閱服務依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)；訓練資料來源未公開／無法確認。gateway shim 見下列 Codex CLI 項目。 |
+| Google Gemini embedding／Google | 主題配對將每個公開影片 tag 的正規化文字送 Gemini Developer API 取得向量；正式部署 `gemini-embedding-001`、`SEMANTIC_SIMILARITY` task、768 維、L2 正規化，端點 `generativelanguage.googleapis.com/v1beta`；[官方文件](https://ai.google.dev/gemini-api/docs/embeddings)、程式見 [`src/matching-v3/provider.ts`](src/matching-v3/provider.ts)。 | 外部服務，依 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)。Google 未公開該 embedding 模型的訓練資料來源，本文列為「未公開／無法確認」。向量僅存於共用快取供配對計算，不對外散布。 |
+| Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；正式站僅舊版私密 taxonomy 分類仍經此 gateway，主題配對已改走 OpenAI 官方端點。shim 原始碼不在本 repository。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。shim 自身來源與授權亦待部署者補充。 |
 | Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 優先使用 Google 登入或 UserInfo 提供的 allowlist 圖片；無法取得時暫用 Gravatar，再失敗則使用本機字首頭像。圖片經本站同源路徑提供。 | Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/)。Gravatar 請求使用 email 的 SHA-256 雜湊。 |
 
-模型名稱與用途依團隊提供的實際使用資訊揭露；版本資訊隨正式部署紀錄更新。
+模型名稱與用途依正式部署容器的環境設定核對（2026-09-06）；兩個模型供應者皆未公開訓練資料來源，本文不推測。尚未採用的模型不列入。
 
 ## 部署工具與基礎映像
 
@@ -109,6 +113,9 @@
 | Node.js | [`Dockerfile`](Dockerfile) 使用 `node:22-alpine`，內含 `node:sqlite`；[Node.js 原始碼與完整授權](https://github.com/nodejs/node/blob/main/LICENSE)。 | Node.js 本體 MIT，內含元件有個別條款，須保留其完整 LICENSE；浮動 image tag 未固定 patch 或 digest。 |
 | SQLite | 經 Node.js 內建 `node:sqlite` 使用；[SQLite 來源與權利說明](https://www.sqlite.org/copyright.html)。 | SQLite 原始碼 public domain；Node.js 的打包與其他元件仍依各自條款。 |
 | Node Docker image／Alpine Linux | [官方 Node image](https://github.com/nodejs/docker-node)、[Alpine 套件](https://pkgs.alpinelinux.org/packages)。 | 映像內作業系統與函式庫依各元件授權提供。最終發布 image digest 與完整映像 SBOM 待發布者補充。 |
+| matching-compute／Python 3.12 | [`services/matching-compute/Dockerfile`](services/matching-compute/Dockerfile) 以 `python:3.12-slim`（Debian 基底）執行 DBSCAN 分群與 optimal transport 數值服務；正式容器內為 Python `3.12.14`；[Python 原始碼與授權](https://github.com/python/cpython/blob/main/LICENSE)。 | Python [PSF License](https://docs.python.org/3/license.html)；Debian 基底套件依各自授權，映像內作業系統元件 SBOM 未另行產生。正式映像 `ghcr.io/skyhong2002/urtube-matching-compute@sha256:4f81985e5c83f4130a6c2179b4b2d6354d3ec4b1b7e6c678ad8a4878bf33d1f5`（2026-09-06 執行中）。 |
+| numpy、scipy、scikit-learn（pip） | [`requirements.txt`](services/matching-compute/requirements.txt) 固定 `numpy==2.2.6`、`scipy==1.15.3`、`scikit-learn==1.6.1`；pip 另解析相依 `joblib 1.6.0`、`threadpoolctl 3.6.0`（正式容器實測）。來源：[numpy](https://github.com/numpy/numpy)、[scipy](https://github.com/scipy/scipy)、[scikit-learn](https://github.com/scikit-learn/scikit-learn)、[joblib](https://github.com/joblib/joblib)、[threadpoolctl](https://github.com/joblib/threadpoolctl)。 | 皆為 [BSD-3-Clause](https://github.com/scikit-learn/scikit-learn/blob/main/COPYING)（numpy／scipy／scikit-learn／joblib／threadpoolctl 各自 LICENSE）。scipy 與 numpy wheel 內含 OpenBLAS（BSD-3-Clause）等編譯元件，隨 wheel 附帶授權。相依版本未在 requirements 固定，重建時可能解析到不同版本。 |
+| 正式映像（GHCR） | GitHub Actions 依 [`Dockerfile`](Dockerfile) 建置並發布 `ghcr.io/skyhong2002/urtube.observe.tw`（app／ingest／worker／backup／matching-worker 共用），由 Komodo 拉取部署；2026-09-06 執行中的 app 映像對應原始碼 `401856a`、image ID `sha256:af6d7796ccbed5d7046a36cd3e2bfecf2905eb912d3e101ca8bb8fdd8647fbb2`。 | 映像內容為本專案（MIT）加上上述 Node.js／Alpine 元件與 npm 套件；映像層級 SBOM 未另行產生，以 lockfile SBOM 與本表為準。部署工具 [Komodo](https://github.com/moghtech/komodo)（GPL-3.0）與 MongoDB 8.0（SSPL）只在主機上執行部署，不隨產品散布。 |
 | Docker Compose／Docker 執行環境 | [`docker-compose.yml`](docker-compose.yml) 啟動服務；[Compose 原始碼](https://github.com/docker/compose)。 | Compose [Apache-2.0](https://github.com/docker/compose/blob/main/LICENSE)；若用 Docker Desktop，另依其[訂閱條款](https://www.docker.com/legal/docker-subscription-service-agreement/)。部署工具版本由執行環境決定。 |
 | Cloudflare Tunnel／cloudflared | [目前維運紀錄](CUTOVER_RUNBOOK.md) 的正式對外入口；[cloudflared](https://github.com/cloudflare/cloudflared)。 | client 依[完整 LICENSE](https://github.com/cloudflare/cloudflared/blob/master/LICENSE)，Cloudflare 服務依[使用條款](https://www.cloudflare.com/terms/)。正式版本與 Tunnel 設定不在 repository，待部署者確認。 |
 | Caddy | [`compose.local.yml`](compose.local.yml) 使用 `caddy:2-alpine` 提供本機反向代理與配對主題原型；[Caddy 來源](https://github.com/caddyserver/caddy)。 | [Apache-2.0](https://github.com/caddyserver/caddy/blob/master/LICENSE)；發布時記錄實際映像版本與隨附元件。 |
@@ -128,9 +135,9 @@
 
 | 項目 | 待提供的證據／處置 | 負責角色 |
 | --- | --- | --- |
-| 模型版本與 shim | 補齊 OpenAI GPT 5.6 Luna 與 Google Gemini embedding 的部署 model ID／revision、適用服務方案及可公開的模型與資料來源文件；shim 補原始碼來源及授權。 | 部署維護者 |
+| gateway shim 原始碼 | 舊版私密 taxonomy 分類使用的 codex-exec shim 原始碼不在 repository；模型 ID 已於上表揭露，shim 本身的來源與授權仍待部署者補充。 | 部署維護者 |
 | analysis.tw 資料授權 | 取得維護者正式使用條款或許可證據，確認展示、快取與再散布的使用範圍。 | 資料來源聯絡者／維護者 |
-| 發布 image 與外部工具 | 固定實際發布 digest、工具版本，產生容器／OS 元件 SBOM 並保留隨附聲明。 | 發布維護者 |
+| 映像層級 SBOM | 執行中的映像 digest 已記錄於上表；容器作業系統層（Alpine／Debian）元件 SBOM 尚未產生。 | 發布維護者 |
 | OG 圖片重現環境 | 現有紀錄可追溯 HTML；原渲染環境的字型、瀏覽器版本與字型授權待補。 | 素材維護者 |
 
 這些項目以 [#54](https://github.com/skyhong2002/urtube.observe.tw/issues/54) 追蹤。版本定版或新增模型／資料／素材後應再查核一次。
@@ -139,7 +146,7 @@
 
 採用 npm 內建 `npm sbom` 輸出 **CycloneDX 1.5 JSON**。[npm 官方說明](https://docs.npmjs.com/cli/v11/commands/npm-sbom/) 記錄兩種格式與 lockfile 模式。
 
-本次工具為 Node.js `v24.2.0`、npm `11.3.0`。npm 輸出的根元件名稱可能取自 checkout 目錄；以下步驟將它統一為 `package.json` 的專案名稱，其餘 SBOM 欄位保留。在相同 lockfile 下執行：
+首次盤點工具為 Node.js `v24.2.0`、npm `11.3.0`；本次更新為 Node.js `v24.15.0`、npm `11.12.1`。npm 輸出的根元件名稱可能取自 checkout 目錄；以下步驟將它統一為 `package.json` 的專案名稱，其餘 SBOM 欄位保留。在相同 lockfile 下執行：
 
 ```bash
 # 在 repository 根目錄執行；輸出到 repository 外
@@ -172,7 +179,7 @@ JS
 更新時應重新下載 lockfile 的來源套件、驗證 integrity、核對 LICENSE／NOTICE／ThirdPartyNoticeText 等檔案，再同步更新套件表、授權附錄、SHA-256 與 JSON 快照。
 
 <details>
-<summary>CycloneDX 1.5 JSON：59 個套件及依賴關係</summary>
+<summary>CycloneDX 1.5 JSON：61 個套件及依賴關係</summary>
 
 <!-- sbom:start -->
 ```json
@@ -180,9 +187,9 @@ JS
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:80edba86-d985-437c-a82d-478a7f3b6475",
+  "serialNumber": "urn:uuid:c7d5ace2-d314-45e1-b2fa-091f157b2ffc",
   "version": 1,
-  "metadata": {"timestamp":"2026-09-05T14:54:38.954Z","lifecycles":[{"phase":"pre-build"}],"tools":[{"vendor":"npm","name":"cli","version":"11.3.0"}],"component":{"bom-ref":"urtube@0.1.0","type":"library","name":"urtube","version":"0.1.0","scope":"required","purl":"pkg:npm/urtube@0.1.0","properties":[{"name":"cdx:npm:package:private","value":"true"}],"externalReferences":[]}},
+  "metadata": {"timestamp":"2026-09-05T21:16:10.282Z","lifecycles":[{"phase":"pre-build"}],"tools":[{"vendor":"npm","name":"cli","version":"11.12.1"}],"component":{"bom-ref":"urtube@0.1.0","type":"library","name":"urtube","version":"0.1.0","scope":"required","purl":"pkg:npm/urtube@0.1.0","properties":[{"name":"cdx:npm:package:private","value":"true"}],"externalReferences":[]}},
   "components": [
     {"bom-ref":"@esbuild/aix-ppc64@0.28.2","type":"library","name":"@esbuild/aix-ppc64","version":"0.28.2","scope":"optional","purl":"pkg:npm/%40esbuild/aix-ppc64@0.28.2","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.28.2.tgz"}],"hashes":[{"alg":"SHA-512","content":"5c4c5c3be76f2cabd5b4d4e26d24c17a3d4d0806da1a15a7f56c3564fc7cd2ab1a8613c57bff238163f421c84d7b41771f0914ee7f1e8e11fc6e3a27aa1b7c99"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"@esbuild/android-arm@0.28.2","type":"library","name":"@esbuild/android-arm","version":"0.28.2","scope":"optional","purl":"pkg:npm/%40esbuild/android-arm@0.28.2","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.28.2.tgz"}],"hashes":[{"alg":"SHA-512","content":"9175e888f55519072721818e79aa2fc0e511a678830694aae00d37aa443e04c42ab461ba1d86a9df19def42d4ed72a384d1deac65097e48aaa997e9f168d8baa"}],"licenses":[{"license":{"id":"MIT"}}]},
@@ -212,6 +219,7 @@ JS
     {"bom-ref":"@esbuild/win32-x64@0.28.2","type":"library","name":"@esbuild/win32-x64","version":"0.28.2","scope":"optional","purl":"pkg:npm/%40esbuild/win32-x64@0.28.2","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz"}],"hashes":[{"alg":"SHA-512","content":"e5e6e9c6bde758cceb2ffae7508ef9e4992e79ed1b1cbfc6ab459317d96f729bfbdf0029e5ebbc31f0548162bd6e15af6638fbc97f1eb5fffcb48f0d7b2ebde6"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"@hono/node-server@2.1.1","type":"library","name":"@hono/node-server","version":"2.1.1","scope":"required","purl":"pkg:npm/%40hono/node-server@2.1.1","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/@hono/node-server/-/node-server-2.1.1.tgz"}],"hashes":[{"alg":"SHA-512","content":"10bb9e8648f954205d804c3dcecfa2be42b0cb3cd409242e13de989a23ef9f51020686427336c55c92de106313623a613fa832761e291cca8460f54c61456042"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"@types/node@26.2.0","type":"library","name":"@types/node","version":"26.2.0","scope":"optional","purl":"pkg:npm/%40types/node@26.2.0","properties":[{"name":"cdx:npm:package:development","value":"true"}],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/@types/node/-/node-26.2.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"e48be2ba54d9791369daf009e75e1c73f1d4958e6767d7c26eaf433320b9d81ae1159002a379c8d11eea0718509a8fdddbb3457bdeaeaff6fb5b0c6495d6be92"}],"licenses":[{"license":{"id":"MIT"}}]},
+    {"bom-ref":"base64-js@1.5.1","type":"library","name":"base64-js","version":"1.5.1","scope":"required","purl":"pkg:npm/base64-js@1.5.1","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz"}],"hashes":[{"alg":"SHA-512","content":"00aa5a6251e7f2de1255b3870b2f9be7e28a82f478bebb03f2f6efadb890269b3b7ca0d3923903af2ea38b4ad42630b49336cd78f2f0cf1abc8b2a68e35a9e58"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"boolbase@1.0.0","type":"library","name":"boolbase","version":"1.0.0","scope":"required","purl":"pkg:npm/boolbase@1.0.0","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/boolbase/-/boolbase-1.0.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"25939203b328f6c34607cf948d283374bb68916024cb5cdbced3375912c26d9ef4ff771300d99098e751ef2da0f89d1ed965f2c32d724b8ebcb58f88aeea84c3"}],"licenses":[{"license":{"id":"ISC"}}]},
     {"bom-ref":"cheerio@1.2.0","type":"library","name":"cheerio","version":"1.2.0","scope":"required","purl":"pkg:npm/cheerio@1.2.0","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/cheerio/-/cheerio-1.2.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"583af26dcfe0285a53610bad2882ba52f7dcbb18a32197cc7d76989bc34cb0f431498bdffb5ddf5d4278af3b4619b25c050fc6179e60beb67405cd1b8ff9aabe"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"cheerio-select@2.1.0","type":"library","name":"cheerio-select","version":"2.1.0","scope":"required","purl":"pkg:npm/cheerio-select@2.1.0","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/cheerio-select/-/cheerio-select-2.1.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"f6ff641b42efceb95cba782d9c9b6918dc58f9fcc40902a12b8106257daf0727a388c5fce0c14d430e14c4f265ddb15b4ccc3e0dfb37ed7688902c1365f2e1e2"}],"licenses":[{"license":{"id":"BSD-2-Clause"}}]},
@@ -230,6 +238,7 @@ JS
     {"bom-ref":"htmlparser2@10.1.0","type":"library","name":"htmlparser2","version":"10.1.0","scope":"required","purl":"pkg:npm/htmlparser2@10.1.0","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/htmlparser2/-/htmlparser2-10.1.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"55366433d196440b44a6f7a1ecc485e928e3ae935534d5497c5ba9ef14d8dd4a45b66ebb7e8cbd1c35579de2ed155b78a4ccf9919b6035cbc29e23456f586511"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"entities@7.0.1","type":"library","name":"entities","version":"7.0.1","scope":"required","purl":"pkg:npm/entities@7.0.1","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/entities/-/entities-7.0.1.tgz"}],"hashes":[{"alg":"SHA-512","content":"4d6ae02ce1544131fdf78614ca5d724f8bb26af6399cd0799ae7dff91b566aa3550802b8d3c6f96679db34050458b4c2a6e9bdc3a6ab4fbd22d57750e1478e3c"}],"licenses":[{"license":{"id":"BSD-2-Clause"}}]},
     {"bom-ref":"iconv-lite@0.6.3","type":"library","name":"iconv-lite","version":"0.6.3","scope":"required","purl":"pkg:npm/iconv-lite@0.6.3","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz"}],"hashes":[{"alg":"SHA-512","content":"e1f0a4efdc2c84c773329dab1f4eaa5ab244e22a25a8b842507f8e8ae22053ef91074fbde0d9432fcd5ab4eec65f9e6e50ab9ea34b711cdb6f13223a0fb59d33"}],"licenses":[{"license":{"id":"MIT"}}]},
+    {"bom-ref":"js-tiktoken@1.0.21","type":"library","name":"js-tiktoken","version":"1.0.21","scope":"required","purl":"pkg:npm/js-tiktoken@1.0.21","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/js-tiktoken/-/js-tiktoken-1.0.21.tgz"}],"hashes":[{"alg":"SHA-512","content":"6e23a3ffa339a9d831e532a30e7153d72992a4ce6d6dddf29700edad0bc5412bb467b6c1624a36745f96fda5245d43ee93a215a51c64ff7436b073b31a54b7ea"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"nth-check@2.1.1","type":"library","name":"nth-check","version":"2.1.1","scope":"required","purl":"pkg:npm/nth-check@2.1.1","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/nth-check/-/nth-check-2.1.1.tgz"}],"hashes":[{"alg":"SHA-512","content":"96a8eb8e668ea009d67cc9813cbf97367ca7661dbeb30c625f7594134b38c841c8ea6f80c2b2b65193a2988465dd7ff841cb55a92f008998c5ab2386acc5dbff"}],"licenses":[{"license":{"id":"BSD-2-Clause"}}]},
     {"bom-ref":"parse5@7.3.0","type":"library","name":"parse5","version":"7.3.0","scope":"required","purl":"pkg:npm/parse5@7.3.0","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"2089ef53b7da6e5df8aa68bd818f17395c61632332b87db150da5bdaaf3f63eef9e762a57a3911beabc3d7d9cca145bfb901866ea36903a4ee7eee452f905983"}],"licenses":[{"license":{"id":"MIT"}}]},
     {"bom-ref":"parse5-htmlparser2-tree-adapter@7.1.0","type":"library","name":"parse5-htmlparser2-tree-adapter","version":"7.1.0","scope":"required","purl":"pkg:npm/parse5-htmlparser2-tree-adapter@7.1.0","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/parse5-htmlparser2-tree-adapter/-/parse5-htmlparser2-tree-adapter-7.1.0.tgz"}],"hashes":[{"alg":"SHA-512","content":"aeec39c722acea5ae9a3dc7dac266a6599c8527b480a34007745ac9a9dfde9497d94dfe1fa27e0555d71d606478bc7ae7a3eb04dfa6a5fc8fe045431174352fe"}],"licenses":[{"license":{"id":"MIT"}}]},
@@ -245,7 +254,7 @@ JS
     {"bom-ref":"zod@3.25.76","type":"library","name":"zod","version":"3.25.76","scope":"required","purl":"pkg:npm/zod@3.25.76","properties":[],"externalReferences":[{"type":"distribution","url":"https://registry.npmjs.org/zod/-/zod-3.25.76.tgz"}],"hashes":[{"alg":"SHA-512","content":"83352dfeab7cd675ec14628815c0b76277c4031e4d92e9c27e70e5bee0524854b4d9b717bb82e679ad001485306cb5b158fc7777da7c4b94286ae8ca70d43171"}],"licenses":[{"license":{"id":"MIT"}}]}
   ],
   "dependencies": [
-    {"ref":"urtube@0.1.0","dependsOn":["@hono/node-server@2.1.1","cheerio@1.2.0","fflate@0.8.3","hono@4.13.2","tsx@4.23.12","zod@3.25.76","@types/node@26.2.0","typescript@6.0.3"]},
+    {"ref":"urtube@0.1.0","dependsOn":["@hono/node-server@2.1.1","cheerio@1.2.0","fflate@0.8.3","hono@4.13.2","js-tiktoken@1.0.21","tsx@4.23.12","zod@3.25.76","@types/node@26.2.0","typescript@6.0.3"]},
     {"ref":"@esbuild/aix-ppc64@0.28.2","dependsOn":[]},
     {"ref":"@esbuild/android-arm@0.28.2","dependsOn":[]},
     {"ref":"@esbuild/android-arm64@0.28.2","dependsOn":[]},
@@ -274,6 +283,7 @@ JS
     {"ref":"@esbuild/win32-x64@0.28.2","dependsOn":[]},
     {"ref":"@hono/node-server@2.1.1","dependsOn":["hono@4.13.2"]},
     {"ref":"@types/node@26.2.0","dependsOn":["undici-types@8.3.0"]},
+    {"ref":"base64-js@1.5.1","dependsOn":[]},
     {"ref":"boolbase@1.0.0","dependsOn":[]},
     {"ref":"cheerio@1.2.0","dependsOn":["cheerio-select@2.1.0","dom-serializer@2.0.0","domhandler@5.0.3","domutils@3.2.2","encoding-sniffer@0.2.1","htmlparser2@10.1.0","parse5@7.3.0","parse5-htmlparser2-tree-adapter@7.1.0","parse5-parser-stream@7.1.2","undici@7.29.0","whatwg-mimetype@4.0.0"]},
     {"ref":"cheerio-select@2.1.0","dependsOn":["boolbase@1.0.0","css-select@5.2.2","css-what@6.2.2","domelementtype@2.3.0","domhandler@5.0.3","domutils@3.2.2"]},
@@ -292,6 +302,7 @@ JS
     {"ref":"htmlparser2@10.1.0","dependsOn":["domelementtype@2.3.0","domhandler@5.0.3","domutils@3.2.2","entities@7.0.1"]},
     {"ref":"entities@7.0.1","dependsOn":[]},
     {"ref":"iconv-lite@0.6.3","dependsOn":["safer-buffer@2.1.2"]},
+    {"ref":"js-tiktoken@1.0.21","dependsOn":["base64-js@1.5.1"]},
     {"ref":"nth-check@2.1.1","dependsOn":["boolbase@1.0.0"]},
     {"ref":"parse5@7.3.0","dependsOn":["entities@6.0.1"]},
     {"ref":"parse5-htmlparser2-tree-adapter@7.1.0","dependsOn":["domhandler@5.0.3","parse5@7.3.0"]},
@@ -1170,6 +1181,68 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 MIT License
 
 Copyright (c) 2025 Colin McDonnell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>授權原文 23：base64-js@1.5.1</summary>
+
+- `base64-js@1.5.1` — `package/LICENSE`
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2014 Jameson Little
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>授權原文 24：js-tiktoken@1.0.21</summary>
+
+- `js-tiktoken@1.0.21` — 封存檔未附 LICENSE；引用 `upstream dqbd/tiktoken LICENSE`（2026-09-06 取得）
+
+```text
+MIT License
+
+Copyright (c) 2022 OpenAI, Shantanu Jain
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

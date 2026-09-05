@@ -430,6 +430,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           tagLean,
           lang,
           buildReferencePopulation(tagLean, contributions),
+          { owner: sessionUser(c)?.id === user.id },
         );
       } catch (error) {
         console.warn('channel classifications unavailable:',

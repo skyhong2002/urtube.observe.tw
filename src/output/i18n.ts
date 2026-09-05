@@ -1,3 +1,5 @@
+import { TAG_GROUPS } from '../youtube/taglists.js';
+
 export type Lang = 'en' | 'zh';
 
 export function pickLang(
@@ -563,10 +565,7 @@ const en = {
   navTagLean: 'Channel labels',
   tagLeanEyebrow: "YouTube · Channel classifications",
   tagLeanTitle: 'Channel classifications',
-  tagGroups: {
-    news: 'News', editorial: 'Personal commentary', editorialShows: 'Commentary shows',
-    blue: 'Pan-Blue', green: 'Pan-Green', white: 'Pan-White', red: 'Pan-Red',
-  } as Record<string, string>,
+  tagGroups: Object.fromEntries(Object.entries(TAG_GROUPS).map(([key, group]) => [key, group.names.en])) as Record<string, string>,
   tagLeanHeroSub: (range: string) => `on source-labeled political channels · ${range.toLowerCase()}`,
   tagLeanHeroNone: 'No politically tagged watches in this range.',
   tagLeanStatTaggedTime: 'tagged watch time',
@@ -578,8 +577,15 @@ const en = {
   tagLeanContent: 'Content type',
   tagLeanContentSub: 'share of all your watch time · groups overlap (a channel can carry several tags)',
   tagLeanGroupMeta: (watches: number, channels: number) => `${watches} watches · ${channels} channels`,
-  tagLeanCoverage: (pct: number) =>
-    `${pct}% of your estimated watch time landed on tagged channels. The rest is untagged.`,
+  tagLeanCoverageTitle: 'Coverage of your viewing',
+  tagLeanClassified: 'Classified',
+  tagLeanUnclassified: 'Unclassified',
+  tagLeanUnknownChannel: 'Channel not identified',
+  tagLeanCoverageHelp: 'Percentages use all estimated watch time in the selected range, including channels with missing information. Each channel counts once overall and may belong to multiple groups. These results describe your viewing and do not represent all of YouTube.',
+  tagLeanCoverageDetails: 'Group coverage and unclassified channels',
+  tagLeanUncoveredCount: (shown: number, total: number) => `${shown} of ${total} unclassified channels · most watch time first`,
+  tagLeanCoverageEmpty: 'No estimated watch time in this range.',
+  tagLeanFullyCovered: 'All watched channels are covered by at least one group.',
   tagLeanSource: (host: string, updated: string) => `Source: ${host} · Updated ${updated}`,
   tagLeanPolicyLink: 'Definitions and limitations',
   tagLeanReportLink: 'Report a label',
@@ -1140,10 +1146,7 @@ const zh: typeof en = {
   navTagLean: '頻道分類',
   tagLeanEyebrow: "YouTube · 頻道分類",
   tagLeanTitle: '頻道分類',
-  tagGroups: {
-    news: '新聞', editorial: '個人社論', editorialShows: '社論節目',
-    blue: '泛藍', green: '泛綠', white: '泛白', red: '泛紅',
-  } as Record<string, string>,
+  tagGroups: Object.fromEntries(Object.entries(TAG_GROUPS).map(([key, group]) => [key, group.names.zh])),
   tagLeanHeroSub: (range: string) => `觀看來源標記的政治頻道 · ${range}`,
   tagLeanHeroNone: '這個範圍內沒有政治標籤頻道的觀看。',
   tagLeanStatTaggedTime: '標籤頻道觀看時間',
@@ -1155,7 +1158,15 @@ const zh: typeof en = {
   tagLeanContent: '內容類型',
   tagLeanContentSub: '佔你全部觀看時間的比例 · 分組可重疊（同一頻道可同屬多組）',
   tagLeanGroupMeta: (watches: number, channels: number) => `${watches} 次觀看 · ${channels} 個頻道`,
-  tagLeanCoverage: (pct: number) => `你的估計觀看時間有 ${pct}% 落在有標籤的頻道，其餘未被標記。`,
+  tagLeanCoverageTitle: '你的觀看分類覆蓋率',
+  tagLeanClassified: '已分類',
+  tagLeanUnclassified: '尚未分類',
+  tagLeanUnknownChannel: '尚未辨識的頻道',
+  tagLeanCoverageHelp: '比例依所選期間的全部估計觀看時間計算，包含資料尚未齊全的頻道。整體分類比例中，每個頻道只計算一次，同一頻道可以屬於多個群組。結果反映你的觀看內容，不代表整個 YouTube。',
+  tagLeanCoverageDetails: '群組覆蓋與尚未分類頻道',
+  tagLeanUncoveredCount: (shown: number, total: number) => `${total} 個尚未分類頻道中，列出觀看時間最多的 ${shown} 個`,
+  tagLeanCoverageEmpty: '這個範圍沒有估計觀看時間。',
+  tagLeanFullyCovered: '看過的所有頻道都已被至少一個群組涵蓋。',
   tagLeanSource: (host: string, updated: string) => `來源：${host} · 更新於 ${updated}`,
   tagLeanPolicyLink: '定義與限制',
   tagLeanReportLink: '回報標籤問題',

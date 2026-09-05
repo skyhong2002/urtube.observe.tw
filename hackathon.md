@@ -74,7 +74,7 @@ AI 不只是聊天介面，而是用來解決無法靠手工規則穩定完成�
 - 只讀取公開影片中繼資料，例如標題、頻道與公開標籤，不把私人搜尋文字交給模型。
 - 把公開影片 metadata 分成固定的廣義私人主題，保留模型、prompt、evidence、信心與版本帳本，讓本人可審核、啟用與 rollback。
 - 低資訊或低信心影片可落在 `Unknown`，不會被硬塞成個人結論。
-- 跨使用者配對不依賴模型推測：後端以原始碼控管的 canonical taxonomy 聚合近 90 天資料；配對是一個可立即撤回的獨立開關。
+- 跨使用者配對不由模型決定：整體合拍度以原始碼控管的 canonical taxonomy 聚合近 90 天資料；主題合拍度（matching v3）只用 AI 做公開影片的 genre 分類與 tag 向量，之後的分群、optimal transport 與百分比都是可重現的數值計算，沒有 LLM 生成推薦理由。配對是一個可立即撤回的獨立開關。
 - 破冰提示只由雙方允許的廣義共同點組成，不帶來源影片或私人事件。
 
 不應讓模型推斷或公開政治立場、健康狀況、性傾向等敏感身分。若資料涉及敏感內容，預設排除於配對與對外展示之外。
@@ -104,6 +104,13 @@ AI 不只是聊天介面，而是用來解決無法靠手工規則穩定完成�
 百分比可重現。資料需符合 200 筆近期觀看、14 個活躍日與主題 80%
 coverage 門檻；未達主題 coverage 時只顯示頻道 fallback，不把低覆蓋
 結果包裝成精確主題結論。
+
+主題合拍度（matching v3）另行顯示、不與上式混算：以最近 2,000 部不同影片為範圍，
+GPT-5.6 Luna 對每部影片指定固定 genre，Gemini `gemini-embedding-001` 為每個公開 tag
+建立 768 維向量，加權 DBSCAN 依不同影片數在每個 genre 保留最多十個興趣群，
+兩人同 genre 的群以 `K = clamp((cosine − 0.7) / 0.3, 0, 1)` 經精確 optimal transport
+比較分布，所選 genre 等權平均後四捨五入為 0–100。掃描不完整、覆蓋率低、缺少
+輪廓或版本不符時標為暫定或不可計算，不回退舊公式。詳見 [`docs/matching-v3.md`](docs/matching-v3.md)。
 
 ### 配對卡不可展示
 
@@ -174,6 +181,9 @@ coverage 門檻；未達主題 coverage 時只顯示頻道 fallback，不把低�
 | 授權與揭露 | 已完成 | 預設 opt-out、可選／排除面向、雙方揭露交集、立即撤回 | [#7](https://github.com/skyhong2002/urtube.observe.tw/issues/7)、[#11](https://github.com/skyhong2002/urtube.observe.tw/issues/11) |
 | 配對閉環 | 已完成 | 有界候選名單、百分比 VS、opaque action token、雙向解鎖比較、撤銷 | [#8](https://github.com/skyhong2002/urtube.observe.tw/issues/8)、[#13](https://github.com/skyhong2002/urtube.observe.tw/issues/13)、[#31](https://github.com/skyhong2002/urtube.observe.tw/issues/31)、[#32](https://github.com/skyhong2002/urtube.observe.tw/issues/32) |
 | Onboarding | 已完成 | 可續接的登入、匯入、處理、興趣確認與配對選擇 | [#15](https://github.com/skyhong2002/urtube.observe.tw/issues/15) |
+| 語意主題配對（matching v3） | 已完成、正式站啟用 | 多 genre 影片分類、公開 tag 向量快取與背景預計算、加權 DBSCAN 興趣群、optimal transport 版本化分數、代表 tag 與揭露規則、`/matches` 主題篩選接真實成員 | [#44](https://github.com/skyhong2002/urtube.observe.tw/issues/44)–[#49](https://github.com/skyhong2002/urtube.observe.tw/issues/49) |
+| 頻道標籤覆蓋明細 | 已完成 | 群組定義集中治理、本人可見的已分類／未分類觀看時間與未涵蓋頻道 | [#51](https://github.com/skyhong2002/urtube.observe.tw/issues/51) |
+| 頻道規模／影片熱門度分布 | 未完成 | 需擴充 statistics 快照、schema 與洞察 UI；投稿版本不包含 | [#50](https://github.com/skyhong2002/urtube.observe.tw/issues/50) |
 
 ### 已完成的加值功能
 
@@ -205,7 +215,7 @@ coverage 門檻；未達主題 coverage 時只顯示頻道 fallback，不把低�
 
 第二輪權重為使用者價值 30%、UX 25%、成果展示 20%、產品成熟度 15%、未來成長性 10%。每隊共五分鐘：三分鐘展示、一分鐘評審提問、一分鐘回答。
 
-三分鐘展示建議：
+三分鐘展示逐秒腳本與七題評審問答的證據版答案見 [`docs/pitch.md`](docs/pitch.md#three-minute-final-pitch-and-judge-qa)。摘要：
 
 1. **0:00–0:25 — 問題：**「你填的興趣，不一定是你真正花時間看的；但完整紀錄也不該交給陌生人。」
 2. **0:25–1:10 — 匯入與洞察：**展示同意、進度、資料用途與完成後的私人興趣圖。
