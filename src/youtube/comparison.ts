@@ -277,10 +277,14 @@ function weekdayRows(
 ): ComparisonWeekdayRow[] {
   const series = (profile: YoutubeComparisonProfile) => {
     const byDay = new Map(profile.weekdays.map((entry) => [entry.weekday, entry]));
-    return {
-      watches: normalized(Array.from({ length: 7 }, (_, day) => byDay.get(day)?.watches ?? 0), mode),
-      seconds: normalized(Array.from({ length: 7 }, (_, day) => byDay.get(day)?.estimatedWatchSeconds ?? 0), mode),
+    const values = (key: 'watches' | 'estimatedWatchSeconds') => {
+      const totals = Array.from({ length: 7 }, (_, day) => byDay.get(day)?.[key] ?? 0);
+      // Locked comparisons keep shares only; denominators never cross the
+      // consent boundary. Unlocked values are average daily volume.
+      return mode === 'share' ? normalized(totals, mode)
+        : totals.map((total, day) => profile.weekdayDays[day]! > 0 ? total / profile.weekdayDays[day]! : 0);
     };
+    return { watches: values('watches'), seconds: values('estimatedWatchSeconds') };
   };
   const left = series(a);
   const right = series(b);

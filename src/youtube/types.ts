@@ -379,6 +379,8 @@ export interface YoutubeComparisonProfile {
   topics: YoutubeComparisonRankedTopic[];
   hourly: YoutubeHourlySummary[];
   weekdays: YoutubeWeekdaySummary[];
+  // Taipei day exposure for weekday averages; Sunday first, includes inactive days.
+  weekdayDays: number[];
   rhythmCoverage: YoutubeRhythmCoverage;
   firstWatch: YoutubeComparisonWatch | null;
   lastWatch: YoutubeComparisonWatch | null;
