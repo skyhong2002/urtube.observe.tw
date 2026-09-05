@@ -1097,12 +1097,12 @@ test('topic trend uses dated events, current classifications, and weighted movin
     repository.ingestYoutubeArchive({
       archiveHash: 'topic-trend-fixture', source: 'takeout', searches: [],
       watches: [
-        watch('trend-jan', 'TRENDA00001', '2026-01-10T02:00:00Z', 100),
-        watch('trend-feb', 'TRENDA00002', '2026-02-10T02:00:00Z', 100),
+        watch('trend-jan', 'TRENDA00001', '2026-02-24T02:00:00Z', 100),
+        watch('trend-feb', 'TRENDA00002', '2026-03-03T02:00:00Z', 100),
         watch('trend-mar', 'TRENDB00001', '2026-03-10T02:00:00Z', 300),
         watch('trend-mar-pending', 'PENDING0001', '2026-03-11T02:00:00Z', 100),
-        watch('trend-apr', 'TRENDB00002', '2026-04-10T02:00:00Z', 100),
-        watch('trend-day-only', 'TRENDB00003', '2026-04-11T04:00:00Z', 900, 'day'),
+        watch('trend-apr', 'TRENDB00002', '2026-03-17T02:00:00Z', 100),
+        watch('trend-day-only', 'TRENDB00003', '2026-03-18T04:00:00Z', 900, 'day'),
       ],
     });
     const metadata = (videoId: string): YoutubeVideoMetadata => ({
@@ -1127,10 +1127,10 @@ test('topic trend uses dated events, current classifications, and weighted movin
     }
 
     const trend = repository.youtubeTopicTrend('365d', now);
-    assert.equal(trend.length, 13);
-    assert.equal(trend[0].month, '2025-05');
-    assert.equal(trend.at(-1)?.month, '2026-05');
-    const march = trend.find((month) => month.month === '2026-03')!;
+    assert.equal(trend.length, 53);
+    assert.equal(trend[0].month, '2025-05-12');
+    assert.equal(trend.at(-1)?.month, '2026-05-11');
+    const march = trend.find((month) => month.month === '2026-03-09')!;
     assert.deepEqual(
       { classifiable: march.classifiableWatchEvents, classified: march.classifiedWatchEvents,
         coverage: march.classificationCoverage, seconds: march.classifiedWatchSeconds },
@@ -1138,7 +1138,7 @@ test('topic trend uses dated events, current classifications, and weighted movin
     );
     assert.equal(march.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.4);
     assert.equal(march.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.6);
-    const april = trend.find((month) => month.month === '2026-04')!;
+    const april = trend.find((month) => month.month === '2026-03-16')!;
     assert.equal(april.classifiableWatchEvents, 2);
     assert.equal(april.classifiedWatchSeconds, 1000);
     assert.equal(april.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 1 / 14);
@@ -1149,9 +1149,9 @@ test('topic trend uses dated events, current classifications, and weighted movin
     assert.match(sevenDays[0].month, /^2026-05-0[78]$/);
     assert.equal(sevenDays.at(-1)?.month, '2026-05-15');
     const allTime = repository.youtubeTopicTrend('all', now);
-    assert.deepEqual(allTime.map((period) => period.month), [
-      '2026-01', '2026-02', '2026-03', '2026-04', '2026-05',
-    ]);
+    assert.equal(allTime[0].month, '2026-02-23');
+    assert.equal(allTime.at(-1)?.month, '2026-05-11');
+    assert.equal(allTime.length, 12);
 
     const html = youtubeDashboardPage('Fixture', repository.youtubeDashboard('all', now), 'duration', {
       lang: 'zh', page: 'overview',

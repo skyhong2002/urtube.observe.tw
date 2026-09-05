@@ -59,7 +59,8 @@ export function buildTopicTrendModel(months: YoutubeTopicTrendMonth[], t: Messag
     .sort((a, b) => a.name.localeCompare(b.name));
   const frames = months.map((month) => ({
     month: month.month,
-    label: monthLabel(month.month, t) + (month.partialPeriod ? ` · ${t.topicTrendPartial}` : ''),
+    label: (month.periodStart && month.periodEnd && month.periodStart !== month.periodEnd
+      ? `${month.periodStart} – ${month.periodEnd}` : monthLabel(month.periodStart ?? month.month, t)) + (month.partialPeriod ? ` · ${t.topicTrendPartial}` : ''),
     empty: !month.watchEvents ? t.topicTrendNoWatches : !month.classifiedWatchEvents ? t.topicTrendUnavailable : t.topicTrendNoTime,
     coverage: month.classifiableWatchEvents ? month.classificationCoverage : null,
     provisional: month.classifiableWatchEvents > 0 && month.classificationCoverage < 0.999,

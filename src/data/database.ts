@@ -1,3 +1,4 @@
+import { timelineWindow, timelineBounds, taipeiDate } from '../youtube/timeline.js';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -143,39 +144,6 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
   return new Date(now.getTime() - days * 86_400_000).toISOString();
 }
 
-function selectedTrendWindow(
-  range: YoutubeRange,
-  now: Date,
-  firstWatchAt: string | null,
-): { start: string; end: string; periods: string[]; format: '%Y-%m' | '%Y-%m-%d'; smoothing: number } {
-  const monthly = range === '365d' || range === 'all';
-  const start = range === 'all'
-    ? firstWatchAt ?? now.toISOString()
-    : youtubeCutoff(range, now)!;
-  const format = monthly ? '%Y-%m' : '%Y-%m-%d';
-  const startTaipei = new Date(Date.parse(start) + 8 * 3600_000);
-  const endTaipei = new Date(now.getTime() + 8 * 3600_000);
-  const cursor = monthly
-    ? new Date(Date.UTC(startTaipei.getUTCFullYear(), startTaipei.getUTCMonth(), 1))
-    : new Date(Date.UTC(startTaipei.getUTCFullYear(), startTaipei.getUTCMonth(), startTaipei.getUTCDate()));
-  const last = monthly
-    ? new Date(Date.UTC(endTaipei.getUTCFullYear(), endTaipei.getUTCMonth(), 1))
-    : new Date(Date.UTC(endTaipei.getUTCFullYear(), endTaipei.getUTCMonth(), endTaipei.getUTCDate()));
-  const periods: string[] = [];
-  while (cursor <= last) {
-    periods.push(cursor.toISOString().slice(0, monthly ? 7 : 10));
-    if (monthly) cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-    else cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return {
-    start,
-    end: now.toISOString(),
-    periods,
-    format,
-    smoothing: monthly ? 3 : 7,
-  };
-}
-
 // Shared by youtubeDashboard(). Per-event watch seconds: the measured value
 // when the extension captured one, zero when a measured event for the same
 // video sits within five minutes (a duplicate sighting of the same session),
@@ -284,25 +252,28 @@ const CHANNEL_RACE_MIN_SECONDS = 60;
 export function buildChannelRace(
   rows: ChannelRaceWeekRow[],
   halfLifeDays = CHANNEL_RACE_HALF_LIFE_DAYS,
+  window?: ReturnType<typeof timelineWindow>,
 ): YoutubeChannelRace {
   const race: YoutubeChannelRace = { halfLifeDays, channels: [], frames: [] };
-  if (!rows.length) return race;
+  if (!rows.length && !window) return race;
   const weekly = new Map<string, ChannelRaceWeekRow[]>();
   for (const row of rows) {
     const bucket = weekly.get(row.week);
     if (bucket) bucket.push(row);
     else weekly.set(row.week, [row]);
   }
-  const decay = 0.5 ** (7 / halfLifeDays);
+  const stepDays = window ? 1 : 7;
+  const decay = 0.5 ** (stepDays / halfLifeDays);
   const scores = new Map<string, {
     channelId: string | null; name: string; thumbnailUrl: string; score: number;
   }>();
   const indexByKey = new Map<string, number>();
-  const last = new Date(`${rows[rows.length - 1].week}T00:00:00Z`);
+  const last = new Date(`${window ? taipeiDate(window.end) : rows[rows.length - 1].week}T00:00:00Z`);
+  const first = window ? [rows[0]?.week ?? taipeiDate(window.start), taipeiDate(window.start)].sort()[0] : rows[0].week;
   for (
-    let cursor = new Date(`${rows[0].week}T00:00:00Z`);
+    let cursor = new Date(`${first}T00:00:00Z`);
     cursor <= last;
-    cursor.setUTCDate(cursor.getUTCDate() + 7)
+    cursor.setUTCDate(cursor.getUTCDate() + stepDays)
   ) {
     const week = cursor.toISOString().slice(0, 10);
     for (const entry of scores.values()) entry.score *= decay;
@@ -328,7 +299,7 @@ export function buildChannelRace(
     const top = [...scores.entries()]
       .sort((a, b) => b[1].score - a[1].score || a[1].name.localeCompare(b[1].name))
       .slice(0, CHANNEL_RACE_TOP);
-    if (!top.length) continue;
+    if (!top.length && !window) continue;
     race.frames.push({
       period: week,
       entries: top.map(([key, entry]) => {
@@ -346,6 +317,13 @@ export function buildChannelRace(
         return [index, Math.round(entry.score)];
       }),
     });
+  }
+  if (window) {
+    const dailyFrames = new Map(race.frames.map(frame => [frame.period, frame]));
+    race.frames = window.periods.map(period => ({
+      period,
+      entries: dailyFrames.get(timelineBounds(window, period).end)?.entries ?? [],
+    }));
   }
   // Keep the race field populated before every eventual contender has earned
   // a score. Without this, the first historical frames can show only a few
@@ -1788,8 +1766,10 @@ export class Repository {
       JOIN activities a ON a.id=w.activity_id
       WHERE w.activity_type='video' AND a.occurred_precision IN ('exact', 'day')
     `).get() as { first_at: string | null };
-    const selectedWindow = selectedTrendWindow(range, now, firstWatch?.first_at ?? null);
-    const periodExpression = `strftime('${selectedWindow.format}', e.watched_at, '+8 hours')`;
+    const selectedWindow = timelineWindow(range, now, firstWatch?.first_at ?? null);
+    const periodExpression = selectedWindow.weekly
+      ? `date(e.watched_at, '+8 hours', '-6 days', 'weekday 1')`
+      : `date(e.watched_at, '+8 hours')`;
     const monthlyRows = this.db.prepare(`
       ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
       SELECT ${periodExpression} month,
@@ -1848,6 +1828,8 @@ export class Repository {
       const classifiedWatchSeconds = Number(row?.classified_watch_seconds ?? 0);
       return {
         month,
+        periodStart: timelineBounds(selectedWindow, month).start,
+        periodEnd: timelineBounds(selectedWindow, month).end,
         watchEvents: Number(row?.watch_events ?? 0),
         partialPeriod: (month === selectedWindow.periods[0] && selectedWindow.start > new Date(`${month}${month.length === 7 ? '-01' : ''}T00:00:00+08:00`).toISOString())
           || month === selectedWindow.periods.at(-1),
@@ -2068,30 +2050,32 @@ export class Repository {
       WHERE watch_rank<=12 OR time_rank<=12
       ORDER BY estimated_watch_seconds DESC, watches DESC, title
     `).all(...params) as Array<Record<string, string | number | null>>;
-    // The race always covers the full history (no range cutoff): a half-life
-    // decay only means something when the whole timeline feeds it. Weeks are
-    // keyed by their Monday so frames map to real dates.
+    // Feed daily history into the decay, then sample only the selected window.
+    // Daily aggregation keeps short ranges and partial weeks accurate.
     const raceRows = !includeInsights ? [] : this.db.prepare(`
       ${estimatedEvents}
-      SELECT date(e.watched_at, '+8 hours', '-6 days', 'weekday 1') week,
+      SELECT date(e.watched_at, '+8 hours') week,
         ${channelId} channel_id, ${channelName} name,
         COALESCE(c.thumbnail_url, '') thumbnail_url,
         COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
       FROM estimated_events e
       LEFT JOIN youtube_videos v ON v.video_id=e.video_id
       LEFT JOIN youtube_channels c ON c.channel_id=${channelId}
-      WHERE ${channelName} IS NOT NULL
+      WHERE e.watched_at<? AND ${channelName} IS NOT NULL
         AND LOWER(TRIM(${channelName}))<>'unknown channel'
       GROUP BY week, ${channelKey}
       ORDER BY week
-    `).all() as Array<Record<string, string | number | null>>;
+    `).all(now.toISOString()) as Array<Record<string, string | number | null>>;
+    const topicTrend = includeInsights ? this.youtubeTopicTrend(range, now) : [];
+    const firstRaceWatch = topicTrend[0]?.periodStart ? `${topicTrend[0].periodStart}T00:00:00+08:00` : null;
+    const raceWindow = timelineWindow(range, now, firstRaceWatch);
     const channelRace = buildChannelRace(raceRows.map((row) => ({
       week: String(row.week),
       channelId: row.channel_id === null ? null : String(row.channel_id),
       name: String(row.name),
       thumbnailUrl: String(row.thumbnail_url),
       estimatedWatchSeconds: Number(row.estimated_watch_seconds),
-    })));
+    })), CHANNEL_RACE_HALF_LIFE_DAYS, includeInsights ? raceWindow : undefined);
     const topics = this.db.prepare(`
       ${estimatedEvents}
       SELECT t.slug, t.name, COUNT(*) watches,
@@ -2222,7 +2206,7 @@ export class Repository {
         slug: String(row.slug), name: String(row.name),
         watches: Number(row.watches), estimatedWatchSeconds: Number(row.estimated_watch_seconds),
       })),
-      topicTrend: includeInsights ? this.youtubeTopicTrend(range, now) : [],
+      topicTrend,
       keywords: includeInsights ? extractYoutubeKeywords(keywordRows, KEYWORD_DEFAULT_LIMIT) : [],
       keywordCoverage: keywordCoverage(keywordRows.length, uniqueVideos),
       recent: recent.map((row) => ({

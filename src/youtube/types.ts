@@ -269,6 +269,8 @@ export interface YoutubeTopicTrendTopic {
 }
 
 export interface YoutubeTopicTrendMonth {
+  periodStart?: string;
+  periodEnd?: string;
   month: string;
   watchEvents: number;
   partialPeriod: boolean;

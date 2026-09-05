@@ -1,6 +1,7 @@
 import { hours, html } from './pages.js';
 
 export interface RankRace {
+  timeline?: { start: string; end: string; interval: string };
   kind: 'channels' | 'topics';
   title: string;
   subtitle: string;
@@ -40,6 +41,7 @@ export function rankRaceSection(race: RankRace): string {
         <strong class="yt-chase-period" data-chase-period>${html(latest.period)}</strong>
         <input type="range" min="0" max="${race.frames.length - 1}" value="${race.frames.length - 1}" aria-label="${html(race.title)}" data-chase-range>
       </div>
+      ${race.timeline ? `<div class="yt-chase-timeline"><span>${html(race.timeline.start)}</span><span>${html(race.timeline.interval)}</span><span>${html(race.timeline.end)}</span></div>` : ''}
       <p class="yt-chase-note" data-chase-note style="visibility:${latest.note ? 'visible' : 'hidden'}">${html(latest.note ?? '')}</p>
       <p class="muted" data-chase-empty${latest.entries.length ? ' hidden' : ''}>${html(latest.empty ?? race.empty)}</p>
       <div class="yt-chase-rows" data-chase-rows style="height:${trackHeight}px">${initialRows}</div>

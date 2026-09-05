@@ -1,3 +1,4 @@
+import { timelineWindow, timelineBounds } from '../youtube/timeline.js';
 import { dashboardFlatStyles } from './dashboard-flat.js';
 import { popularShelfControls, popularShelfStyles, popularShelfScript } from './popular-shelves.js';
 import { rankRaceSection } from './rank-race.js';
@@ -394,9 +395,29 @@ function shortFormSection(
     ${details}</section>`;
 }
 
+function raceTimeline(data: YoutubeDashboardData, t: Messages) {
+  const first = data.topicTrend[0]?.periodStart ?? data.channelRace.frames[0]?.period;
+  const window = timelineWindow(data.range, new Date(data.generatedAt), first ? `${first}T00:00:00+08:00` : null);
+  const label = (period: string) => {
+    const bounds = timelineBounds(window, period);
+    return bounds.start === bounds.end ? bounds.start : `${bounds.start} – ${bounds.end}`;
+  };
+  return {
+    label,
+    timeline: {
+      start: timelineBounds(window, window.periods[0]).start,
+      end: timelineBounds(window, window.periods.at(-1)!).end,
+      interval: t.topicTrendOther === '其他' ? (window.weekly ? '每週' : '每日') : (window.weekly ? 'Weekly' : 'Daily'),
+    },
+  };
+}
+
 function channelChase(data: YoutubeDashboardData, t: Messages): string {
+  const timeline = raceTimeline(data, t);
   return rankRaceSection({
     ...data.channelRace, kind: 'channels', title: t.momentum,
+    timeline: timeline.timeline,
+    frames: data.channelRace.frames.map(frame => ({ ...frame, period: timeline.label(frame.period) })),
     subtitle: t.momentumSub(data.channelRace.halfLifeDays), format: 'hours',
     playLabel: t.playHistory, pauseLabel: t.pauseHistory, empty: t.topicTrendEmpty,
   });
@@ -404,12 +425,14 @@ function channelChase(data: YoutubeDashboardData, t: Messages): string {
 
 function topicDynamics(data: YoutubeDashboardData, t: Messages): string {
   const model = buildTopicTrendModel(data.topicTrend, t);
+  const timeline = raceTimeline(data, t);
   const section = rankRaceSection({
     kind: 'topics', title: t.topicTrendTitle, subtitle: t.topicDynamicsSub, format: 'percent',
+    timeline: timeline.timeline,
     playLabel: t.topicTrendPlay, pauseLabel: t.topicTrendPause, empty: t.topicTrendUnavailable,
     channels: model.topics,
     frames: model.frames.map((frame) => ({
-      period: frame.month,
+      period: timeline.label(frame.month),
       empty: frame.empty,
       note: frame.label + ' · ' + (frame.coverage === null ? t.topicTrendNoCoverage
         : t.topicTrendCoverage(Math.round(frame.coverage * 100)) + (frame.provisional ? ` · ${t.provisional}` : '')),
@@ -524,7 +547,8 @@ const dashboardStyles = `${rhythmClockStyles}
   .yt-overview-dynamics{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.yt-overview-dynamics.yt-channel-dynamics{grid-template-columns:minmax(0,1fr)}.yt-overview-dynamics>.section{margin-top:18px;min-width:0}.yt-overview-dynamics .section-head{align-items:flex-start;flex-direction:column;gap:4px}.yt-chase-note{color:var(--muted);font-size:10px;margin:-6px 0 12px;min-height:16px}.yt-chase-controls :disabled{cursor:default;opacity:.45}.yt-topic-details{margin:18px 0;color:var(--muted);font-size:12px}.yt-topic-details>summary{cursor:pointer}.yt-topic-details>.section{color:var(--ink)}
   @media(max-width:800px){.yt-overview-dynamics{grid-template-columns:1fr}}
   @media(prefers-reduced-motion:reduce){.yt-chase-row,.yt-chase-track i{transition:none}}
-  .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px 92px minmax(0,1fr);margin-bottom:18px}
+  .yt-chase-controls{align-items:center;display:grid;gap:12px;grid-template-columns:34px minmax(0,1fr);margin-bottom:8px}
+  .yt-chase-controls input{grid-column:1/-1}.yt-chase-timeline{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);margin-bottom:16px}.yt-chase-period{font-size:12px}
   .yt-chase-controls button{align-items:center;background:var(--raised);border:1px solid var(--line-strong);border-radius:50%;color:var(--ink);cursor:pointer;display:flex;font-size:11px;height:34px;justify-content:center;padding:0;width:34px}
   .yt-chase-controls button:hover{border-color:var(--muted)}
   .yt-chase-controls input{accent-color:var(--accent);width:100%}
