@@ -308,6 +308,20 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.match(narrow, /\?range=28d" aria-current="page"/);
     assert.match(narrow, /Video AAAAAAAAAA1/);
 
+    seed(registry.repositoryFor(bob), 'bob-day-only', Array.from({ length: 5 }, (_, i) => ({
+      ...watch(`day-${i}`, 'BBBBBBBBBB1', 'b', `2026-08-${20 + i}T00:00:00Z`, 600), precision: 'day' as const,
+    })));
+    const clockHtml = await (await app.request(`${comparePath}?range=all`, { headers: { cookie: aliceCookie } })).text();
+    assert.match(clockHtml, /They need to import their YouTube history from Google Takeout/);
+    assert.doesNotMatch(clockHtml, /href="\/account\?lang=en#account-takeout"/);
+    const bobComparison = await (await app.request('/bob-cmp/compare/alice-cmp?range=all&lang=zh', {
+      headers: { cookie: bobCookie },
+    })).text();
+    assert.match(bobComparison, /href="\/account\?lang=zh#account-takeout"/);
+    assert.match(bobComparison, /請匯入 Google Takeout/);
+    const importPage = await (await app.request('/account?lang=zh', { headers: { cookie: bobCookie } })).text();
+    assert.match(importPage, /<section id="account-takeout"/);
+
     // Leaving matching revokes Blend and returns to the basic identity page.
     registry.setMatchingPreferences(bob.handle, false, 'topics_and_channel');
     assert.equal((await app.request(`${comparePath}?range=all`, {

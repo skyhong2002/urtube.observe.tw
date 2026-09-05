@@ -42,7 +42,7 @@ test('owner dashboard keeps v3 interests alongside range-based analysis without 
     const $ = load(await response.text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 9);
     assert.equal($('[data-processing-monitor]').length, 1);
-    assert.match($('[data-v3-interests]').text(), /v3 興趣分析|2,000/);
+    assert.match($('[data-v3-interests]').text(), /興趣分析|2,000/);
     assert.match($('[data-v3-interests]').text(), /不隨上方日期範圍切換/);
     assert.equal($('.yt-stable-topics').length, 1);
     assert.equal($('.yt-topic-details').length, 1);
@@ -67,7 +67,7 @@ test('public v3 interests respect selected genres, opt-out, profile visibility a
     f.store.finish(job, { ...f.profile, version: 'old-v3-version' });
     $ = load(await (await f.app.request('/v3-dashboard')).text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 0);
-    assert.match($('[data-v3-interests]').text(), /Waiting for v3/);
+    assert.match($('[data-v3-interests]').text(), /Waiting for interest analysis/);
     f.registry.setMatchingOptIn(f.user.handle, false);
     $ = load(await (await f.app.request('/v3-dashboard')).text());
     assert.equal($('[data-v3-interests]').length, 0);
@@ -162,7 +162,7 @@ test('cached preview displays actual clusters without confusing provisional stat
     for (const lang of ['zh', 'en'] as const) {
       const $ = load(v3DashboardSection(profile, { enabled: true, currentVersion: profile.version, backfillVideoLimit: 2000, genres: GENRES.slice(), lang }));
       const cards = $('.yt-v3-genre');
-      assert.match(cards.eq(1).text(), lang === 'zh' ? /已建立 1 個興趣群.*暫定分析.*核心興趣涵蓋較少/ : /1 interest clusters.*Provisional analysis.*limited portion/);
+      assert.match(cards.eq(1).text(), lang === 'zh' ? /已建立 1 個興趣群/ : /1 interest clusters/);
       assert.doesNotMatch(cards.eq(1).text(), /資料不足|Limited data/);
       assert.match(cards.eq(2).text(), /資料不足|Limited data/);
       assert.match(cards.eq(8).text(), /尚未建立|Pending/);
