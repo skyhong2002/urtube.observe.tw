@@ -1,19 +1,19 @@
 # 第三方來源與授權聲明
 
-本文件記錄 urtube 使用的第三方套件、外部服務、模型、資料與素材。專案自身的 [MIT License](LICENSE) 不取代第三方授權、API 使用條款或使用者資料權利。
+本文件列出 urtube 使用的第三方套件、外部服務、模型、資料與素材，以及各項來源、版本與適用授權。專案程式與文件採用 [MIT License](LICENSE)。
 
 ## 盤點基準與範圍
 
 - 查核日期：2026-09-05。
 - 原始碼基準：[`b06fd35`](https://github.com/skyhong2002/urtube.observe.tw/tree/b06fd35)，專案版本 `0.1.0`。
 - 套件依據：[`package-lock.json`](package-lock.json)，SHA-256：`8b4e70021abac85c62d730fcab1efb7be81b9e98569d101c194d9e1a35fcd290`。
-- 涵蓋 lockfile 的 **59 個套件安裝項目**，包括直接、間接、開發與各平台選用依賴；同名不同版本分別列出。這不是單一作業系統實際安裝數，也不是正式容器的完整元件數。
+- 涵蓋 lockfile 的 **59 個套件安裝項目**，包括直接、間接、開發與各平台選用依賴；同名不同版本分別列出。實際安裝項目依作業系統與部署設定而定；正式容器元件另由映像盤點記錄。
 - 每個套件的 registry tarball 皆依 lockfile `resolved` 下載，並驗證 `integrity`；授權文字取自套件內檔案，缺件時使用下方明列的官方來源補足。
-- 模型、外部資料、部署基礎設施與素材以程式、版本歷史及公開來源核對；沒有讀取正式環境金鑰、使用者資料或私有部署設定。正式環境的確切模型與映像組成仍需部署者補充。
+- 模型、外部資料、部署基礎設施與素材以程式、版本歷史及公開來源核對。正式環境的確切模型與映像組成仍需部署者補充。
 
 ## npm 套件
 
-「來源」連結指向實際發布的套件封存檔，內含 package metadata 與可取得的授權檔；機器可讀版本、來源網址、完整性雜湊與依賴關係另收於文末 SBOM。下方的授權 ID 是套件宣告，不代表 npm SBOM 已完成全部內嵌第三方程式碼的法律查核。
+「來源」連結指向實際發布的套件封存檔，內含 package metadata 與可取得的授權檔；機器可讀版本、來源網址、完整性雜湊與依賴關係另收於文末 SBOM。下方授權 ID 取自套件宣告；套件內嵌的第三方聲明收錄於授權附錄。
 
 | 套件 | 版本 | 使用範圍 | 宣告授權 | 來源 |
 | --- | --- | --- | --- | --- |
@@ -80,63 +80,63 @@
 ### 授權檔案查核補充
 
 - `@esbuild/*@0.28.2` 的平台套件未附個別 LICENSE；其 package metadata 宣告 MIT，並指向 esbuild。本文附上主套件及[同版本官方 LICENSE.md](https://github.com/evanw/esbuild/blob/v0.28.2/LICENSE.md) 的授權文字。
-- `boolbase@1.0.0` 的封存檔只有 package metadata、README 與程式，metadata 宣告 ISC；本文補附[官方新增的 ISC LICENSE](https://github.com/fb55/boolbase/blob/be0bcd8a4e917a0a5895e95b523fbbed05a64871/LICENSE)。這是明列來源的補充，不宣稱原始 tarball 自帶該檔案。
-- `undici@7.29.0` 除根目錄 LICENSE 外，也保留 `lib/web/fetch/LICENSE`。`typescript@6.0.3` 的 `ThirdPartyNoticeText.txt` 另含內嵌程式與資料聲明，全文保留在授權附錄；只列 Apache-2.0 不足以取代該文件。
-- 發布時需隨所散布的套件保留其 copyright、license 與 notices。本文的中文說明供查找，授權原文不改寫。
+- `boolbase@1.0.0` 的封存檔只有 package metadata、README 與程式，metadata 宣告 ISC；本文補附[官方新增的 ISC LICENSE](https://github.com/fb55/boolbase/blob/be0bcd8a4e917a0a5895e95b523fbbed05a64871/LICENSE)。
+- `undici@7.29.0` 除根目錄 LICENSE 外，也保留 `lib/web/fetch/LICENSE`。`typescript@6.0.3` 的 `ThirdPartyNoticeText.txt` 另含內嵌程式與資料聲明，全文收錄於授權附錄。
+- 發布時需隨所散布的套件保留其 copyright、license 與 notices。本文提供中文索引與授權原文。
 
 ## 模型、外部服務與資料
 
 | 項目／提供者 | 本專案使用方式與來源 | 授權／條款與揭露狀態 |
 | --- | --- | --- |
-| Google OAuth／Google | 以 Google 帳號登入，使用 `openid email`；[來源文件](https://developers.google.com/identity/protocols/oauth2/web-server)。 | 外部服務，依 [Google APIs Terms](https://developers.google.com/terms) 與 [User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)；不以 MIT 再授權帳號資料。 |
-| Google Takeout、My Activity、YouTube History | 使用者自行提供 ZIP，或擴充功能在本人授權的頁面擷取觀看紀錄；[Takeout](https://takeout.google.com/)、[My Activity](https://myactivity.google.com/)、[YouTube History](https://www.youtube.com/feed/history)。 | 依 [Google 服務條款](https://policies.google.com/terms) 與 [YouTube 條款](https://www.youtube.com/t/terms) 及資料主體授權使用；repository 不散布使用者 archive，取得資料不代表可轉授權。 |
+| Google OAuth／Google | 以 Google 帳號登入，使用 `openid email`；[來源文件](https://developers.google.com/identity/protocols/oauth2/web-server)。 | 外部服務，依 [Google APIs Terms](https://developers.google.com/terms) 與 [User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)。 |
+| Google Takeout、My Activity、YouTube History | 使用者自行提供 ZIP，或擴充功能在本人授權的頁面擷取觀看紀錄；[Takeout](https://takeout.google.com/)、[My Activity](https://myactivity.google.com/)、[YouTube History](https://www.youtube.com/feed/history)。 | 依 [Google 服務條款](https://policies.google.com/terms) 與 [YouTube 條款](https://www.youtube.com/t/terms) 及資料主體授權使用。使用者 archive 儲存於各自的資料庫。 |
 | Google Data Portability API | 可選的 instance owner 定期匯入；[官方資料來源](https://developers.google.com/data-portability)。 | [Data Portability user data and developer policy](https://developers.google.com/data-portability/policy) 與適用 Google API 條款。服務權限與驗證由部署者設定。 |
-| YouTube Data API v3／Google | 取得公開影片、頻道 metadata、圖片 URL 與公開統計；[API 文件](https://developers.google.com/youtube/v3)。 | [YouTube API Services Terms](https://developers.google.com/youtube/terms/api-services-terms-of-service)、[Developer Policies](https://developers.google.com/youtube/terms/developer-policies) 與 [Branding Guidelines](https://developers.google.com/youtube/terms/branding-guidelines)。影片、縮圖、頻道圖片的權利不因 API 可存取而改為 MIT；依權利人及平台適用條款處理。 |
-| analysis.tw 頻道標籤清單 | 以 [channels_list API](https://urtubeapi.analysis.tw/api/channels_list.php) 取得新聞／社論與政治內容標籤；使用 query、來源時間與內容版本見[專案政策](docs/channel-tag-policy.md)。 | **資料再利用授權待確認**：現有 repository 政策未附上游授權文字，公開 API 本身不構成開源授權依據。須取得維護者的授權／使用條款，記錄允許的展示、快取與再散布範圍。此清單不是模型訓練資料。 |
-| 可設定的 AI chat-completions 服務 | `AI_BASE_URL`、`AI_MODEL` 決定供應商與模型。輸入為公開影片 metadata，結果用於個人分類；程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | repository **沒有內含模型權重或訓練資料集**。未指定可核對的正式模型名稱、版本、model card、權重授權及訓練資料來源；這些欄位由部署者補充，供應商未公開的部分應寫明未公開，不能推測。OpenAI-compatible 是介面格式，不表示使用 OpenAI 模型或可適用同一授權。 |
-| Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；shim 原始碼不在本 repository，現行部署版本待確認。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)，不能將 CLI 授權當成模型權重授權。shim 自身來源與授權亦待部署者補充。 |
-| Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 取得 Google allowlist 圖片或 [Gravatar](https://gravatar.com/) 圖片，經本站同源路徑提供；本機字首頭像由程式生成。 | 外部頭像不以專案 MIT 再授權。Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/) 與[隱私政策](https://automattic.com/privacy/)。使用 Gravatar 時伺服器會送出由 Email 產生的 SHA-256 識別值，瀏覽器不直接取得該值。 |
+| YouTube Data API v3／Google | 取得公開影片、頻道 metadata、圖片 URL 與公開統計；[API 文件](https://developers.google.com/youtube/v3)。 | [YouTube API Services Terms](https://developers.google.com/youtube/terms/api-services-terms-of-service)、[Developer Policies](https://developers.google.com/youtube/terms/developer-policies) 與 [Branding Guidelines](https://developers.google.com/youtube/terms/branding-guidelines)。影片、縮圖與頻道圖片依權利人授權及平台條款使用。 |
+| analysis.tw 頻道標籤清單 | 以 [channels_list API](https://urtubeapi.analysis.tw/api/channels_list.php) 取得新聞／社論與政治內容標籤；使用 query、來源時間與內容版本見[專案政策](docs/channel-tag-policy.md)。 | **資料再利用授權待確認**：待維護者提供授權／使用條款，補充展示、快取與再散布範圍。此清單用於頻道內容標籤。 |
+| 可設定的 AI chat-completions 服務 | `AI_BASE_URL`、`AI_MODEL` 決定供應商與模型。輸入為公開影片 metadata，結果用於個人分類；程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | 模型透過 OpenAI-compatible API 介面呼叫，權重與訓練資料由模型提供者管理。正式模型名稱、版本、model card、權重授權及訓練資料來源待部署者補充；供應商未公開的欄位標為「未公開」。適用條款依所選供應商與模型填列。 |
+| Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；shim 原始碼不在本 repository，現行部署版本待確認。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。shim 自身來源與授權亦待部署者補充。 |
+| Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 取得 Google allowlist 圖片或 [Gravatar](https://gravatar.com/) 圖片，經本站同源路徑提供；本機字首頭像由程式生成。 | Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/) 與[隱私政策](https://automattic.com/privacy/)。使用 Gravatar 時伺服器會送出由 Email 產生的 SHA-256 識別值，瀏覽器不直接取得該值。 |
 
-`BAAI/bge-m3` 目前出現在 [#45 的待合併方案](https://github.com/skyhong2002/urtube.observe.tw/issues/45)，不屬於本次原始碼基準的已使用模型。正式採用後應補上模型 revision、官方來源、權重與可取得的模型資料說明。
+`BAAI/bge-m3` 目前出現在 [#45 的待合併方案](https://github.com/skyhong2002/urtube.observe.tw/issues/45)。正式採用時補上模型 revision、官方來源、權重與可取得的模型資料說明。
 
 ## 部署工具與基礎映像
 
-這些元件不在 npm lockfile SBOM 中；此表記錄 repository 可證實的部署依賴，沒有宣稱完成正式主機掃描。
+此表根據 repository 記錄部署依賴；正式主機與映像元件由部署者另行盤點。
 
 | 元件 | 使用與來源 | 授權／版本狀態 |
 | --- | --- | --- |
 | Node.js | [`Dockerfile`](Dockerfile) 使用 `node:22-alpine`，內含 `node:sqlite`；[Node.js 原始碼與完整授權](https://github.com/nodejs/node/blob/main/LICENSE)。 | Node.js 本體 MIT，內含元件有個別條款，須保留其完整 LICENSE；浮動 image tag 未固定 patch 或 digest。 |
 | SQLite | 經 Node.js 內建 `node:sqlite` 使用；[SQLite 來源與權利說明](https://www.sqlite.org/copyright.html)。 | SQLite 原始碼 public domain；Node.js 的打包與其他元件仍依各自條款。 |
-| Node Docker image／Alpine Linux | [官方 Node image](https://github.com/nodejs/docker-node)、[Alpine 套件](https://pkgs.alpinelinux.org/packages)。 | 映像內作業系統／函式庫各有授權，不能整體標為 Node.js 的 MIT。本票未固定最終發布 image digest，完整映像 SBOM 待發布者以實際 artifact 補充。 |
+| Node Docker image／Alpine Linux | [官方 Node image](https://github.com/nodejs/docker-node)、[Alpine 套件](https://pkgs.alpinelinux.org/packages)。 | 映像內作業系統與函式庫依各元件授權提供。最終發布 image digest 與完整映像 SBOM 待發布者補充。 |
 | Docker Compose／Docker 執行環境 | [`docker-compose.yml`](docker-compose.yml) 啟動服務；[Compose 原始碼](https://github.com/docker/compose)。 | Compose [Apache-2.0](https://github.com/docker/compose/blob/main/LICENSE)；若用 Docker Desktop，另依其[訂閱條款](https://www.docker.com/legal/docker-subscription-service-agreement/)。部署工具版本由執行環境決定。 |
 | Cloudflare Tunnel／cloudflared | [目前維運紀錄](CUTOVER_RUNBOOK.md) 的正式對外入口；[cloudflared](https://github.com/cloudflare/cloudflared)。 | client 依[完整 LICENSE](https://github.com/cloudflare/cloudflared/blob/master/LICENSE)，Cloudflare 服務依[使用條款](https://www.cloudflare.com/terms/)。正式版本與 Tunnel 設定不在 repository，待部署者確認。 |
-| Caddy | 維運文件提供自架反向代理範例；[Caddy](https://github.com/caddyserver/caddy)。 | [Apache-2.0](https://github.com/caddyserver/caddy/blob/master/LICENSE)，本次基準未將其打包進 app 映像；不是目前正式 Tunnel 的版本證據。 |
+| Caddy | 維運文件提供自架反向代理範例；[Caddy](https://github.com/caddyserver/caddy)。 | [Apache-2.0](https://github.com/caddyserver/caddy/blob/master/LICENSE)，作為自架反向代理工具獨立安裝。 |
 
 ## 素材與示範資料
 
 | 項目 | 可查核來源 | 使用與授權說明 |
 | --- | --- | --- |
-| `favicon.svg` | [新增來源 commit](https://github.com/skyhong2002/urtube.observe.tw/commit/6f69d8240e6f748893408af4dec1a6af8d9fe87e)，由 repository 內 SVG 幾何圖形組成。 | 專案程式繪製的品牌素材，隨專案 MIT 提供；提交紀錄含 AI coding assistant 協作標記，不推定使用了外部圖庫。品牌／商標權利不因程式授權轉移。 |
+| `favicon.svg` | [新增來源 commit](https://github.com/skyhong2002/urtube.observe.tw/commit/6f69d8240e6f748893408af4dec1a6af8d9fe87e)，由 repository 內 SVG 幾何圖形組成。 | 專案程式繪製的品牌素材，隨專案 MIT 提供；提交紀錄含 AI coding assistant 協作標記。 |
 | `chrome-extension/icon16.png`、`icon32.png`、`icon48.png`、`icon128.png` | [轉換紀錄](https://github.com/skyhong2002/urtube.observe.tw/commit/5438d3a430a9e4877f186a7bf39a43f2c938f724) 說明由 `favicon.svg` 產生。 | 專案圖示的不同尺寸輸出，沿用來源素材聲明。 |
-| `og.png` | [`scripts/og-card.html`](scripts/og-card.html) 與[產生紀錄](https://github.com/skyhong2002/urtube.observe.tw/commit/869b571d54f8657773f4728a3d6a431dfc96fe8e)；以 headless Chrome 將 HTML 品牌卡輸出成圖片。 | 專案 HTML／SVG 素材，沿用專案 MIT；原產生環境的實際字型與瀏覽器版本未記錄，重現時需確認所用字型授權。未發現 repository 內散布字型檔或外部影音檔。 |
-| 網頁字型與 UI 圖表 | CSS 使用系統字型／名稱候選；圖表由專案原生 SVG／HTML 產生。 | 沒有打包 Inter、Noto 或其他字型二進位檔；顯示時採使用者環境可用字型，名稱列在 CSS 不表示專案包含該字型。 |
-| 合成示範與測試 fixtures | [`scripts/matching-demo.ts`](scripts/matching-demo.ts) 與 [`tests/`](tests/)。 | 專案合成資料隨專案 MIT 提供；虛構人物與人工投影不得當成使用者或 AI 效果證據。 |
-| 使用者歷史、外部縮圖與頭像 | 由本人匯入或外部服務於執行時提供。 | 不屬於專案可再授權的合成資料；公開部署的 Example dashboard 由 owner 控制，不能據此宣稱其中所有資料均為虛構或可自由使用。 |
+| `og.png` | [`scripts/og-card.html`](scripts/og-card.html) 與[產生紀錄](https://github.com/skyhong2002/urtube.observe.tw/commit/869b571d54f8657773f4728a3d6a431dfc96fe8e)；以 headless Chrome 將 HTML 品牌卡輸出成圖片。 | 專案 HTML／SVG 素材，沿用專案 MIT；原產生環境的實際字型與瀏覽器版本未記錄，重現時需確認所用字型授權。 |
+| 網頁字型與 UI 圖表 | CSS 使用系統字型／名稱候選；圖表由專案原生 SVG／HTML 產生。 | 顯示時使用使用者環境的系統字型；CSS 列出的 Inter、Noto 等名稱作為字型選擇順序。 |
+| 合成示範與測試 fixtures | [`scripts/matching-demo.ts`](scripts/matching-demo.ts) 與 [`tests/`](tests/)。 | 專案合成資料隨專案 MIT 提供，用於介面展示與流程測試。 |
+| 使用者歷史、外部縮圖與頭像 | 由本人匯入或外部服務於執行時提供。 | 使用者歷史依本人授權使用，縮圖與頭像依來源條款使用；Example dashboard 的資料與公開設定由 owner 管理。 |
 
 ## 發布前仍需補齊的項目
 
 | 項目 | 待提供的證據／處置 | 負責角色 |
 | --- | --- | --- |
 | 正式 AI 模型與 shim | 實際供應商、model ID／revision、適用模型／服務條款、公開 model card 與資料來源；非公開資訊明示狀態，shim 補原始碼來源及授權。 | 部署維護者 |
-| analysis.tw 資料授權 | 取得維護者正式使用條款或許可證據；確認前不宣稱開源再利用權，最終發布需決定取得許可或移除該依賴功能。 | 資料來源聯絡者／維護者 |
+| analysis.tw 資料授權 | 取得維護者正式使用條款或許可證據，確認展示、快取與再散布的使用範圍。 | 資料來源聯絡者／維護者 |
 | 發布 image 與外部工具 | 固定實際發布 digest、工具版本，產生容器／OS 元件 SBOM 並保留隨附聲明。 | 發布維護者 |
-| OG 圖片重現環境 | 確認渲染所用字型及相應授權；現有紀錄可追溯 HTML，不能確認實際安裝字型。 | 素材維護者 |
+| OG 圖片重現環境 | 現有紀錄可追溯 HTML；原渲染環境的字型、瀏覽器版本與字型授權待補。 | 素材維護者 |
 
-這些項目以 [#54](https://github.com/skyhong2002/urtube.observe.tw/issues/54) 追蹤；本文件提供目前可驗證的揭露，不將未知授權標為已核准。版本定版或新增模型／資料／素材後應再查核一次。
+這些項目以 [#54](https://github.com/skyhong2002/urtube.observe.tw/issues/54) 追蹤。版本定版或新增模型／資料／素材後應再查核一次。
 
 ## SBOM 產生與更新
 
-採用 npm 內建 `npm sbom` 輸出 **CycloneDX 1.5 JSON**。npm 同時支援 SPDX；本專案選 CycloneDX 是為了直接使用既有 npm 工具，避免為文件新增掃描依賴。[npm 官方說明](https://docs.npmjs.com/cli/v11/commands/npm-sbom/) 記錄兩種格式與 lockfile 模式。
+採用 npm 內建 `npm sbom` 輸出 **CycloneDX 1.5 JSON**。[npm 官方說明](https://docs.npmjs.com/cli/v11/commands/npm-sbom/) 記錄兩種格式與 lockfile 模式。
 
 本次工具為 Node.js `v24.2.0`、npm `11.3.0`。npm 輸出的根元件名稱可能取自 checkout 目錄；以下步驟將它統一為 `package.json` 的專案名稱，其餘 SBOM 欄位保留。在相同 lockfile 下執行：
 
@@ -153,9 +153,9 @@ JS
 node --input-type=module -e "import fs from 'node:fs'; const b=JSON.parse(fs.readFileSync('/tmp/urtube-sbom.cdx.json','utf8')); if(b.bomFormat!=='CycloneDX'||!Array.isArray(b.components)) throw Error('Invalid SBOM'); console.log(b.specVersion,b.components.length);"
 ```
 
-lockfile 模式納入所有平台的選用項目；不能推斷某次部署全部安裝了它們。重新產生的時間與 serial number 可能不同，應比較套件名稱、版本、hash、授權與依賴關係，而非期待位元組完全相同。SBOM 不涵蓋外部模型、API 資料、使用者資料、圖像權利、OS 套件或未鎖定的正式映像；這些由前述表格揭露。
+lockfile 模式納入所有平台的選用項目；單次部署的安裝清單依實際環境產生。重新產生的時間與 serial number 可能不同，應比較套件名稱、版本、hash、授權與依賴關係。此 SBOM 的範圍為 npm lockfile；外部模型、API 資料、使用者資料、圖像與部署元件收於前述表格。
 
-為將公開交付維持在 README 與本聲明兩份檔案，JSON 快照收在本文件的折疊區，可用下列方式擷取成獨立檔案：
+JSON 快照收在下方折疊區，可用以下指令擷取成獨立檔案：
 
 ```bash
 node --input-type=module <<'JS'
@@ -168,7 +168,7 @@ writeFileSync('/tmp/urtube-sbom.cdx.json', JSON.stringify(bom, null, 2) + '\n');
 JS
 ```
 
-更新時應重新下載 lockfile 的來源套件、驗證 integrity、核對 LICENSE／NOTICE／ThirdPartyNoticeText 等檔案，再同步更新套件表、授權附錄、SHA-256 與 JSON 快照。單獨更新 SBOM 不會自動完成來源授權查核。
+更新時應重新下載 lockfile 的來源套件、驗證 integrity、核對 LICENSE／NOTICE／ThirdPartyNoticeText 等檔案，再同步更新套件表、授權附錄、SHA-256 與 JSON 快照。
 
 <details>
 <summary>CycloneDX 1.5 JSON：59 個套件及依賴關係</summary>
