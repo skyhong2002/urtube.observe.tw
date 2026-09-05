@@ -1,6 +1,8 @@
 import { config } from '../config.js';
 import { messages, type Lang } from './i18n.js';
 
+import { queryNavigationScript } from './query-navigation.js';
+
 export function html(value: unknown): string {
   return String(value ?? '').replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' }[char]!));
 }
@@ -62,6 +64,10 @@ const styles = `
   h1,h2,h3,p{overflow-wrap:anywhere}
   .eyebrow{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
   .muted{color:var(--ink-2)}
+  .site-main[data-loading]{cursor:progress}
+  .site-main[data-loading]::before{background:var(--accent);content:'';height:3px;left:0;position:fixed;right:0;top:0;z-index:100}
+  [data-navigation-status]{position:fixed;right:12px;bottom:12px;background:var(--surface);border-radius:6px;color:var(--ink);font-size:12px;z-index:100}
+  [data-navigation-status]:not(:empty){padding:8px 12px}
   code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;padding:1px 5px}
   .trust-signals{display:flex;flex-wrap:wrap;gap:7px;list-style:none;margin:0 0 18px;padding:0}
   .trust-signals li{align-items:center;background:rgba(78,190,130,.08);border:1px solid rgba(78,190,130,.28);border-radius:999px;color:#9be3bc;display:flex;font-size:11px;font-weight:700;gap:5px;line-height:1.25;padding:6px 10px}
@@ -126,12 +132,11 @@ const tooltipScript = `(()=>{
     const w=tip.offsetWidth,x=Math.min(Math.max(r.left+r.width/2,w/2+8),innerWidth-w/2-8);
     tip.style.left=x+'px';tip.style.top=Math.max(r.top,44)+'px';};
   const hide=(el)=>{if(current===el){tip.style.visibility='hidden';current=null;}};
-  for(const el of document.querySelectorAll('[data-tip]')){
-    el.addEventListener('pointerenter',()=>show(el));
-    el.addEventListener('pointerleave',()=>hide(el));
-    el.addEventListener('focus',()=>show(el));
-    el.addEventListener('blur',()=>hide(el));
+  for(const [enter,leave] of [['pointerover','pointerout'],['focusin','focusout']]){
+    document.addEventListener(enter,event=>{const el=event.target.closest?.('[data-tip]');if(el)show(el)});
+    document.addEventListener(leave,event=>{const el=event.target.closest?.('[data-tip]');if(el)hide(el)});
   }
+  addEventListener('urtube:page-updated',()=>{if(current)hide(current)});
   addEventListener('scroll',()=>{if(current)hide(current)},{passive:true});
 })();`;
 
@@ -196,9 +201,10 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   <meta property="og:image" content="${html(config.publicBaseUrl)}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="${t.landingDocTitle}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>${html(title)}</title><style>${styles}${extraStyles}</style></head><body>
+  <title>${html(title)}</title><style>${styles}${extraStyles}</style><script>${queryNavigationScript}</script></head><body>
   <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="${html(t.navLabel)}">${links}</nav></header>
   <main class="site-main">${body}</main>
+  <div data-navigation-status role="status" aria-live="polite"></div>
   <footer class="site-footer">${t.footer(html(config.publicBaseUrl.replace(/^https?:\/\//, '')))} · <a href="/privacy" style="color:inherit">${t.privacyLink}</a></footer>
   <script>${tooltipScript}</script>
   </body></html>`;
