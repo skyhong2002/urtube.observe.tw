@@ -1,3 +1,4 @@
+import { popularShelfControls, popularShelfStyles, popularShelfScript } from './popular-shelves.js';
 import { rankRaceSection } from './rank-race.js';
 import {
   YOUTUBE_RANGES,
@@ -748,10 +749,10 @@ export function youtubeDashboardPage(
   const maxChannel = Math.max(1, ...channels.slice(0, 12).map((channel) =>
     sort === 'duration' ? channel.estimatedWatchSeconds : channel.watches));
   const sortLinks = `<span class="yt-sort"><a data-youtube-sort="watches" href="${basePath}?range=${data.range}&sort=watches"${sort === 'watches' ? ' aria-current="page"' : ''}>${t.sortPlays}</a> · <a data-youtube-sort="duration" href="${basePath}?range=${data.range}&sort=duration"${sort === 'duration' ? ' aria-current="page"' : ''}>${t.sortTime}</a></span>`;
-  const channelList = `<section class="section"><div class="section-head"><h2>${t.topChannels}</h2>${sortLinks}</div>
-    <div class="yt-channels" data-youtube-sort-list="channels">${channels.map((channel, index) => {
+  const channelList = `<section class="section yt-popular-shelf ch-shelf"><div class="section-head"><h2>${t.topChannels}</h2>${sortLinks}${popularShelfControls(lang)}</div>
+    <div class="yt-channels ch-rows" role="region" aria-label="${t.topChannels}" tabindex="0" data-youtube-sort-list="channels">${channels.map((channel, index) => {
       const metric = sort === 'duration' ? channel.estimatedWatchSeconds : channel.watches;
-      return `<div class="yt-channel-row" data-watches="${channel.watches}" data-duration="${channel.estimatedWatchSeconds}"${index >= 12 ? ' hidden' : ''}>
+      return `<div class="yt-channel-row" data-watches="${channel.watches}" data-duration="${channel.estimatedWatchSeconds}">
         <span class="yt-channel-rank">${index + 1}</span>
         ${channelAvatar(channel)}
         <div class="yt-channel-main">
@@ -766,8 +767,8 @@ export function youtubeDashboardPage(
       ? b.estimatedWatchSeconds - a.estimatedWatchSeconds || b.watches - a.watches
       : b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds
   );
-  const topVideos = videos.length ? `<section class="section"><div class="section-head"><h2>${t.topVideos}</h2>${sortLinks}</div>
-    <div class="yt-top-videos" data-youtube-sort-list="videos">${videos.map((video, index) => `<a class="yt-top-video" href="${html(video.url)}" data-watches="${video.watches}" data-duration="${video.estimatedWatchSeconds}"${index >= 12 ? ' hidden' : ''}>
+  const topVideos = videos.length ? `<section class="section yt-popular-shelf ch-shelf"><div class="section-head"><h2>${t.topVideos}</h2>${sortLinks}${popularShelfControls(lang)}</div>
+    <div class="yt-top-videos ch-rows" role="region" aria-label="${t.topVideos}" tabindex="0" data-youtube-sort-list="videos">${videos.map((video, index) => `<a class="yt-top-video" href="${html(video.url)}" data-watches="${video.watches}" data-duration="${video.estimatedWatchSeconds}">
       <span class="yt-channel-rank">${index + 1}</span>
       <span class="yt-top-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-top-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span>
       <span class="yt-top-video-main"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
@@ -833,8 +834,8 @@ export function youtubeDashboardPage(
       title: `${ownerName} · YouTube · ${pageLabels.overview} · ${t.ranges[data.range]} · ${t.sortedBy(t.sortTime)} · urtube`,
     },
   }).replace(/</g, '\\u003c');
-  const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=index>=12;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
-  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}
+  const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=false;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}${popularShelfStyles}
     .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin-top:16px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
   </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
@@ -843,10 +844,10 @@ export function youtubeDashboardPage(
     ${options.profileHtml ?? ''}
     ${options.blendHref ? `<div class="yt-profile-meta"><a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a></div>` : ''}${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
-  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '') + stableTopics
+  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + topVideos + channelList + (options.v3Html ?? '') + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
-    + keywords + topVideos + channelList + sortScript + recentSection(data, t, lang, showRecent) : '';
+    + keywords + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
     + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`

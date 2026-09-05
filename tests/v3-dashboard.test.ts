@@ -85,7 +85,7 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     const $ = load(await (await f.app.request('/account?lang=zh', { headers: f.headers })).text());
     assert.equal($('#processing [data-v3-processing="running"]').length, 1);
     assert.equal($('#processing [data-processing-monitor]').length, 1);
-    assert.equal($('#processing a[href="/matching-v3/admin"]').length, 1);
+    assert.equal($('#processing a[href="/matching-v3/admin"]').length, 0);
     assert.match($('#processing').text(), /17 \/ 250 部影片/);
     assert.doesNotMatch($.text(), /120 分鐘|預計還需|AI 主題|檢查個人主題版本/);
     assert.equal($('a[href="/account/taxonomy"],form[action^="/account/taxonomy"]').length, 0);

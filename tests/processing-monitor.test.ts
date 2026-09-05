@@ -23,13 +23,13 @@ class Element {
   addEventListener(name: string, callback: () => unknown) { this.events[name] = callback; }
 }
 
-function fixture(initial: unknown, shown = true) {
+function fixture(initial: unknown, shown = true, withButton = true) {
   const content = new Element(), connection = new Element(), button = new Element('button');
   const snapshot = new Element(), label = new Element();
   const page = new AbortController();
   const panel = { dataset: {}, querySelector: (selector: string) => selector === '[data-v3-snapshot]' ? snapshot : label };
   const root = { dataset: { lang: 'zh' }, closest: () => panel,
-    querySelector: (selector: string) => selector === '[data-monitor-content]' ? content : selector === 'button' ? button : connection };
+    querySelector: (selector: string) => selector === '[data-monitor-content]' ? content : selector === 'button' ? (withButton ? button : null) : connection };
   const document = { documentElement: { dataset: { processingVisibility: shown ? 'shown' : 'hidden' } }, hidden: false, currentScript: { previousElementSibling: root },
     createElement: (tag: string) => new Element(tag), createDocumentFragment: () => new Element('fragment'),
     events: {} as Record<string, () => void>, addEventListener(name: string, fn: () => void) { this.events[name] = fn; } };
@@ -138,4 +138,14 @@ test('all pipeline bars stay visible for completed, disabled, waiting and runnin
   assert.match(f.content.textContent, /沒有獨立的 AI 排程/);
   assert.match(f.content.textContent, /剩餘時間：0 分鐘/);
   assert.match(f.content.textContent, /不以來源影片數冒充頻道完成率/);
+});
+
+
+test('monitor automatically refreshes without a manual refresh button', async () => {
+  const f = fixture(data, true, false); await f.tick();
+  assert.equal(f.requests.length, 1);
+  assert.equal([...f.timers.values()][0].delay, 30000);
+  [...f.timers.values()][0].callback(); await f.tick();
+  assert.equal(f.requests.length, 2);
+  f.page.abort();
 });
