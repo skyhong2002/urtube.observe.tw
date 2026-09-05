@@ -41,6 +41,7 @@ test('owner dashboard keeps v3 interests alongside range-based analysis without 
     assert.equal(response.status, 200);
     const $ = load(await response.text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 9);
+    assert.equal($('[data-processing-monitor]').length, 1);
     assert.match($('[data-v3-interests]').text(), /v3 興趣分析|2,000/);
     assert.match($('[data-v3-interests]').text(), /不隨上方日期範圍切換/);
     assert.equal($('.yt-stable-topics').length, 1);
@@ -57,6 +58,7 @@ test('public v3 interests respect selected genres, opt-out, profile visibility a
   try {
     let $ = load(await (await f.app.request('/v3-dashboard?lang=en')).text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 1);
+    assert.equal($('[data-processing-monitor]').length, 0, 'visitor cannot load owner monitoring');
     assert.equal($('[data-v3-interests] .yt-v3-genre strong').text(), 'Music');
     assert.doesNotMatch($.text(), /31,337|private-profile-tag/);
     f.store.schedule(f.user.id, 'changed', 'old-v3-version');
@@ -81,6 +83,8 @@ test('account progress uses actual bounded v3 job counts and exposes no legacy E
     f.store.progress(job, { phase: 'classification', processed: 17, total: 250 });
     const $ = load(await (await f.app.request('/account?lang=zh', { headers: f.headers })).text());
     assert.equal($('#processing [data-v3-processing="running"]').length, 1);
+    assert.equal($('#processing [data-processing-monitor]').length, 1);
+    assert.equal($('#processing a[href="/matching-v3/admin"]').length, 1);
     assert.match($('#processing').text(), /17 \/ 250 部影片/);
     assert.doesNotMatch($.text(), /120 分鐘|預計還需|AI 主題|檢查個人主題版本/);
     assert.equal($('a[href="/account/taxonomy"],form[action^="/account/taxonomy"]').length, 0);

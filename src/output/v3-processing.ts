@@ -1,6 +1,7 @@
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 import type { Lang } from './i18n.js';
 import { html } from './pages.js';
+import { processingMonitor } from './processing-monitor.js';
 
 export const v3ProcessingStyles = `
 .yt-v3-processing{background:rgba(250,178,25,.07);border:1px solid rgba(250,178,25,.28);border-radius:12px;margin:0 0 18px;padding:14px 16px}
@@ -8,6 +9,7 @@ export const v3ProcessingStyles = `
 .yt-v3-processing strong{color:var(--ink);font-size:14px}.yt-v3-processing header span{color:var(--muted);font-size:12px}
 .yt-v3-processing p{color:var(--ink-2);font-size:13px;line-height:1.55;margin:8px 0 0}
 .yt-v3-processing progress{accent-color:#e7ae35;display:block;height:6px;margin-top:8px;width:100%}
+.yt-monitor-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px}.yt-monitor-controls button{background:var(--raised);border:1px solid var(--line-strong);border-radius:6px;color:var(--ink);cursor:pointer;font:inherit;padding:8px 12px;min-height:44px}.yt-monitor-controls span{color:var(--muted);font-size:12px}.yt-monitor-genres{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,2fr);gap:6px 14px;font-size:13px}.yt-monitor-genres dd{margin:0;color:var(--ink-2)}.yt-monitor-error{overflow-wrap:anywhere}.yt-processing-monitor details{margin-top:12px}.yt-processing-monitor summary{cursor:pointer;font-size:13px}
 .yt-v3-processing a{color:var(--ink);font-weight:600}
 `;
 
@@ -21,7 +23,7 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
   if (!status) return '';
   const metadataPending = status.metadata.enabled
     && status.metadata.videosPendingMetadata + status.metadata.channelsPendingMetadata > 0;
-  if (!options.alwaysShow && !metadataPending && ['done', 'disabled'].includes(status.state)) return '';
+  if (!options.alwaysShow && !(options.ownerDetails && status.state !== 'disabled') && !metadataPending && ['done', 'disabled'].includes(status.state)) return '';
   const zh = lang === 'zh';
   const number = (value: number) => new Intl.NumberFormat(zh ? 'zh-TW' : 'en').format(value);
   const label = 'v3 ' + {
@@ -36,6 +38,7 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
     stale: zh ? '等待更新興趣輪廓' : 'Waiting for an updated interest profile',
   }[status.state];
   const details: string[] = [];
+  let fixedDetails = 0;
   if (options.ownerDetails) {
     const m = status.metadata;
     const completed = Math.max(0, m.videos - m.videosPendingMetadata);
@@ -47,6 +50,7 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
     if (status.state !== 'disabled') details.push(zh
       ? `興趣分析範圍：最近觀看的最多 ${number(status.backfillVideoLimit)} 部不同影片。`
       : `Interest analysis covers up to ${number(status.backfillVideoLimit)} most recently watched distinct videos.`);
+    fixedDetails = details.length;
     const progress = status.progress;
     if (progress) {
       const phase = progress.phase === 'classification'
@@ -82,5 +86,5 @@ export function v3ProcessingNotice(status: V3ProcessingStatus | undefined, lang:
   const meter = options.ownerDetails && status.state === 'running' && p && p.phase !== 'channels' && p.total > 0
     ? `<progress aria-label="${zh ? '目前分析階段' : 'Current analysis phase'}" max="${p.total}" value="${Math.max(0, Math.min(p.total, p.processed))}"></progress>` : '';
   const link = options.ownerDetails && options.dashboardHref ? `<p><a href="${html(options.dashboardHref)}">${zh ? '查看分析' : 'View analysis'}</a></p>` : '';
-  return `<aside class="yt-v3-processing" role="status" aria-live="polite" data-v3-processing="${status.state}"><header><strong>${zh ? '資料處理狀態' : 'Data processing status'}</strong><span>${label}</span></header>${details.map(text => `<p>${text}</p>`).join('')}${meter}${link}</aside>`;
+  return `<aside class="yt-v3-processing" role="status" aria-live="polite" data-v3-processing="${status.state}"><header><strong>${zh ? '資料處理狀態' : 'Data processing status'}</strong><span data-v3-state-label>${label}</span></header>${details.slice(0, fixedDetails).map(text => `<p>${text}</p>`).join('')}<div data-v3-snapshot>${details.slice(fixedDetails).map(text => `<p>${text}</p>`).join('')}${meter}</div>${options.ownerDetails && status.state !== 'disabled' ? processingMonitor(lang) : ''}${link}</aside>`;
 }
