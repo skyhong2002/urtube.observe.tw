@@ -6,12 +6,13 @@ import {
   type WorkerOpsStatus,
 } from './ops-status.js';
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
-import { classifyYoutubeVideos } from './youtube/ai.js';
+import { classifyYoutubeVideos, youtubeClassificationConfigured } from './youtube/ai.js';
 import { buildYoutubeCrystal } from './youtube/crystal.js';
 import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata } from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
+import { extractSemanticTags, semanticTagContract } from './youtube/semantic-tags.js';
 import {
   YOUTUBE_WORKER_CATCHUP_MINUTES,
   YOUTUBE_WORKER_FULL_CYCLE_MINUTES,
@@ -29,6 +30,7 @@ export interface YoutubeWorkerSteps {
   metadata(repository: Repository, user: User): Promise<number>;
   channelMetadata(repository: Repository, user: User): Promise<number>;
   matchingClassification(repository: Repository, user: User): Promise<number>;
+  semanticTags(repository: Repository, user: User): Promise<number>;
   classification(repository: Repository, user: User): Promise<number>;
 }
 
@@ -38,6 +40,7 @@ export interface YoutubeWorkerUserResult {
   metadata?: number;
   channelMetadata?: number;
   matchingClassified?: number;
+  semanticTagged?: number;
   classified?: number;
   error?: string;
 }
@@ -51,6 +54,7 @@ const defaultSteps: YoutubeWorkerSteps = {
   channelMetadata: (repository) => enrichYoutubeChannelMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   matchingClassification: async (repository) =>
     classifyYoutubeVideosForMatching(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
+  semanticTags: (repository) => extractSemanticTags(repository, YOUTUBE_WORKER_TOPICS_PER_CYCLE),
   // A deep extension backfill can also contain tens of thousands of videos.
   // Recency ordering makes the current dashboard useful first; a larger
   // cycle keeps new extension-only accounts from waiting days for analysis.
@@ -89,15 +93,21 @@ export async function runYoutubeWorkerCycle(
       // outage cannot leave a stale crystal in the registry.
       const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
       registry.upsertMatchingCrystal(user, crystal);
-      const classified = await steps.classification(repository, user);
-      repository.setYoutubeSyncState('last_error', '');
+      const [semantic, personal] = await Promise.allSettled([
+        steps.semanticTags(repository, user), steps.classification(repository, user),
+      ]);
+      const errors = [semantic, personal].flatMap(result => result.status === 'rejected'
+        ? [errorMessage(result.reason)] : []).join('\n');
+      repository.setYoutubeSyncState('last_error', errors.slice(0, 2000));
       return {
         user: user.handle,
         portability,
         metadata,
         channelMetadata,
         matchingClassified,
-        classified,
+        semanticTagged: semantic.status === 'fulfilled' ? semantic.value : 0,
+        classified: personal.status === 'fulfilled' ? personal.value : 0,
+        ...(errors ? { error: errors } : {}),
       };
     } catch (error) {
       const message = errorMessage(error);
@@ -110,7 +120,7 @@ export async function runYoutubeWorkerCycle(
 export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
   return results.some((result) =>
     (result.metadata ?? 0) + (result.channelMetadata ?? 0)
-      + (result.matchingClassified ?? 0) + (result.classified ?? 0) > 0);
+      + (result.matchingClassified ?? 0) + (result.semanticTagged ?? 0) + (result.classified ?? 0) > 0);
 }
 
 export function youtubeWorkerShouldContinue(
@@ -147,6 +157,8 @@ export function youtubeWorkPending(
   return registry.listUsers().some((user) => {
     const repository = registry.repositoryFor(user);
     return youtubeMatchingWorkPending(repository)
+      || (youtubeClassificationConfigured()
+        && repository.youtubeVideosForSemanticTags(semanticTagContract(), 1).length > 0)
       || describeYoutubeProcessing(repository.youtubeProcessingCounts(), capabilities).pending > 0;
   });
 }
