@@ -2,7 +2,7 @@
 
 **正式網址：[urtube.observe.tw](https://urtube.observe.tw)** · [原始碼](https://github.com/skyhong2002/urtube.observe.tw) · [第三方來源與授權](THIRD_PARTY_NOTICES.md)
 
-urtube 是正在開發中的 **data-driven 交友網站**，以使用者授權的真實行為資料為基礎，協助人們找到長期具有共同興趣與喜好的朋友。目前從 YouTube 觀看紀錄出發，分析持續關注的主題、創作者與偏好變化，將這些線索轉化為同好探索與交流的起點。
+urtube 是 **data-driven 交友網站**，以使用者授權的真實行為資料為基礎，協助人們找到長期具有共同興趣與喜好的朋友。目前從 YouTube 觀看紀錄出發，分析持續關注的主題、創作者與偏好變化，將這些線索轉化為同好探索與交流的起點。
 
 [![urtube 專案展示圖](og.png)](https://urtube.observe.tw)
 
