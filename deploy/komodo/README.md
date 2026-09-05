@@ -7,7 +7,7 @@ branch is an output of main, not a development branch. Do not edit it manually.
 An obsolete CI run cannot publish after main has advanced.
 
 Komodo's native `Deploy urtube main` Procedure runs `DeployStackIfChanged` every
-five minutes. An unchanged release does nothing. Deployments use `--no-build
+minute. An unchanged release does nothing. Deployments use `--no-build
 --wait --wait-timeout 180`; the host does not compile application code.
 
 ## Operator access
@@ -47,10 +47,11 @@ Before each changed release, Komodo invokes the existing authorized helper:
 A failed snapshot aborts deployment. Snapshots remain under
 `/home/shared/urtube/snapshots/`; this CD does not delete them.
 After Compose succeeds, both public `/healthz` and `/readyz` must pass.
-Then prune unused application images older than seven days, restricted by the
+Then prune all unused application images after each successful deployment, restricted by the
 OCI source label `https://github.com/skyhong2002/urtube.observe.tw`, and build
 cache unused for seven days with a 2 GB reserve. Active images and volumes are
-never pruned. Recent images are retained for rollback. Build-cache pruning is
+never pruned. Old unused images are not retained locally; rollback requires a
+registry pull. Build-cache pruning is
 daemon-wide and may slow future builds by other projects.
 
 Docker data is on `/home/.docker-data`, a separate loop filesystem: image cleanup
