@@ -23,7 +23,7 @@ urtube 希望以真實行為資料提升同好探索的準確度，找出長期�
 | 授權匯入與進度 | Google 登入後，使用 Chrome 擴充功能或 Google Takeout ZIP 匯入紀錄，查看可持續更新的背景處理狀態。 |
 | 私人興趣洞察 | 查看觀看時間、頻道與影片、影片內容關鍵字，以及不同時間範圍的主題趨勢，理解自己的偏好與配對依據。 |
 | 可檢視的 AI 分類 | AI 協助整理觀看內容中的興趣主題，使用者可查看分類依據、確認結果與復原先前的分類。 |
-| 近期同好探索 | 以最近 90 天的共同主題與頻道喜好推薦同好並提供比較；資料不足或沒有候選人時顯示對應狀態。 |
+| 近期同好探索 | 以最近 90 天的共同主題與頻道喜好推薦同好，顯示契合度並提供比較；資料不足或沒有候選人時顯示對應狀態。 |
 | 好友與 Blend | 私人帳號接受好友邀請後，雙方可查看總覽、洞察與 Blend；登入使用者也可直接與公開帳號進行 Blend。 |
 | 資料控制 | 關閉配對、撤回關係、設定儀表板公開性，以及匯出或刪除自己的資料。 |
 
@@ -55,7 +55,7 @@ flowchart LR
 
 AI 分類使用公開影片資訊，例如標題、頻道名稱與描述；搜尋紀錄與觀看時間保留在個人資料中。資訊不足時顯示「無法判斷」，使用者可檢視分類依據並復原先前結果。
 
-私人帳號接受好友邀請後，雙方可看總覽、洞察與 Blend。公開帳號的總覽與洞察可供訪客閱讀，登入使用者可直接進行 Blend；詳細觀看紀錄與回顧由本人管理。配對參與、好友關係與頁面公開性可在帳號設定中調整。
+私人帳號接受好友邀請後，雙方可看總覽、洞察與 Blend。公開帳號的總覽與洞察可供訪客閱讀，登入使用者可直接進行 Blend；詳細觀看紀錄與回顧由本人管理。切換為公開帳號後，既有好友邀請仍可接受、拒絕或撤回。配對參與、好友關係與頁面公開性可在帳號設定中調整。
 
 ## 使用技術
 
@@ -161,7 +161,7 @@ node --env-file=.env --import tsx src/youtube-worker.ts
 
 `--env-file` 明確載入設定；原始 npm scripts 不會自行讀取 `.env`。app 與 ingest 必須使用不同 port。開啟 [本機網站](http://localhost:3000)，用 Google 登入後，在 Account 上傳自己的 Takeout ZIP。取得 ZIP 時到 [Google Takeout](https://takeout.google.com/) 選擇 YouTube and YouTube Music 內的觀看歷史，匯出後保留 ZIP 結構。此瀏覽器匯入路徑直接使用 app，不需要將本機擴充功能改成其他網域。
 
-正式版擴充功能只接受 `urtube.observe.tw`，不能直接連到 localhost。自訂網域的擴充功能仍需同步修改 manifest host permissions 與 endpoint 驗證並另行測試；目前 repository 沒有可直接重現的完整本機擴充功能指南。本機請使用 Account 的 Takeout 匯入。Google OAuth、真實帳號匯入、Data Portability 與實際模型呼叫仍需具備相應憑證後驗證；本次已實測合成匯入、儀表板、雙帳號示範入口與四服務啟動。
+正式版擴充功能連接 `urtube.observe.tw`。本機開發版支援 `http://localhost:19080`，由該網站的 `/extension.zip` 下載，操作見[本機擴充功能指南](docs/LOCAL_DEVELOPMENT.md#本機掃描資料)。獨立開發使用 `compose.local.yml` 與自己的 `.env.local`；`compose.production-data.yml` 用於共用正式資料。上述 `localhost:3000` 與下方 `localhost:18080` 流程使用 Account 的 Takeout 匯入。其他自訂網域需調整擴充功能權限與端點設定。Google OAuth、真實帳號匯入、Data Portability 與實際模型呼叫仍需具備相應憑證後驗證；本次已實測合成匯入、儀表板、雙帳號示範入口與四服務啟動。
 
 **資料可見性：**首次啟動建立的 instance owner 是公開 Example dashboard；`youtube:import` CLI 寫入該 owner archive。私人歷史應使用 Google 登入後的 Account 匯入，避免誤放進公開示範帳號。
 
