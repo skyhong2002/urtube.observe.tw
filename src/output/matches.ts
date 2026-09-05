@@ -84,9 +84,8 @@ function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: stri
     : card.disclosure.channel
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
-  const canBlend = card.targetPublic || card.relationship.status === 'connected';
   return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2>${canBlend ? `<div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div>` : ''}</div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
