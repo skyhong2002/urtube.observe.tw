@@ -32,6 +32,9 @@ services:
     mem_limit: 1g
     cpus: 1
   matching-worker:
+    # This worker has no HTTP listener; its heartbeat is shown by the monitor.
+    healthcheck:
+      disable: true
     image: urtube
     command: ["npx", "tsx", "src/matching-v3/worker.ts"]
     restart: unless-stopped

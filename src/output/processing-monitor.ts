@@ -27,6 +27,44 @@ export const processingMonitorScript = String.raw`
     const state = job?.state || 'missing';
     const label = states[state] || t('狀態未知', 'Unknown state');
     const fragment = document.createDocumentFragment();
+    if (data.pipeline) {
+      const names = { metadata: t('影片資料', 'Video metadata'), topics: t('主題動態分類', 'Topic dynamics classification'),
+        keywords: t('常見關鍵字來源', 'Common keyword sources'), v3: t('v3 興趣分類', 'v3 interest classification'),
+        embedding: t('v3 標籤向量', 'v3 tag embeddings'), channels: t('v3 頻道分析', 'v3 channel analysis') };
+      const labels = { waiting: t('等待資料', 'Waiting for data'), queued: t('等待背景服務', 'Waiting for worker'),
+        running: t('處理中', 'Running'), done: t('已完成', 'Complete'), disabled: t('未啟用', 'Disabled'),
+        failed: t('等待重試', 'Awaiting retry'), blocked: t('未通過品質門檻', 'Quality requirements not met'),
+        review: t('等待啟用結果', 'Awaiting activation'), retained: t('保留既有版本', 'Existing version retained') };
+      const notes = {
+        'video-metadata': t('已查詢影片資料；無法取得的影片也算已查詢。', 'Videos checked, including unavailable videos.'),
+        'keyword-source': t('關鍵字在開啟總覽／洞察時依影片標題、tags 與描述即時計算，沒有獨立的 AI 排程。此列顯示來源資料完成率。', 'Keywords are computed from titles, tags and descriptions when a dashboard opens, without a separate AI job. This bar tracks source metadata.'),
+        'readiness': t('至少需要 24 部可用影片、98% 影片資料完成，之後自動開始分類。', 'Classification starts automatically after at least 24 available videos and 98% metadata coverage.'),
+        'quality-gate': t('分類已處理，但品質不足，不能當作已完成的主題結果。', 'Classification was processed, but the result does not meet quality requirements.'),
+        'activation-pending': t('分類通過門檻，等待啟用；新帳號第一版會由下一輪背景工作自動啟用。', 'Classification passed quality checks. The worker automatically activates the first version for new accounts.'),
+        'legacy-retained': t('既有主題版本保留，不會自動重新分類。', 'The existing topic version is retained without automatic reclassification.'),
+        'embedding-batch': t('向量數量是目前批次／類別的 tags，不是全帳號進度。', 'Embedding counts cover the current batch or category, not the entire account.'),
+        'channel-count-unavailable': t('目前背景服務未回報逐頻道完成數，不以來源影片數冒充頻道完成率。', 'Per-channel completion counts are not reported; source video counts are not a channel completion percentage.'),
+      };
+      for (const stage of data.pipeline) {
+        const section = node('section'); section.className = 'yt-pipeline-stage'; section.dataset.pipelineStage = stage.id;
+        section.append(node('h3', names[stage.id]), node('p', labels[stage.state]));
+        const meter = node('progress'); meter.setAttribute('aria-label', names[stage.id]);
+        if (stage.total > 0 && stage.done !== null) { meter.max = stage.total; meter.value = Math.max(0, Math.min(stage.total, stage.done)); }
+        else if (stage.state !== 'running') { meter.max = 1; meter.value = stage.state === 'done' ? 1 : 0; }
+        section.append(meter);
+        if (stage.done !== null && stage.total !== null) section.append(node('p', number(stage.done) + ' / ' + number(stage.total) + (stage.id === 'embedding' ? ' tags' : t(' 部影片', ' videos'))));
+        const eta = stage.state === 'done' ? t('剩餘時間：0 分鐘', 'Time remaining: 0 minutes')
+          : stage.estimatedMinutes !== null ? t('依近期速度估計約 ', 'Estimated from recent progress: about ') + number(stage.estimatedMinutes) + t(' 分鐘（不含等待與重試）', ' minutes (excluding queueing and retries)')
+          : stage.state === 'running' ? t('時間估算中：觀察到足夠進度後顯示。', 'Estimating time: waiting for enough progress observations.')
+          : t('尚無可估算的完成時間。', 'Completion time is not yet available.');
+        section.append(node('p', eta));
+        if (stage.state === 'queued' && ['metadata', 'topics', 'keywords'].includes(stage.id)) section.append(node('p', t('背景服務閒置時約每 5 分鐘檢查新工作。', 'The idle worker checks for new work about every 5 minutes.')));
+        if (notes[stage.detail]) section.append(node('p', notes[stage.detail]));
+        fragment.append(section);
+      }
+      panel.dataset.processingLive = 'true';
+    }
+    if (data.pipeline) fragment.append(node('h3', t('v3 工作明細', 'v3 job details')));
     fragment.append(node('p', label));
     if (state === 'failed') fragment.append(node('p', t('已儲存的結果仍可使用；失敗不代表工作仍在背景執行。', 'Saved results remain available. A failed job is not still running in the background.')));
     if (progress) {
@@ -69,7 +107,7 @@ export const processingMonitorScript = String.raw`
     } else fragment.append(node('p', t('尚無已儲存輪廓。', 'No saved profile yet.')));
     content.replaceChildren(fragment);
     panel.querySelector('[data-v3-snapshot]').hidden = true;
-    panel.querySelector('[data-v3-state-label]').textContent = label;
+    panel.querySelector('[data-v3-state-label]').textContent = data.pipeline ? t('各項處理進度', 'Processing progress by stage') : label;
     panel.dataset.v3Processing = state;
   }
   async function refresh() {
@@ -82,7 +120,7 @@ export const processingMonitorScript = String.raw`
     controller.signal.addEventListener('abort', abort, { once: true });
     const timeout = setTimeout(() => { timedOut = true; request.abort(); }, 15000);
     try {
-      const response = await fetch('/api/matching-v3', { cache: 'no-store', signal: request.signal });
+      const response = await fetch('/api/processing', { cache: 'no-store', signal: request.signal });
       if (response.status === 401 || response.status === 403) {
         stopped = true; content.replaceChildren(); panel.querySelector('[data-v3-snapshot]').hidden = true;
         panel.querySelector('[data-v3-state-label]').textContent = t('登入狀態已變更', 'Session changed');

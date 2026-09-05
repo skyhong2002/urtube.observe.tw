@@ -42,13 +42,14 @@ test('owner dashboard keeps v3 interests alongside range-based analysis without 
     const $ = load(await response.text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 9);
     assert.equal($('[data-processing-monitor]').length, 1);
-    assert.match($('[data-v3-interests]').text(), /v3 興趣分析|2,000/);
+    assert.match($('[data-v3-interests]').text(), /興趣分析|2,000/);
     assert.match($('[data-v3-interests]').text(), /不隨上方日期範圍切換/);
     assert.equal($('.yt-stable-topics').length, 1);
     assert.equal($('.yt-topic-details').length, 1);
     assert.ok($('.yt-stat').length > 0);
     assert.equal($('[data-rank-race="channels"]').length, 1);
-    assert.doesNotMatch($.text(), /Legacy classification|120 分鐘|private-profile-tag/);
+    assert.doesNotMatch($.text(), /Legacy classification|120 分鐘/);
+    assert.match($('.yt-v3-cloud').text(), /private-profile-tag/);
     assert.equal(f.repository.youtubeTopics()[0]?.name, 'Legacy classification');
   } finally { f.registry.close(); }
 });
@@ -66,7 +67,7 @@ test('public v3 interests respect selected genres, opt-out, profile visibility a
     f.store.finish(job, { ...f.profile, version: 'old-v3-version' });
     $ = load(await (await f.app.request('/v3-dashboard')).text());
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 0);
-    assert.match($('[data-v3-interests]').text(), /Waiting for v3/);
+    assert.match($('[data-v3-interests]').text(), /Waiting for interest analysis/);
     f.registry.setMatchingOptIn(f.user.handle, false);
     $ = load(await (await f.app.request('/v3-dashboard')).text());
     assert.equal($('[data-v3-interests]').length, 0);
@@ -145,5 +146,46 @@ test('Insights restores all channel groups and keywords alongside v3, and isolat
     assert.equal($('.yt-keywords').length, 1);
     await app.request('/v3-dashboard?range=all', { headers: f.headers });
     assert.equal(calls, 3, 'overview does not wait on the external channel-label API');
+  } finally { f.registry.close(); }
+});
+
+test('cached preview displays actual clusters without confusing provisional status with absent data', async () => {
+  const { v3DashboardSection } = await import('../src/output/v3-dashboard.js');
+  const f = fixture();
+  try {
+    const profile = structuredClone(f.profile);
+    profile.complete = false;
+    for (const item of Object.values(profile.genres)) item.status = 'insufficient';
+    profile.genres.Music!.retainedCoverage = 0.42;
+    profile.genres.Sport!.clusters = [];
+    delete profile.genres['channel type'];
+    for (const lang of ['zh', 'en'] as const) {
+      const $ = load(v3DashboardSection(profile, { enabled: true, currentVersion: profile.version, backfillVideoLimit: 2000, genres: GENRES.slice(), lang }));
+      const cards = $('.yt-v3-genre');
+      assert.match(cards.eq(1).text(), lang === 'zh' ? /已建立 1 個興趣群/ : /1 interest clusters/);
+      assert.doesNotMatch(cards.eq(1).text(), /資料不足|Limited data/);
+      assert.match(cards.eq(2).text(), /資料不足|Limited data/);
+      assert.match(cards.eq(8).text(), /尚未建立|Pending/);
+      assert.doesNotMatch($.text(), /private-profile-tag/);
+    }
+  } finally { f.registry.close(); }
+});
+
+ test('tag clouds escape original tags and omit generated evidence and visitor detail', async () => {
+  const { v3DashboardSection } = await import('../src/output/v3-dashboard.js');
+  const f = fixture();
+  try {
+    f.profile.genres.Music!.clusters[0].tags = [
+      {text:'<script>alert(1)</script>', count:4, generatedCount:0},
+      {text:'generated-only',count:3,generatedCount:3},
+    ];
+    const options = {enabled:true,currentVersion:f.profile.version,backfillVideoLimit:2000,genres:['Music'] as const,lang:'zh' as const};
+    const render = (ownerDetails:boolean) => load(v3DashboardSection(f.profile,{...options,genres:[...options.genres],ownerDetails}));
+    const owner=render(true);
+    assert.equal(owner('.yt-v3-cloud script').length,0);
+    assert.match(owner('.yt-v3-cloud').text(), /<script>/);
+    assert.doesNotMatch(owner('.yt-v3-cloud').text(), /generated-only/);
+    assert.equal(owner('.yt-v3-cloud span').attr('title'),'4 部不同影片');
+    assert.equal(render(false)('.yt-v3-cloud').length,0);
   } finally { f.registry.close(); }
 });

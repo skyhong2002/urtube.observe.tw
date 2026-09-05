@@ -38,7 +38,7 @@ test('v3 processing distinguishes queued, failed, retry, missing, disabled and s
 
 test('v3 notice separates archive metadata, bounded video classification, tag batches and channel source counts', () => {
   const render = (progress: V3JobStatus['progress']) => v3ProcessingNotice(describeV3Processing({ ...input,
-    job: { ...job, state: 'running', progress } }), 'en', { ownerDetails: true });
+    job: { ...job, state: 'running', progress } }), 'en', { ownerDetails: true }).replace(/<script>[\s\S]*?<\/script>/g, '');
   const classification = render({ phase: 'classification', processed: 125, total: 2000 });
   assert.match(classification, /19,000 \/ 19,000 videos checked/);
   assert.match(classification, /125 \/ 2,000 videos/);

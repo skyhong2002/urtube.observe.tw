@@ -54,7 +54,7 @@ const defaultSteps: YoutubeWorkerSteps = {
   // A deep extension backfill can also contain tens of thousands of videos.
   // Recency ordering makes the current dashboard useful first; a larger
   // cycle keeps new extension-only accounts from waiting days for analysis.
-  classification: (repository) => classifyYoutubeVideos(repository, YOUTUBE_WORKER_TOPICS_PER_CYCLE),
+  classification: (repository, user) => classifyYoutubeVideos(repository, YOUTUBE_WORKER_TOPICS_PER_CYCLE, user.autoActivateInitialTopics),
 };
 
 function errorMessage(error: unknown): string {
@@ -81,16 +81,21 @@ export async function runYoutubeWorkerCycle(
       const portability = user.storageName === DEFAULT_HANDLE
         ? await steps.portability(repository, user)
         : 'not_applicable';
+      repository.setYoutubeSyncState('worker_stage', 'metadata');
       const metadata = await steps.metadata(repository, user);
+      repository.setYoutubeSyncState('worker_stage', 'channels');
       const channelMetadata = await steps.channelMetadata(repository, user);
+      repository.setYoutubeSyncState('worker_stage', 'matching');
       const matchingClassified = await steps.matchingClassification(repository, user);
       // The matching projection only needs metadata and the category-based
       // matching topics. Publish it before the optional AI step so a model
       // outage cannot leave a stale crystal in the registry.
       const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
       registry.upsertMatchingCrystal(user, crystal);
+      repository.setYoutubeSyncState('worker_stage', 'topics');
       const classified = await steps.classification(repository, user);
       repository.setYoutubeSyncState('last_error', '');
+      repository.setYoutubeSyncState('worker_stage', 'idle');
       return {
         user: user.handle,
         portability,
@@ -100,6 +105,7 @@ export async function runYoutubeWorkerCycle(
         classified,
       };
     } catch (error) {
+      repository.setYoutubeSyncState('worker_stage', 'failed');
       const message = errorMessage(error);
       repository.setYoutubeSyncState('last_error', message.slice(0, 2000));
       return { user: user.handle, error: message };
@@ -136,6 +142,14 @@ export function youtubeWorkerCycleStartedStatus(at: string): Partial<WorkerOpsSt
   };
 }
 
+// New imports with already-complete metadata still need their first taxonomy
+// initialization/activation; pending-topic counts alone have no run to count.
+export function youtubeInitialTopicsPending(repository: Repository, autoActivateFirst: boolean): boolean {
+  if (!autoActivateFirst || !repository.youtubePersonalTaxonomyReadiness().ready) return false;
+  const runs = repository.youtubeTaxonomyRuns();
+  return runs.length === 0 || (runs.length === 1 && runs[0].status === 'ready');
+}
+
 // Whether any archive has enrichment the configured stages can still do.
 // Drives the catch-up cadence: a fresh Takeout should not wait an hour for
 // its first metadata pass.
@@ -146,7 +160,8 @@ export function youtubeWorkPending(
   if (registry.crystalRefreshPending()) return true;
   return registry.listUsers().some((user) => {
     const repository = registry.repositoryFor(user);
-    return youtubeMatchingWorkPending(repository)
+    return (capabilities.topics && youtubeInitialTopicsPending(repository, user.autoActivateInitialTopics))
+      || youtubeMatchingWorkPending(repository)
       || describeYoutubeProcessing(repository.youtubeProcessingCounts(), capabilities).pending > 0;
   });
 }

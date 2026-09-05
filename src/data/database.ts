@@ -1529,6 +1529,27 @@ export class Repository {
     };
   }
 
+  // Read-only progress for the version being prepared (or the active version).
+  // Counts match current video metadata; a saved old assignment is not progress
+  // for a newer source. No classification/rebuild is initiated by monitoring.
+  youtubeTopicProcessingProgress() {
+    const readiness = this.youtubePersonalTaxonomyReadiness();
+    const runs = this.youtubeTaxonomyRuns();
+    const run = runs.find(value => ['candidate', 'ready', 'blocked'].includes(value.status))
+      ?? runs.find(value => value.status === 'active') ?? null;
+    const processed = run ? Number(this.db.prepare(`
+      SELECT COUNT(DISTINCT v.video_id) count
+      FROM youtube_videos v JOIN youtube_video_topics vt ON vt.video_id=v.video_id
+      JOIN youtube_topics t ON t.id=vt.topic_id
+      WHERE t.taxonomy_version=? AND vt.metadata_hash=v.metadata_hash
+        AND v.metadata_fetched_at IS NOT NULL AND v.availability='available'
+        AND EXISTS (SELECT 1 FROM youtube_watch_events w WHERE w.video_id=v.video_id AND w.activity_type='video')
+    `).get(run.taxonomyVersion)!.count) : 0;
+    return { readiness, run: run ? { taxonomyVersion: run.taxonomyVersion,
+      definitionVersion: run.definitionVersion, status: run.status } : null,
+      processed, total: readiness.availableVideos + readiness.totalVideos - readiness.metadataReadyVideos };
+  }
+
   youtubeHistoryStatus(): YoutubeHistoryStatus {
     const watch = this.db.prepare(`
       SELECT MAX(watched_at) latest_at, COUNT(*) count FROM youtube_watch_events

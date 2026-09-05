@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { Repository } from '../src/data/database.js';
+import { UserRegistry } from '../src/users.js';
+import { youtubeInitialTopicsPending, runYoutubeWorkerCycle, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 import { personalTaxonomyAuditPage } from '../src/output/taxonomy-audit.js';
-import { ensureYoutubeTaxonomyWithClient, type YoutubeAiClient } from '../src/youtube/ai.js';
+import { ensureYoutubeTaxonomyWithClient, classifyYoutubeVideosWithClient, activateInitialTopicsIfReady, type YoutubeAiClient } from '../src/youtube/ai.js';
 import {
   PERSONAL_TAXONOMY_CONFIDENCE_MIN,
   PERSONAL_TAXONOMY_DEFINITION_VERSION,
@@ -423,4 +425,83 @@ test('owner audit offers an explicit candidate start only when allowed', () => {
   assert.match(output, /action="\/account\/taxonomy\/prepare"/);
   assert.match(output, /name="confirmed" value="1" required/);
   assert.match(output, /bounded background AI classification/);
+});
+
+
+test('a new imported account automatically classifies and activates its first quality-approved topics', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('auto-topics-fixture', 'Automatic topics');
+    const repository = registry.repositoryFor(user);
+    assert.equal(user.autoActivateInitialTopics, true);
+    assert.equal(youtubeInitialTopicsPending(repository, user.autoActivateInitialTopics), false);
+    seedWatchedVideos(repository);
+    assert.equal(youtubeInitialTopicsPending(repository, user.autoActivateInitialTopics), true, 'complete metadata still schedules initial classification');
+    let calls = 0;
+    const client: YoutubeAiClient = { baseUrl: 'https://example.test', apiKey: 'fixture', model: 'fixture-model',
+      fetchImpl: async (_url, options) => {
+        calls++;
+        const body = JSON.parse(String(options?.body));
+        const request = JSON.parse(body.messages[1].content);
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+          videos: request.videos.map((video: { videoId: string }) => ({ videoId: video.videoId,
+            slug: 'technology', confidence: 0.95, alternativeSlug: null, alternativeConfidence: null,
+            evidence: [{ text: 'Software lesson', source: 'title', score: 0.95 }] })),
+        }) } }] }), { status: 200 });
+      } };
+    const steps: YoutubeWorkerSteps = { portability: async () => 'idle', metadata: async () => 0,
+      channelMetadata: async () => 0, matchingClassification: async () => 0,
+      classification: (repo, member) => classifyYoutubeVideosWithClient(repo, 1000, client, member.autoActivateInitialTopics) };
+    await runYoutubeWorkerCycle(registry, steps);
+    assert.equal(repository.youtubeTaxonomyRuns()[0]?.status, 'active');
+    assert.equal(repository.youtubeTopicProcessingProgress().processed, 24);
+    assert.equal(repository.youtubeDashboard('all').topicTrend.some(frame => frame.topics.length > 0), true);
+    assert.equal(repository.youtubeSyncState('worker_stage'), 'idle');
+    assert.equal(youtubeInitialTopicsPending(repository, user.autoActivateInitialTopics), false);
+    const completedCalls = calls;
+    await runYoutubeWorkerCycle(registry, steps);
+    assert.equal(calls, completedCalls, 'completed classifications are reused on the next worker cycle');
+    assert.equal(repository.youtubeTaxonomyActivations().length, 1);
+  } finally { registry.close(); }
+});
+
+test('existing accounts keep first-topic auto-activation disabled after migration', () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-auto-topics-upgrade-'));
+  const file = join(root, 'users.sqlite');
+  try {
+    const before = new UserRegistry(file, join(root, 'users'));
+    before.createUser('existing-topics', 'Existing'); before.close();
+    const db = new DatabaseSync(file); db.exec('ALTER TABLE users DROP COLUMN auto_activate_initial_topics'); db.close();
+    const after = new UserRegistry(file, join(root, 'users'));
+    try {
+      assert.equal(after.userByHandle('existing-topics')?.autoActivateInitialTopics, false);
+      assert.equal(after.createUser('new-topics', 'New').autoActivateInitialTopics, true);
+    } finally { after.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('first-topic automatic activation preserves quality gates and prior active versions', () => {
+  for (const legacy of [false, true]) {
+    const repository = new Repository(':memory:');
+    try {
+      const videos = seedWatchedVideos(repository);
+      if (legacy) repository.replaceYoutubeTaxonomy([{ version: 1, slug: 'existing', name: 'Existing', description: '' }]);
+      const run = repository.createPersonalTaxonomyRun({
+        definitionVersion: PERSONAL_TAXONOMY_DEFINITION_VERSION, model: 'fixture-model',
+        promptVersion: PERSONAL_TAXONOMY_PROMPT_VERSION,
+        topics: PERSONAL_TOPICS.map(({ slug, name, description }) => ({ slug, name, description })),
+        sample: samplePersonalTaxonomy(repository.youtubePersonalTaxonomyCandidates()),
+      });
+      for (const video of videos) repository.savePersonalYoutubeVideoTopic(run, video,
+        decidePersonalClassification(video, { slug: 'technology', confidence: legacy ? 0.95 : 0.1,
+          alternativeSlug: null, alternativeConfidence: null,
+          evidence: [{ text: 'Software lesson', source: 'title', score: 0.95 }] }));
+      const result = repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion);
+      assert.equal(result.status, legacy ? 'ready' : 'blocked');
+      assert.equal(activateInitialTopicsIfReady(repository), false);
+      assert.equal(repository.youtubeTaxonomyRuns().find(value => value.status === 'active')?.definitionVersion,
+        legacy ? 'personal-generated-v1' : undefined);
+    } finally { repository.close(); }
+  }
 });
