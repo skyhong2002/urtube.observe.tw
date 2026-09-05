@@ -845,10 +845,10 @@ export function youtubeDashboardPage(
     ${options.profileHtml ?? ''}
     ${options.blendHref ? `<div class="yt-profile-meta"><a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a></div>` : ''}${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
   const showRecent = options.showRecent !== false;
-  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + topVideos + channelList + (options.v3Html ?? '') + stableTopics
+  const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + keywords + channelList + topVideos + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
-    + keywords + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent) : '';
+    + (options.v3Html ?? '') + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
     + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
