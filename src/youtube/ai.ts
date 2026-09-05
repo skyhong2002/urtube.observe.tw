@@ -21,6 +21,7 @@ export interface YoutubeAiClient {
   baseUrl: string;
   apiKey: string;
   model: string;
+  timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -29,6 +30,7 @@ function defaultClient(): YoutubeAiClient {
     baseUrl: config.ai.baseUrl,
     apiKey: config.ai.apiKey,
     model: config.ai.model,
+    timeoutMs: config.ai.timeoutMs,
   };
 }
 
@@ -62,7 +64,7 @@ async function chatJson(system: string, input: unknown, client: YoutubeAiClient)
           { role: 'user', content: JSON.stringify(input) },
         ],
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(client.timeoutMs ?? config.ai.timeoutMs),
     });
     if (!response.ok) {
       throw new Error(`AI topics: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
