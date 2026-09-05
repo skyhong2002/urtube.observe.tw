@@ -15,7 +15,7 @@ import type { Repository } from './data/database.js';
 import { cachedRead, clearReadCaches } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
-import { comparePage } from './output/crystal.js';
+import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
 import { matchesPage, matchingCandidatePage, friendshipActions, candidateCard, type ActionableMatchingCandidateCard } from './output/matches.js';
 import { channelPreview } from './output/channel-preview.js';
@@ -57,7 +57,9 @@ import {
 } from './youtube/processing.js';
 import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
-import { fetchTagLists } from './youtube/taglists.js';
+import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
+import { tagLeanSection } from './output/taglean.js';
+import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
@@ -339,8 +341,46 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       ? requestedShortForm : undefined;
     const data = cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
     const hasData = counts.watches > 0;
-    // All interest content below comes from v3. Keep access checks in front
-    // of every response, including when aggregate data came from the cache.
+    const crystalHtml = page === 'insights' && hasData
+      ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
+    let leaningsHtml = '';
+    if (page === 'insights' && hasData) {
+      try {
+        const snapshot = await loadTagLists();
+        const tagLean = computeTagLean(
+          range,
+          cachedChannelTotalsFor(registry, user, range),
+          snapshot,
+        );
+        const contributions = registry.listReferencePopulationUsers().flatMap((contributor) => {
+          const contributorRepository = registry.repositoryFor(contributor);
+          const dataUpdatedAt = contributorRepository.youtubeReferenceDataUpdatedAt();
+          if (!dataUpdatedAt) return [];
+          return [{
+            subjectId: contributor.id,
+            dataUpdatedAt,
+            data: contributor.id === user.id
+              ? tagLean
+              : computeTagLean(
+                range,
+                cachedChannelTotalsFor(registry, contributor, range),
+                snapshot,
+              ),
+          }];
+        });
+        leaningsHtml = tagLeanSection(
+          tagLean,
+          lang,
+          buildReferencePopulation(tagLean, contributions),
+        );
+      } catch (error) {
+        console.warn('channel classifications unavailable:',
+          error instanceof Error ? error.message : 'unknown error');
+        leaningsHtml = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
+      }
+    }
+    // Insights may await external classification. Recheck visibility and
+    // the session before rendering any data from the earlier snapshot.
     if (!profileAccess(c, user, page)) return notFoundPage(c);
     user = registry.userByHandle(user.handle)!;
     const me = sessionUser(c);
@@ -386,6 +426,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       // the figures are still settling.
       processingHtml: hasData ? v3ProcessingNotice(visibleProcessing, lang, { ownerDetails: viewerOwns }) : '',
       statsProvisional: v3Data.processing.metadata.enabled && v3Data.processing.metadata.videosPendingMetadata > 0,
+      insightsHtml: crystalHtml + leaningsHtml,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
         genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done',
