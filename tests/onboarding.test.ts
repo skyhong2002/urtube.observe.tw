@@ -214,7 +214,7 @@ test('retired taxonomy review redirects to processing and refuses mutations with
   }
 });
 
-test('account Takeout import is progressively disclosed, session-only, and idempotent', async () => {
+test('account Takeout import is always visible, session-only, and idempotent', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
@@ -224,7 +224,8 @@ test('account Takeout import is progressively disclosed, session-only, and idemp
     }, '10.1.9.1'));
     const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
     const account = await (await app.request('/account', { headers: { cookie: session } })).text();
-    assert.match(account, /<details class="ob-advanced">/);
+    assert.match(account, /<section id="account-takeout">/);
+    assert.doesNotMatch(account, /<details class="ob-advanced"/);
     assert.match(account, /action="\/account\/takeout"/);
     assert.match(account, /takeout\.google\.com/);
     assert.match(account, /set History to <strong>HTML<\/strong>, not JSON/);
@@ -254,7 +255,6 @@ test('account Takeout import is progressively disclosed, session-only, and idemp
     const first = await upload();
     assert.equal(first.status, 200);
     const firstHtml = await first.text();
-    assert.match(firstHtml, /<details class="ob-advanced" open>/);
     assert.match(firstHtml, /Import complete: 1 of 1 watch records/);
     assert.equal(registry.repositoryFor(registry.userByHandle('takeout-user')!).youtubeCounts().videoWatches, 1);
 

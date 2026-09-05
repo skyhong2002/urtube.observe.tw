@@ -14,9 +14,10 @@ import { compareProfiles } from '../src/matching-v3/matching.js';
 
 const s = settings({ MATCHING_V3_ENABLED: 'true' });
 
-test('v3 profile version stays compatible with the deployed bounded worker', () => {
+test('compact profiles invalidate legacy clusters while preserving the bounded source', () => {
   assert.equal(s.backfillVideoLimit, 2000);
-  assert.equal(version(s), '20376b513a2150fb5899e999bd53812dc9c3dae98b4ce7b8849c27477f276d88');
+  assert.notEqual(version(s), '20376b513a2150fb5899e999bd53812dc9c3dae98b4ce7b8849c27477f276d88');
+  assert.notEqual(version({...s, compactDistance: .1}), version(s));
   assert.notEqual(version({ ...s, backfillVideoLimit: 1000 }), version(s));
   for (const value of ['0', '-1', '2.5', '1000001', 'invalid']) {
     assert.throws(() => settings({ MATCHING_V3_BACKFILL_VIDEO_LIMIT: value }), /BACKFILL_VIDEO_LIMIT/);
@@ -719,3 +720,24 @@ test('v3 cache monitoring can use the compact statistics index', () => {
     assert.ok(plan.some(row=>String(row.detail).includes('matching_v3_cache_stats')));
   } finally { db.close(); }
 });
+
+ test('compact singleton keeps coverage and actual representative in remote comparison', async () => {
+  const original=globalThis.fetch; let body:any;
+  globalThis.fetch=(async (_url,init)=>{body=JSON.parse(String(init?.body));return new Response(JSON.stringify({score:.2,transport:[]}));}) as typeof fetch;
+  try {
+    const g=profile().genres.Sport!;
+    const compact={...g,retainedCoverage:.2,clusters:[{...g.clusters[0],representative:[0,1]}]};
+    await computeClient(s).compare(compact,compact);
+    assert.equal(body.algorithm,'compact-medoid-v1');
+    assert.equal(body.leftCoverage,.2);
+    assert.deepEqual(body.left[0].representative,[0,1]);
+  } finally {globalThis.fetch=original;}
+ });
+ test('compact explanation uses full genre mass instead of retained-only share', async () => {
+   const p=profile();p.genres.Sport!.retainedCoverage=.2;
+   p.genres.Sport!.clusters[0].representative=[1,0];
+   const result=await compareProfiles(p,p,['Sport'],compute);
+   assert.equal(result.reasons[0].leftShare,.2);
+   assert.match(result.reasons[0].text,/20.0%/);
+   assert.doesNotMatch(result.reasons[0].text,/100.0%/);
+ });
