@@ -3,6 +3,8 @@ import test from 'node:test';
 import { createApp } from '../src/index.js';
 import { UserRegistry, type MatchableCrystal, type User } from '../src/users.js';
 import {
+  MATCHING_PERCENTAGE_VERSION,
+  matchingPercentage,
   matchingCandidateBatch,
   rankedMatchingCandidateCards,
 } from '../src/youtube/candidates.js';
@@ -109,6 +111,31 @@ test('candidate score gives topics and channels equal internal weight', () => {
   assert.ok(result.topicSimilarity !== null && result.channelSimilarity !== null);
   assert.equal(result.channelSimilarity, 1);
   assert.ok(Math.abs(result.score - (result.topicSimilarity + result.channelSimilarity) / 2) < 1e-12);
+  const card = rankedMatchingCandidateCards(viewer, [candidate])[0]!;
+  assert.equal(card.matchPercent, matchingPercentage(result.score));
+  assert.equal(card.topicPercent, matchingPercentage(result.topicSimilarity));
+  assert.equal(card.channelPercent, 100);
+  assert.equal(card.percentageVersion, MATCHING_PERCENTAGE_VERSION);
+  assert.equal(matchingPercentage(-1), 0);
+  assert.equal(matchingPercentage(Number.NaN), 0);
+  assert.equal(matchingPercentage(0.504), 50);
+  assert.equal(matchingPercentage(0.505), 51);
+  assert.equal(matchingPercentage(2), 100);
+});
+
+test('display percentages use the same fallback as ranking when topic coverage is low', () => {
+  const viewer = profile(1, 'Viewer', crystal(
+    [topic('music', 1)], [{ key: 'shared', name: 'Shared', share: 1 }],
+  ));
+  const lowCoverage = crystal(
+    [topic('gaming', 1)], [{ key: 'shared', name: 'Shared', share: 1 }],
+  );
+  lowCoverage.data.topicCoverage = 0.79;
+  const card = rankedMatchingCandidateCards(viewer, [profile(2, 'Fallback', lowCoverage)])[0]!;
+  assert.equal(card.method, 'channels');
+  assert.equal(card.matchPercent, 100);
+  assert.equal(card.topicPercent, null);
+  assert.equal(card.channelPercent, 100);
 });
 
 test('candidate cards remove excluded dimensions and enforce mutual disclosure', () => {
@@ -126,12 +153,15 @@ test('candidate cards remove excluded dimensions and enforce mutual disclosure',
   const restrictedCard = cards.find((card) => card.displayName === 'Restricted')!;
   assert.deepEqual(restrictedCard.disclosure, { topics: ['Music'] });
   assert.deepEqual(Object.keys(restrictedCard).sort(), [
-    'candidateUserId', 'disclosure', 'displayName', 'similarity',
+    'candidateUserId', 'channelPercent', 'disclosure', 'displayName', 'interests',
+    'matchPercent', 'method', 'percentageVersion', 'sharedInterests', 'topicPercent',
   ]);
+  assert.equal(restrictedCard.topicPercent, 100);
+  assert.deepEqual(restrictedCard.sharedInterests, ['Music']);
   const mutualCard = cards.find((card) => card.displayName === 'Mutual')!;
   assert.equal(mutualCard.disclosure.channel, 'Allowed Shared Channel');
   assert.equal(JSON.stringify(cards).includes('learning'), false);
-  assert.equal(JSON.stringify(cards).includes('score'), false);
+  assert.equal(JSON.stringify(cards).includes('"score"'), false);
 });
 
 test('/matches requires a session and explicit matching opt-in', async () => {
@@ -188,10 +218,11 @@ test('/matches renders five bounded cards, a finite next batch, and no private p
     assert.match(first, /Candidate 5/);
     assert.doesNotMatch(first, /Candidate 6/);
     assert.match(first, /href="\/matches\?page=2"/);
-    assert.equal((first.match(/action="\/matches\/request"/g) ?? []).length, 5);
-    assert.match(first, /name="actionToken" value="[A-Za-z0-9_-]{40,}"/);
-    assert.doesNotMatch(first, /class="mt-want"[^>]*disabled/);
-    assert.doesNotMatch(first, /hidden-candidate|Private Channel|\/compare|\/u\//);
+    assert.equal((first.match(/href="\/matches\/profile\/[A-Za-z0-9_-]{40,}"/g) ?? []).length, 5);
+    assert.equal((first.match(/href="\/matches\/compare\/[A-Za-z0-9_-]{40,}"/g) ?? []).length, 5);
+    assert.doesNotMatch(first, /action="\/matches\/request"/);
+    assert.match(first, />\d{1,3}%<small>match<\/small>/);
+    assert.doesNotMatch(first, /hidden-candidate|Private Channel|\/compare\?|\/u\//);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);
 
     const second = await (await app.request('/matches?page=2', { headers: { cookie } })).text();

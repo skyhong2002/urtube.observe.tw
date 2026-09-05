@@ -142,6 +142,7 @@ function newToken(): string {
 }
 
 const MATCH_ACTION_TTL_MS = 20 * 60_000;
+const MATCH_ACTION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{48}$/;
 const MATCH_TOPIC_NAMES = new Set(MATCHING_TAXONOMY.topics.map((topic) => topic.name));
 const MATCH_TOPIC_KEYS_BY_NAME = new Map(
   MATCHING_TAXONOMY.topics.map((topic) => [topic.name, topic.key]),
@@ -723,18 +724,36 @@ export class UserRegistry {
     return token;
   }
 
-  avatarUserForMatchAction(viewer: User, actionToken: string): User | null {
+  matchingCandidateForAction(viewer: User, actionToken: string): MatchableCrystal | null {
     const current = this.userByHandle(viewer.handle);
-    if (!current || current.id !== viewer.id || !current.matchingOptIn || !actionToken) return null;
+    if (!current || current.id !== viewer.id || !current.matchingOptIn
+      || !MATCH_ACTION_TOKEN_PATTERN.test(actionToken)) return null;
     const row = this.db.prepare(`
-      SELECT recipient.* FROM match_action_tokens action
-      JOIN users recipient ON recipient.id=action.recipient_user_id
-        AND recipient.matching_opt_in=1
+      SELECT action.recipient_user_id FROM match_action_tokens action
       WHERE action.token_hash=? AND action.sender_user_id=? AND action.expires_at>=?
+        AND NOT EXISTS (
+          SELECT 1 FROM match_requests request
+          WHERE request.status IN ('declined', 'withdrawn')
+            AND request.updated_at>=action.created_at
+            AND ((request.sender_user_id=action.sender_user_id
+              AND request.recipient_user_id=action.recipient_user_id)
+              OR (request.sender_user_id=action.recipient_user_id
+                AND request.recipient_user_id=action.sender_user_id))
+        )
     `).get(tokenHash(actionToken), current.id, new Date().toISOString()) as
-      | Record<string, unknown>
+      | { recipient_user_id: number }
       | undefined;
-    return row ? rowToUser(row) : null;
+    if (!row) return null;
+    return this.listMatchingCandidatesFor(current, 499)
+      .find((candidate) => candidate.userId === Number(row.recipient_user_id)) ?? null;
+  }
+
+  avatarUserForMatchAction(viewer: User, actionToken: string, viewerSide = false): User | null {
+    const candidate = this.matchingCandidateForAction(viewer, actionToken);
+    if (!candidate) return null;
+    return viewerSide
+      ? this.userByHandle(viewer.handle)
+      : this.userByHandle(candidate.handle);
   }
 
   avatarUserForMatchRequest(viewer: User, requestToken: string): User | null {
@@ -758,6 +777,21 @@ export class UserRegistry {
     const current = this.userByHandle(sender.handle);
     if (!current || current.id !== sender.id || !current.matchingOptIn || !actionToken) {
       throw new Error('Match request is not allowed');
+    }
+    if (!this.matchingCandidateForAction(current, actionToken)) {
+      // A retried form submission after a successful request remains
+      // idempotent. Revoked, declined, or withdrawn pairs cannot be revived
+      // by replaying an old action token.
+      const alreadyActive = this.db.prepare(`
+        SELECT 1 FROM match_action_tokens action
+        JOIN match_requests request
+          ON request.sender_user_id=action.sender_user_id
+          AND request.recipient_user_id=action.recipient_user_id
+          AND request.status IN ('pending', 'accepted')
+        WHERE action.token_hash=? AND action.sender_user_id=?
+      `).get(tokenHash(actionToken), current.id);
+      if (alreadyActive) return;
+      throw new Error('Match action expired or is no longer valid');
     }
     const now = new Date().toISOString();
     this.db.prepare('DELETE FROM match_action_tokens WHERE expires_at < ?').run(now);

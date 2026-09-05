@@ -12,7 +12,7 @@ import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
 import { messages, pickLang, type Lang } from './output/i18n.js';
-import { matchesPage } from './output/matches.js';
+import { matchesPage, matchingCandidatePage } from './output/matches.js';
 import {
   accountPage, dashboardSetupSection, extensionSetupPage, guidedOnboardingPage,
   signupCompletePage, signupStartPage,
@@ -415,6 +415,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // Avatar URLs remain same-origin: neither email hashes nor Google/Gravatar
   // URLs reach the browser. Matching variants resolve an existing opaque
   // token and re-check consent on every request.
+  app.get('/avatar/match/:token/viewer', async (c) => {
+    const me = sessionUser(c);
+    const user = me
+      ? registry.avatarUserForMatchAction(me, c.req.param('token'), true)
+      : null;
+    if (!user) return c.body(null, 404);
+    return avatarResponse(c, user, 'private, no-store');
+  });
+
   app.get('/avatar/match/:token', async (c) => {
     const me = sessionUser(c);
     const user = me ? registry.avatarUserForMatchAction(me, c.req.param('token')) : null;
@@ -790,6 +799,54 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       })),
     } }, 200, recommendations);
   });
+
+  app.get('/dashboard', (c) => {
+    const me = sessionUser(c);
+    return me ? c.redirect(`/${me.handle}`) : c.redirect('/auth/google?next=%2Fdashboard');
+  });
+
+  const actionableCandidate = (me: User, actionToken: string) => {
+    const candidate = registry.matchingCandidateForAction(me, actionToken);
+    const crystal = registry.matchingCrystalFor(me.handle);
+    if (!candidate || !crystal || !registryCrystalEligible(crystal)) return null;
+    const viewer: MatchableCrystal = {
+      userId: me.id,
+      handle: me.handle,
+      displayName: me.displayName,
+      disclosureLevel: me.matchingDisclosure,
+      crystal,
+      dimensions: registry.matchingDimensionsFor(me),
+    };
+    const card = rankedMatchingCandidateCards(viewer, [candidate])[0];
+    return card?.candidateUserId === candidate.userId
+      ? { ...card, actionToken }
+      : null;
+  };
+
+  const candidatePageResponse = (
+    c: Context,
+    view: 'profile' | 'compare',
+  ) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
+    const actionToken = c.req.param('token') ?? '';
+    const card = actionableCandidate(me, actionToken);
+    if (!card) return notFoundPage(c);
+    const lang = langOf(c);
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    return c.html(matchingCandidatePage(
+      me.displayName,
+      '/dashboard',
+      card,
+      view,
+      lang,
+      `${c.req.path}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+    ));
+  };
+
+  app.get('/matches/profile/:token', (c) => candidatePageResponse(c, 'profile'));
+  app.get('/matches/compare/:token', (c) => candidatePageResponse(c, 'compare'));
 
   const matchingActionError = (c: Context) => {
     c.header('Cache-Control', 'no-store');

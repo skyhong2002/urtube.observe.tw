@@ -1,21 +1,28 @@
 import type { MatchableCrystal } from '../users.js';
 import { matchingCardDisclosure, type MatchingCardDisclosure } from './disclosure.js';
 import { matchingCandidateSimilarity } from './dimensions.js';
-import {
-  MATCHING_TAXONOMY,
-  matchingSimilarityBand,
-  type MatchingSimilarityBand,
-} from './matching.js';
+import { MATCHING_TAXONOMY } from './matching.js';
 
 export const MATCHING_CANDIDATE_PAGE_SIZE = 5;
 export const MATCHING_CANDIDATE_POOL_LIMIT = 250;
+export const MATCHING_PERCENTAGE_VERSION = 'cosine-equal-v1' as const;
+
+export function matchingPercentage(score: number): number {
+  return Math.round(Math.min(1, Math.max(0, Number.isFinite(score) ? score : 0)) * 100);
+}
 
 export interface MatchingCandidateCard {
   // Kept inside the server for #13. The #8 renderer deliberately does not
   // serialize it before the request flow supplies an opaque action token.
   candidateUserId: number;
   displayName: string;
-  similarity: MatchingSimilarityBand;
+  matchPercent: number;
+  topicPercent: number | null;
+  channelPercent: number | null;
+  method: 'combined' | 'topics' | 'channels';
+  percentageVersion: typeof MATCHING_PERCENTAGE_VERSION;
+  interests: string[];
+  sharedInterests: string[];
   disclosure: MatchingCardDisclosure;
 }
 
@@ -56,10 +63,27 @@ export function rankedMatchingCandidateCards(
       .filter((name): name is string => Boolean(name));
     const sharedChannels = commonItems(viewer.crystal.channels, candidate.crystal.channels)
       .map((item) => item.name);
+    const viewerExcluded = new Set(viewer.dimensions.excludedTopicKeys);
+    const candidateAllowed = new Set(candidate.dimensions.selectedTopicKeys);
+    const interests = candidate.crystal.topics
+      .filter((topic) => topic.share > 0 && candidateAllowed.has(topic.key)
+        && !viewerExcluded.has(topic.key))
+      .sort((left, right) => right.share - left.share || left.key.localeCompare(right.key))
+      .slice(0, 5)
+      .map((topic) => TOPIC_NAMES.get(topic.key))
+      .filter((name): name is string => Boolean(name));
     return [{
       candidateUserId: candidate.userId,
       displayName: candidate.displayName,
-      similarity: matchingSimilarityBand(similarity.score),
+      matchPercent: matchingPercentage(similarity.score),
+      topicPercent: similarity.topicSimilarity === null
+        ? null : matchingPercentage(similarity.topicSimilarity),
+      channelPercent: similarity.channelSimilarity === null
+        ? null : matchingPercentage(similarity.channelSimilarity),
+      method: similarity.mode,
+      percentageVersion: MATCHING_PERCENTAGE_VERSION,
+      interests,
+      sharedInterests: sharedTopics.slice(0, 5),
       disclosure: matchingCardDisclosure(
         viewer.disclosureLevel,
         candidate.disclosureLevel,
@@ -69,7 +93,8 @@ export function rankedMatchingCandidateCards(
       score: similarity.score,
     }];
   }).sort((a, b) => b.score - a.score || a.candidateUserId - b.candidateUserId)
-    // Exact scores never cross the service-to-presentation boundary.
+    // Raw floating-point scores never cross the service-to-presentation
+    // boundary. The product contract is a clamped, whole 0–100 percentage.
     .map(({ score: _score, ...card }) => card);
 }
 
