@@ -7,16 +7,51 @@ import { MATCHING_TAXONOMY } from './matching.js';
 // bound and pagination for larger deployments.
 export const MATCHING_CANDIDATE_PAGE_SIZE = 20;
 export const MATCHING_CANDIDATE_POOL_LIMIT = 250;
-export const MATCHING_PERCENTAGE_VERSION = 'cosine-equal-v1' as const;
+export const MATCHING_PERCENTAGE_VERSION = 'calibrated-v2' as const;
 
 export function matchingPercentage(score: number): number {
   return Math.round(Math.min(1, Math.max(0, Number.isFinite(score) ? score : 0)) * 100);
+}
+
+// Raw cosines cluster: 14 broad topics keep topic cosine in roughly 0.4–0.95
+// for everyone, while thousands of channels keep channel cosine under ~0.1
+// even for people who share dozens of channels. These fixed curves stretch
+// each dimension to the full 0–100 range without a reference population, so
+// a person's percentage does not move when the pool changes.
+export const MATCHING_TOPIC_COSINE_FLOOR = 0.4;
+export const MATCHING_TOPIC_COSINE_SPAN = 0.55;
+export const MATCHING_CHANNEL_COSINE_GAIN = 25;
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+}
+
+export function calibratedTopicSimilarity(cosine: number): number {
+  return clamp01((cosine - MATCHING_TOPIC_COSINE_FLOOR) / MATCHING_TOPIC_COSINE_SPAN);
+}
+
+export function calibratedChannelSimilarity(cosine: number): number {
+  return clamp01(1 - Math.exp(-MATCHING_CHANNEL_COSINE_GAIN * clamp01(cosine)));
+}
+
+export function calibratedMatchScore(
+  topicSimilarity: number | null,
+  channelSimilarity: number | null,
+): number {
+  const parts = [
+    topicSimilarity === null ? null : calibratedTopicSimilarity(topicSimilarity),
+    channelSimilarity === null ? null : calibratedChannelSimilarity(channelSimilarity),
+  ].filter((value): value is number => value !== null);
+  return parts.length ? parts.reduce((sum, value) => sum + value, 0) / parts.length : 0;
 }
 
 export interface MatchingCandidateCard {
   // Kept inside the server for #13. The #8 renderer deliberately does not
   // serialize it before the request flow supplies an opaque action token.
   candidateUserId: number;
+  // Members address each other by handle in comparison URLs; the dashboard
+  // behind a handle still follows its own visibility setting.
+  handle: string;
   displayName: string;
   matchPercent: number;
   topicPercent: number | null;
@@ -86,14 +121,16 @@ export function rankedMatchingCandidateCards(
       .slice(0, 5)
       .map((topic) => TOPIC_NAMES.get(topic.key))
       .filter((name): name is string => Boolean(name));
+    const score = calibratedMatchScore(similarity.topicSimilarity, similarity.channelSimilarity);
     return [{
       candidateUserId: candidate.userId,
+      handle: candidate.handle,
       displayName: candidate.displayName,
-      matchPercent: matchingPercentage(similarity.score),
+      matchPercent: matchingPercentage(score),
       topicPercent: similarity.topicSimilarity === null
-        ? null : matchingPercentage(similarity.topicSimilarity),
+        ? null : matchingPercentage(calibratedTopicSimilarity(similarity.topicSimilarity)),
       channelPercent: similarity.channelSimilarity === null
-        ? null : matchingPercentage(similarity.channelSimilarity),
+        ? null : matchingPercentage(calibratedChannelSimilarity(similarity.channelSimilarity)),
       method: similarity.mode,
       percentageVersion: MATCHING_PERCENTAGE_VERSION,
       viewerInterests,
@@ -105,7 +142,7 @@ export function rankedMatchingCandidateCards(
         sharedTopics,
         sharedChannels,
       ),
-      score: similarity.score,
+      score,
     }];
   }).sort((a, b) => b.score - a.score || a.candidateUserId - b.candidateUserId)
     // Raw floating-point scores never cross the service-to-presentation

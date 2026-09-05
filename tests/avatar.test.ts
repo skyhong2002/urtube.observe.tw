@@ -209,14 +209,21 @@ test('same-origin avatar routes enforce dashboard and matching authorization', a
     enableMatching(registry, candidate);
     enableMatching(registry, outsider);
     const matches = await (await app.request('/matches', { headers: { cookie: viewerCookie } })).text();
-    const actionToken = matches.match(/src="\/avatar\/match\/([^"]+)"/)?.[1];
-    assert.ok(actionToken, 'candidate card uses an opaque same-origin avatar URL');
+    assert.match(matches, /src="\/avatar\/member\/avatar-candidate"/, 'candidate card uses a same-origin member avatar URL');
     assert.doesNotMatch(matches, /gravatar\.com|googleusercontent\.com|candidate@example\.test/);
 
-    assert.equal((await app.request(`/avatar/match/${actionToken}`, { headers: { cookie: viewerCookie } })).status, 200);
-    assert.equal((await app.request(`/avatar/match/${actionToken}`, { headers: { cookie: outsiderCookie } })).status, 404);
-    assert.equal((await app.request('/avatar/match/forged', { headers: { cookie: viewerCookie } })).status, 404);
+    // Members of the pool see each other; anyone who left or never joined
+    // gets nothing, and so does an unknown handle.
+    assert.equal((await app.request('/avatar/member/avatar-candidate', { headers: { cookie: viewerCookie } })).status, 200);
+    assert.equal((await app.request('/avatar/member/avatar-candidate', { headers: { cookie: outsiderCookie } })).status, 200);
+    assert.equal((await app.request('/avatar/member/avatar-candidate')).status, 404);
+    assert.equal((await app.request('/avatar/member/nobody', { headers: { cookie: viewerCookie } })).status, 404);
+    registry.setMatchingPreferences(outsider.handle, false, 'topics_and_channel');
+    assert.equal((await app.request('/avatar/member/avatar-candidate', { headers: { cookie: outsiderCookie } })).status, 404);
+    assert.equal((await app.request('/avatar/member/avatar-outsider', { headers: { cookie: viewerCookie } })).status, 404);
+    registry.setMatchingPreferences(outsider.handle, true, 'topics_and_channel');
 
+    const actionToken = registry.issueMatchActionToken(viewer, candidate.id, []);
     registry.createMatchRequest(viewer, actionToken);
     const requestToken = registry.matchingInboxFor(viewer).sent[0]?.requestToken;
     assert.ok(requestToken);

@@ -4,6 +4,8 @@ import { createApp } from '../src/index.js';
 import { UserRegistry, type MatchableCrystal, type User } from '../src/users.js';
 import {
   MATCHING_PERCENTAGE_VERSION,
+  calibratedMatchScore,
+  calibratedTopicSimilarity,
   matchingPercentage,
   matchingCandidateBatch,
   rankedMatchingCandidateCards,
@@ -112,8 +114,11 @@ test('candidate score gives topics and channels equal internal weight', () => {
   assert.equal(result.channelSimilarity, 1);
   assert.ok(Math.abs(result.score - (result.topicSimilarity + result.channelSimilarity) / 2) < 1e-12);
   const card = rankedMatchingCandidateCards(viewer, [candidate])[0]!;
-  assert.equal(card.matchPercent, matchingPercentage(result.score));
-  assert.equal(card.topicPercent, matchingPercentage(result.topicSimilarity));
+  assert.equal(card.matchPercent, matchingPercentage(calibratedMatchScore(result.topicSimilarity, result.channelSimilarity)));
+  assert.equal(card.topicPercent, matchingPercentage(calibratedTopicSimilarity(result.topicSimilarity)));
+  assert.equal(calibratedTopicSimilarity(0.4), 0);
+  assert.ok(Math.abs(calibratedTopicSimilarity(0.95) - 1) < 1e-9);
+  assert.ok(calibratedMatchScore(null, 0.1) > 0.9, 'a 0.1 channel cosine is already a strong overlap');
   assert.equal(card.channelPercent, 100);
   assert.equal(card.percentageVersion, MATCHING_PERCENTAGE_VERSION);
   assert.equal(matchingPercentage(-1), 0);
@@ -166,7 +171,7 @@ test('candidate cards remove excluded dimensions and enforce mutual disclosure',
   const restrictedCard = cards.find((card) => card.displayName === 'Restricted')!;
   assert.deepEqual(restrictedCard.disclosure, { topics: ['Music'] });
   assert.deepEqual(Object.keys(restrictedCard).sort(), [
-    'candidateUserId', 'channelPercent', 'disclosure', 'displayName', 'interests',
+    'candidateUserId', 'channelPercent', 'disclosure', 'displayName', 'handle', 'interests',
     'matchPercent', 'method', 'percentageVersion', 'sharedInterests', 'topicPercent',
     'viewerInterests',
   ]);
@@ -234,10 +239,11 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.doesNotMatch(first, /Candidate 21/);
     assert.match(first, /href="\/matches\?page=2"/);
     assert.doesNotMatch(first, /href="\/matches\/profile\//);
-    assert.equal((first.match(/class="mt-person-link" href="\/matches\/compare\/[A-Za-z0-9_-]{40,}"/g) ?? []).length, 20);
+    assert.equal((first.match(/class="mt-person-link" href="\/viewer-list\/compare\/[a-z0-9.-]+"/g) ?? []).length, 20);
     assert.doesNotMatch(first, /action="\/matches\/request"/);
     assert.match(first, />\d{1,3}%<small>match<\/small>/);
-    assert.doesNotMatch(first, /hidden-candidate|Private Channel|\/compare\?|\/u\//);
+    // Member handles are part of comparison addresses now; dashboards stay private.
+    assert.doesNotMatch(first, /Private Channel|\/compare\?|\/u\/|href="\/hidden-candidate-\d+"/);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);
 
     const second = await (await app.request('/matches?page=2', { headers: { cookie } })).text();

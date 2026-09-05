@@ -441,18 +441,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // Avatar URLs remain same-origin: neither email hashes nor Google/Gravatar
   // URLs reach the browser. Matching variants resolve an existing opaque
   // token and re-check consent on every request.
-  app.get('/avatar/match/:token/viewer', async (c) => {
+  // Members of the matching pool see each other's avatars; nobody else does.
+  app.get('/avatar/member/:handle', async (c) => {
     const me = sessionUser(c);
-    const user = me
-      ? registry.avatarUserForMatchAction(me, c.req.param('token'), true)
-      : null;
-    if (!user) return c.body(null, 404);
-    return avatarResponse(c, user, 'private, no-store');
-  });
-
-  app.get('/avatar/match/:token', async (c) => {
-    const me = sessionUser(c);
-    const user = me ? registry.avatarUserForMatchAction(me, c.req.param('token')) : null;
+    const user = me ? registry.avatarUserForMember(me, c.req.param('handle')) : null;
     if (!user) return c.body(null, 404);
     return avatarResponse(c, user, 'private, no-store');
   });
@@ -742,7 +734,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
       return c.html(matchesPage(
-        me.displayName,
+        me,
         `/${me.handle}`,
         state,
         lang,
@@ -787,7 +779,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       ...batch,
       cards: batch.cards.map((card) => ({
         ...card,
-        actionToken: registry.issueMatchActionToken(me, card.candidateUserId, card.disclosure.topics),
         relationship: registry.matchingRelationshipFor(me, card.candidateUserId),
       })),
     } }, 200, recommendations);
@@ -823,14 +814,59 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       : null;
   };
 
-  const candidatePageResponse = (c: Context) => {
+  const comparisonPath = (me: User, otherHandle: string) =>
+    `/${encodeURIComponent(me.handle)}/compare/${encodeURIComponent(otherHandle)}`;
+
+  const querySuffix = (c: Context) => {
+    const query = new URL(c.req.url).search;
+    return query || '';
+  };
+
+  // Legacy token links (20-minute lifetime) forward to the stable URL while
+  // they are still valid. Registered before the handle route because
+  // '/matches/compare/<token>' also matches '/:handle/compare/:other'.
+  const legacyComparisonRedirect = (c: Context) => {
     const me = sessionUser(c);
     if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
-    const actionToken = c.req.param('token') ?? '';
-    const actionable = actionableCandidate(me, actionToken);
-    const other = actionable ? registry.userByHandle(actionable.candidate.handle) : null;
-    if (!actionable || !other) return notFoundPage(c);
-    const { card } = actionable;
+    const candidate = registry.matchingCandidateForAction(me, c.req.param('token') ?? '');
+    if (!candidate) return notFoundPage(c);
+    return c.redirect(`${comparisonPath(me, candidate.handle)}${querySuffix(c)}`);
+  };
+  app.get('/matches/profile/:token', legacyComparisonRedirect);
+  app.get('/matches/compare/:token', legacyComparisonRedirect);
+
+  // Stable, shareable between the two people: /<me>/compare/<them>. The
+  // short-lived action token is minted per render for the request/respond
+  // forms, so it never has to survive in a URL.
+  app.get('/:handle/compare/:other', (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.redirect(`/auth/google?next=${encodeURIComponent(c.req.path)}`);
+    const handle = c.req.param('handle');
+    const otherHandle = c.req.param('other');
+    if (handle !== me.handle) {
+      return otherHandle === me.handle
+        ? c.redirect(`${comparisonPath(me, handle)}${querySuffix(c)}`)
+        : notFoundPage(c);
+    }
+    const candidate = registry.matchingCandidateByHandle(me, otherHandle);
+    const crystal = registry.matchingCrystalFor(me.handle);
+    const other = candidate ? registry.userByHandle(candidate.handle) : null;
+    if (!candidate || !other || !crystal || !registryCrystalEligible(crystal)) return notFoundPage(c);
+    const viewer: MatchableCrystal = {
+      userId: me.id,
+      handle: me.handle,
+      displayName: me.displayName,
+      disclosureLevel: 'topics_and_channel',
+      crystal,
+      dimensions: registry.matchingDimensionsFor(me),
+    };
+    const ranked = rankedMatchingCandidateCards(viewer, [candidate])[0];
+    if (ranked?.candidateUserId !== candidate.userId) return notFoundPage(c);
+    const card = {
+      ...ranked,
+      actionToken: registry.issueMatchActionToken(me, candidate.userId, ranked.disclosure.topics),
+      relationship: registry.matchingRelationshipFor(me, candidate.userId),
+    };
     const lang = langOf(c);
     const range = comparisonRange(c.req.query('range'));
     // Consent is re-read on every request: a withdrawal takes effect on the
@@ -844,20 +880,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
     return c.html(matchingCandidatePage(
-      me.displayName,
+      me,
       '/dashboard',
       card,
       comparison,
       lang,
       `${c.req.path}?range=${range}&lang=${lang === 'zh' ? 'en' : 'zh'}`,
     ));
-  };
-
-  app.get('/matches/profile/:token', (c) => {
-    const query = c.req.query('lang');
-    return c.redirect(`/matches/compare/${encodeURIComponent(c.req.param('token'))}${query ? `?lang=${encodeURIComponent(query)}` : ''}`);
   });
-  app.get('/matches/compare/:token', (c) => candidatePageResponse(c));
+
 
   const matchingActionError = (c: Context) => {
     c.header('Cache-Control', 'no-store');
@@ -866,10 +897,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   };
 
   const comparisonAfterAction = (c: Context, me: User, actionToken: unknown) => {
-    const token = String(actionToken ?? '');
-    return registry.matchingCandidateForAction(me, token)
-      ? c.redirect(`/matches/compare/${encodeURIComponent(token)}`)
-      : c.redirect('/matches');
+    const candidate = registry.matchingCandidateForAction(me, String(actionToken ?? ''));
+    return candidate ? c.redirect(comparisonPath(me, candidate.handle)) : c.redirect('/matches');
   };
 
   app.post('/matches/request', async (c) => {

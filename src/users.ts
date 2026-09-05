@@ -801,6 +801,20 @@ export class UserRegistry {
       : this.userByHandle(candidate.handle);
   }
 
+  // Stable, handle-addressed comparison: the other person must currently be
+  // a candidate for the viewer (both opted in, eligible, not the viewer).
+  matchingCandidateByHandle(viewer: User, handle: string): MatchableCrystal | null {
+    return this.listMatchingCandidatesFor(viewer, 499)
+      .find((candidate) => candidate.handle === handle) ?? null;
+  }
+
+  avatarUserForMember(viewer: User, handle: string): User | null {
+    const current = this.userByHandle(viewer.handle);
+    if (!current || current.id !== viewer.id || !current.matchingOptIn) return null;
+    if (handle === current.handle) return current;
+    return this.matchingCandidateByHandle(current, handle) ? this.userByHandle(handle) : null;
+  }
+
   avatarUserForMatchRequest(viewer: User, requestToken: string): User | null {
     const current = this.userByHandle(viewer.handle);
     if (!current || current.id !== viewer.id || !current.matchingOptIn || !requestToken) return null;

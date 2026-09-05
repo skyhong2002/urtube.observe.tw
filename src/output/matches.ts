@@ -23,7 +23,8 @@ export type MatchesPageState =
   | { kind: 'ready'; batch: ActionableMatchingCandidateBatch };
 
 export interface ActionableMatchingCandidateCard extends MatchingCandidateCard {
-  actionToken: string;
+  // Minted only for the comparison page's request/respond forms.
+  actionToken?: string;
   relationship: MatchRelationship;
 }
 
@@ -56,7 +57,7 @@ function icebreaker(topics: string[], lang: Lang): string {
     : t.matchesIcebreakerGeneric;
 }
 
-function candidateCard(card: ActionableMatchingCandidateCard, lang: Lang): string {
+function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang): string {
   const t = messages(lang);
   const topics = card.disclosure.topics;
   const prompt = topics.length
@@ -64,7 +65,7 @@ function candidateCard(card: ActionableMatchingCandidateCard, lang: Lang): strin
     : card.disclosure.channel
       ? t.matchesIcebreakerChannel(card.disclosure.channel)
       : t.matchesIcebreakerGeneric;
-  const comparisonHref = `/matches/compare/${html(card.actionToken)}`;
+  const comparisonHref = `/${html(viewerHandle)}/compare/${html(card.handle)}`;
   const relationshipLabel = {
     none: t.matchesCompareFirst,
     incoming: t.matchesIncomingStatus,
@@ -72,7 +73,7 @@ function candidateCard(card: ActionableMatchingCandidateCard, lang: Lang): strin
     connected: t.matchesConnectedStatus,
   }[card.relationship.status];
   return `<article class="mt-card">
-    <div class="mt-person"><a class="mt-person-link" href="${comparisonHref}"><img class="mt-avatar" src="/avatar/match/${html(card.actionToken)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="${comparisonHref}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${card.matchPercent}%<small>${t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
@@ -220,13 +221,14 @@ function edgeSection(
 }
 
 export function matchingCandidatePage(
-  viewerName: string,
+  viewer: { handle: string; displayName: string },
   dashboardHref: string,
   card: ActionableMatchingCandidateCard,
   comparison: WatchComparison,
   lang: Lang = 'en',
-  languageHref = `/matches/compare/${card.actionToken}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  languageHref = `/${viewer.handle}/compare/${card.handle}?lang=${lang === 'zh' ? 'en' : 'zh'}`,
 ): string {
+  const viewerName = viewer.displayName;
   const t = messages(lang);
   const connected = card.relationship.status === 'connected';
   const names: ComparisonPair<string> = { a: viewerName, b: card.displayName };
@@ -237,7 +239,7 @@ export function matchingCandidatePage(
     ? interestPills(card.interests.slice(0, connected ? 5 : 3))
     : `<p>${t.matchesNoProfileTopics}</p>`;
   const metrics = `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
-  const actionToken = `<input type="hidden" name="actionToken" value="${html(card.actionToken)}">`;
+  const actionToken = `<input type="hidden" name="actionToken" value="${html(card.actionToken ?? '')}">`;
   let actions: string;
   if (card.relationship.status === 'none') {
     actions = `<form method="post" action="/matches/request">${actionToken}<button class="mt-want" type="submit">${t.matchesWant}</button></form>`;
@@ -248,10 +250,10 @@ export function matchingCandidatePage(
   } else {
     actions = `<span class="mt-state connected">${t.matchesConnectedStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form>`;
   }
-  const basePath = `/matches/compare/${html(card.actionToken)}`;
+  const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
-  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/match/${html(card.actionToken)}/viewer" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/match/${html(card.actionToken)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${candidateInterests}</section></div>`;
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${card.matchPercent}%</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2>${candidateInterests}</section></div>`;
   const gate = connected
     ? `<section class="mt-panel mt-unlock"><h2>${t.matchesUnlockedTitle}</h2><p>${t.matchesUnlockedPara}</p></section>`
     : `<section class="mt-panel mt-locked"><h2>${t.matchesLockedTitle}</h2><p>${t.matchesLockedPara}</p></section>`;
@@ -303,7 +305,7 @@ function cohortSection(recommendations: CohortRecommendations, lang: Lang): stri
 }
 
 export function matchesPage(
-  displayName: string,
+  viewer: { handle: string; displayName: string },
   dashboardHref: string,
   state: MatchesPageState,
   lang: Lang = 'en',
@@ -321,14 +323,14 @@ export function matchesPage(
     content = `<section class="mt-empty"><h2>${t.matchesEmptyTitle}</h2><p>${t.matchesEmptyPara}</p><a href="/signup">${t.matchesInvite}</a></section>`;
   } else {
     const { batch } = state;
-    content = `<div class="mt-grid">${batch.cards.map((card) => candidateCard(card, lang)).join('')}</div>
+    content = `<div class="mt-grid">${batch.cards.map((card) => candidateCard(card, viewer.handle, lang)).join('')}</div>
       <nav class="mt-pagination" aria-label="${html(t.matchesPages)}">
         ${batch.hasPrevious ? `<a href="/matches?page=${batch.page - 1}">${t.matchesPrevious}</a>` : ''}
         <span class="mt-page">${t.matchesPage(batch.page)}</span>
         ${batch.hasNext ? `<a href="/matches?page=${batch.page + 1}">${t.matchesNext}</a>` : ''}
       </nav>`;
   }
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
