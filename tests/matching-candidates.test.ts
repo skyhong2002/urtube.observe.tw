@@ -242,6 +242,11 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.equal((first.match(/class="mt-person-link" href="\/viewer-list\/compare\/[a-z0-9.-]+"/g) ?? []).length, 20);
     assert.doesNotMatch(first, /action="\/matches\/request"/);
     assert.match(first, />\d{1,3}%<small>match<\/small>/);
+    assert.match(first, /Private by default/);
+    assert.match(first, /Recent 90 days/);
+    assert.match(first, /Mutual consent gates details/);
+    assert.match(first, /\.trust-signals\{display:flex;flex-wrap:wrap/);
+    assert.match(first, /@media\(max-width:560px\)[\s\S]*?\.trust-signals\{gap:6px\}/);
     // Member handles are part of comparison addresses now; dashboards stay private.
     assert.doesNotMatch(first, /Private Channel|\/compare\?|\/u\/|href="\/hidden-candidate-\d+"/);
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);

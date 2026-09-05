@@ -5,6 +5,11 @@ export function html(value: unknown): string {
   return String(value ?? '').replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' }[char]!));
 }
 
+export function trustSignals(items: string[], label: string): string {
+  return `<ul class="trust-signals" aria-label="${html(label)}">${items.map((item) =>
+    `<li><span aria-hidden="true">✓</span>${html(item)}</li>`).join('')}</ul>`;
+}
+
 export function hours(seconds: number | null): string {
   if (seconds === null) return '—';
   return `${Math.round(seconds / 360) / 10}h`;
@@ -58,6 +63,9 @@ const styles = `
   .eyebrow{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
   .muted{color:var(--ink-2)}
   code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;padding:1px 5px}
+  .trust-signals{display:flex;flex-wrap:wrap;gap:7px;list-style:none;margin:0 0 18px;padding:0}
+  .trust-signals li{align-items:center;background:rgba(78,190,130,.08);border:1px solid rgba(78,190,130,.28);border-radius:999px;color:#9be3bc;display:flex;font-size:11px;font-weight:700;gap:5px;line-height:1.25;padding:6px 10px}
+  .trust-signals li span{font-size:10px}
 
   .site-header{align-items:center;display:flex;gap:24px;justify-content:space-between;padding:18px max(22px,calc((100% - 1180px)/2))}
   .site-brand{align-items:center;color:var(--ink);display:flex;flex:0 0 auto;gap:11px;text-decoration:none}
@@ -99,7 +107,7 @@ const styles = `
   .yt-stat span{color:var(--muted);display:block;font-size:10px;font-weight:700;letter-spacing:.09em;margin-top:2px;text-transform:uppercase}
 
   @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column;gap:10px;padding-block:14px}.site-nav{width:100%}.site-main{padding-top:16px}.section{padding:16px}}
-  @media(max-width:560px){.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}}
+  @media(max-width:560px){.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}.trust-signals{gap:6px}.trust-signals li{font-size:10px;padding:5px 8px}}
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
 

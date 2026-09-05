@@ -13,7 +13,7 @@ import {
   type WatchComparison,
 } from '../youtube/comparison.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { hours, html, primaryNav, shell } from './pages.js';
+import { hours, html, primaryNav, shell, trustSignals } from './pages.js';
 import { radialClock, rhythmClockStyles } from './youtube.js';
 
 export type MatchesPageState =
@@ -250,6 +250,7 @@ export function matchingCandidatePage(
   } else {
     actions = `<span class="mt-state connected">${t.matchesConnectedStatus}</span><form method="post" action="/matches/withdraw">${actionToken}<input type="hidden" name="requestToken" value="${html(card.relationship.requestToken)}"><button class="mt-secondary" type="submit">${t.matchesDisconnect}</button></form>`;
   }
+  const consentNote = connected ? t.matchesConsentConnectedNote : t.matchesConsentPendingNote;
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
@@ -271,7 +272,12 @@ export function matchingCandidatePage(
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
     `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><p>${t.matchesFormulaNote}</p><p class="mt-version">${t.matchesFormulaVersion(card.percentageVersion)}</p></section>`,
   ].join('');
-  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div>${ranges}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div>`;
+  const signals = trustSignals([
+    t.trustPrivateDefault,
+    t.trustRecent90,
+    t.trustMutualConsent,
+  ], t.trustSignalsLabel);
+  const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}${signals}<div class="mt-profile-actions">${actions}</div><p class="mt-consent-note">${html(consentNote)}</p>${ranges}${gate}${sections}<div class="mt-privacy" style="margin-top:20px">${t.matchesProfilePrivacy}</div></div>`;
   return shell(`${card.displayName} · ${t.navMatches}`, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);
@@ -279,6 +285,7 @@ export function matchingCandidatePage(
 
 const comparisonStyles = `
   .mt-profile{max-width:960px}.mt-range{flex-wrap:wrap;justify-content:center;margin:18px 0 6px}
+  .mt-profile>.trust-signals{justify-content:center;margin-top:-5px}.mt-consent-note{color:var(--muted);font-size:11px;margin:9px auto 14px;max-width:620px;text-align:center}
   .mt-panel-head{align-items:center;display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;margin-bottom:14px}.mt-panel-head h2{margin:0}.mt-panel-head span{color:var(--muted);font-size:11px}.mt-panel-title{display:flex;flex-direction:column;gap:2px}
   .mt-gate{color:var(--muted);font-size:12px;line-height:1.6;margin:0}.mt-gate-locked{background:var(--raised);border-radius:10px;padding:12px 14px}
   .mt-stats{display:grid;gap:2px}.mt-stat-row{align-items:center;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto 1fr;gap:12px;padding:9px 0}.mt-stat-row:last-child{border-bottom:0}.mt-stat-row strong{font-size:17px;font-variant-numeric:tabular-nums;font-weight:750;letter-spacing:-.02em}.mt-stat-row strong:last-child{text-align:right}.mt-stat-row span{color:var(--muted);font-size:11px;text-align:center}
@@ -330,7 +337,12 @@ export function matchesPage(
         ${batch.hasNext ? `<a href="/matches?page=${batch.page + 1}">${t.matchesNext}</a>` : ''}
       </nav>`;
   }
-  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
+  const signals = trustSignals([
+    t.trustPrivateDefault,
+    t.trustRecent90,
+    t.trustMutualConsent,
+  ], t.trustSignalsLabel);
+  const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(viewer.displayName))}</p></section>${signals}<div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${content}${cohortSection(recommendations, lang)}`;
   return shell(t.matchesTitle, body, primaryNav(lang, {
     active: 'matches', dashboardHref, languageHref,
   }), '', lang);

@@ -105,6 +105,10 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.match(comparisonHtml, /Topic intersection/);
     assert.match(comparisonHtml, /Channel intersection/);
     assert.match(comparisonHtml, /Shared interests/);
+    assert.match(comparisonHtml, /Private by default/);
+    assert.match(comparisonHtml, /Recent 90 days/);
+    assert.match(comparisonHtml, /Mutual consent gates details/);
+    assert.match(comparisonHtml, /Opening or liking a comparison sends no private details/);
     assert.match(comparisonHtml, /action="\/matches\/request"/);
     assert.doesNotMatch(comparisonHtml, /@bob-private|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
     assert.equal((await app.request('/avatar/member/alice-match', {
@@ -148,7 +152,17 @@ test('candidate directory keeps every relationship in one comparison-first flow'
       headers: { cookie: aliceCookie },
     });
     assert.equal(sentComparison.status, 200, 'sending a request keeps comparison available');
-    assert.match(await sentComparison.text(), /You want to meet/);
+    const sentComparisonHtml = await sentComparison.text();
+    assert.match(sentComparisonHtml, /You want to meet/);
+    assert.match(sentComparisonHtml, /Deeper data stays locked until both people choose to meet/);
+
+    const chinesePending = await (await app.request('/alice-match/compare/bob-match?lang=zh', {
+      headers: { cookie: aliceCookie },
+    })).text();
+    assert.match(chinesePending, /預設私密/);
+    assert.match(chinesePending, /只看近 90 天/);
+    assert.match(chinesePending, /雙向同意才解鎖/);
+    assert.match(chinesePending, /打開或喜歡這份比較都不會送出私人細節/);
 
     const request = registry.matchingInboxFor(bob).incoming[0];
     assert.ok(request);
@@ -193,6 +207,7 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     })).text();
     const unlockedToken = tokenIn(unlocked);
     assert.match(unlocked, /More shared interests unlocked/);
+    assert.match(unlocked, /Both people chose to meet\. Either person can revoke this deeper comparison at any time/);
     assert.match(unlocked, /action="\/matches\/withdraw"/);
     assert.doesNotMatch(unlocked, /@alice-private|Alice likes making things/);
     assert.doesNotMatch(afterCarol, /@alice-private|@bob-private/);

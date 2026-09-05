@@ -147,15 +147,17 @@ test('privacy page explains optional matching and withdrawal in both languages',
   try {
     const english = await (await app.request('/privacy')).text();
     assert.match(english, /Matching starts on for new accounts/);
-    assert.match(english, /mutual consent unlocks more broad, mutually allowed comparison clues/);
+    assert.match(english, /Mutual consent unlocks aggregate watch statistics, common channels and videos with ranks/);
     assert.match(english, /never introductions or contact details/);
+    assert.match(english, /full histories, raw shares, full vectors, and full crystals are never disclosed/);
     assert.match(english, /Every read rechecks the token, relationship/);
     assert.match(english, /Turning matching off withdraws requests and connections immediately/);
     assert.match(english, /separate from making a dashboard public/);
     const chinese = await (await app.request('/privacy?lang=zh')).text();
     assert.match(chinese, /新帳號的配對預設開啟/);
-    assert.match(chinese, /雙向同意後只解鎖更多雙方允許的概括比較線索/);
+    assert.match(chinese, /雙向同意後才解鎖聚合觀看統計、共同頻道與影片及其排名/);
     assert.match(chinese, /不顯示自介或聯絡資訊/);
+    assert.match(chinese, /完整紀錄、原始占比、完整向量與完整 crystal 永不揭露/);
     assert.match(chinese, /每次讀取都會重新確認 token、關係狀態/);
     assert.match(chinese, /關閉配對會立即撤銷邀請與連結/);
     assert.match(chinese, /公開儀表板是兩個獨立設定/);
