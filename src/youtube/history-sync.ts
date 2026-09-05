@@ -98,15 +98,18 @@ const backfillSchema = z.object({
 export function normalizeYoutubeBackfillBatch(value: unknown, now = new Date()): YoutubeParsedArchive {
   const parsed = backfillSchema.parse(value);
   const watches: YoutubeWatchInput[] = [];
+  const today = taipeiDay(now.toISOString());
   for (const item of parsed.items) {
     const at = new Date(item.watchedAt);
-    if (at.getTime() > now.getTime() + 5 * 60_000) {
+    const day = taipeiDay(item.watchedAt);
+    // Date-only history uses a noon placeholder, which can be later than
+    // the current time. Validate the same calendar day used for deduplication.
+    if (day > today) {
       throw new Error('Backfill event time is too far in the future');
     }
     if (at.getTime() < Date.parse('2005-04-23T00:00:00Z')) {
       throw new Error('Backfill event time predates YouTube');
     }
-    const day = taipeiDay(item.watchedAt);
     watches.push({
       // One event per video per day: rescans regenerate the same id.
       eventId: stableId('watch-day', item.videoId, day),
