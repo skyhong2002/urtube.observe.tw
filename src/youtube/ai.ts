@@ -187,7 +187,8 @@ export async function classifyYoutubeVideosWithClient(
           + '"alternativeSlug":null,"alternativeConfidence":null,'
           + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.0}]}]}. '
           + 'Use Other for clear content outside the listed subjects. Use Unknown when metadata is insufficient. '
-          + 'Evidence text must occur verbatim in its declared public metadata source and scores must be above zero. '
+          + 'Give at most three evidence items per video. Each evidence text must be a verbatim quote of at most 80 characters '
+          + 'from its declared public metadata source, with a score above 0 and at most 1. '
           + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.',
           {
             taxonomy: topics.map(({ slug, name, description }) => ({ slug, name, description })),
