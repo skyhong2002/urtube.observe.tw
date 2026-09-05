@@ -23,6 +23,7 @@ const en = {
   tagline: 'attention archive',
   footer: (host: string) => `urtube · self-hosted at ${host} · watch history stays private`,
   langToggle: '中文',
+  navLabel: 'Primary navigation',
 
   navHome: 'Home',
   navDashboard: 'Dashboard',
@@ -31,14 +32,14 @@ const en = {
   navHistory: 'History',
   navRecap: 'Recap',
   navOnboarding: 'Setup',
-  navSignup: 'Create your archive',
+  navSignup: 'Sign up / sign in',
   navExample: 'Example dashboard',
   navBack: 'Back to dashboard',
 
   landingTitle: 'Your YouTube life,<br><em>remembered.</em>',
   landingDocTitle: 'Your YouTube life, remembered',
   landingPara: 'urtube keeps a private archive of everything you watch — cross-device history from Google My Activity, measured viewing time from a small Chrome extension, saved progress, channels, and AI-classified topics. Searches are encrypted; raw history never leaves this server.',
-  landingCta: 'Create your archive →',
+  landingCta: 'Sign up / sign in →',
   landingMyDashboard: 'Open my dashboard →',
   landingExample: (name: string) => `See a live example: ${name}`,
   landingPoints: [
@@ -46,7 +47,7 @@ const en = {
     ['Private by construction', "Each account is its own database. Search terms are encrypted at rest, dashboards are private by default, and aggregates are all anyone can ever see."],
     ['See yourself change', "Attention shifts, channel momentum, and cross-person crystal comparisons show what you're drifting toward — and away from."],
   ] as Array<[string, string]>,
-  landingNote: 'Already have an account? <a href="/auth/google">Sign in with Google</a> to continue from your saved setup step.',
+  landingNote: 'New or returning? <a href="/auth/google">Sign up / sign in with Google</a> to continue from your saved setup step.',
 
   eyebrowArchive: 'YouTube · attention archive',
   home: 'home',
@@ -253,8 +254,8 @@ const en = {
   matchesEmptyPara: 'Nobody else currently meets both the opt-in and data-quality safeguards. Your private data remains private while the pool grows.',
   matchesInvite: 'Invite a friend to create an archive',
 
-  signupEyebrow: 'Self-serve onboarding',
-  signupTitle: 'Create your archive',
+  signupEyebrow: 'Account access',
+  signupTitle: 'Sign up / sign in',
   signupPara: 'Pick a handle, then follow the guided desktop scan. Your history stays yours: searches are encrypted, dashboards are private by default, and every account lives in its own database.',
   signupHandle: 'Handle (lowercase letters, digits, dashes)',
   signupName: 'Display name',
@@ -301,8 +302,8 @@ const en = {
   onboardingOpenMatches: 'See matching suggestions',
   onboardingOpenDashboard: 'Open my dashboard',
 
-  signinGoogle: 'Sign in with Google',
-  signupStartPara: 'Sign in with Google to create your archive or return to an existing one. One Google account maps to exactly one archive; we store only its permanent id and email — no access to your Google data.',
+  signinGoogle: 'Sign up / sign in with Google',
+  signupStartPara: 'Use the same Google step to create your archive or return to an existing one. One Google account maps to exactly one archive; we store only its permanent id and email — no access to your Google data.',
   signupCompleteTitle: 'Pick your handle',
   signupCompletePara: (email: string) => `Signed in as <strong>${email}</strong>. Choose the handle for your dashboard URL — it is public, so it does not have to be your Gmail name.`,
   signupClaimSummary: 'Already have an archive from before Google sign-in?',
@@ -427,7 +428,7 @@ const en = {
   notFoundPara: 'Nothing lives at this address. Check the link, or head back to the projection room.',
   navAccount: 'Account',
   navMatches: 'Matches',
-  navLogin: 'Sign in',
+  navLogin: 'Sign up / sign in',
 
   setupTitle: 'Nothing here yet — finish your setup',
   setupSteps: () => [
@@ -496,6 +497,7 @@ const zh: typeof en = {
   tagline: '注意力檔案館',
   footer: (host: string) => `urtube · 自架於 ${host} · 觀看紀錄絕不外流`,
   langToggle: 'EN',
+  navLabel: '主要導覽',
 
   navHome: '首頁',
   navDashboard: '儀表板',
@@ -504,14 +506,14 @@ const zh: typeof en = {
   navHistory: '歷史',
   navRecap: '回顧',
   navOnboarding: '設定流程',
-  navSignup: '建立檔案館',
+  navSignup: '註冊／登入',
   navExample: '範例儀表板',
   navBack: '回到儀表板',
 
   landingTitle: '你的 YouTube 人生，<br><em>都記得。</em>',
   landingDocTitle: '你的 YouTube 人生，都記得',
   landingPara: 'urtube 為你保存一份私人的觀看檔案——Google「我的活動」的跨裝置歷史紀錄、Chrome 擴充功能實測的觀看秒數、儲存進度、頻道與 AI 分類主題。搜尋紀錄加密保存；原始紀錄絕不離開這台伺服器。',
-  landingCta: '建立你的檔案館 →',
+  landingCta: '註冊／登入 →',
   landingMyDashboard: '打開我的儀表板 →',
   landingExample: (name: string) => `看看實例：${name}`,
   landingPoints: [
@@ -519,7 +521,7 @@ const zh: typeof en = {
     ['隱私是結構性的', '每個帳號一個獨立資料庫。搜尋詞加密儲存、儀表板預設私人，任何人最多只能看到彙總數字。'],
     ['看見自己的變化', '注意力變化、頻道動能與跨人結晶比較，讓你看清自己正往哪裡漂移。'],
   ] as Array<[string, string]>,
-  landingNote: '已經有帳號？<a href="/auth/google">用 Google 登入</a>，系統會從已保存的設定步驟繼續。',
+  landingNote: '第一次使用或已有帳號？<a href="/auth/google">使用 Google 註冊／登入</a>，系統會建立檔案館或從已保存的設定步驟繼續。',
 
   eyebrowArchive: 'YouTube · 注意力檔案館',
   home: '首頁',
@@ -725,8 +727,8 @@ const zh: typeof en = {
   matchesEmptyPara: '目前還沒有其他人同時符合主動加入與資料品質門檻；配對池成長期間，你的私人資料仍保持私密。',
   matchesInvite: '邀請朋友建立檔案館',
 
-  signupEyebrow: '自助開通',
-  signupTitle: '建立你的檔案館',
+  signupEyebrow: '帳號存取',
+  signupTitle: '註冊／登入',
   signupPara: '選一個代號，再依引導完成桌面掃描。你的紀錄只屬於你：搜尋詞加密儲存、儀表板預設私人、每個帳號都有獨立資料庫。',
   signupHandle: '代號（小寫字母、數字、連字號）',
   signupName: '顯示名稱',
@@ -773,8 +775,8 @@ const zh: typeof en = {
   onboardingOpenMatches: '查看配對建議',
   onboardingOpenDashboard: '打開我的儀表板',
 
-  signinGoogle: '使用 Google 登入',
-  signupStartPara: '用 Google 登入來建立你的檔案館，或回到既有的帳號。一個 Google 帳號只會對應一個檔案館；我們只儲存它的永久 ID 和 email——不會存取你的任何 Google 資料。',
+  signinGoogle: '使用 Google 註冊／登入',
+  signupStartPara: '使用同一個 Google 步驟建立檔案館，或回到既有帳號。一個 Google 帳號只會對應一個檔案館；我們只儲存它的永久 ID 和 email——不會存取你的任何 Google 資料。',
   signupCompleteTitle: '選擇你的代號',
   signupCompletePara: (email: string) => `已登入為 <strong>${email}</strong>。選一個用在儀表板網址的代號——網址是公開的，所以不一定要用你的 Gmail 名稱。`,
   signupClaimSummary: '在 Google 登入上線前就有帳號了？',
@@ -899,7 +901,7 @@ const zh: typeof en = {
   notFoundPara: '這個網址沒有東西。檢查一下連結，或回放映廳首頁。',
   navAccount: '帳號',
   navMatches: '配對',
-  navLogin: '登入',
+  navLogin: '註冊／登入',
 
   setupTitle: '還沒有資料——完成最後設定',
   setupSteps: () => [

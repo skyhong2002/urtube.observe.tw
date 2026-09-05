@@ -2,7 +2,7 @@ import type { MatchingCandidateBatch, MatchingCandidateCard } from '../youtube/c
 import type { CohortRecommendations } from '../youtube/cohort-recommendations.js';
 import type { MatchingInbox } from '../users.js';
 import { messages, type Lang } from './i18n.js';
-import { html, shell } from './pages.js';
+import { html, primaryNav, shell } from './pages.js';
 
 export type MatchesPageState =
   | { kind: 'opt_in_required' }
@@ -86,6 +86,7 @@ export function matchesPage(
   inbox: MatchingInbox = { incoming: [], sent: [], connections: [] },
   provisional = false,
   recommendations: CohortRecommendations = { topics: [], channels: [] },
+  languageHref = `/matches?lang=${lang === 'zh' ? 'en' : 'zh'}`,
 ): string {
   const t = messages(lang);
   let content: string;
@@ -107,9 +108,7 @@ export function matchesPage(
       <script>(()=>{const cards=[...document.querySelectorAll('.mt-card')];for(const card of cards){card.querySelector('.mt-skip')?.addEventListener('click',()=>{card.remove();if(!document.querySelector('.mt-card'))document.getElementById('mt-batch-empty').hidden=false})}})();</script>`;
   }
   const body = `<style>${matchesStyles}</style><section class="mt-intro"><div class="eyebrow">${t.matchesEyebrow}</div><h1>${t.matchesTitle}</h1><p>${t.matchesPara(html(displayName))}</p></section><div class="mt-privacy">${t.matchesPrivacy}</div>${provisional ? `<div class="mt-provisional">${t.matchesProvisional}</div>` : ''}${inboxSection(inbox, lang)}${cohortSection(recommendations, lang)}${content}`;
-  return shell(t.matchesTitle, body, [
-    { label: t.navDashboard, href: dashboardHref },
-    { label: t.navMatches, href: '/matches', active: true },
-    { label: t.navAccount, href: '/account' },
-  ], '', lang);
+  return shell(t.matchesTitle, body, primaryNav(lang, {
+    active: 'matches', dashboardHref, languageHref,
+  }), '', lang);
 }

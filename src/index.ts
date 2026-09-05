@@ -20,7 +20,10 @@ import {
 import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
 import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
 import { ensureYoutubeTaxonomy } from './youtube/ai.js';
-import { brandMark, html, shell, type ShellNavItem } from './output/pages.js';
+import {
+  brandMark, html, primaryNav, shell,
+  type PrimaryNavActive, type ShellNavItem,
+} from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
 import { processingNotice } from './output/processing.js';
 import {
@@ -184,6 +187,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return { label: messages(lang).langToggle, href: `${url.pathname}${url.search}` };
   }
 
+  function siteNav(c: Context, lang: Lang, active?: PrimaryNavActive): ShellNavItem[] {
+    const me = sessionUser(c);
+    return primaryNav(lang, {
+      active,
+      ...(me ? { dashboardHref: `/${me.handle}` } : { exampleHref: `/${DEFAULT_HANDLE}` }),
+      languageHref: langToggle(c, lang).href,
+    });
+  }
+
   const secureCookies = config.publicBaseUrl.startsWith('https://');
 
   function sessionUser(c: Context): User | null {
@@ -242,7 +254,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       ? requestedShortForm : undefined;
     const data = cachedDashboardFor(registry, user, range, repository, validity);
     const hasData = counts.watches > 0;
-    const viewerOwns = sessionUser(c)?.id === user.id;
+    const me = sessionUser(c);
+    const viewerOwns = me?.id === user.id;
     // Public visitors see only aggregates. A signed-in owner or someone with
     // the dashboard key may also see individual recent watches.
     const showRecent = viewerOwns || dashboardKeyAccess(c, user);
@@ -305,11 +318,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       profilePath,
       page,
       lang,
-      nav: [
-        ...(viewerOwns ? [{ label: messages(lang).navMatches, href: '/matches' }] : []),
-        ...(viewerOwns ? [{ label: messages(lang).navAccount, href: '/account' }] : []),
-        langToggle(c, lang),
-      ],
+      nav: siteNav(c, lang, viewerOwns
+        ? 'dashboard'
+        : !me && user.handle === DEFAULT_HANDLE ? 'example' : undefined),
       setupHtml: showSetup ? dashboardSetupSection(user, hasData, lang) : '',
       // Every visitor, not just the owner: a public reader deserves to know
       // the figures are still settling.
@@ -360,12 +371,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     </section>
     <div class="lp-points">${points}</div>
     ${me ? '' : `<p class="lp-note">${t.landingNote}</p>`}`;
-    return c.html(shell(t.landingDocTitle, body, [
-      ...(me ? [{ label: t.navMatches, href: '/matches' }] : []),
-      me ? { label: t.navAccount, href: '/account' } : { label: t.navSignup, href: '/signup' },
-      { label: t.navExample, href: `/${registry.ensureDefaultUser().handle}` },
-      langToggle(c, lang),
-    ], '', lang, '/'));
+    return c.html(shell(t.landingDocTitle, body, siteNav(c, lang), '', lang, '/'));
   });
 
   // The brand mark, served for browser tabs and OG scrapers.
@@ -613,7 +619,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     c.header('Cache-Control', 'no-store');
     c.header('X-Robots-Tag', 'noindex');
-    return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), langOf(c)));
+    return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), langOf(c), '', `/${me.handle}`));
   });
 
   app.post('/account/taxonomy/prepare', async (c) => {
@@ -624,7 +630,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const renderError = (message: string, status: 400 | 503 = 400) => {
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
-      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message), status);
+      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message, `/${me.handle}`), status);
     };
     if (form.confirmed !== '1') {
       return renderError(lang === 'zh' ? '必須先確認建立候選版本' : 'Candidate confirmation is required');
@@ -664,7 +670,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!Number.isSafeInteger(version) || version < 1 || form.reviewed !== '1') {
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
-      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, error), 400);
+      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, error, `/${me.handle}`), 400);
     }
     try {
       registry.repositoryFor(me).activatePersonalTaxonomy(version);
@@ -674,7 +680,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       c.header('Cache-Control', 'no-store');
       c.header('X-Robots-Tag', 'noindex');
       const message = caught instanceof Error ? caught.message : 'Taxonomy activation failed';
-      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message), 400);
+      return c.html(personalTaxonomyAuditPage(taxonomyAuditFor(me), lang, message, `/${me.handle}`), 400);
     }
   });
 
@@ -699,6 +705,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         inbox,
         provisional,
         recommendations,
+        langToggle(c, lang).href,
       ), status);
     };
     if (!me.matchingOptIn) return respond({ kind: 'opt_in_required' }, 403);
@@ -1015,7 +1022,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       <p style="color:var(--ink-2)">${t.privacyIntro}</p>
       ${sections}
     </section>`;
-    return c.html(shell(t.privacyTitle, body, [{ label: t.navHome, href: '/' }, langToggle(c, lang)], '', lang, '/privacy'));
+    return c.html(shell(t.privacyTitle, body, siteNav(c, lang), '', lang, '/privacy'));
   });
 
   app.get('/robots.txt', (c) => {
@@ -1079,18 +1086,17 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // Cross-person difference view. The requester must be allowed to see BOTH
   // dashboards (public, ?key= / keyA/keyB, or cookies set by earlier visits).
   app.get('/compare', (c) => {
+    const lang = langOf(c);
     const aHandle = c.req.query('a') ?? '';
     const bHandle = c.req.query('b') ?? '';
     const a = registry.userByHandle(aHandle);
     const b = registry.userByHandle(bHandle);
     if (!a || !b || a.handle === b.handle) {
-      const lang = langOf(c);
-      const t = messages(lang);
       const body = `<section style="margin:16vh auto 10vh;max-width:560px;text-align:center">
         <h1 style="letter-spacing:-.03em;margin:0 0 10px">/compare</h1>
         <p style="color:var(--ink-2)"><code>/compare?a=&lt;handle&gt;&amp;b=&lt;handle&gt;</code></p>
       </section>`;
-      return c.html(shell('compare', body, [{ label: t.navHome, href: '/' }], '', lang, '/compare'), 400);
+      return c.html(shell('compare', body, siteNav(c, lang), '', lang, '/compare'), 400);
     }
     const me = sessionUser(c);
     const keyed = (user: User, param: string): boolean => {
@@ -1107,7 +1113,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     c.header('Cache-Control', 'no-cache');
     // Keyed compare links must not get indexed if they leak to a crawler.
     if (!a.dashboardPublic || !b.dashboardPublic) c.header('X-Robots-Tag', 'noindex');
-    return c.html(comparePage(comparison, `/${a.handle}`, langOf(c)));
+    return c.html(comparePage(comparison, `/${a.handle}`, lang, siteNav(c, lang)));
   });
 
   app.get('/u/:handle/summary.json', (c) => {
@@ -1230,7 +1236,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       <p style="color:var(--ink-2)">${t.notFoundPara}</p>
       <p style="margin-top:26px"><a href="/" style="background:var(--accent);border-radius:999px;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;text-decoration:none">${t.navHome}</a></p>
     </section>`;
-    return c.html(shell(t.notFoundTitle, body, [{ label: t.navHome, href: '/' }], '', lang), 404);
+    return c.html(shell(t.notFoundTitle, body, siteNav(c, lang), '', lang), 404);
   }
 
   const profilePage = (page: YoutubeDashboardPageKind) => (c: Context) => {

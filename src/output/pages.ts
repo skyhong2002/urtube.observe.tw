@@ -60,12 +60,13 @@ const styles = `
   code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;padding:1px 5px}
 
   .site-header{align-items:center;display:flex;gap:24px;justify-content:space-between;padding:18px max(22px,calc((100% - 1180px)/2))}
-  .site-brand{align-items:center;color:var(--ink);display:flex;gap:11px;text-decoration:none}
+  .site-brand{align-items:center;color:var(--ink);display:flex;flex:0 0 auto;gap:11px;text-decoration:none}
   .site-brand svg{display:block;height:30px;width:30px}
   .site-brand strong{font-size:15px;letter-spacing:.01em}
   .site-brand small{color:var(--muted);display:block;font-size:9px;letter-spacing:.14em;text-transform:uppercase}
-  .site-nav{display:flex;gap:4px}
-  .site-nav a{border-radius:999px;color:var(--ink-2);font-size:13px;font-weight:600;padding:7px 13px;text-decoration:none}
+  .site-nav{display:flex;gap:4px;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none}
+  .site-nav::-webkit-scrollbar{display:none}
+  .site-nav a{border-radius:999px;color:var(--ink-2);flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 13px;text-decoration:none;white-space:nowrap}
   .site-nav a:hover{background:var(--raised);color:var(--ink)}
   .site-nav a[aria-current=page]{background:var(--ink);color:#111}
   .site-main{margin:0 auto;max-width:1180px;padding:26px 22px 90px}
@@ -97,7 +98,7 @@ const styles = `
   .yt-stat strong{display:block;font-size:22px;font-weight:650;letter-spacing:-.02em}
   .yt-stat span{color:var(--muted);display:block;font-size:10px;font-weight:700;letter-spacing:.09em;margin-top:2px;text-transform:uppercase}
 
-  @media(max-width:760px){.site-header{padding-block:14px}.site-main{padding-top:16px}.section{padding:16px}}
+  @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column;gap:10px;padding-block:14px}.site-nav{width:100%}.site-main{padding-top:16px}.section{padding:16px}}
   @media(max-width:560px){.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}}
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
@@ -134,6 +135,40 @@ export interface ShellNavItem {
   active?: boolean;
 }
 
+export type PrimaryNavActive = 'signup' | 'example' | 'dashboard' | 'matches' | 'account';
+
+export interface PrimaryNavOptions {
+  active?: PrimaryNavActive;
+  dashboardHref?: string;
+  exampleHref?: string;
+  languageHref?: string;
+}
+
+// One navigation contract for the whole site. Supplying dashboardHref means
+// the viewer is signed in; anonymous viewers get the combined account entry
+// and a safe public example instead. The brand already links home, so the
+// menu does not spend scarce mobile space on a duplicate Home item.
+export function primaryNav(lang: Lang, options: PrimaryNavOptions = {}): ShellNavItem[] {
+  const t = messages(lang);
+  const language = {
+    label: t.langToggle,
+    href: options.languageHref ?? `?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  };
+  if (options.dashboardHref) {
+    return [
+      { label: t.navDashboard, href: options.dashboardHref, active: options.active === 'dashboard' },
+      { label: t.navMatches, href: '/matches', active: options.active === 'matches' },
+      { label: t.navAccount, href: '/account', active: options.active === 'account' },
+      language,
+    ];
+  }
+  return [
+    { label: t.navSignup, href: '/signup', active: options.active === 'signup' },
+    { label: t.navExample, href: options.exampleHref ?? '/', active: options.active === 'example' },
+    language,
+  ];
+}
+
 export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], extraStyles = '', lang: Lang = 'en', canonicalPath = ''): string {
   // An empty title means brand-only (the landing page).
   const title = rawTitle ? `${rawTitle} · urtube` : 'urtube';
@@ -153,7 +188,7 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${html(title)}</title><style>${styles}${extraStyles}</style></head><body>
-  <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="Primary">${links}</nav></header>
+  <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="${html(t.navLabel)}">${links}</nav></header>
   <main class="site-main">${body}</main>
   <footer class="site-footer">${t.footer(html(config.publicBaseUrl.replace(/^https?:\/\//, '')))} · <a href="/privacy" style="color:inherit">${t.privacyLink}</a></footer>
   <script>${tooltipScript}</script>

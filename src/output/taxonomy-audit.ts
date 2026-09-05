@@ -6,7 +6,7 @@ import type {
 } from '../youtube/personal-taxonomy.js';
 import { PERSONAL_TOPICS } from '../youtube/personal-taxonomy.js';
 import type { Lang } from './i18n.js';
-import { html, shell } from './pages.js';
+import { html, primaryNav, shell } from './pages.js';
 
 export interface PersonalTaxonomyAuditRun {
   run: PersonalTaxonomyRun;
@@ -103,6 +103,7 @@ export function personalTaxonomyAuditPage(
   data: PersonalTaxonomyAuditData,
   lang: Lang = 'en',
   error = '',
+  dashboardHref = '/',
 ): string {
   const copy = lang === 'zh' ? {
     eyebrow: 'OWNER ONLY', title: '個人主題審核',
@@ -133,10 +134,10 @@ export function personalTaxonomyAuditPage(
     ${prepare}
     ${data.runs.length ? data.runs.map((entry) => runCard(entry, lang)).join('') : `<section class="section"><p class="muted">${copy.noRuns}</p></section>`}
     <section class="section"><div class="section-head"><h2>${copy.history}</h2></div>${history ? `<ul class="tx-history">${history}</ul>` : `<p class="muted">${copy.noHistory}</p>`}</section>`;
-  return shell(copy.title, body, [
-    { label: copy.dashboard, href: '/' },
-    { label: copy.account, href: '/account' },
-  ], '', lang, '/account/taxonomy');
+  return shell(copy.title, body, primaryNav(lang, {
+    active: 'account', dashboardHref,
+    languageHref: `/account/taxonomy?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  }), '', lang, '/account/taxonomy');
 }
 
 const styles = `

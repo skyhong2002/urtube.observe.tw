@@ -1,12 +1,12 @@
 import { config } from '../config.js';
 import type { GuidedOnboardingState, GuidedScanStatus } from '../onboarding-flow.js';
-import type { User } from '../users.js';
+import { DEFAULT_HANDLE, type User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
 import type { YoutubeProcessingStatus } from '../youtube/processing.js';
 import type { MatchingDimensions } from '../youtube/dimensions.js';
 import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
-import { html, shell } from './pages.js';
+import { html, primaryNav, shell } from './pages.js';
 import { processingNotice, processingStyles } from './processing.js';
 
 const formStyles = `
@@ -41,11 +41,11 @@ const formStyles = `
 `;
 
 function signupNav(lang: Lang) {
-  const t = messages(lang);
-  return [
-    { label: t.navHome, href: '/' },
-    { label: t.navSignup, href: '/signup', active: true },
-  ];
+  return primaryNav(lang, {
+    active: 'signup',
+    exampleHref: `/${DEFAULT_HANDLE}`,
+    languageHref: `/signup?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  });
 }
 
 const googleButton = (label: string) => `
@@ -267,13 +267,10 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <button type="submit">${t.accountDeleteButton}</button>
       </form></details>
     </div>`;
-  return shell(t.accountTitle, body, [
-    { label: t.navHome, href: '/' },
-    { label: t.navOnboarding, href: '/onboarding' },
-    { label: t.navDashboard, href: dashboardHref },
-    { label: t.navMatches, href: '/matches' },
-    { label: t.navAccount, href: '/account', active: true },
-  ], '', lang, '/account');
+  return shell(t.accountTitle, body, primaryNav(lang, {
+    active: 'account', dashboardHref,
+    languageHref: `/account?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  }), '', lang, '/account');
 }
 
 const guidedStyles = `
@@ -349,11 +346,10 @@ export function guidedOnboardingPage(
   const refresh = state.step === 'processing' || state.scanStatus === 'running'
     ? '<script>setTimeout(()=>location.reload(),15000)</script>' : '';
   const body = `<style>${formStyles}${processingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}</section>${refresh}`;
-  return shell(t.onboardingTitle, body, [
-    { label: t.navOnboarding, href: '/onboarding', active: true },
-    { label: t.navDashboard, href: dashboardHref },
-    { label: t.navAccount, href: '/account' },
-  ], '', lang, '/onboarding');
+  return shell(t.onboardingTitle, body, primaryNav(lang, {
+    dashboardHref,
+    languageHref: `/onboarding?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  }), '', lang, '/onboarding');
 }
 
 // The page the extension opens right after install (and the target of the
@@ -412,11 +408,10 @@ export function extensionSetupPage(user: User, lang: Lang = 'en'): string {
         }
       });
     })();</script>`;
-  return shell(t.esTitle, body, [
-    { label: t.navHome, href: '/' },
-    { label: t.navOnboarding, href: '/onboarding' },
-    { label: t.navAccount, href: '/account' },
-  ], '', lang, '/extension-setup');
+  return shell(t.esTitle, body, primaryNav(lang, {
+    active: 'account', dashboardHref: `/${user.handle}`,
+    languageHref: `/extension-setup?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+  }), '', lang, '/extension-setup');
 }
 
 export function dashboardSetupSection(user: User, hasData: boolean, lang: Lang = 'en'): string {

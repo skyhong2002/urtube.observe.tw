@@ -142,8 +142,8 @@ for worker/backup/config/all-user readiness.
 
 ## Users
 
-Signup is gated behind **Sign in with Google** (`/signup` → OAuth → pick a
-handle): one Google account maps to exactly one archive, keyed on Google's
+The single **Sign up / sign in** entry uses Google (`/signup` → OAuth → pick a
+handle for a new account): one Google account maps to exactly one archive, keyed on Google's
 permanent `sub` claim (never the email, which can change). Accounts created
 before Google sign-in can be claimed from the same form with their dashboard
 key. New dashboards stay private. `/onboarding` then resumes from stored state
@@ -156,6 +156,11 @@ Only the final decision records `onboarding_completed_at`. Earlier steps are
 derived from scan rows, processing counts, the current matching crystal, and
 confirmed interest settings, so refresh and sign-in cannot drift into a second
 onboarding state machine.
+
+The primary menu is intentionally stable: signed-out pages show **Sign up /
+sign in**, **Example dashboard**, and the language switch; signed-in pages show
+**Dashboard**, **Matches**, **Account**, and the language switch. The urtube
+brand always returns home.
 
 Sessions live in an HttpOnly cookie for 180 days. `/account` shows your
 dashboard link and lets you rename yourself, configure matching privacy,
