@@ -65,11 +65,17 @@ test('personal monitor displays failed job details and category gaps without cla
   assert.match(f.content.textContent, /最後回報階段：標籤向量/);
   assert.match(f.content.textContent, /15 \/ 30 tags/);
   assert.match(f.content.textContent, /2,000 \/ 2,000/);
-  assert.match(f.content.textContent, /資料不足 · 42 部影片/);
+  assert.match(f.content.textContent, /42 部已分類影片/);
   assert.match(f.content.textContent, /18:38:52/);
   assert.equal(descendants(f.content).filter(el => el.tag === 'dt').length, 9);
   assert.equal(descendants(f.content).filter(el => el.tag === 'img').length, 0, 'errors stay literal text');
   assert.match(f.content.textContent, /<img src=x onerror=bad\(\)>/);
+  assert.doesNotMatch(f.content.textContent, /資料不足|Insufficient data/);
+  const details = descendants(f.content).find(el => el.tag === 'details')!;
+  assert.equal(details.open, false);
+  details.open = true; details.events.toggle();
+  await f.button.events.click();
+  assert.equal(descendants(f.content).find(el => el.tag === 'details')!.open, true, 'refresh preserves expanded details');
   assert.equal(f.snapshot.hidden, true);
   assert.equal(f.requests[0].url, '/api/processing');
   assert.equal(f.requests[0].options.cache, 'no-store');
@@ -136,6 +142,6 @@ test('all pipeline bars stay visible for completed, disabled, waiting and runnin
   assert.match(f.content.textContent, /主題動態分類|常見關鍵字來源/);
   assert.match(f.content.textContent, /估計約 2 分鐘/);
   assert.match(f.content.textContent, /沒有獨立的 AI 排程/);
-  assert.match(f.content.textContent, /剩餘時間：0 分鐘/);
+  assert.match(f.content.textContent, /剩餘 0 分鐘/);
   assert.match(f.content.textContent, /不以來源影片數冒充頻道完成率/);
 });

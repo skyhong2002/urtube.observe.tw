@@ -23,7 +23,7 @@ export function v3DashboardSection(profile: Profile | null, options: {
     if (item?.clusters.length) return zh ? `已建立 ${item.clusters.length} 個興趣群` : `${item.clusters.length} interest clusters`;
     return item?.status === 'ready' ? (zh ? '已建立' : 'Ready')
       : item?.status === 'empty' ? (zh ? '沒有相關影片' : 'No related videos')
-        : item?.status === 'insufficient' ? (zh ? '資料不足' : 'Limited data')
+        : item?.status === 'insufficient' ? (zh ? '尚未建立興趣群' : 'No interest clusters yet')
           : (zh ? '尚未建立' : 'Pending');
   };
   const scope = zh

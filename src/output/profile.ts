@@ -36,7 +36,11 @@ export function profileDetails(user: User, owns: boolean, lang: Lang): string {
   return `<div class="profile-details"><p class="muted">@${html(user.handle)}</p>
     ${user.bio ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere">${html(user.bio)}</p>` : ''}
     ${user.socialLinks.length ? `<ul class="profile-social-buttons">${user.socialLinks.map(link => `<li><a class="profile-icon-button" href="${html(link.url)}" target="_blank" rel="noopener noreferrer" aria-label="${html(link.name)}" title="${html(link.name)}">${socialIcon(socialPlatform(link.url))}</a></li>`).join('')}</ul>` : ''}
-    ${owns ? `<a class="profile-edit-button" href="/account/profile"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z"/></svg>${profileMessages(lang).title}</a>` : ''}</div>`;
+    </div>`;
+}
+
+export function profileEditAction(owns: boolean, lang: Lang): string {
+  return `${owns ? `<a class="profile-edit-button" href="/account/profile"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z"/></svg>${profileMessages(lang).title}</a>` : ''}`;
 }
 
 export function profileEditPage(user: User, csrf: string, lang: Lang, value: ProfileInput = user, error = '', saved = false): string {

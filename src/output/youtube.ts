@@ -672,6 +672,7 @@ export type YoutubeDashboardPageKind = 'overview' | 'insights' | 'history' | 're
 
 export interface YoutubeDashboardOptions {
   profileHtml?: string;
+  profileActionHtml?: string;
   // Path the dashboard is served under; range/sort links stay on it.
   basePath?: string;
   nav?: ShellNavItem[];
@@ -840,7 +841,7 @@ export function youtubeDashboardPage(
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
     <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
     ${options.profileHtml ?? ''}
-    <div class="yt-profile-meta"><a href="/">${t.home}</a>${options.blendHref ? ` · <a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a>` : ''}</div>${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
+    ${options.blendHref ? `<div class="yt-profile-meta"><a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a></div>` : ''}${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div>${options.profileActionHtml ?? ''}</section>`;
   const showRecent = options.showRecent !== false;
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + (options.v3Html ?? '') + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`

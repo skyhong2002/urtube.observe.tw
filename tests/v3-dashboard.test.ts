@@ -164,7 +164,7 @@ test('cached preview displays actual clusters without confusing provisional stat
       const cards = $('.yt-v3-genre');
       assert.match(cards.eq(1).text(), lang === 'zh' ? /已建立 1 個興趣群/ : /1 interest clusters/);
       assert.doesNotMatch(cards.eq(1).text(), /資料不足|Limited data/);
-      assert.match(cards.eq(2).text(), /資料不足|Limited data/);
+      assert.match(cards.eq(2).text(), /尚未建立興趣群|No interest clusters yet/);
       assert.match(cards.eq(8).text(), /尚未建立|Pending/);
       assert.doesNotMatch($.text(), /private-profile-tag/);
     }

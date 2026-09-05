@@ -1,7 +1,7 @@
 import { normalizeSocialUrl } from './social-links.js';
 import { createHash } from 'node:crypto';
 import { ProfileError, validHandle, type ProfileInput } from './profile.js';
-import { profileDetails, profileEditPage, profileMessages } from './output/profile.js';
+import { profileEditAction, profileDetails, profileEditPage, profileMessages } from './output/profile.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -474,6 +474,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       basePath: pagePath,
       profilePath,
       profileHtml: profileDetails(user, viewerOwns, lang),
+      profileActionHtml: profileEditAction(viewerOwns, lang),
       page,
       lang,
       nav: siteNav(c, lang, viewerOwns
