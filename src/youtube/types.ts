@@ -175,10 +175,21 @@ export interface YoutubeVideoMetadata {
   metadataHash: string;
 }
 
+export interface YoutubeChannelStatistics {
+  subscriberCount: number | null;
+  hiddenSubscriberCount: boolean;
+  videoCount: number | null;
+  viewCount: number | null;
+  publishedAt: string | null;
+  topicCategories: string[];
+}
+
 export interface YoutubeChannelMetadata {
   channelId: string;
   name: string;
   thumbnailUrl: string;
+  statistics?: YoutubeChannelStatistics;
+  statisticsFetchedAt?: string | null;
 }
 
 export interface YoutubeRecentVideo {
@@ -328,7 +339,7 @@ export interface YoutubeComparisonWatch {
 // One person's view of one channel, for the /channel/<id> page.
 export interface YoutubeChannelDetail {
   range: YoutubeRange;
-  channel: { channelId: string; name: string; thumbnailUrl: string } | null;
+  channel: YoutubeChannelMetadata | null;
   stats: {
     watches: number;
     estimatedWatchSeconds: number;

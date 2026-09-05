@@ -288,7 +288,7 @@ test('YouTube imports are idempotent, aggregate-only, and preserve duration sema
       name: 'Channel One',
       thumbnailUrl: 'https://yt3.ggpht.com/channel-one',
     }]);
-    assert.deepEqual(repository.youtubeChannelsNeedingMetadata(), []);
+    assert.deepEqual(repository.youtubeChannelsNeedingMetadata(), ['channel-one'], 'legacy avatar-only metadata still needs public statistics');
     const dashboard = repository.youtubeDashboard('all', new Date('2026-07-29T00:00:00Z'));
     assert.equal(dashboard.stats.watchEvents, 3);
     assert.equal(dashboard.stats.uniqueVideos, 2);
@@ -1274,6 +1274,7 @@ test('YouTube channel metadata fetches avatars in batches and caches missing cha
   const ids = Array.from({ length: 51 }, (_, index) => `channel-${index + 1}`);
   const requests: string[][] = [];
   const fetchImpl = (async (input: string | URL | Request) => {
+    assert.equal(new URL(String(input)).searchParams.get('part'), 'snippet,statistics,topicDetails');
     const requested = new URL(String(input)).searchParams.get('id')!.split(',');
     requests.push(requested);
     const foundId = requested[0];
@@ -1282,8 +1283,11 @@ test('YouTube channel metadata fetches avatars in batches and caches missing cha
         id: foundId,
         snippet: {
           title: `Channel ${foundId}`,
+          publishedAt: '2017-01-01T00:00:00Z',
           thumbnails: { high: { url: `https://yt3.ggpht.com/${foundId}` } },
         },
+        statistics: { subscriberCount: '3680000', hiddenSubscriberCount: false, videoCount: '81', viewCount: '2000000000' },
+        topicDetails: { topicCategories: ['https://en.wikipedia.org/wiki/Rock_music'] },
       }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
@@ -1291,7 +1295,10 @@ test('YouTube channel metadata fetches avatars in batches and caches missing cha
   assert.deepEqual(requests.map((batch) => batch.length), [50, 1]);
   assert.equal(metadata.length, 51);
   assert.equal(metadata[0].thumbnailUrl, 'https://yt3.ggpht.com/channel-1');
-  assert.deepEqual(metadata[1], { channelId: 'channel-2', name: '', thumbnailUrl: '' });
+  assert.deepEqual(metadata[0].statistics, { subscriberCount: 3680000, hiddenSubscriberCount: false, videoCount: 81, viewCount: 2000000000, publishedAt: '2017-01-01T00:00:00Z', topicCategories: ['https://en.wikipedia.org/wiki/Rock_music'] });
+  assert.deepEqual(metadata[1], { channelId: 'channel-2', name: '', thumbnailUrl: '', statistics: {
+    subscriberCount: null, hiddenSubscriberCount: false, videoCount: null, viewCount: null, publishedAt: null, topicCategories: [],
+  } });
 
   const failingFetch = (async () => new Response('quota exhausted', { status: 403 })) as typeof fetch;
   await assert.rejects(

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { zipSync, strToU8 } from 'fflate';
 import { Repository } from '../src/data/database.js';
 import { migrateFromInfovore } from '../scripts/migrate-from-infovore.js';
@@ -53,6 +54,7 @@ test('migration copies exactly the YouTube subset and row counts verify', () => 
         complete: true,
         items: [{ videoId: 'migratevid1', progressPercent: 40, resumeSeconds: 100, durationSeconds: 600 }],
       });
+      source.upsertYoutubeChannelMetadata([{ channelId: 'channel-one', name: 'Original channel', thumbnailUrl: '' }]);
       source.setYoutubeSyncState('checkpoint', '2026-07-28T00:00:00.000Z');
       source.ingestEntries([{
         sourceItemId: 'other-platform-item',
@@ -71,6 +73,9 @@ test('migration copies exactly the YouTube subset and row counts verify', () => 
       source.close();
     }
 
+    const legacy = new DatabaseSync(sourcePath);
+    legacy.exec('ALTER TABLE youtube_channels DROP COLUMN statistics_json; ALTER TABLE youtube_channels DROP COLUMN statistics_fetched_at; PRAGMA user_version=11;');
+    legacy.close();
     const report = migrateFromInfovore(sourcePath, targetPath);
     assert.equal(report.ok, true);
     for (const entry of report.tables) {
@@ -86,6 +91,8 @@ test('migration copies exactly the YouTube subset and row counts verify', () => 
     const restored = new Repository(targetPath);
     try {
       assert.deepEqual(restored.youtubeCounts(), expectedCounts);
+      assert.equal(restored.youtubeChannelMetadata('channel-one')?.name, 'Original channel');
+      assert.equal(restored.youtubeChannelMetadata('channel-one')?.statistics, undefined);
       assert.equal(restored.youtubeSyncState('checkpoint'), '2026-07-28T00:00:00.000Z');
       assert.equal(restored.queryActivities({}).total, 0);
       assert.equal(restored.queryActivities({ source: 'goodreads' }).total, 0);

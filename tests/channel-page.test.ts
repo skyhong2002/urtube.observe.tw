@@ -121,7 +121,7 @@ test('the channel page shows your history and reciprocal member rankings', async
     assert.match(htmlText, /watch\?v=AAAAAAAAAA1/);
     assert.match(htmlText, /Your watch time by month/);
     // Members: Alice (4200 s) above Bob (2400 s); the non-member never appears.
-    const viewers = htmlText.slice(htmlText.indexOf('Top viewers on urtube'), htmlText.indexOf('Most watched by members'));
+    const viewers = load(htmlText)('.ch-rows[aria-label="Top viewers on urtube"]').closest('section').html()!;
     assert.match(viewers, /2 members watch this channel/);
     assert.ok(viewers.indexOf('Alice') < viewers.indexOf('Bob'));
     assert.match(viewers, /href="\/alice-ch\/compare\/bob-ch"/);
@@ -183,12 +183,12 @@ test('community rankings aggregate beyond each member’s top 50 and switch metr
     assert.match(community, /watch\?v=shared00001/);
     assert.ok(community.indexOf('shared00001') < community.indexOf('a0000000000'), 'combined shared video leads even though neither person ranks it in their top 50');
     assert.match(community, /2 viewers/);
-    const members = duration.slice(duration.indexOf('Top viewers on urtube'), duration.indexOf('Most watched by members'));
+    const members = load(duration)('.ch-rows[aria-label="Top viewers on urtube"]').closest('section').html()!;
     assert.ok(members.indexOf('Bob') < members.indexOf('Alice'), 'Bob leads by time');
     const counts = await (await app.request(`/channel/${CHANNEL_A}?range=all&sort=watches`, { headers })).text();
     const countVideos = counts.slice(counts.indexOf('Most watched by members'));
     assert.ok(countVideos.indexOf('a0000000000') < countVideos.indexOf('shared00001'), 'repeated video leads by count');
-    const countMembers = counts.slice(counts.indexOf('Top viewers on urtube'), counts.indexOf('Most watched by members'));
+    const countMembers = load(counts)('.ch-rows[aria-label="Top viewers on urtube"]').closest('section').html()!;
     assert.ok(countMembers.indexOf('Alice') < countMembers.indexOf('Bob'), 'Alice leads by count');
     assert.match(counts, /range=28d&sort=watches/);
     assert.match(counts, /Your watches by month/);
@@ -241,6 +241,7 @@ test('channel directory supports discovery, search, sorting and immediate member
     assert.equal(response.headers.get('x-robots-tag'), 'noindex');
     const markup = await response.text();
     const $ = load(markup);
+    assert.ok(markup.indexOf('<h2>Popular channels among members') < markup.indexOf('<h2>Your most watched channels'), 'community discovery precedes personal rankings');
     const names = (label: string) => $(`.ch-rows[aria-label="${label}"] .ch-main strong a`).map((_, el) => $(el).text()).get();
     assert.deepEqual(names('Your most watched channels'), ['Channel A', 'Channel B']);
     assert.deepEqual(names('Popular channels among members'), ['Channel B', 'Channel A']);

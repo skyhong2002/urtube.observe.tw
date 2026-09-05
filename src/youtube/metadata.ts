@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
 import { createAsyncLimiter } from './concurrency.js';
-import type { YoutubeChannelMetadata, YoutubeVideoMetadata } from './types.js';
+import type { YoutubeChannelMetadata, YoutubeChannelStatistics, YoutubeVideoMetadata } from './types.js';
 
 // Shared by every account in this worker process. Four concurrent requests
 // keeps fresh imports moving in parallel while staying gentle on the YouTube
@@ -29,6 +29,31 @@ interface YoutubeChannelApiItem {
   snippet?: {
     title?: string;
     thumbnails?: Record<string, { url?: string }>;
+    publishedAt?: string;
+  };
+  statistics?: {
+    subscriberCount?: string;
+    hiddenSubscriberCount?: boolean;
+    videoCount?: string;
+    viewCount?: string;
+  };
+  topicDetails?: { topicCategories?: string[] };
+}
+
+function channelStatistics(item: YoutubeChannelApiItem): YoutubeChannelStatistics {
+  const integer = (value: unknown): number | null => {
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+    const number = Number(value);
+    return Number.isSafeInteger(number) ? number : null;
+  };
+  const hidden = item.statistics?.hiddenSubscriberCount === true;
+  return {
+    subscriberCount: hidden ? null : integer(item.statistics?.subscriberCount),
+    hiddenSubscriberCount: hidden,
+    videoCount: integer(item.statistics?.videoCount),
+    viewCount: integer(item.statistics?.viewCount),
+    publishedAt: item.snippet?.publishedAt && Number.isFinite(Date.parse(item.snippet.publishedAt)) ? item.snippet.publishedAt : null,
+    topicCategories: (item.topicDetails?.topicCategories ?? []).filter((value) => typeof value === 'string'),
   };
 }
 
@@ -129,7 +154,7 @@ export async function fetchYoutubeChannelMetadata(
   for (let index = 0; index < channelIds.length; index += 50) {
     const batch = channelIds.slice(index, index + 50);
     const url = new URL('https://www.googleapis.com/youtube/v3/channels');
-    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('part', 'snippet,statistics,topicDetails');
     url.searchParams.set('id', batch.join(','));
     url.searchParams.set('key', apiKey);
     const body = await youtubeApiRequest(async () => {
@@ -145,11 +170,13 @@ export async function fetchYoutubeChannelMetadata(
         channelId: item.id,
         name: item.snippet?.title ?? '',
         thumbnailUrl: channelThumbnail(item),
+        statistics: channelStatistics(item),
       }]));
     output.push(...batch.map((channelId) => found.get(channelId) ?? {
       channelId,
       name: '',
       thumbnailUrl: '',
+      statistics: channelStatistics({}),
     }));
   }
   return output;
