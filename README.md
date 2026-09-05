@@ -83,19 +83,13 @@ used alone. Values are clamped and rounded to the nearest integer; raw shares,
 vectors, event counts, and the activity cutoff never enter the presentation
 model. A processing notice identifies provisional ordering.
 Matching starts on for new accounts and is independent of `dashboard_public`.
-The account page has four switches, all on by default: join the matching
-pool, match on broad topics, show channels and videos in common, and show
-viewing rhythm. Turning topics off stores every canonical topic as excluded, so
-topics are never used or named downstream and matching falls back to
-aggregate channels when possible; turning it on stores every topic as usable.
-Guided onboarding still suggests up to five leading canonical interests from
-the eligible 90-day projection for people who want a narrower choice. Choices
-store stable keys plus the taxonomy version; a version change disables topic
-matching until the switch is saved again. Channels and videos are a
-presentation-only setting: candidate cards show at most two broad shared
-topics, plus one common channel only when both people allow it. Turning the
-pool switch off removes the user from new candidate queries immediately; it
-does not change or publish the personal dashboard.
+It is a single switch, like a friend-discovery opt-in: joining uses every
+canonical topic and the aggregate channel vector for the percentage, and lets
+the comparison page show what it can (bounded before consent, full after).
+There is no per-topic or per-section setting. Candidate cards show at most
+two broad shared topics plus one common channel. Turning the switch off
+removes the user from new candidate queries immediately, withdraws requests
+and connections, and does not change or publish the personal dashboard.
 `/matches` is session-only and requires that opt-in. It ranks at most 250
 eligible profiles using equal topic/channel weight and renders twenty people per
 finite page. Cards contain only a display name, rounded match percentage, up
@@ -124,9 +118,7 @@ Only mutual consent unlocks the rest of the comparison: watch stats (events,
 estimated minutes and hours, distinct videos and channels, active days), every
 topic in common with watch counts, channels and videos in common with each
 person's rank, absolute clock and weekday counts, and first and last watch as
-a title plus calendar day. Channels, videos, and first/last watch stay hidden
-when either person allows topic-only disclosure, and topics excluded by either
-person are never named. Mutual consent does not reveal introductions or
+a title plus calendar day. Mutual consent does not reveal introductions or
 contact details. Every comparison read checks the current relationship, topic
 exclusions, data eligibility, and both users' opt-in. Either person can revoke
 mutual consent, and turning matching off withdraws active relationships

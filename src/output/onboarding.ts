@@ -3,7 +3,6 @@ import type { GuidedOnboardingState, GuidedScanStatus } from '../onboarding-flow
 import { DEFAULT_HANDLE, type User } from '../users.js';
 import type { YoutubeImportResult } from '../youtube/types.js';
 import type { YoutubeProcessingStatus } from '../youtube/processing.js';
-import type { MatchingDimensions } from '../youtube/dimensions.js';
 import { MATCHING_TAXONOMY } from '../youtube/matching.js';
 import { messages, type Lang } from './i18n.js';
 import { html, primaryNav, shell } from './pages.js';
@@ -123,7 +122,6 @@ export interface AccountPageState {
   // Background work still owed to this archive; shown right after an import
   // and on every later visit until the worker catches up.
   processing?: YoutubeProcessingStatus;
-  matchingDimensions?: MatchingDimensions;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
@@ -159,22 +157,12 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         </form>
       </div>
     </details>`;
-  const dimensions = state.matchingDimensions;
-  // "Match on topics" reflects whether any canonical topic may be used;
-  // unconfirmed and suggested states count as on.
-  const topicsOn = !dimensions || dimensions.status !== 'confirmed' || dimensions.selectedTopicKeys.length > 0;
-  const toggle = (name: string, checked: boolean, label: string, help: string) =>
-    `<label class="ob-switch"><input type="checkbox" name="${name}" value="1"${checked ? ' checked' : ''}><span><strong>${label}</strong><small>${help}</small></span></label>`;
   const matchingSettings = `
       <h2>${t.accountMatching}</h2>
       <p>${t.accountMatchingPara}</p>
-      ${dimensions?.status === 'stale' ? `<div class="ob-warn">${t.accountMatchingStale}</div>` : ''}
       <form method="post" action="/account/matching" class="ob-form">
         <div class="ob-switches">
-          ${toggle('matchingOptIn', user.matchingOptIn, t.accountMatchingOptIn, t.accountMatchingOptInHelp)}
-          ${toggle('matchingTopics', topicsOn, t.accountMatchingTopics, t.accountMatchingTopicsHelp)}
-          ${toggle('matchingChannels', user.matchingDisclosure === 'topics_and_channel', t.accountMatchingChannels, t.accountMatchingChannelsHelp)}
-          ${toggle('matchingRhythm', user.matchingRhythm, t.accountMatchingRhythm, t.accountMatchingRhythmHelp)}
+          <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong><small>${t.accountMatchingOptInHelp}</small></span></label>
         </div>
         <p class="ob-help">${t.accountMatchingFriends}</p>
         <button type="submit">${t.accountMatchingSave}</button>
@@ -281,26 +269,11 @@ export function guidedOnboardingPage(
     content = `<h2>${t.onboardingProcessingTitle}</h2><p>${t.onboardingProcessingPara}</p>
       ${notice || `<div class="go-note warn">${t.onboardingMoreData}</div>`}
       <div class="go-actions"><a class="go-primary" href="/onboarding">${t.onboardingRefresh}</a><a class="go-secondary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
-  } else if (state.step === 'interests') {
-    const suggested = new Set(state.dimensions.suggestedTopicKeys);
-    const topics = MATCHING_TAXONOMY.topics.filter((topic) => suggested.has(topic.key));
-    content = `<h2>${t.onboardingInterestsTitle}</h2><p>${t.onboardingInterestsPara}</p>${provisional}
-      <p><a href="${dashboardHref}/insights">${t.onboardingPreview}</a></p>
-      <form method="post" action="/onboarding/interests" class="ob-form">
-        <input type="hidden" name="taxonomyVersion" value="${state.dimensions.taxonomyVersion}">
-        ${topics.length ? `<div class="go-topics">${topics.map((topic) => `<label class="go-topic"><input type="checkbox" name="selectedTopicKeys" value="${html(topic.key)}" checked> ${html(topic.name)}</label>`).join('')}</div>` : `<div class="go-note">${t.onboardingNoTopics}</div>`}
-        <button type="submit">${t.onboardingSaveInterests}</button>
-      </form>`;
   } else if (state.step === 'consent') {
     content = `<h2>${t.onboardingConsentTitle}</h2><p>${t.onboardingConsentPara}</p>${provisional}
       <form method="post" action="/onboarding/finish" class="ob-form">
         <label class="go-choice"><input type="radio" name="choice" value="join" required> <span>${t.onboardingJoin}</span></label>
         <label class="go-choice"><input type="radio" name="choice" value="private" required> <span>${t.onboardingPrivate}</span></label>
-        <label for="matchingDisclosure">${t.onboardingDisclosure}</label>
-        <select id="matchingDisclosure" name="matchingDisclosure">
-          <option value="topics_only">${t.accountMatchingTopicsOnly}</option>
-          <option value="topics_and_channel">${t.accountMatchingTopicsChannel}</option>
-        </select>
         <button type="submit">${t.onboardingFinish}</button>
       </form>`;
   } else {

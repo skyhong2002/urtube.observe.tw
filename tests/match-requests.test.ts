@@ -236,14 +236,16 @@ test('decline and withdrawal keep people comparable but revoke stale action acce
     registry.createMatchRequest(alice, aliceToDave);
     registry.respondToMatchRequest(dave, registry.matchingInboxFor(dave).incoming[0].requestToken, 'accept');
     assert.equal(registry.matchingInboxFor(alice).connections.length, 1);
+    // Per-topic exclusions were retired with the single matching switch, so
+    // stored choices no longer strip agreed topics from a connection.
     registry.setMatchingDimensions(
       dave.handle,
       MATCHING_TAXONOMY.version,
       ['gaming'],
       ['music'],
     );
-    assert.deepEqual(registry.matchingInboxFor(alice).connections[0]?.topics, []);
-    registry.setMatchingPreferences(dave.handle, false, 'topics_only');
+    assert.deepEqual(registry.matchingInboxFor(alice).connections[0]?.topics, ['Music']);
+    registry.setMatchingPreferences(dave.handle, false, 'topics_and_channel');
     assert.equal(registry.matchingInboxFor(alice).connections.length, 0);
 
     const aliceToEve = registry.issueMatchActionToken(alice, eve.id, ['Music']);

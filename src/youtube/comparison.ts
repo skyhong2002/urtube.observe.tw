@@ -25,16 +25,9 @@ export const COMPARISON_LOCKED_TOPIC_LIMIT = 5;
 
 export interface ComparisonAccess {
   // Both people chose to meet: unlocks stats, channels, videos, absolute
-  // clock/weekday values, and first/last watch.
+  // clock/weekday values, and first/last watch. Joining matching is the
+  // only other switch, so there is no finer per-section gating.
   connected: boolean;
-  // Both people allow channel disclosure. One restrictive setting wins and
-  // hides channels and videos even when connected.
-  channelsAllowed: boolean;
-  // Union of both people's excluded matching topics; never named.
-  hiddenTopicKeys: ReadonlySet<string>;
-  // Both people allow rhythm shares before consent. Irrelevant once
-  // connected, when absolute rhythm is part of the unlocked comparison.
-  rhythmAllowed: boolean;
 }
 
 export interface ComparisonPair<T> {
@@ -73,7 +66,7 @@ export interface CommonVideo {
   watches: ComparisonPair<number>;
 }
 
-export type ComparisonListState = 'unlocked' | 'locked' | 'hidden';
+export type ComparisonListState = 'unlocked' | 'locked';
 
 export interface ComparisonList<T> {
   state: ComparisonListState;
@@ -108,9 +101,6 @@ export interface ComparisonWatchEdge {
 export interface WatchComparison {
   range: ComparisonRange;
   connected: boolean;
-  channelsAllowed: boolean;
-  // Clock and weekday sections are withheld (locked pair, one person opted out).
-  rhythmHidden: boolean;
   empty: ComparisonPair<boolean>;
   stats: ComparisonStatRow[] | null;
   topics: ComparisonList<CommonTopic>;
@@ -150,7 +140,7 @@ function commonTopics(
   const items = byRank(a.topics.flatMap((topic) => {
     const other = bByKey.get(topic.key);
     const name = TOPIC_NAMES.get(topic.key);
-    if (!other || !name || access.hiddenTopicKeys.has(topic.key)) return [];
+    if (!other || !name) return [];
     return [{
       key: topic.key,
       name,
@@ -164,8 +154,7 @@ function commonTopics(
 }
 
 function listState(access: ComparisonAccess): ComparisonListState {
-  if (!access.connected) return 'locked';
-  return access.channelsAllowed ? 'unlocked' : 'hidden';
+  return access.connected ? 'unlocked' : 'locked';
 }
 
 function commonChannels(
@@ -265,8 +254,6 @@ export function compareWatchProfiles(
   return {
     range,
     connected: access.connected,
-    channelsAllowed: access.channelsAllowed,
-    rhythmHidden: !access.connected && !access.rhythmAllowed,
     empty: { a: a.stats.watchEvents === 0, b: b.stats.watchEvents === 0 },
     stats: access.connected ? statRows(a, b) : null,
     topics: commonTopics(a, b, access),
@@ -274,8 +261,7 @@ export function compareWatchProfiles(
     videos: commonVideos(a, b, access),
     clock: { mode, a: clockSide(a, mode), b: clockSide(b, mode) },
     weekdays: { mode, rows: weekdayRows(a, b, mode) },
-    // Edges name a video, so they follow the same rule as the video list.
-    firstWatch: access.connected && access.channelsAllowed ? { a: a.firstWatch, b: b.firstWatch } : null,
-    lastWatch: access.connected && access.channelsAllowed ? { a: a.lastWatch, b: b.lastWatch } : null,
+    firstWatch: access.connected ? { a: a.firstWatch, b: b.firstWatch } : null,
+    lastWatch: access.connected ? { a: a.lastWatch, b: b.lastWatch } : null,
   };
 }
