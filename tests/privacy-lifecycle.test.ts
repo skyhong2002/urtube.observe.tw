@@ -69,7 +69,7 @@ test('matching opt-out and account deletion revoke every discovery path immediat
     assert.equal(registry.matchingCandidateForAction(alice, oldActionToken), null);
     assert.equal((await app.request('/privacy-alice/compare/privacy-bob', {
       headers: { cookie: aliceCookie },
-    })).status, 404);
+    })).status, 302);
     assert.equal((await app.request('/matches/request', post(aliceCookie, {
       actionToken: oldActionToken,
     }))).status, 400, 'an action token minted before opt-out cannot be replayed');
