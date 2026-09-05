@@ -13,6 +13,7 @@ export const processingMonitorScript = String.raw`
   const button = root.querySelector('button');
   const controller = window.urtubePageController || new AbortController();
   let timer, busy = false, stopped = false, retry = 30000;
+  const visible = () => document.documentElement?.dataset.processingVisibility !== 'hidden';
   const node = (tag, text) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; return el; };
   const states = {
     queued: t('等待處理', 'Queued'), running: t('處理中', 'Running'),
@@ -73,7 +74,7 @@ export const processingMonitorScript = String.raw`
   }
   async function refresh() {
     clearTimeout(timer);
-    if (busy || stopped || controller.signal.aborted || document.hidden) return;
+    if (busy || stopped || controller.signal.aborted || document.hidden || !visible()) return;
     busy = true; button.disabled = true;
     let timedOut = false;
     const request = new AbortController();
@@ -100,11 +101,12 @@ export const processingMonitorScript = String.raw`
     } finally {
       clearTimeout(timeout); controller.signal.removeEventListener('abort', abort);
       busy = false; button.disabled = stopped;
-      if (!stopped && !controller.signal.aborted && !document.hidden) timer = setTimeout(refresh, retry);
+      if (!stopped && !controller.signal.aborted && !document.hidden && visible()) timer = setTimeout(refresh, retry);
     }
   }
   button.addEventListener('click', refresh, { signal: controller.signal });
   document.addEventListener('visibilitychange', () => { clearTimeout(timer); if (!document.hidden) refresh(); }, { signal: controller.signal });
+  window.addEventListener('urtube:processing-visibility', () => { clearTimeout(timer); if (visible()) refresh(); }, { signal: controller.signal });
   controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
   refresh();
 })();`;

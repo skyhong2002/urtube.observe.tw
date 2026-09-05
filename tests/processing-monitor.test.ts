@@ -23,27 +23,28 @@ class Element {
   addEventListener(name: string, callback: () => unknown) { this.events[name] = callback; }
 }
 
-function fixture(initial: unknown) {
+function fixture(initial: unknown, shown = true) {
   const content = new Element(), connection = new Element(), button = new Element('button');
   const snapshot = new Element(), label = new Element();
   const page = new AbortController();
   const panel = { dataset: {}, querySelector: (selector: string) => selector === '[data-v3-snapshot]' ? snapshot : label };
   const root = { dataset: { lang: 'zh' }, closest: () => panel,
     querySelector: (selector: string) => selector === '[data-monitor-content]' ? content : selector === 'button' ? button : connection };
-  const document = { hidden: false, currentScript: { previousElementSibling: root },
+  const document = { documentElement: { dataset: { processingVisibility: shown ? 'shown' : 'hidden' } }, hidden: false, currentScript: { previousElementSibling: root },
     createElement: (tag: string) => new Element(tag), createDocumentFragment: () => new Element('fragment'),
     events: {} as Record<string, () => void>, addEventListener(name: string, fn: () => void) { this.events[name] = fn; } };
   const requests: Array<{ url: string; options: { cache: string; signal: AbortSignal } }> = [];
   const timers = new Map<number, { callback: () => void; delay: number }>();
   let id = 0, data = initial, status = 200;
-  runInNewContext(processingMonitorScript, { document, window: { urtubePageController: page }, AbortController, Date,
+  const windowEvents: Record<string, () => void> = {};
+  runInNewContext(processingMonitorScript, { document, window: { urtubePageController: page, addEventListener: (name: string, fn: () => void) => { windowEvents[name] = fn; } }, AbortController, Date,
     setTimeout(callback: () => void, delay: number) { timers.set(++id, { callback, delay }); return id; },
     clearTimeout(key: number) { timers.delete(key); },
     fetch: async (url: string, options: { cache: string; signal: AbortSignal }) => {
       requests.push({ url, options }); return { status, ok: status === 200, json: async () => data };
     },
   });
-  return { content, connection, button, snapshot, label, panel, document, page, requests, timers,
+  return { content, connection, button, snapshot, label, panel, document, page, requests, timers, windowEvents,
     update(value: unknown, code = 200) { data = value; status = code; },
     async tick() { await new Promise(resolve => setImmediate(resolve)); },
   };
@@ -101,4 +102,19 @@ test('monitor clears live details and stops polling after session expiry', async
   assert.equal(f.button.disabled, true);
   assert.equal(f.timers.size, 0);
   assert.match(f.connection.textContent, /重新登入/);
+});
+
+
+test('simple mode avoids initial polling and toggling back on immediately refreshes progress', async () => {
+  const f = fixture(data, false); await f.tick();
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.timers.size, 0);
+  f.document.documentElement.dataset.processingVisibility = 'shown';
+  f.windowEvents['urtube:processing-visibility'](); await f.tick();
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.timers.size, 1);
+  f.document.documentElement.dataset.processingVisibility = 'hidden';
+  f.windowEvents['urtube:processing-visibility'](); await f.tick();
+  assert.equal(f.timers.size, 0);
+  await f.button.events.click(); assert.equal(f.requests.length, 1);
 });

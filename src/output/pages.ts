@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { messages, type Lang } from './i18n.js';
 
 import { queryNavigationScript } from './query-navigation.js';
+import { processingVisibilityScript, processingVisibilityStyles } from './processing-visibility.js';
 
 export function html(value: unknown): string {
   return String(value ?? '').replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' }[char]!));
@@ -187,6 +188,8 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   // An empty title means brand-only (the landing page).
   const title = rawTitle ? `${rawTitle} · urtube` : 'urtube';
   const t = messages(lang);
+  const processingAccount = nav.some(item => item.href === '/account')
+    ? nav.find(item => item.label === t.navDashboard)?.href.split('?')[0] ?? '' : '';
   const links = nav.map((item) =>
     `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}>${html(item.label)}</a>`
   ).join('');
@@ -196,12 +199,12 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
     ? `<link rel="canonical" href="${html(config.publicBaseUrl + canonicalPath)}">\n  ` : '';
   const ogUrl = canonicalPath
     ? `<meta property="og:url" content="${html(config.publicBaseUrl + canonicalPath)}">` : '';
-  return `<!doctype html><html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${t.description}">
+  return `<!doctype html><html lang="${t.htmlLang}" data-processing-account="${html(processingAccount)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${t.description}">
   ${canonical}<meta property="og:type" content="website"><meta property="og:title" content="${html(title)}"><meta property="og:description" content="${t.description}">${ogUrl}
   <meta property="og:image" content="${html(config.publicBaseUrl)}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="${t.landingDocTitle}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>${html(title)}</title><style>${styles}${extraStyles}</style><script>${queryNavigationScript}</script></head><body>
+  <title>${html(title)}</title><style>${styles}${extraStyles}${processingVisibilityStyles}</style><script>${processingVisibilityScript}</script><script>${queryNavigationScript}</script></head><body>
   <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="${html(t.navLabel)}">${links}</nav></header>
   <main class="site-main">${body}</main>
   <div data-navigation-status role="status" aria-live="polite"></div>
