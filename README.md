@@ -223,7 +223,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 - 目前配對著重最近 90 天的興趣。資料不足或合適成員較少時，需要更多紀錄與參與者才能提供有用的推薦。
 - Google 登入、影片資訊與 AI 分類需要外部服務設定。大量歷史資料的處理時間、成本與使用體驗仍待進一步實測。
 - 後續將加強共同興趣的理解與呈現，探索長期喜好的穩定性，並透過使用者回饋改善配對品質。
-- 團隊資訊、評選影片及部分第三方來源與授權資料仍待補充，詳細狀態見下方連結。
+- 評選影片、Sponsor 技術及部分第三方來源與授權資料仍待補充，詳細狀態見下方連結。
 
 ## 第三方服務、資料與素材
 
@@ -233,9 +233,13 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 
 ## 團隊成員
 
-| 姓名 | 分工 |
-| --- | --- |
-| 待補 | 待團隊提供公開姓名與分工。 |
+| 姓名 | GitHub | 分工 |
+| --- | --- | --- |
+| Buffett Lin | [@Buffett111](https://github.com/Buffett111) | 前端互動、配對體驗與功能測試 |
+| Takala | [@TakalaWang](https://github.com/TakalaWang) | AI 興趣分析、資料處理與配對功能 |
+| Jacob | [@JacobLinCool](https://github.com/JacobLinCool) | 產品定位、技術文件與來源授權整理 |
+| Hawks | [@Sean-Hawks](https://github.com/Sean-Hawks) | 專案協作流程與文件規範 |
+| Sky Hong | [@skyhong2002](https://github.com/skyhong2002) | 全端開發、系統整合與服務部署 |
 
 ## License
 
