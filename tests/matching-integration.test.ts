@@ -163,6 +163,13 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
     const missing = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
     assert.equal(missing('.mt-vs-score strong').text(),'—');
     assert.match(missing('form').text(),/尚無可比較結果：運動/);
+    assert.match(missing('.mt-vs-score').text(),/運動尚無可比較結果/);
+    const usableLink = missing('.mt-vs-score a').attr('href')!;
+    assert.match(usableLink,/genre=Music/);
+    assert.doesNotMatch(usableLink,/Sport/);
+    const quick = load(await (await app.request('/v3-blend-a/compare/v3-blend-b'+usableLink,{headers})).text());
+    assert.equal(quick('.mt-vs-score strong').text(),'65%');
+    assert.match(quick('.mt-vs-score').text(),/本次選取 1 類/);
     const selected = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh&genre=Music',{headers})).text());
     assert.equal(selected('.mt-vs-score strong').text(),'65%');
     assert.match(selected('.mt-range a').first().attr('href')!,/genre=Music/);

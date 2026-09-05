@@ -319,10 +319,15 @@ export function matchingCandidatePage(
       : card.topicMatch.unavailable === 'service' ? (lang === 'zh' ? '計分服務暫時無法使用，請稍後重試' : 'Scoring is temporarily unavailable. Please try again.')
         : (lang === 'zh' ? '所選類別的分析尚未齊全' : 'Analysis for the selected categories is not yet complete');
   const missing = (card.topicMatch?.details ?? []).filter(detail => detail.score === null).map(detail => genreLabels(lang)[detail.genre]);
+  const usable = (card.topicMatch?.details ?? []).filter(detail => detail.score !== null).map(detail => detail.genre);
+  const usableQuery = new URLSearchParams({range:comparison.range,lang});
+  for (const genre of usable) usableQuery.append('genre',genre);
+  const usableAction = missing.length && usable.length ? `<a class="mt-want" href="?${html(usableQuery.toString())}">${lang === 'zh' ? `比較可用的 ${usable.length} 類` : `Compare ${usable.length} available categories`}</a>` : '';
+  const missingNote = missing.length ? (lang === 'zh' ? `無法計算全部所選類別：${missing.join('、')}尚無可比較結果。` : `Cannot score all selected categories: ${missing.join(', ')} has no comparable results.`) : scoreNote;
   const selection = card.topicMatch?.available?.length ? `<form method="get" class="mt-panel">
     <input type="hidden" name="genre" value=""><input type="hidden" name="range" value="${comparison.range}"><input type="hidden" name="lang" value="${lang}">
     <h2>${lang === 'zh' ? '比較類別' : 'Comparison categories'}</h2>
-    <div style="display:flex;flex-wrap:wrap;gap:12px">${card.topicMatch.available.map(genre => `<label><input type="checkbox" name="genre" value="${html(genre)}"${card.topicMatch!.selected?.includes(genre) ? ' checked' : ''}> ${html(genreLabels(lang)[genre])}</label>`).join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px">${card.topicMatch.available.map(genre => `<label><input type="checkbox" name="genre" value="${html(genre)}"${card.topicMatch!.selected?.includes(genre) ? ' checked' : ''}> ${html(genreLabels(lang)[genre])}${card.topicMatch?.details?.some(detail => detail.genre === genre && detail.score === null) ? `<small> · ${lang === 'zh' ? '尚無可比較結果' : 'No comparable results'}</small>` : ''}</label>`).join('')}</div>
     ${missing.length ? `<p>${html(lang === 'zh' ? `尚無可比較結果：${missing.join('、')}。可取消這些類別，計算其餘選定類別。` : `No comparable results: ${missing.join(', ')}. Deselect these to compare the remaining categories.`)}</p>` : ''}
     <button type="submit">${lang === 'zh' ? '更新比較' : 'Update comparison'}</button>
   </form>` : '';
@@ -331,7 +336,7 @@ export function matchingCandidatePage(
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}${card.topicMatch?.selected ? html('&genre=' + card.topicMatch.selected.map(genre => encodeURIComponent(genre)).join('&genre=')) : ''}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
-  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${score}</strong><span>${t.matchesFit}</span>${scoreNote ? `<p class="mt-gate">${html(scoreNote)}</p>` : ''}</div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${score}</strong><span>${t.matchesFit}</span>${missingNote ? `<p class="mt-gate">${html(missingNote)}</p>` : ''}${usableAction}${card.topicMatch?.selected?.length ? `<small>${lang === 'zh' ? `本次選取 ${card.topicMatch.selected.length} 類` : `${card.topicMatch.selected.length} categories selected`}</small>` : ''}</div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
 
   const topicsSubtitle = comparison.topics.state === 'locked'
     ? t.matchesLockedTopics
