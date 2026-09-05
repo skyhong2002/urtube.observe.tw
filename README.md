@@ -23,7 +23,7 @@ urtube 希望以真實行為資料提升同好探索的準確度，找出長期�
 | 授權匯入與進度 | Google 登入後，使用 Chrome 擴充功能或 Google Takeout ZIP 匯入紀錄，查看可持續更新的背景處理狀態。 |
 | 私人興趣洞察 | 查看觀看時間、頻道與影片、影片內容關鍵字，以及不同時間範圍的主題趨勢，理解自己的偏好與配對依據。 |
 | 可檢視的 AI 分類 | AI 協助整理觀看內容中的興趣主題，使用者可查看分類依據、確認結果與復原先前的分類。 |
-| 近期同好探索 | 以最近 90 天的共同主題與頻道喜好推薦同好，顯示契合度並提供比較；資料不足或沒有候選人時顯示對應狀態。 |
+| 近期同好探索 | 以最近 90 天的共同主題與頻道喜好推薦同好，顯示整體契合度並提供比較；另可選擇音樂、運動、遊戲等內容類別，依語意興趣群的分布相似度找同好（主題合拍度）。資料不足、處理中或沒有候選人時顯示對應狀態。 |
 | 好友與 Blend | 私人帳號接受好友邀請後，雙方可查看總覽、洞察與 Blend；登入使用者也可直接與公開帳號進行 Blend。 |
 | 資料控制 | 關閉配對、撤回關係、設定儀表板公開性，以及匯出資料或聯絡團隊申請刪除帳號與資料。 |
 
@@ -43,15 +43,22 @@ Overview呈現常看的主題、頻道與興趣變化，搭配可播放的排行
 
 ```mermaid
 flowchart LR
-    Import[使用者授權匯入觀看紀錄] --> Storage[個人資料儲存]
-    Public[YouTube 公開影片資訊] --> Analysis[背景整理與 AI 分類]
-    Storage --> Analysis
-    Analysis --> Insights[私人興趣洞察]
-    Analysis --> Matching[共同興趣配對]
-    Matching --> Friends[好友探索與交流]
+    Ext[Chrome 擴充功能 / Takeout ZIP] --> Ingest[ingest 服務]
+    Ingest --> Personal[(每人一個 SQLite 檔)]
+    YT[YouTube Data API 公開影片資訊] --> Worker[worker：metadata、興趣整理、AI 分類]
+    Personal --> Worker
+    Worker --> Personal
+    Worker --> Registry[(共用 registry：帳號、好友、90 天配對投影)]
+    Personal --> V3[matching-worker：GPT genre 分類 + Gemini tag 向量]
+    V3 --> Cache[(共用分類 / 向量快取與九類輪廓)]
+    Cache --> Compute[matching-compute：DBSCAN + optimal transport]
+    App[app 網站] --> Personal
+    App --> Registry
+    App --> Compute
+    App --> User[私人洞察 / Matches / Blend]
 ```
 
-網站負責登入、資料匯入與好友互動；背景服務整理影片資訊與興趣，讓使用者能在介面上查看洞察與探索同好。每位使用者的原始紀錄分開儲存，配對使用整理後的共同興趣資訊。
+網站（app）負責登入、頁面與好友互動；ingest 接收擴充功能與 Takeout 匯入；worker 補齊公開影片資訊、整理興趣並執行私人 AI 分類；matching-worker 與 matching-compute 負責主題配對的分類、向量與數值計算。每位使用者的原始紀錄存在自己的 SQLite 檔；共用 registry 只保存帳號、好友關係與有界的配對投影；共用快取只存公開影片的分類與 tag 向量。正式站以 Docker Compose 執行以上服務，經 Cloudflare Tunnel 對外，由 CI 建置映像後以 Komodo 部署。
 
 AI 分類使用公開影片資訊，例如標題、頻道名稱與描述；搜尋紀錄與觀看時間保留在個人資料中。資訊不足時顯示「無法判斷」，使用者可檢視分類依據並復原先前結果。
 
@@ -223,7 +230,8 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 - 目前配對著重最近 90 天的興趣。資料不足或合適成員較少時，需要更多紀錄與參與者才能提供有用的推薦。
 - Google 登入、影片資訊與 AI 分類需要外部服務設定。大量歷史資料的處理時間、成本與使用體驗仍待進一步實測。
 - 後續將加強共同興趣的理解與呈現，探索長期喜好的穩定性，並透過使用者回饋改善配對品質。
-- 評選影片及部分第三方來源與授權資料仍待補充，詳細狀態見下方連結。
+- 頻道規模與影片熱門度分布尚未加入洞察（[#50](https://github.com/skyhong2002/urtube.observe.tw/issues/50)）。
+- 評選影片仍待補充；第三方來源與授權聲明尚有 gateway shim 原始碼與映像層級 SBOM 待補，詳見聲明文件。
 
 ## 隱私與資料管理
 

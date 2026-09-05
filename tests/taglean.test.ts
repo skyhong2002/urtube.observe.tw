@@ -106,7 +106,7 @@ test('coverage deduplicates overlapping groups and bounds uncovered channels wit
   assert.equal(data.unmatched.topChannels.length, 10);
   assert.equal(data.unmatched.topChannels[0].channelId, null);
   assert.deepEqual(computeTagLean('all', [...rows].reverse(), source).unmatched, data.unmatched);
-  const en = tagLeanSection(data, 'en');
+  const en = tagLeanSection(data, 'en', undefined, { owner: true });
   assert.match(en, /Classified · 30%/);
   assert.match(en, /Unclassified · 70%/);
   assert.match(en, /all estimated watch time in the selected range/);
@@ -114,25 +114,24 @@ test('coverage deduplicates overlapping groups and bounds uncovered channels wit
   assert.match(en, /&lt;script&gt;private&lt;\/script&gt;/);
   assert.doesNotMatch(en, /<script>private/);
   assert.match(en, /<details class="tl-coverage-details">/);
-  assert.match(tagLeanSection(data, 'zh'), /尚未分類 · 70%/);
+  assert.match(tagLeanSection(data, 'zh', undefined, { owner: true }), /尚未分類 · 70%/);
+  assert.doesNotMatch(tagLeanSection(data, 'en'), /class="tl-coverage-(details|bar)"/);
   const allUnknown = computeTagLean('all', uncovered, snapshot({}));
   assert.equal(allUnknown.matched.channels, 0);
-  assert.match(tagLeanSection(allUnknown), /Unclassified · 100%/);
-  const empty = tagLeanSection(computeTagLean('all', [], snapshot({})));
+  assert.match(tagLeanSection(allUnknown, 'en', undefined, { owner: true }), /Unclassified · 100%/);
+  const empty = tagLeanSection(computeTagLean('all', [], snapshot({})), 'en', undefined, { owner: true });
   assert.match(empty, /No estimated watch time in this range/);
   assert.doesNotMatch(empty, /Classified · 0%/);
   const nameless = computeTagLean('all', [channel(null, '', 1, 100), channel('UCknown-id', '', 1, 100)], snapshot({}));
-  assert.match(tagLeanSection(nameless), /Channel not identified/);
-  assert.match(tagLeanSection(nameless), /href="\/channel\/UCknown-id">UCknown-id<\/a>/);
-  assert.match(tagLeanSection(nameless, 'zh'), /尚未辨識的頻道/);
+  assert.match(tagLeanSection(nameless, 'en', undefined, { owner: true }), /Channel not identified/);
+  assert.match(tagLeanSection(nameless, 'en', undefined, { owner: true }), /href="\/channel\/UCknown-id">UCknown-id<\/a>/);
+  assert.match(tagLeanSection(nameless, 'zh', undefined, { owner: true }), /尚未辨識的頻道/);
 });
 
-test('governed coverage and uncovered channels are available only to the signed-in owner', async () => {
+test('coverage detail and uncovered channels are rendered only for the signed-in owner', async () => {
   const registry = new UserRegistry(':memory:');
-  let calls = 0;
   let unavailable = false;
   const app = createApp(registry, { loadTagLists: async () => {
-    calls++;
     if (unavailable) throw new Error('fixture source unavailable');
     return snapshot({});
   } });
@@ -153,22 +152,25 @@ test('governed coverage and uncovered channels are available only to the signed-
       headers: { cookie: `urtube_session=${registry.createSession(owner)}` },
     })).text();
     assert.match(ownerPage, /Unclassified · 100%/);
-    assert.equal(calls, 1);
+    assert.match(ownerPage, /class="tl-coverage-details"/);
+    assert.match(ownerPage, /Synthetic uncovered channel/);
     for (const [url, cookie] of [
       [path, ''],
       [path, `urtube_session=${registry.createSession(other)}`],
       [`${path}&key=${owner.dashboardToken}`, ''],
     ]) {
       const page = await (await app.request(url, { headers: { cookie } })).text();
-      assert.doesNotMatch(page, /tl-coverage-details|Political-channel watch distribution/);
+      // The governed section itself stays visible on a public dashboard; the
+      // owner-only coverage detail and uncovered-channel list must not leak.
+      assert.match(page, /Channel classifications/);
+      assert.doesNotMatch(page, /class="tl-coverage-(details|bar)"|class="tl-uncovered"|Unclassified · 100%/);
     }
-    assert.equal(calls, 1, 'non-owner requests must not fetch governed data');
     unavailable = true;
     const failed = await (await app.request(path, {
       headers: { cookie: `urtube_session=${registry.createSession(owner)}` },
     })).text();
     assert.match(failed, /channel-label source cannot be verified/);
-    assert.doesNotMatch(failed, /tl-coverage-details/);
+    assert.doesNotMatch(failed, /class="tl-coverage-details"/);
   } finally {
     registry.close();
   }

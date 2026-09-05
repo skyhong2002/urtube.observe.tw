@@ -66,15 +66,18 @@ The owner can expand at most ten uncovered channels, ordered by estimated
 watch time, then watch events and stable channel key. This list stays on the
 owner's page, is never a matching projection, and is not prefilled into GitHub
 reports or sent to the upstream source. Public dashboard visitors, other
-accounts and dashboard-key-only visitors do not receive governed insights.
-An empty range shows no estimated watch time, not a fabricated preference.
+accounts and dashboard-key-only visitors see the governed axis charts under the
+existing dashboard visibility rules, but never the coverage detail or the
+uncovered-channel list. An empty range shows no estimated watch time, not a
+fabricated preference.
 This is coverage of the owner's viewing, never a percentage of YouTube's market.
 
 已登入本人可在洞察查看所選期間的已分類／尚未分類觀看時間。分母包括
 缺少 metadata 或頻道 ID 的紀錄；整體依頻道聯集去重。展開明細後，每組
 比例皆以全部觀看時間為分母，重疊組別不必加總為 100%。最多列出觀看
 時間最高的十個未涵蓋頻道，僅本人可見，不會自動傳送到 GitHub 或上游。
-公開訪客、其他帳號及僅持 dashboard key 的訪客皆不會收到受治理洞察。
+公開訪客、其他帳號及僅持 dashboard key 的訪客仍依既有公開規則看到
+分類軸圖表，但不會看到覆蓋明細與未涵蓋頻道清單。
 
 ## Provenance and versions / 來源與版本
 

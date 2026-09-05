@@ -401,7 +401,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const crystalHtml = page === 'insights' && hasData
       ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
     let leaningsHtml = '';
-    if (page === 'insights' && hasData && viewerOwns) {
+    if (page === 'insights' && hasData) {
       try {
         const snapshot = await loadTagLists();
         const tagLean = computeTagLean(
@@ -429,6 +429,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           tagLean,
           lang,
           buildReferencePopulation(tagLean, contributions),
+          { owner: sessionUser(c)?.id === user.id },
         );
       } catch (error) {
         console.warn('channel classifications unavailable:',

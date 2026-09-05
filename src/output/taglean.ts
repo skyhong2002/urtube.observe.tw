@@ -206,10 +206,16 @@ function coverageSection(data: TagLeanData, t: Messages): string {
   </section>`;
 }
 
+export interface TagLeanSectionOptions {
+  // Coverage detail and the uncovered-channel list stay on the owner's page.
+  owner?: boolean;
+}
+
 export function tagLeanSection(
   data: TagLeanData,
   lang: Lang = 'en',
   reference?: ReferencePopulation,
+  options: TagLeanSectionOptions = {},
 ): string {
   const t = messages(lang);
   const politicalSeconds = data.political.reduce((sum, group) => sum + group.estimatedWatchSeconds, 0);
@@ -250,7 +256,7 @@ export function tagLeanSection(
     () => CONTENT_COLOR, t,
   );
 
-  const coverage = coverageSection(data, t);
+  const coverage = options.owner ? coverageSection(data, t) : '';
   const provenance = data.provenance;
   const sourceHost = provenance.sourceUrl.replace(/^https?:\/\//, '').split('/')[0];
   const foot = `<p class="tl-foot">${t.tagLeanSource(
