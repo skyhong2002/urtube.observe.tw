@@ -13,10 +13,33 @@ npm ci
 npm run demo:matching
 ```
 
-The command prints separate Alice and Bob login URLs. Open each URL in a
+The command prints separate Alice, Bob and newcomer login URLs. Open each URL in a
 different browser profile or private context so their `HttpOnly` session
 cookies remain independent. Restarting the command creates new access URLs and
 resets every request and connection. Set `DEMO_PORT` if port 4317 is occupied.
+
+## Show first value and empty states
+
+1. Open Alice's **Dashboard** before **Matches**. Show the private channel and
+   viewing-time summary and switch time ranges. These are useful without
+   another person; this synthetic fixture demonstrates the interaction, not
+   a measured real-user outcome or a completed model run.
+2. Open the **New member (no history)** login URL in a separate browser
+   context. **Matches** shows the existing insufficient-data/processing
+   message and a path back to the dashboard. This account has no fabricated
+   history or matching projection, so no match percentage is shown.
+3. Keep Alice's **Matches** open. In Bob's context, open **Account**, turn
+   matching off and save. Reload Alice: the existing no-candidate state
+   appears. Alice still has her own insights; an empty pool is not a failed
+   import and the newcomer is not promoted into a fake candidate.
+4. Open Alice's **Dashboard** again. Explain the return use: revisit after a
+   new week of learning and compare recent ranges/topic trends. The fixture
+   does not claim a populated AI trend or measured retention.
+5. Restart the process to restore the Alice/Bob matching demonstration.
+
+The [product pitch](pitch.md#first-users-first-value-and-return-use) names the
+initial audience and cold-start proposal. Keep synthetic demonstration,
+proposed recruitment and observed user outcomes separate when presenting.
 
 ## Recording sequence
 
