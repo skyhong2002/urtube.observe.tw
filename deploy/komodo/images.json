@@ -1,0 +1,25 @@
+{
+  "services": {
+    "app": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:9f54bf5a93c8f8bd1e159582ec2eeafb4a9dc9f46151582bd84cda873de63ddf"
+    },
+    "ingest": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:9f54bf5a93c8f8bd1e159582ec2eeafb4a9dc9f46151582bd84cda873de63ddf"
+    },
+    "worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:9f54bf5a93c8f8bd1e159582ec2eeafb4a9dc9f46151582bd84cda873de63ddf"
+    },
+    "backup": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:9f54bf5a93c8f8bd1e159582ec2eeafb4a9dc9f46151582bd84cda873de63ddf"
+    },
+    "matching-worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:9f54bf5a93c8f8bd1e159582ec2eeafb4a9dc9f46151582bd84cda873de63ddf"
+    },
+    "matching-compute": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:57fb37b17b48407f407b1875966ec5c7e3bb7cb37867433e4c36e8755d0f9efc"
+    },
+    "matching-compare": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:57fb37b17b48407f407b1875966ec5c7e3bb7cb37867433e4c36e8755d0f9efc"
+    }
+  }
+}
