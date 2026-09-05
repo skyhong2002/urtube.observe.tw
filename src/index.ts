@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -128,8 +129,8 @@ function evictUserCaches(handle: string): void {
   clearReadCaches();
   warmedHandles.delete(handle);
 }
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user)): YoutubeDashboardData {
-  return cachedRead(repository, `dashboard:${range}`, () => repository.youtubeDashboard(range));
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights = false): YoutubeDashboardData {
+  return cachedRead(repository, `dashboard:${range}:${includeInsights}`, () => repository.youtubeDashboard(range, new Date(), includeInsights));
 }
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): YoutubeComparisonProfile {
   return cachedRead(repository, `comparison:${range}`, () => repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, range));
@@ -280,7 +281,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'absolute'
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
-    const data = cachedDashboardFor(registry, user, range, repository);
+    const data = cachedDashboardFor(registry, user, range, repository, page === 'insights');
     const hasData = counts.watches > 0;
     const me = sessionUser(c);
     const viewerOwns = me?.id === user.id;
@@ -1499,7 +1500,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 // the first visitor after a deploy or quiet stretch never pays the aggregate
 // cost. Only the owner and handles visited since boot are swept, using the
 // exact same cache fills as the serve path.
-function warmDashboards(registry: UserRegistry): void {
+async function warmDashboards(registry: UserRegistry): Promise<void> {
   // The whole sweep runs inside timer callbacks: any escape here would crash
   // the process (registry reads can throw on SQLITE_BUSY during backups).
   try {
@@ -1520,8 +1521,8 @@ function warmDashboards(registry: UserRegistry): void {
       if (counts.watches === 0) continue;
       for (const range of YOUTUBE_RANGES) {
         cachedDashboardFor(registry, user, range, repository);
+        await yieldToRequests();
       }
-      cachedCrystalFor(registry, user, repository);
     } catch (error) {
       console.error(`dashboard warm failed for ${handle}:`, error instanceof Error ? error.message : error);
     }

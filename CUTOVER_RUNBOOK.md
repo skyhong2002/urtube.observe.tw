@@ -1,5 +1,29 @@
 # CUTOVER_RUNBOOK — urtube.observe.tw
 
+## Current public deployment (verified 2026-09-05)
+
+The public hostname now reaches **skyhong-SM** through the `urtube-tunnel`
+Cloudflare Tunnel. Its live checkout is `/home/deck/Projects/urtube`.
+The Mac deployment described below is a legacy instance; updating it alone
+does not update the public website.
+
+For a routine public release on skyhong-SM:
+
+```sh
+cd /home/deck/Projects/urtube
+git pull --ff-only
+docker compose -f docker-compose.yml -f /home/deck/urtube-ops/docker-compose.tunnel.yml up -d --build app ingest worker backup
+curl -fsS https://urtube.observe.tw/healthz
+curl -fsS https://urtube.observe.tw/readyz
+```
+
+Verify the changed behavior through the public hostname as well as container
+health. A healthy legacy instance does not prove the public release succeeded.
+The tunnel configuration and credentials live outside the repository; a
+routine application release does not recreate the tunnel.
+
+## Historical Mac cutover and migration procedures
+
 Operational procedures: health, backup, restore, migration, rollback, and
 disabling old Infovore YouTube ingestion. Commands assume:
 

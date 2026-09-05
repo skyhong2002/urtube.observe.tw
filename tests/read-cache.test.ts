@@ -29,6 +29,13 @@ test('cached aggregates reuse unchanged data and detect measured-time updates fr
     repository.upsertYoutubeCapture(capture, now.toISOString());
     const first = read();
     assert.equal(first.stats.estimatedWatchSeconds, 12);
+    const summary = repository.youtubeDashboard('all', now, false);
+    for (const key of ['stats', 'topChannels', 'topVideos', 'daily', 'recent'] as const) {
+      assert.deepEqual(summary[key], first[key], `lightweight projection preserves ${key}`);
+    }
+    assert.deepEqual(summary.keywords, []);
+    assert.deepEqual(summary.topicTrend, []);
+    assert.deepEqual(summary.channelRace.frames, []);
     assert.equal(read(), first);
     assert.equal(reads, 1, 'TEMP materialization must not invalidate its own cache');
     repository.upsertYoutubeCapture({ ...capture, actualWatchedSeconds: 24 }, now.toISOString());
