@@ -28,7 +28,6 @@ export function v3DashboardSection(profile: Profile | null, options: {
     ? `以最近最多 ${options.backfillVideoLimit.toLocaleString('en')} 部影片建立，不隨上方日期範圍切換。影片可以屬於多個類別。`
     : `Based on up to ${options.backfillVideoLimit.toLocaleString('en')} recent videos, independently of the date filter above. Videos may belong to multiple categories.`;
   const cloud = (genre: Genre) => {
-    if (!options.ownerDetails) return '';
     const counts = new Map<string, number>();
     const categoryNames = [genre, genreLabels('zh')[genre], genreLabels('en')[genre]];
     for (const cluster of current?.genres[genre]?.clusters ?? []) for (const tag of cluster.tags) {
@@ -41,12 +40,15 @@ export function v3DashboardSection(profile: Profile | null, options: {
     const max = tags[0][1];
     return `<div class="yt-v3-cloud" aria-label="${zh ? '代表標籤' : 'Representative tags'}">${tags.map(([text, count]) => `<span style="font-size:${(13 + 15 * Math.sqrt(count / max)).toFixed(1)}px" title="${html(zh ? `${count} 部不同影片` : `${count} distinct videos`)}">${html(text)}</span>`).join('')}</div>`;
   };
-  return `<section class="section yt-v3-interests" data-v3-interests${options.ownerDetails ? ' data-tag-clouds' : ''}${!current ? ' data-processing-status' : ''}>
+  return `<section class="section yt-v3-interests" data-v3-interests data-tag-clouds${!current ? ' data-processing-status' : ''}>
     <style>.yt-v3-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}.yt-v3-genre{flex:0 1 calc((100% - 80px)/9);background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center;min-width:0}.yt-v3-genre strong,.yt-v3-genre span{display:block}.yt-v3-genre strong{font-size:14px}.yt-v3-genre span{font-size:12px;color:var(--muted);margin-top:6px}.yt-v3-scope{font-size:12px;line-height:1.6;color:var(--muted)}@media(max-width:1000px){.yt-v3-genre{flex-basis:calc((100% - 20px)/3)}}.yt-v3-interests[data-tag-clouds] .yt-v3-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.yt-v3-interests[data-tag-clouds] .yt-v3-genre{padding:20px;text-align:left}.yt-v3-cloud{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px 14px;min-height:150px;margin:16px 0;overflow-wrap:anywhere}.yt-v3-genre .yt-v3-cloud span{display:inline;color:var(--accent-text);line-height:1.4;margin:0;max-width:100%}.yt-v3-genre .yt-v3-cloud span:nth-child(3n){color:var(--ink)}@media(max-width:700px){.yt-v3-interests[data-tag-clouds] .yt-v3-grid{grid-template-columns:1fr}}</style>
     <div class="section-head"><h2>${zh ? '興趣分析' : 'Interests'}</h2></div>
-    <p class="yt-v3-scope">${html(scope)}</p>${options.ownerDetails ? `<details class="yt-v3-scope"><summary>${zh ? '如何閱讀詞雲' : 'How to read the word cloud'}</summary><p>${zh ? '越常出現在不同影片中的詞，文字越大。' : 'Words found in more distinct videos appear larger.'}</p></details>` : ''}
+    <p class="yt-v3-scope">${html(scope)}</p>${`<details class="yt-v3-scope"><summary>${zh ? '如何閱讀詞雲' : 'How to read the word cloud'}</summary><p>${zh ? '越常出現在不同影片中的詞，文字越大。' : 'Words found in more distinct videos appear larger.'}</p></details>`}
     ${current ? `<div class="yt-v3-grid">${visible.map(genre => {
-      return `<div class="yt-v3-genre"><strong>${html(names[genre])}</strong><span>${html(state(genre))}</span>${cloud(genre)}</div>`;
+      const tags = cloud(genre);
+      const description = !tags && current.genres[genre]?.status === 'ready'
+        ? (zh ? '尚無可顯示的代表詞' : 'No representative terms available') : state(genre);
+      return `<div class="yt-v3-genre"><strong>${html(names[genre])}</strong>${tags || `<span>${html(description)}</span>`}</div>`;
     }).join('')}</div>` : `<p class="muted">${empty}</p>`}
   </section>`;
 }

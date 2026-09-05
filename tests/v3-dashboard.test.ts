@@ -25,7 +25,7 @@ function fixture() {
     complete: true, processedVideos: 250, totalVideos: 250,
     genres: Object.fromEntries(GENRES.map(genre => [genre, { status: 'ready', videoCount: genre === 'Sport' ? 31337 : 25,
       retainedCoverage: 1, totalMass: 1, clusters: [{ centroid: [0.1, 0.2], mass: 1, share: 1,
-        tags: [{ text: 'private-profile-tag', count: 1, generatedCount: 0 }] }] }])) };
+        tags: [{ text: genre === 'Sport' ? 'unshared-sport-term' : 'representative-source-tag', count: 1, generatedCount: 0 }] }] }])) };
   store.schedule(user.id, profile.sourceFingerprint, profile.version);
   const job = store.claim()!;
   store.finish(job, profile);
@@ -49,7 +49,7 @@ test('owner dashboard keeps v3 interests alongside range-based analysis without 
     assert.ok($('.yt-stat').length > 0);
     assert.equal($('[data-rank-race="channels"]').length, 1);
     assert.doesNotMatch($.text(), /Legacy classification|120 分鐘/);
-    assert.match($('.yt-v3-cloud').text(), /private-profile-tag/);
+    assert.match($('.yt-v3-cloud').text(), /representative-source-tag/);
     assert.equal(f.repository.youtubeTopics()[0]?.name, 'Legacy classification');
   } finally { f.registry.close(); }
 });
@@ -61,7 +61,8 @@ test('public v3 interests respect selected genres, opt-out, profile visibility a
     assert.equal($('[data-v3-interests] .yt-v3-genre').length, 1);
     assert.equal($('[data-processing-monitor]').length, 0, 'visitor cannot load owner monitoring');
     assert.equal($('[data-v3-interests] .yt-v3-genre strong').text(), 'Music');
-    assert.doesNotMatch($.text(), /31,337|private-profile-tag/);
+    assert.doesNotMatch($.text(), /31,337|unshared-sport-term/);
+    assert.match($('.yt-v3-cloud').text(), /representative-source-tag/);
     f.store.schedule(f.user.id, 'changed', 'old-v3-version');
     const job = f.store.claim()!;
     f.store.finish(job, { ...f.profile, version: 'old-v3-version' });
@@ -167,16 +168,16 @@ test('cached preview displays actual clusters without confusing provisional stat
     for (const lang of ['zh', 'en'] as const) {
       const $ = load(v3DashboardSection(profile, { enabled: true, currentVersion: profile.version, backfillVideoLimit: 2000, genres: GENRES.slice(), lang }));
       const cards = $('.yt-v3-genre');
-      assert.match(cards.eq(1).text(), lang === 'zh' ? /已完成分析/ : /Analysis complete/);
+      assert.match(cards.eq(1).find('.yt-v3-cloud').text(), /representative-source-tag/);
       assert.doesNotMatch(cards.eq(1).text(), /資料不足|Limited data/);
       assert.match(cards.eq(2).text(), /資料不足|Limited data/);
       assert.match(cards.eq(8).text(), /等待分析|Pending/);
-      assert.doesNotMatch($.text(), /private-profile-tag/);
+      assert.match($('.yt-v3-cloud').text(), /representative-source-tag/);
     }
   } finally { f.registry.close(); }
 });
 
- test('tag clouds escape original tags and omit generated evidence and visitor detail', async () => {
+ test('tag clouds escape original tags and omit generated evidence for owners and visitors', async () => {
   const { v3DashboardSection } = await import('../src/output/v3-dashboard.js');
   const f = fixture();
   try {
@@ -191,7 +192,7 @@ test('cached preview displays actual clusters without confusing provisional stat
     assert.match(owner('.yt-v3-cloud').text(), /<script>/);
     assert.doesNotMatch(owner('.yt-v3-cloud').text(), /generated-only/);
     assert.equal(owner('.yt-v3-cloud span').attr('title'),'4 部不同影片');
-    assert.equal(render(false)('.yt-v3-cloud').length,0);
+    assert.equal(render(false)('.yt-v3-cloud').text(), owner('.yt-v3-cloud').text());
   } finally { f.registry.close(); }
 });
 
@@ -218,6 +219,7 @@ test('keyword filtering preserves source tags and fills the cloud from meaningfu
     }
     assert.deepEqual(f.profile, source, 'display filtering must not change cached matching evidence');
     f.profile.genres.Sport!.clusters[0].tags = tags.slice(0, rejected.length);
-    assert.equal(render('zh')('.yt-v3-cloud').length, 0, 'all-filtered tags retain the existing empty presentation');
+    assert.equal(render('zh')('.yt-v3-cloud').length, 0);
+    assert.match(render('zh')('.yt-v3-genre').text(), /尚無可顯示的代表詞/);
   } finally { f.registry.close(); }
 });
