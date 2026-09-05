@@ -21,6 +21,10 @@
 
 實作於目前的 dev 分支。`MATCHING_V3_ENABLED` 預設關閉：不建立 v3 表、不排程 OpenAI，也不改變原本 `/matches` 的行為。新版入口為 `/matching-v3`，原本 `/match-preview/` 仍是獨立互動原型。
 
+## 現行資料版本相容性
+
+正式 app 與既有 worker 使用相同的 `MATCHING_V3_BACKFILL_VIDEO_LIMIT`（預設 2,000）。取最近觀看的不同影片後，依影片 ID 固定排序；上限納入輪廓版本。bootstrap、排程、重建與讀取共同沿用此設定，避免完成輪廓被誤判為舊版本。此修正不重啟既有 worker，也不清除分類／embedding 快取。
+
 ## 文字與費用限制
 
 分類使用 `gpt-5.6-luna`（API ID 為 luna，不是 lunar），沿用 `src/youtube/ai.ts` 的 `chatJson`：Chat Completions + `response_format=json_object`、`temperature=0`，請求最多 2,048 output tokens；JSON schema 放在文字提示並以 Zod 驗證。相容現有 gateway 沒有 `finish_reason` 的回應及 fenced JSON。影片 payload 僅含 title（最多 1,000 字元）及 tags（最多 30 個，每個最多 100 字元）；頻道 payload 僅含名稱（200 字元）與描述（3,000 字元）。所有 messages.content 都是純文字，沒有圖片、影音、附件、工具或網頁搜尋。Gemini embedding 僅傳每個 tag 的 text part，不包含媒體內容。

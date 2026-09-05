@@ -13,6 +13,15 @@ import { normalizeYoutubeCapture } from '../src/youtube/capture.js';
 import { compareProfiles } from '../src/matching-v3/matching.js';
 
 const s = settings({ MATCHING_V3_ENABLED: 'true' });
+
+test('v3 profile version stays compatible with the deployed bounded worker', () => {
+  assert.equal(s.backfillVideoLimit, 2000);
+  assert.equal(version(s), '20376b513a2150fb5899e999bd53812dc9c3dae98b4ce7b8849c27477f276d88');
+  assert.notEqual(version({ ...s, backfillVideoLimit: 1000 }), version(s));
+  for (const value of ['0', '-1', '2.5', '1000001', 'invalid']) {
+    assert.throws(() => settings({ MATCHING_V3_BACKFILL_VIDEO_LIMIT: value }), /BACKFILL_VIDEO_LIMIT/);
+  }
+});
 const video: VideoInput = { id: 'testvideo01', title: '羽球練習', tags: ['羽球'], channelId: 'UC-test', channelTitle: 'Test' };
 const classification: Classification = { tagSource: 'original', tags: ['羽球'], assignments: [{ genre: 'Sport', tags: ['羽球', '羽球'] }] };
 const compute: Compute = {
@@ -248,6 +257,35 @@ test('v3 worker resumes within budget and source fingerprint ignores replay watc
     assert.equal(repo.matchingV3Source().complete, true);
     scan('v3-interrupted-scan-fixture', '2026-09-05T14:00:00Z', 'time-limit');
     assert.equal(repo.matchingV3Source().complete, false);
+  } finally { registry.close(); }
+});
+
+test('v3 source and worker apply the same recent unique-video limit without replay churn', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('boundedfixture', 'Bounded Fixture'), repo = registry.repositoryFor(user);
+    let session = 0;
+    const capture = (id: string, hour: number) => repo.upsertYoutubeCapture(normalizeYoutubeCapture({
+      sessionId: `bounded-fixture-session-${++session}`, videoId: id, title: '羽球 #羽球',
+      url: `https://www.youtube.com/watch?v=${id}`, watchedAt: `2026-09-04T${hour}:00:00Z`,
+      actualWatchedSeconds: 30, durationSeconds: 60,
+    }, new Date('2026-09-05T12:00:00Z')));
+    capture('LIMITTEST01', 10); capture('LIMITTEST02', 11); capture('LIMITTEST03', 12);
+    const first = repo.matchingV3Source(2);
+    assert.deepEqual(first.videos.map(v => v.id), ['LIMITTEST02', 'LIMITTEST03']);
+    capture('LIMITTEST02', 13);
+    assert.equal(repo.matchingV3Source(2).fingerprint, first.fingerprint);
+    const classified: string[] = [];
+    const provider: Provider = {
+      classify: async v => { classified.push(v.id); return classification; },
+      embed: async () => [[1, 0]], channel: async () => ({ types: [], evidenceAvailable: false }),
+    };
+    await runCycle(registry, { ...s, backfillVideoLimit: 2 }, provider, compute);
+    assert.deepEqual(classified.sort(), ['LIMITTEST02', 'LIMITTEST03']);
+    assert.equal(registry.matchingV3Store().profile(user.id)?.totalVideos, 2);
+    capture('LIMITTEST01', 14);
+    assert.notEqual(repo.matchingV3Source(2).fingerprint, first.fingerprint);
+    assert.deepEqual(repo.matchingV3Source(2).videos.map(v => v.id), ['LIMITTEST01', 'LIMITTEST02']);
   } finally { registry.close(); }
 });
 
