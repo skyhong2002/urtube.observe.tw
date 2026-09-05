@@ -83,6 +83,25 @@ try {
   await page.locator('#mv-invitations button[value=accept]').click();
   await page.waitForURL('**/matches');
   assert.equal(registry.matchingRelationshipFor(recipient, sender.id).status, 'connected');
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('http://localhost:3000/browserleft?lang=zh');
+    assert.equal(await page.locator('[data-v3-interests] .yt-v3-genre').count(), 9);
+    assert.equal(await page.locator('.yt-stable-topics,[data-rank-race="topics"],[data-topic-trend]').count(), 0);
+    assert.equal(await page.locator('[data-rank-race="channels"]').count(), 1);
+    assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
+    await page.screenshot({ path: `/tmp/urtube-v3-dashboard-${width}.png`, fullPage: true });
+    await page.goto('http://localhost:3000/browserleft/insights?lang=zh');
+    assert.equal(await page.locator('[data-v3-interests] .yt-v3-genre').count(), 9);
+    assert.equal(await page.locator('.yt-keywords').count(), 0);
+    await page.goto('http://localhost:3000/account/taxonomy?lang=zh');
+    assert.ok(page.url().endsWith('/account?lang=zh#processing'));
+    assert.equal(await page.locator('#processing [data-v3-processing]').count(), 1);
+    assert.doesNotMatch(await page.locator('#processing').innerText(), /預計還需|120 分鐘|AI 主題/);
+    assert.equal(await page.locator('a[href="/account/taxonomy"]').count(), 0);
+    assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
+    await page.screenshot({ path: `/tmp/urtube-v3-progress-${width}.png`, fullPage: true });
+  }
   assert.deepEqual(errors, []);
-  console.log('Matching v3 browser checks passed: nine genres, persistence, real API, reasons, minimum selection, mobile layout.');
+  console.log('Matching v3 browser checks passed: nine genres, persistence, real API, reasons, minimum selection, v3 dashboard/progress, taxonomy redirect, mobile layout.');
 } finally { await browser.close(); server.close(); registry.close(); }
