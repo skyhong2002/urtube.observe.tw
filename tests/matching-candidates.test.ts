@@ -187,6 +187,7 @@ test('/matches requires a session and explicit matching opt-in', async () => {
     const anonymous = await app.request('/matches');
     assert.equal(anonymous.status, 302);
     assert.equal(anonymous.headers.get('location'), '/auth/google?next=%2Fmatches');
+    registry.setMatchingPreferences(user.handle, false, 'topics_only');
     const optedOut = await app.request('/matches', { headers: { cookie } });
     assert.equal(optedOut.status, 403);
     assert.match(await optedOut.text(), /Matching is off/);

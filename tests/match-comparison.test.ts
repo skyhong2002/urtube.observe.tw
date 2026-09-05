@@ -80,7 +80,7 @@ function profile(overrides: Partial<YoutubeComparisonProfile> = {}): YoutubeComp
   };
 }
 
-const OPEN: ComparisonAccess = { connected: true, channelsAllowed: true, hiddenTopicKeys: new Set() };
+const OPEN: ComparisonAccess = { connected: true, channelsAllowed: true, hiddenTopicKeys: new Set(), rhythmAllowed: true };
 
 test('comparison profile ranks channels, videos, and rhythm from one repository', () => {
   const repository = new Repository(':memory:');
@@ -139,7 +139,7 @@ test('compareWatchProfiles keeps volume private until both people choose to meet
   });
 
   const locked = compareWatchProfiles(alice, bob, '28d', {
-    connected: false, channelsAllowed: true, hiddenTopicKeys: new Set(['comedy']),
+    connected: false, channelsAllowed: true, hiddenTopicKeys: new Set(['comedy']), rhythmAllowed: true,
   });
   assert.equal(locked.stats, null);
   assert.equal(locked.topics.state, 'locked');
@@ -157,6 +157,13 @@ test('compareWatchProfiles keeps volume private until both people choose to meet
   assert.equal(locked.weekdays.rows[6]?.weekday, 0, 'Sunday closes the week');
   assert.equal(locked.firstWatch, null);
   assert.equal(locked.lastWatch, null);
+  assert.equal(locked.rhythmHidden, false);
+  const rhythmOff = compareWatchProfiles(alice, bob, '28d', {
+    connected: false, channelsAllowed: true, hiddenTopicKeys: new Set(), rhythmAllowed: false,
+  });
+  assert.equal(rhythmOff.rhythmHidden, true);
+  assert.equal(compareWatchProfiles(alice, bob, '28d', { ...OPEN, rhythmAllowed: false }).rhythmHidden, false,
+    'consent overrides the rhythm switch');
 
   const unlocked = compareWatchProfiles(alice, bob, 'all', OPEN);
   assert.equal(unlocked.stats?.[0]?.key, 'watchEvents');
@@ -225,6 +232,7 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     const bob = registry.createUser('bob-cmp', 'Bob');
     publish(registry, alice, 'topics_and_channel');
     publish(registry, bob, 'topics_and_channel');
+    assert.equal(registry.userByHandle(bob.handle)?.matchingRhythm, true, 'rhythm switch starts on');
     seed(registry.repositoryFor(alice), 'alice', ALICE_EVENTS);
     seed(registry.repositoryFor(bob), 'bob', BOB_EVENTS);
     const aliceCookie = `urtube_session=${registry.createSession(alice)}`;
@@ -252,6 +260,14 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.match(lockedHtml, /own watches/);
     assert.doesNotMatch(lockedHtml, /Video AAAAAAAAAA1|Channel A|Channel B|First watch|Last watch|class="mt-stat-row"|youtube\.com\/watch/);
     assert.doesNotMatch(lockedHtml, /alice-cmp|bob-cmp|candidateUserId|watchEvents|estimatedWatchSeconds/);
+
+    registry.setMatchingPreferences(bob.handle, true, 'topics_and_channel', false);
+    const withheld = await (await app.request(`/matches/compare/${token}?range=all`, {
+      headers: { cookie: aliceCookie },
+    })).text();
+    assert.match(withheld, /keeps viewing rhythm private/);
+    assert.doesNotMatch(withheld, /class="yt-rhythm-sector"|class="mt-week-row"/);
+    registry.setMatchingPreferences(bob.handle, true, 'topics_and_channel', true);
 
     await app.request('/matches/request', form({ actionToken: token }, aliceCookie));
     const request = registry.matchingInboxFor(bob).incoming[0];
@@ -290,6 +306,14 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     })).text();
     assert.match(narrow, /\?range=28d" aria-current="page"/);
     assert.match(narrow, /Video AAAAAAAAAA1/);
+
+    // Rhythm switch: irrelevant once connected.
+    registry.setMatchingPreferences(bob.handle, true, 'topics_and_channel', false);
+    const rhythmOffHtml = await (await app.request(`/matches/compare/${token}?range=all`, {
+      headers: { cookie: aliceCookie },
+    })).text();
+    assert.match(rhythmOffHtml, /class="yt-rhythm-sector"/);
+    assert.doesNotMatch(rhythmOffHtml, /keeps viewing rhythm private/);
 
     // One restrictive disclosure setting hides channels, videos, and edges
     // even after consent, while stats and topics stay unlocked.

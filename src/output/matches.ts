@@ -175,6 +175,9 @@ function statsSection(comparison: WatchComparison, t: Messages): string {
 }
 
 function clockSection(comparison: WatchComparison, names: ComparisonPair<string>, t: Messages): string {
+  if (comparison.rhythmHidden) {
+    return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesClock}</h2><span>${t.matchesClockSub}</span></div></div><p class="mt-gate mt-gate-locked">${t.matchesRhythmHidden}</p></section>`;
+  }
   const share = comparison.clock.mode === 'share';
   const figure = (side: 'a' | 'b', metric: 'watches' | 'seconds') => {
     const data = comparison.clock[side];
@@ -195,6 +198,9 @@ function clockSection(comparison: WatchComparison, names: ComparisonPair<string>
 }
 
 function weekdaySection(comparison: WatchComparison, t: Messages): string {
+  if (comparison.rhythmHidden) {
+    return `<section class="mt-panel"><div class="mt-panel-head"><div class="mt-panel-title"><h2>${t.matchesWeekdays}</h2><span>${t.matchesWeekdaysSub}</span></div></div><p class="mt-gate mt-gate-locked">${t.matchesRhythmHidden}</p></section>`;
+  }
   const share = comparison.weekdays.mode === 'share';
   const max = Math.max(1e-9, ...comparison.weekdays.rows.flatMap((row) => [row.watches.a, row.watches.b]));
   const label = (value: number) => (share ? percent(value) : count(value));

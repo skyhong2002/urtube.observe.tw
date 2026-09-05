@@ -60,8 +60,9 @@ export function guidedOnboardingState(input: GuidedOnboardingInput): GuidedOnboa
     dimensions: input.dimensions,
     scanStatus: scanStatus(input.latestScan),
   };
-  if (input.user.onboardingCompletedAt
-    || (input.user.matchingOptIn && input.dimensions.status === 'confirmed')) {
+  // Matching starts on, so opt-in alone no longer proves the person saw the
+  // consent step; only finishing it does.
+  if (input.user.onboardingCompletedAt) {
     return { ...base, step: 'complete', activeStep: 6 };
   }
   if (input.watchEvents === 0) {

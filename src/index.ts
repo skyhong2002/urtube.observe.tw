@@ -881,6 +881,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           ...registry.matchingDimensionsFor(me).excludedTopicKeys,
           ...candidate.dimensions.excludedTopicKeys,
         ]),
+        rhythmAllowed: me.matchingRhythm && candidate.rhythmDisclosure !== false,
       },
     );
     c.header('Cache-Control', 'no-store');
@@ -987,15 +988,26 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.redirect('/account');
   });
 
+  // Four switches in one form. Unchecked boxes are simply absent from the
+  // body, so every switch is read as "present and '1'".
   app.post('/account/matching', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
+    const on = (name: string) => form[name] === '1';
     try {
       registry.setMatchingPreferences(
         me.handle,
-        form.matchingOptIn === '1',
-        String(form.matchingDisclosure ?? '') as MatchingDisclosureLevel,
+        on('matchingOptIn'),
+        on('matchingChannels') ? 'topics_and_channel' : 'topics_only',
+        on('matchingRhythm'),
+      );
+      const keys = MATCHING_TAXONOMY.topics.map((topic) => topic.key);
+      registry.setMatchingDimensions(
+        me.handle,
+        MATCHING_TAXONOMY.version,
+        on('matchingTopics') ? keys : [],
+        on('matchingTopics') ? [] : keys,
       );
       return c.redirect('/account');
     } catch (error) {
@@ -1012,32 +1024,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     registry.setReferenceOptIn(me.handle, form.referenceOptIn === '1');
     return c.redirect('/account');
-  });
-
-  app.post('/account/matching-dimensions', async (c) => {
-    const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
-    const current = registry.matchingDimensionsFor(me);
-    const values = (value: string | File | Array<string | File> | undefined): string[] =>
-      (Array.isArray(value) ? value : value == null ? [] : [value])
-        .filter((item): item is string => typeof item === 'string');
-    try {
-      if (current.status === 'pending') {
-        throw new Error('Matching interests are not ready; sync more history and wait for processing to finish');
-      }
-      const form = await c.req.parseBody({ all: true });
-      registry.setMatchingDimensions(
-        me.handle,
-        Number(form.taxonomyVersion),
-        values(form.selectedTopicKeys),
-        values(form.excludedTopicKeys),
-      );
-      return c.redirect('/account');
-    } catch (error) {
-      return c.html(accountPage(me, accountStateFor(me, {
-        error: error instanceof Error ? error.message : String(error),
-      }), langOf(c)), 400);
-    }
   });
 
   // Browser-friendly Takeout import: same parser and idempotent ingest as
