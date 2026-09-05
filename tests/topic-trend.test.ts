@@ -7,6 +7,8 @@ import type { YoutubeDashboardData, YoutubeTopicTrendMonth } from '../src/youtub
 function trendFixture(): YoutubeTopicTrendMonth[] {
   return Array.from({ length: 12 }, (_, monthIndex) => ({
     month: `2025-${String(monthIndex + 1).padStart(2, '0')}`,
+    watchEvents: 100,
+    partialPeriod: false,
     classifiableWatchEvents: 100,
     processedWatchEvents: 100,
     classifiedWatchEvents: monthIndex === 9 ? 50 : 100,
@@ -66,7 +68,7 @@ test('months without classified time stay unknown instead of becoming zero', () 
   assert.equal(model.frames[4].values[0].share, null);
 
   const output = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('en'));
-  assert.match(output, /not enough classified data/);
+  assert.match(output, /No usable classifications for this period/);
   assert.doesNotMatch(output, /Topic 01 · May 2025 · 0\.0%/);
 });
 
@@ -80,8 +82,8 @@ test('topic dynamics renders stable ranked rows and an empty state for an unclas
   for (const script of output.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
     assert.doesNotThrow(() => Function(script[1]));
   }
-  months[11] = { ...months[11], classifiedWatchSeconds: 0, classificationCoverage: 0 };
+  months[11] = { ...months[11], classifiedWatchEvents: 0, classifiedWatchSeconds: 0, classificationCoverage: 0 };
   const empty = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('zh'));
-  assert.match(empty, /data-race-empty>分類資料不足/);
+  assert.match(empty, /data-race-empty>本期尚無可用分類/);
   assert.match(empty, /data-race-list style="height:441px"><\/ol>/);
 });
