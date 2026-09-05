@@ -94,6 +94,38 @@ test('metadata display counts remain available without legacy taxonomy tables an
   } finally { repository.close(); }
 });
 
+test('metadata progress follows active, dormant and missing channel refresh work', () => {
+  const repository = new Repository(':memory:');
+  const now = new Date('2026-10-20T00:00:00Z');
+  const channels = [
+    { id: 'active', watched: '2026-10-15T00:00:00Z', fetched: '2026-10-01T00:00:00Z' },
+    { id: 'dormant', watched: '2026-09-01T00:00:00Z', fetched: '2026-10-01T00:00:00Z' },
+    { id: 'expired', watched: '2026-06-01T00:00:00Z', fetched: '2026-07-01T00:00:00Z' },
+    { id: 'missing', watched: '2026-06-01T00:00:00Z', fetched: null },
+  ];
+  try {
+    repository.ingestYoutubeArchive({ archiveHash: 'metadata-cadence', source: 'takeout', searches: [],
+      watches: channels.map(({ id, watched }) => ({ eventId: id, videoId: `video-${id}`,
+        title: id, url: `https://www.youtube.com/watch?v=video-${id}`,
+        channelId: id, channelTitle: id, channelUrl: '', watchedAt: watched,
+        actualWatchedSeconds: 600, activityType: 'video' as const })) });
+    const db = (repository as unknown as { db: DatabaseSync }).db;
+    db.prepare('UPDATE youtube_videos SET metadata_fetched_at=?').run(now.toISOString());
+    const insert = db.prepare(`INSERT INTO youtube_channels
+      (channel_id,name,thumbnail_url,metadata_fetched_at,statistics_fetched_at) VALUES (?,?,'',?,?)`);
+    for (const channel of channels) {
+      if (channel.fetched) insert.run(channel.id, channel.id, channel.fetched, channel.fetched);
+    }
+    const before = db.prepare('SELECT total_changes() changes').get()!.changes;
+    assert.deepEqual(repository.youtubeChannelsNeedingMetadata(10, now), ['active', 'expired', 'missing']);
+    assert.deepEqual(repository.youtubeMetadataProcessingCounts(now), {
+      videos: 4, videosPendingMetadata: 0, channelsPendingMetadata: 3,
+    }, 'dormant channels with statistics younger than 90 days are not pending');
+    assert.equal(repository.youtubeProcessingCounts(now).channelsPendingMetadata, 3);
+    assert.equal(db.prepare('SELECT total_changes() changes').get()!.changes, before);
+  } finally { repository.close(); }
+});
+
 test('v3 display job read includes the actual version and phase without exposing stored errors or altering work', () => {
   const db = new DatabaseSync(':memory:');
   try {

@@ -12,6 +12,10 @@ export interface WorkerOpsStatus {
   users?: number;
   failedUsers?: number;
   lastError?: string;
+  // YouTube Data API requests this worker process made since the last quota
+  // reset (one request = one quota unit). See youtubeApiUsage().
+  youtubeApiRequestsSinceReset?: number;
+  youtubeApiQuotaResetAt?: string;
 }
 
 export const WORKER_HEARTBEAT_INTERVAL_MS = 30_000;

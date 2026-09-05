@@ -233,7 +233,7 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.equal(firstResponse.headers.get('cache-control'), 'no-store');
     assert.equal(firstResponse.headers.get('x-robots-tag'), 'noindex');
     const first = await firstResponse.text();
-    assert.equal((first.match(/<article class="mt-card">/g) ?? []).length, 20);
+    assert.equal((first.match(/<article class="mt-card"[^>]*>/g) ?? []).length, 20);
     assert.match(first, /Candidate 1/);
     assert.match(first, /Candidate 20/);
     assert.doesNotMatch(first, /Candidate 21/);
@@ -249,7 +249,7 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     assert.doesNotMatch(first, /watchEvents|estimatedWatchSeconds|topicCoverage|candidateUserId/);
 
     const second = await (await app.request('/matches?page=2', { headers: { cookie } })).text();
-    assert.equal((second.match(/<article class="mt-card">/g) ?? []).length, 1);
+    assert.equal((second.match(/<article class="mt-card"[^>]*>/g) ?? []).length, 1);
     assert.match(second, /Candidate 21/);
     assert.match(second, /href="\/matches\?page=1"/);
 

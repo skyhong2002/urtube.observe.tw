@@ -6,6 +6,13 @@ const publicBaseUrl = (process.env.PUBLIC_BASE_URL ?? (process.env.DOMAIN ? `htt
 const youtubePrivateDataKey = process.env.YOUTUBE_PRIVATE_DATA_KEY ?? '';
 const youtubeCaptureToken = process.env.YOUTUBE_CAPTURE_TOKEN ?? '';
 const youtubeSyncHour = Number(process.env.YOUTUBE_SYNC_HOUR ?? 4);
+// YOUTUBE_API_KEY (single) and YOUTUBE_API_KEYS (comma separated) combine, in
+// that order. Extra keys only add quota when they come from different Google
+// Cloud projects; see src/youtube/api-keys.ts.
+const youtubeApiKeys = [...new Set([process.env.YOUTUBE_API_KEY, process.env.YOUTUBE_API_KEYS]
+  .flatMap((value) => (value ?? '').split(','))
+  .map((key) => key.trim())
+  .filter(Boolean))];
 const signupPerHourPerIp = Number(process.env.SIGNUP_PER_HOUR_PER_IP ?? 5);
 const maxUsers = Number(process.env.MAX_USERS ?? 25);
 const maxUserDatabaseMb = Number(process.env.MAX_USER_DATABASE_MB ?? 512);
@@ -61,7 +68,9 @@ export const config = {
       ?? `${publicBaseUrl}/auth/google/callback`,
   },
   youtube: {
-    apiKey: process.env.YOUTUBE_API_KEY ?? '',
+    // First configured key; truthy whenever metadata enrichment is possible.
+    apiKey: youtubeApiKeys[0] ?? '',
+    apiKeys: youtubeApiKeys,
     privateDataKey: youtubePrivateDataKey,
     captureToken: youtubeCaptureToken,
     googleClientId: process.env.GOOGLE_DATA_PORTABILITY_CLIENT_ID ?? '',

@@ -67,7 +67,7 @@ test('private candidates become friends before Overview, Insights and Blend are 
     const bobToken = bobCard.find('[name=actionToken]').attr('value')!;
     assert.ok(bobToken);
     assert.equal(bobCard.find('.mt-person-link').attr('href'), '/bob-match');
-    assert.equal(bobCard.find('.mt-actions form').attr('action'), '/matches/request');
+    assert.equal(bobCard.find('[data-friendship-tools] form').attr('action'), '/matches/request');
     assert.equal(bobCard.find('a[href*="/compare/"]').length, 0);
     assert.equal(bobCard.find('.mt-percent').text(), '100%match');
     assert.doesNotMatch(directory.html(), /@bob-private|Legacy private biography/);

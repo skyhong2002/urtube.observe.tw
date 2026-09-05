@@ -174,8 +174,8 @@ for (const decision of ['accept', 'decline', 'withdraw'] as const) {
       const card = directory('.mt-card').filter((_, el) => directory(el).find('h2').text() === 'Public Sender');
       assert.equal(card.find('.mt-actions a').attr('href'), '/invite-private/compare/invite-public');
       assert.equal(card.find('form[action="/matches/respond"] [name=requestToken]').attr('value'), requestToken);
-      assert.equal(card.find('button[value=accept]').text(), '接受好友邀請');
-      assert.equal(card.find('button[value=decline]').text(), '拒絕');
+      assert.equal(card.find('button[value=accept]').attr('aria-label'), '接受好友邀請');
+      assert.equal(card.find('button[value=decline]').attr('aria-label'), '拒絕');
       assert.equal(card.find('.mt-percent').text(), '100%合拍度');
       const blendResponse = await app.request('/invite-private/compare/invite-public', { headers: recipientHeaders });
       assert.equal(blendResponse.status, 200);
