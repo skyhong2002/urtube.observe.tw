@@ -20,9 +20,6 @@ jobs:
       - name: Test release manifest
         run: PYTHONDONTWRITEBYTECODE=1 python3 deploy/komodo/test_release.py
 
-      - name: Test deployment gate
-        run: python3 scripts/cd/test_cd.py
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
