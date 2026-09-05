@@ -563,8 +563,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     ) as ArrayBuffer);
   };
 
-  // Avatar URLs remain same-origin: neither email hashes nor Google/Gravatar
-  // URLs reach the browser. Matching variants resolve an existing opaque
+  // Avatar URLs remain same-origin: Google image URLs never reach the browser. Matching variants resolve an existing opaque
   // token and re-check consent on every request.
   // Signed-in members can see public profiles, friends and discovery avatars.
   app.get('/avatar/member/:handle', async (c) => {

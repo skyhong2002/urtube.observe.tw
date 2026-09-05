@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +9,6 @@ import {
   AVATAR_FETCH_TIMEOUT_MS,
   AVATAR_MAX_BYTES,
   AvatarService,
-  gravatarAvatarUrl,
   safeGoogleAvatarUrl,
   type AvatarImage,
 } from '../src/avatars.js';
@@ -115,7 +113,7 @@ test('Google picture claims are accepted without requesting a new OAuth scope', 
   }
 });
 
-test('avatar service prefers Google, then a SHA-256 Gravatar, and caches bounded images', async () => {
+test('avatar service only fetches Google and uses local initials without external email lookups', async () => {
   const registry = new UserRegistry(':memory:');
   try {
     const googleUser = registry.createUser('google-avatar', 'Google Avatar', {
@@ -135,21 +133,16 @@ test('avatar service prefers Google, then a SHA-256 Gravatar, and caches bounded
     assert.equal(requested[0]!.url, googleUser.avatarUrl);
     assert.ok(requested[0]!.signal);
 
-    const gravatarUser = registry.createUser('gravatar-user', 'Gravatar User', {
-      googleEmail: ' Mixed.Case@Example.test ',
+    const noPictureUser = registry.createUser('no-picture', 'Local Initial', {
+      googleEmail: 'local@example.test',
     });
-    let gravatarRequest = '';
-    const gravatarService = new AvatarService((async (input) => {
-      gravatarRequest = String(input);
-      return new Response(new Uint8Array([4, 5, 6]), {
-        headers: { 'content-type': 'image/png' },
-      });
+    let externalCalls = 0;
+    const localService = new AvatarService((async () => {
+      externalCalls++;
+      return new Response(new Uint8Array([4, 5, 6]), { headers: { 'content-type': 'image/png' } });
     }) as typeof fetch);
-    assert.equal((await gravatarService.avatarFor(gravatarUser)).source, 'gravatar');
-    const expectedHash = createHash('sha256').update('mixed.case@example.test').digest('hex');
-    assert.equal(gravatarRequest, `https://gravatar.com/avatar/${expectedHash}?s=160&r=g&d=identicon`);
-    assert.ok(!gravatarRequest.includes('Mixed.Case'));
-    assert.equal(gravatarAvatarUrl('not-an-email'), null);
+    assert.equal((await localService.avatarFor(noPictureUser)).source, 'fallback');
+    assert.equal(externalCalls, 0, 'an email address must never trigger an avatar lookup');
     assert.equal(AVATAR_FETCH_TIMEOUT_MS, 3_000);
   } finally {
     registry.close();
@@ -173,7 +166,9 @@ test('invalid, oversized, and unavailable remote avatars fail closed to a local 
         });
     }) as typeof fetch);
     const avatar = await service.avatarFor(user);
-    assert.equal(calls, 2, 'Gravatar is attempted after the Google image is rejected');
+    assert.equal(calls, 1, 'a failed Google image goes directly to the local fallback');
+    assert.equal((await service.avatarFor({ ...user, avatarUrl: user.avatarUrl + '-oversized' })).source, 'fallback');
+    assert.equal(calls, 2, 'oversized Google images also use the local fallback');
     assert.equal(avatar.source, 'fallback');
     assert.equal(avatar.contentType, 'image/svg+xml');
     const svg = Buffer.from(avatar.body).toString();

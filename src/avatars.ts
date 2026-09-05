@@ -12,7 +12,7 @@ const ALLOWED_IMAGE_TYPES = new Set([
 export interface AvatarImage {
   body: Uint8Array;
   contentType: string;
-  source: 'google' | 'gravatar' | 'fallback';
+  source: 'google' | 'fallback';
 }
 
 interface CachedAvatar {
@@ -35,13 +35,6 @@ export function safeGoogleAvatarUrl(value: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-export function gravatarAvatarUrl(email: string): string | null {
-  const normalized = email.trim().toLocaleLowerCase('en-US');
-  if (!normalized || !normalized.includes('@')) return null;
-  const hash = createHash('sha256').update(normalized).digest('hex');
-  return `https://gravatar.com/avatar/${hash}?s=160&r=g&d=identicon`;
 }
 
 function fallbackAvatar(user: User): AvatarImage {
@@ -106,7 +99,7 @@ export class AvatarService {
   }
 
   async avatarFor(user: User): Promise<AvatarImage> {
-    const key = `${user.id}:${user.avatarUrl ?? ''}:${user.googleEmail ?? ''}:${user.displayName}`;
+    const key = `${user.id}:${user.avatarUrl ?? ''}:${user.displayName}`;
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       this.cache.delete(key);
@@ -120,13 +113,6 @@ export class AvatarService {
     if (googleUrl) {
       const fetched = await this.external(googleUrl);
       if (fetched) image = { ...fetched, source: 'google' };
-    }
-    if (!image) {
-      const gravatarUrl = gravatarAvatarUrl(user.googleEmail ?? '');
-      if (gravatarUrl) {
-        const fetched = await this.external(gravatarUrl);
-        if (fetched) image = { ...fetched, source: 'gravatar' };
-      }
     }
     image ??= fallbackAvatar(user);
     this.cache.set(key, { expiresAt: Date.now() + AVATAR_CACHE_TTL_MS, image });

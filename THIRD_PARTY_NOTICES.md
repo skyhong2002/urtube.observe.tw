@@ -96,7 +96,7 @@
 | OpenAI GPT 5.6 Luna／OpenAI | 團隊採用 GPT 5.6 Luna 處理所有需要語言模型的內容理解與生成工作，包含依公開影片資訊整理興趣主題。分類服務透過 `AI_BASE_URL`、`AI_MODEL` 設定，程式見 [`src/youtube/ai.ts`](src/youtube/ai.ts)。 | 模型服務依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。實際部署的 model ID／revision 與可公開的模型及資料來源文件待補充。 |
 | Google Gemini embedding／Google | 團隊採用 Gemini embedding 進行語意分析，理解內容與興趣之間的關聯；[官方來源與使用文件](https://ai.google.dev/gemini-api/docs/embeddings)。 | 服務條款見 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)。實際採用的 embedding model ID／revision 與可公開的模型及資料來源文件待補充。 |
 | Codex CLI gateway／OpenAI | [部署紀錄](docs/ai-gateway.md) 描述自訂 shim 執行 `codex exec` 提供 chat-completions；shim 原始碼不在本 repository，現行部署版本待確認。 | CLI 程式來源及 Apache-2.0 授權見 [openai/codex](https://github.com/openai/codex/blob/main/LICENSE)；模型／訂閱服務另依 [OpenAI 適用條款](https://openai.com/policies/terms-of-use/)。shim 自身來源與授權亦待部署者補充。 |
-| Google／Gravatar 頭像 | [`src/avatars.ts`](src/avatars.ts) 取得 Google allowlist 圖片或 [Gravatar](https://gravatar.com/) 圖片，經本站同源路徑提供；本機字首頭像由程式生成。 | Google 圖片依帳號／服務適用條款；Gravatar 依 [Automattic 條款](https://wordpress.com/tos/) 與[隱私政策](https://automattic.com/privacy/)。使用 Gravatar 時伺服器會送出由 Email 產生的 SHA-256 識別值，瀏覽器不直接取得該值。 |
+| Google 頭像 | [`src/avatars.ts`](src/avatars.ts) 只取得 Google 登入提供的 allowlist 圖片，經本站同源路徑提供；取不到時使用程式生成的本機字首頭像，不再向 Gravatar 查詢。 | Google 圖片依帳號／服務適用條款。 |
 
 模型名稱與用途依團隊提供的實際使用資訊揭露；版本資訊隨正式部署紀錄更新。
 
