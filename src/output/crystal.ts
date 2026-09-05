@@ -1,7 +1,7 @@
 import type { CrystalComparison, CrystalShift, YoutubeCrystal } from '../youtube/crystal.js';
 import { matchingSimilarityBand } from '../youtube/matching.js';
 import { messages, type Lang, type Messages } from './i18n.js';
-import { html, shell } from './pages.js';
+import { html, primaryNav, shell, type ShellNavItem } from './pages.js';
 
 // Shifts are polarity, so they wear the diverging pair: warm red up, cool
 // blue down (never good/bad status colors — more attention isn't "good").
@@ -61,7 +61,12 @@ export function shiftsSection(crystal: YoutubeCrystal, lang: Lang = 'en'): strin
     ${rows ? `<div class="cx-shifts">${rows}</div>` : `<p class="muted">${t.noShifts}</p>`}</section>`;
 }
 
-export function comparePage(comparison: CrystalComparison, requesterPath: string, lang: Lang = 'en'): string {
+export function comparePage(
+  comparison: CrystalComparison,
+  requesterPath: string,
+  lang: Lang = 'en',
+  nav: ShellNavItem[] = primaryNav(lang, { exampleHref: requesterPath }),
+): string {
   const t = messages(lang);
   const list = (
     title: string,
@@ -102,7 +107,7 @@ export function comparePage(comparison: CrystalComparison, requesterPath: string
   return shell(
     `${comparison.a.displayName} × ${comparison.b.displayName} · ${t.crystalCompare}`,
     body,
-    [{ label: t.navBack, href: requesterPath }],
+    nav,
     '',
     lang,
     '/compare',
