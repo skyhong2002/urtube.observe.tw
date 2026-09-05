@@ -104,9 +104,10 @@ const styles = `
   .yt-profile{align-items:flex-start;display:flex;gap:18px;margin:14px 0 22px}
   .yt-avatar{background:linear-gradient(140deg,#e66767,#a92f2f);border-radius:50%;display:block;flex:0 0 70px;height:70px;object-fit:cover;width:70px}
   .yt-profile-copy{min-width:0}.profile-details li{overflow-wrap:anywhere;max-width:100%}
-  .profile-social-buttons{display:flex;flex-wrap:wrap;gap:10px;list-style:none;padding:0;margin:16px 0}
+  .profile-action-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:16px 0}
+  .profile-social-buttons{display:flex;flex-wrap:wrap;gap:10px;list-style:none;padding:0;margin:0}
   .profile-icon-button,.profile-edit-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;border:1px solid var(--line-strong);background:var(--raised);color:var(--ink);text-decoration:none;transition:background .15s,border-color .15s}
-  .profile-icon-button{width:44px;height:44px;border-radius:50%}.profile-edit-button{border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700}
+  .profile-icon-button{width:44px;height:44px;border-radius:50%}.profile-edit-button{width:44px;height:44px;border-radius:50%;padding:0}
   .profile-icon-button:hover,.profile-edit-button:hover{border-color:var(--accent-text);background:var(--surface)}
   .site-nav a[href="/account/profile"]{border:1px solid var(--line-strong);background:var(--raised);color:var(--ink)}
   .site-nav a[href="/account/profile"][aria-current=page]{background:var(--ink);color:#111}
