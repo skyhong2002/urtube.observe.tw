@@ -76,12 +76,14 @@ history cannot dominate a current match. Pool eligibility is controlled by
 the constants in `src/youtube/matching.ts` (initially 200 recent watch events
 across 14 active days); incomplete topic coverage falls back to channels.
 User-facing matching results are whole percentages from 0–100. Formula version
-`cosine-equal-v1` computes cosine similarity over the mutually allowed
-canonical-topic vector and the aggregate channel vector, then gives each
-available dimension equal weight. If only one dimension is available it is
-used alone. Values are clamped and rounded to the nearest integer; raw shares,
-vectors, event counts, and the activity cutoff never enter the presentation
-model. A processing notice identifies provisional ordering.
+`calibrated-v2` computes cosine similarity over the canonical-topic vector and
+the aggregate channel vector, stretches each with a fixed calibration curve
+(topics: `(cos − 0.4) / 0.55`, channels: `1 − e^(−25·cos)`, both clamped to
+0–1), then gives each available dimension equal weight. If only one dimension
+is available it is used alone. The constants are fixed in
+`src/youtube/candidates.ts`, so a percentage does not depend on who else is in
+the pool. Values are rounded to the nearest integer; raw shares, vectors,
+event counts, and the activity cutoff never enter the presentation model. A processing notice identifies provisional ordering.
 Matching starts on for new accounts and is independent of `dashboard_public`.
 It is a single switch, like a friend-discovery opt-in: joining uses every
 canonical topic and the aggregate channel vector for the percentage, and lets
@@ -96,22 +98,25 @@ finite page. Cards contain only a display name, rounded match percentage, up
 to two allowed canonical topics, an optional mutually allowed channel, and a
 generic icebreaker. The avatar and card action open one split-screen VS
 comparison, with the signed-in person on the left and the candidate on the
-right, without first sending a request. The comparison uses a short-lived,
-session-bound opaque token and follows the stats.fm compare layout: the same
+right, without first sending a request. The comparison lives at the stable
+address `/<my-handle>/compare/<their-handle>` (only the two members involved
+can open it; old `/matches/compare/<token>` links forward while the token is
+valid) and follows the stats.fm compare layout: the same
 sections for every pair, with a range switch (28 days, 90 days, 365 days, all
 time). Before mutual consent it shows only the rounded match percentage, up to
 five broad canonical topics with each person's rank, and each person's hour-of-
-day and weekday rhythm as their own share (no counts). It never exposes
-handles, emails, crystals, histories, raw shares, full vectors, introductions,
-contacts, or candidate dashboards.
+day and weekday rhythm as their own share (no counts). Members see each
+other's handles in these addresses; it never exposes emails, crystals,
+histories, raw shares, full vectors, introductions, contacts, or candidate
+dashboards (a dashboard keeps its own visibility setting).
 When at least three of the ten nearest eligible people contribute the same
 unseen item, `/matches` may also show up to five broad topics and five channels
 as a group signal. It never names contributors or exposes their values, videos,
 or source details. Channels from people who allow topic-only disclosure are not
 used. Governed news, editorial, and political channels are excluded. If those
 labels cannot be verified, channel recommendations stay hidden.
-“Want to meet” is a separate action on the VS page and uses its short-lived
-opaque token, so candidate handles and internal ids never enter the page. The
+“Want to meet” is a separate action on the VS page and uses a short-lived
+opaque token minted with the page, so internal ids never enter the page. The
 same person remains in the directory while a request is pending or accepted.
 The recipient can agree or decline, and the sender can withdraw while pending.
 Only mutual consent unlocks the rest of the comparison: watch stats (events,

@@ -296,7 +296,7 @@ test('/matches removes governed channels and recomputes an anonymous cohort afte
     assert.doesNotMatch(afterOptOut, /Popular around your circle|Discovery Channel|>Gaming</);
 
     assert.match(matchesPage(
-      'Viewer',
+      { handle: 'viewer', displayName: 'Viewer' },
       '/viewer',
       { kind: 'empty' },
       'zh',

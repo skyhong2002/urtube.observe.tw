@@ -67,26 +67,38 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     registry.setMatchingProfile(alice.handle, 'Alice likes making things.', '@alice-private');
     registry.setMatchingProfile(bob.handle, 'Bob likes live music.', '@bob-private');
 
+    const tokenIn = (html: string): string => {
+      const match = html.match(/name="actionToken" value="([A-Za-z0-9_-]+)"/);
+      assert.ok(match, 'comparison page mints an action token for its forms');
+      return match[1]!;
+    };
     const candidates = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    const bobCard = candidates.match(/<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/matches\/compare\/([A-Za-z0-9_-]+)"/);
-    assert.ok(bobCard);
-    assert.doesNotMatch(candidates, /@bob-private|bob-match|candidateUserId/);
+    assert.match(candidates, /<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/alice-match\/compare\/bob-match"/);
+    assert.doesNotMatch(candidates, /@bob-private|candidateUserId|actionToken/);
     assert.match(candidates, />100%<small>match<\/small>/);
-    assert.match(candidates, new RegExp(`<a class="mt-person-link" href="/matches/compare/${bobCard[1]}"><img`));
-    assert.doesNotMatch(candidates, /matches\/profile|You both said yes|Bob likes live music/);
+    assert.match(candidates, /<a class="mt-person-link" href="\/alice-match\/compare\/bob-match"><img class="mt-avatar" src="\/avatar\/member\/bob-match"/);
+    assert.doesNotMatch(candidates, /matches\/profile|matches\/compare|You both said yes|Bob likes live music/);
     assert.doesNotMatch(candidates, /Strong fit|Aligned|Some overlap|Different/);
 
-    const profile = await app.request(`/matches/profile/${bobCard[1]}`, {
-      headers: { cookie: aliceCookie },
-    });
-    assert.equal(profile.status, 302);
-    assert.equal(profile.headers.get('location'), `/matches/compare/${bobCard[1]}`);
+    // Legacy token links forward to the stable address while valid.
+    const legacyToken = registry.issueMatchActionToken(alice, bob.id, ['Music']);
+    for (const legacyPath of [`/matches/profile/${legacyToken}?lang=zh`, `/matches/compare/${legacyToken}?lang=zh`]) {
+      const legacy = await app.request(legacyPath, { headers: { cookie: aliceCookie } });
+      assert.equal(legacy.status, 302);
+      assert.equal(legacy.headers.get('location'), '/alice-match/compare/bob-match?lang=zh');
+    }
+    // The address is symmetric for the two people involved and closed to everyone else.
+    const swapped = await app.request('/bob-match/compare/alice-match', { headers: { cookie: aliceCookie } });
+    assert.equal(swapped.status, 302);
+    assert.equal(swapped.headers.get('location'), '/alice-match/compare/bob-match');
+    assert.equal((await app.request('/alice-match/compare/bob-match')).status, 302, 'anonymous visitors sign in first');
 
-    const comparison = await app.request(`/matches/compare/${bobCard[1]}`, {
+    const comparison = await app.request('/alice-match/compare/bob-match', {
       headers: { cookie: aliceCookie },
     });
     assert.equal(comparison.status, 200);
     const comparisonHtml = await comparison.text();
+    const bobToken = tokenIn(comparisonHtml);
     assert.match(comparisonHtml, /Alice/);
     assert.match(comparisonHtml, /Bob/);
     assert.match(comparisonHtml, /100%/);
@@ -94,11 +106,14 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.match(comparisonHtml, /Channel intersection/);
     assert.match(comparisonHtml, /Shared interests/);
     assert.match(comparisonHtml, /action="\/matches\/request"/);
-    assert.doesNotMatch(comparisonHtml, /@bob-private|bob-match|alice-match|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
-    assert.equal((await app.request(`/avatar/match/${bobCard[1]}/viewer`, {
+    assert.doesNotMatch(comparisonHtml, /@bob-private|candidateUserId|watchEvents|estimatedWatchSeconds|topicCoverage/);
+    assert.equal((await app.request('/avatar/member/alice-match', {
       headers: { cookie: aliceCookie },
     })).status, 200);
-    assert.equal((await app.request(`/matches/compare/${bobCard[1]}`, {
+    assert.equal((await app.request('/alice-match/compare/bob-match', {
+      headers: { cookie: carolCookie },
+    })).status, 404);
+    assert.equal((await app.request('/carol-match/compare/nobody-match', {
       headers: { cookie: carolCookie },
     })).status, 404);
     assert.equal((await app.request('/dashboard', { headers: { cookie: aliceCookie } })).headers.get('location'),
@@ -107,7 +122,7 @@ test('candidate directory keeps every relationship in one comparison-first flow'
       '/auth/google?next=%2Fdashboard');
 
     const unscoped = await app.request('/matches/request', {
-      ...form({ actionToken: bobCard[1] }),
+      ...form({ actionToken: bobToken }),
       headers: { ...form({}).headers, cookie: carolCookie },
     });
     assert.equal(unscoped.status, 400);
@@ -118,17 +133,18 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.equal(invalid.status, 400);
 
     const sent = await app.request('/matches/request', {
-      ...form({ actionToken: bobCard[1] }),
+      ...form({ actionToken: bobToken }),
       headers: { ...form({}).headers, cookie: aliceCookie },
     });
     assert.equal(sent.status, 302);
+    assert.equal(sent.headers.get('location'), '/alice-match/compare/bob-match');
     const duplicate = await app.request('/matches/request', {
-      ...form({ actionToken: bobCard[1] }),
+      ...form({ actionToken: bobToken }),
       headers: { ...form({}).headers, cookie: aliceCookie },
     });
     assert.equal(duplicate.status, 302);
     assert.equal(registry.matchingInboxFor(alice).sent.length, 1);
-    const sentComparison = await app.request(`/matches/compare/${bobCard[1]}`, {
+    const sentComparison = await app.request('/alice-match/compare/bob-match', {
       headers: { cookie: aliceCookie },
     });
     assert.equal(sentComparison.status, 200, 'sending a request keeps comparison available');
@@ -144,11 +160,11 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.doesNotMatch(beforeAlice, /@bob-private/);
     assert.doesNotMatch(beforeBob, /@alice-private/);
 
-    const aliceCard = beforeBob.match(/<article class="mt-card">[\s\S]*?<h2>Alice<\/h2>[\s\S]*?href="\/matches\/compare\/([A-Za-z0-9_-]+)"/);
-    assert.ok(aliceCard);
-    const incomingComparison = await (await app.request(`/matches/compare/${aliceCard[1]}`, {
+    assert.match(beforeBob, /href="\/bob-match\/compare\/alice-match"/);
+    const incomingComparison = await (await app.request('/bob-match/compare/alice-match', {
       headers: { cookie: bobCookie },
     })).text();
+    const aliceToken = tokenIn(incomingComparison);
     assert.match(incomingComparison, /Want to meet too/);
     assert.doesNotMatch(incomingComparison, /@alice-private|Alice likes making things/);
 
@@ -160,11 +176,11 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.equal(registry.matchingInboxFor(alice).connections.length, 0);
 
     const accepted = await app.request('/matches/respond', {
-      ...form({ actionToken: aliceCard[1], requestToken: request.requestToken, response: 'accept' }),
+      ...form({ actionToken: aliceToken, requestToken: request.requestToken, response: 'accept' }),
       headers: { ...form({}).headers, cookie: bobCookie },
     });
     assert.equal(accepted.status, 302);
-    assert.equal(accepted.headers.get('location'), `/matches/compare/${aliceCard[1]}`);
+    assert.equal(accepted.headers.get('location'), '/bob-match/compare/alice-match');
     const afterAlice = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
     const afterBob = await (await app.request('/matches', { headers: { cookie: bobCookie } })).text();
     const afterCarol = await (await app.request('/matches', { headers: { cookie: carolCookie } })).text();
@@ -172,21 +188,20 @@ test('candidate directory keeps every relationship in one comparison-first flow'
     assert.match(afterBob, /Alice/);
     assert.match(afterAlice, /Deeper comparison unlocked/);
     assert.match(afterBob, /Deeper comparison unlocked/);
-    const refreshedAliceCard = afterBob.match(/<article class="mt-card">[\s\S]*?<h2>Alice<\/h2>[\s\S]*?href="\/matches\/compare\/([A-Za-z0-9_-]+)"/);
-    assert.ok(refreshedAliceCard);
-    const unlocked = await (await app.request(`/matches/compare/${refreshedAliceCard[1]}`, {
+    const unlocked = await (await app.request('/bob-match/compare/alice-match', {
       headers: { cookie: bobCookie },
     })).text();
+    const unlockedToken = tokenIn(unlocked);
     assert.match(unlocked, /More shared interests unlocked/);
     assert.match(unlocked, /action="\/matches\/withdraw"/);
     assert.doesNotMatch(unlocked, /@alice-private|Alice likes making things/);
     assert.doesNotMatch(afterCarol, /@alice-private|@bob-private/);
-    assert.doesNotMatch(afterAlice, /@bob-private|Bob likes live music|bob-match|candidateUserId|watchEvents|exact score/);
+    assert.doesNotMatch(afterAlice, /@bob-private|Bob likes live music|candidateUserId|watchEvents|exact score/);
 
     const connectionToken = registry.matchingInboxFor(alice).connections[0]?.requestToken;
     assert.ok(connectionToken);
     const disconnected = await app.request('/matches/withdraw', {
-      ...form({ actionToken: refreshedAliceCard[1], requestToken: connectionToken }),
+      ...form({ actionToken: unlockedToken, requestToken: connectionToken }),
       headers: { ...form({}).headers, cookie: bobCookie },
     });
     assert.equal(disconnected.status, 302);
@@ -271,18 +286,20 @@ test('expired discovery tokens revoke profiles, comparisons, avatars, and reques
     publish(registry, bob);
     const cookie = `urtube_session=${registry.createSession(alice)}`;
     const token = registry.issueMatchActionToken(alice, bob.id, ['Music']);
-    const legacyProfile = await app.request(`/matches/profile/${token}`, { headers: { cookie } });
-    assert.equal(legacyProfile.status, 302);
-    assert.equal(legacyProfile.headers.get('location'), `/matches/compare/${token}`);
-    assert.equal((await app.request(`/matches/compare/${token}`, { headers: { cookie } })).status, 200);
+    for (const legacyPath of [`/matches/profile/${token}`, `/matches/compare/${token}`]) {
+      const legacy = await app.request(legacyPath, { headers: { cookie } });
+      assert.equal(legacy.status, 302);
+      assert.equal(legacy.headers.get('location'), '/expiry-alice/compare/expiry-bob');
+    }
 
     const direct = new DatabaseSync(path);
     direct.prepare("UPDATE match_action_tokens SET expires_at='2000-01-01T00:00:00.000Z'").run();
     direct.close();
 
-    assert.equal((await app.request(`/matches/profile/${token}`, { headers: { cookie } })).status, 302);
+    assert.equal((await app.request(`/matches/profile/${token}`, { headers: { cookie } })).status, 404);
     assert.equal((await app.request(`/matches/compare/${token}`, { headers: { cookie } })).status, 404);
-    assert.equal((await app.request(`/avatar/match/${token}`, { headers: { cookie } })).status, 404);
+    // The stable address keeps working; only the token-based forms expire.
+    assert.equal((await app.request('/expiry-alice/compare/expiry-bob', { headers: { cookie } })).status, 200);
     assert.throws(() => registry.createMatchRequest(alice, token), /no longer valid/);
   } finally {
     registry.close();

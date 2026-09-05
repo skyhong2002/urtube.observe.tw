@@ -224,11 +224,15 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     const bobCookie = `urtube_session=${registry.createSession(bob)}`;
 
     const directory = await (await app.request('/matches', { headers: { cookie: aliceCookie } })).text();
-    const bobCard = directory.match(/<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/matches\/compare\/([A-Za-z0-9_-]+)"/);
-    assert.ok(bobCard);
-    const token = bobCard[1];
+    assert.match(directory, /<article class="mt-card">[\s\S]*?<h2>Bob<\/h2>[\s\S]*?href="\/alice-cmp\/compare\/bob-cmp"/);
+    const comparePath = '/alice-cmp/compare/bob-cmp';
+    const actionTokenIn = (html: string) => {
+      const match = html.match(/name="actionToken" value="([A-Za-z0-9_-]+)"/);
+      assert.ok(match, 'comparison page mints an action token for its forms');
+      return match[1]!;
+    };
 
-    const locked = await app.request(`/matches/compare/${token}?range=all`, { headers: { cookie: aliceCookie } });
+    const locked = await app.request(`${comparePath}?range=all`, { headers: { cookie: aliceCookie } });
     assert.equal(locked.status, 200);
     assert.equal(locked.headers.get('cache-control'), 'no-store');
     const lockedHtml = await locked.text();
@@ -239,24 +243,22 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.match(lockedHtml, /Watch clock/);
     assert.match(lockedHtml, /Weekdays/);
     assert.match(lockedHtml, /Unlocks when you both choose to meet/);
-    assert.match(lockedHtml, /href="\/matches\/compare\/[A-Za-z0-9_-]+\?range=28d"/);
+    assert.match(lockedHtml, /href="\/alice-cmp\/compare\/bob-cmp\?range=28d"/);
     assert.match(lockedHtml, /\?range=all" aria-current="page"/);
     // Rhythm is shown as shares only; nothing names a video, channel, or count.
     assert.match(lockedHtml, /own watches/);
     assert.doesNotMatch(lockedHtml, /Video AAAAAAAAAA1|Channel A|Channel B|First watch|Last watch|class="mt-stat-row"|youtube\.com\/watch/);
-    assert.doesNotMatch(lockedHtml, /alice-cmp|bob-cmp|candidateUserId|watchEvents|estimatedWatchSeconds/);
+    assert.doesNotMatch(lockedHtml, /candidateUserId|watchEvents|estimatedWatchSeconds/);
 
-    await app.request('/matches/request', form({ actionToken: token }, aliceCookie));
+    await app.request('/matches/request', form({ actionToken: actionTokenIn(lockedHtml) }, aliceCookie));
     const request = registry.matchingInboxFor(bob).incoming[0];
     assert.ok(request);
-    const bobDirectory = await (await app.request('/matches', { headers: { cookie: bobCookie } })).text();
-    const aliceCard = bobDirectory.match(/<article class="mt-card">[\s\S]*?<h2>Alice<\/h2>[\s\S]*?href="\/matches\/compare\/([A-Za-z0-9_-]+)"/);
-    assert.ok(aliceCard);
+    const bobView = await (await app.request('/bob-cmp/compare/alice-cmp', { headers: { cookie: bobCookie } })).text();
     await app.request('/matches/respond', form({
-      actionToken: aliceCard[1], requestToken: request.requestToken, response: 'accept',
+      actionToken: actionTokenIn(bobView), requestToken: request.requestToken, response: 'accept',
     }, bobCookie));
 
-    const unlockedHtml = await (await app.request(`/matches/compare/${token}?range=all`, {
+    const unlockedHtml = await (await app.request(`${comparePath}?range=all`, {
       headers: { cookie: aliceCookie },
     })).text();
     assert.match(unlockedHtml, /Deeper comparison unlocked/);
@@ -275,10 +277,10 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
     assert.match(unlockedHtml, /Sep 1, 2026/);
     assert.doesNotMatch(unlockedHtml, /T01:00:00|01:00:00Z/, 'edges are calendar days, never exact timestamps');
     assert.doesNotMatch(unlockedHtml, /own watches/, 'absolute rhythm once connected');
-    assert.doesNotMatch(unlockedHtml, /alice-cmp|bob-cmp|candidateUserId/);
+    assert.doesNotMatch(unlockedHtml, /candidateUserId/);
 
     // Range switch narrows every section; the page always stays available.
-    const narrow = await (await app.request(`/matches/compare/${token}?range=28d`, {
+    const narrow = await (await app.request(`${comparePath}?range=28d`, {
       headers: { cookie: aliceCookie },
     })).text();
     assert.match(narrow, /\?range=28d" aria-current="page"/);
@@ -286,7 +288,7 @@ test('the compare page is a stats.fm style side-by-side that unlocks on mutual c
 
     // Leaving matching ends the comparison entirely; there is no finer switch.
     registry.setMatchingPreferences(bob.handle, false, 'topics_and_channel');
-    assert.equal((await app.request(`/matches/compare/${token}?range=all`, {
+    assert.equal((await app.request(`${comparePath}?range=all`, {
       headers: { cookie: aliceCookie },
     })).status, 404);
   } finally {
