@@ -48,7 +48,8 @@ test('owner dashboard keeps v3 interests alongside range-based analysis without 
     assert.equal($('.yt-topic-details').length, 1);
     assert.ok($('.yt-stat').length > 0);
     assert.equal($('[data-rank-race="channels"]').length, 1);
-    assert.doesNotMatch($.text(), /Legacy classification|120 分鐘|private-profile-tag/);
+    assert.doesNotMatch($.text(), /Legacy classification|120 分鐘/);
+    assert.match($('.yt-v3-cloud').text(), /private-profile-tag/);
     assert.equal(f.repository.youtubeTopics()[0]?.name, 'Legacy classification');
   } finally { f.registry.close(); }
 });
@@ -167,5 +168,24 @@ test('cached preview displays actual clusters without confusing provisional stat
       assert.match(cards.eq(8).text(), /尚未建立|Pending/);
       assert.doesNotMatch($.text(), /private-profile-tag/);
     }
+  } finally { f.registry.close(); }
+});
+
+ test('tag clouds escape original tags and omit generated evidence and visitor detail', async () => {
+  const { v3DashboardSection } = await import('../src/output/v3-dashboard.js');
+  const f = fixture();
+  try {
+    f.profile.genres.Music!.clusters[0].tags = [
+      {text:'<script>alert(1)</script>', count:4, generatedCount:0},
+      {text:'generated-only',count:3,generatedCount:3},
+    ];
+    const options = {enabled:true,currentVersion:f.profile.version,backfillVideoLimit:2000,genres:['Music'] as const,lang:'zh' as const};
+    const render = (ownerDetails:boolean) => load(v3DashboardSection(f.profile,{...options,genres:[...options.genres],ownerDetails}));
+    const owner=render(true);
+    assert.equal(owner('.yt-v3-cloud script').length,0);
+    assert.match(owner('.yt-v3-cloud').text(), /<script>/);
+    assert.doesNotMatch(owner('.yt-v3-cloud').text(), /generated-only/);
+    assert.equal(owner('.yt-v3-cloud span').attr('title'),'4 部不同影片');
+    assert.equal(render(false)('.yt-v3-cloud').length,0);
   } finally { f.registry.close(); }
 });
