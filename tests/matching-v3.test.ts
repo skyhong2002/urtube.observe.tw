@@ -190,7 +190,7 @@ test('v3 Gemini missing key does not fall back to GPT; malformed vectors are rej
 test('v3 API enforces authentication, origin, genre consent and member detail visibility', async () => {
   const registry = new UserRegistry(':memory:');
   try {
-    registry.createUser('v3left', 'Left'); registry.createUser('v3right', 'Right');
+    registry.createUser('v3left', 'Left'); registry.createUser('v3right', 'Right', { googleEmail: 'private@example.com' });
     registry.setMatchingOptIn('v3left', true); registry.setMatchingOptIn('v3right', true);
     const left = registry.userByHandle('v3left')!, right = registry.userByHandle('v3right')!;
     const store = registry.matchingV3Store();
@@ -206,7 +206,7 @@ test('v3 API enforces authentication, origin, genre consent and member detail vi
     assert.equal((await post(['Custom'])).status, 400);
     assert.equal((await post(['Music'])).status, 403);
     const response = await post(['Sport']); assert.equal(response.status, 200);
-    const body = await response.text(); assert.ok(!/centroid|testvideo01|羽球/.test(body));
+    const body = await response.text(); assert.ok(!/centroid|testvideo01|羽球|private@example.com|googleEmail|keySeed/.test(body));
     assert.equal(JSON.parse(body).candidates[0].handle, 'v3right');
     assert.deepEqual(JSON.parse(body).candidates[0].reasons, []);
     assert.equal(JSON.parse(body).candidates.length, 1);
@@ -622,4 +622,100 @@ test('v3 Gemini dispatch is not blocked by a saturated GPT queue', async () => {
     await Promise.race([second, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Gemini blocked behind GPT')), 1000); })]);
     assert.equal(embedded, true);
   } finally { clearTimeout(timer); release(); await Promise.allSettled([first, ...(second ? [second] : [])]); db.close(); }
+});
+
+test('cached preview uses real vectors only, stays provisional and preserves background job', async () => {
+  const { cachedPreview } = await import('../src/matching-v3/preview.js');
+  const { classificationKey, embeddingKey } = await import('../src/matching-v3/pipeline.js');
+  const { db, store } = storeFixture();
+  try {
+    store.putCache(classificationKey(s, video), { tagSource: 'original', tags: ['ready','pending'], assignments: [{ genre:'Sport', tags:['ready','pending'] }] });
+    store.putCache(embeddingKey(s,'ready'), [1,0]);
+    store.schedule(1,'original-job',version(s));
+    const before = store.status(1);
+    const p = await cachedPreview({ videos:[video], complete:true, fingerprint:'bounded' },store,s,compute);
+    assert.equal(p.complete,false);
+    assert.equal(p.genres.Sport?.retainedCoverage,0.5);
+    assert.equal(p.genres.Sport?.status,'insufficient');
+    assert.equal(p.genres.Sport?.clusters.length,1);
+    assert.equal(store.publishPreview(1,p,null),true);
+    assert.deepEqual(store.status(1),before);
+    assert.equal(store.publishPreview(1,{...p,builtAt:'replacement'},p),false);
+    const result=await compareProfiles(p,p,['Sport'],compute);
+    assert.equal(result.provisional,true);
+    assert.notEqual(result.score,null);
+  } finally { db.close(); }
+});
+
+test('cached preview cannot replace a worker result published during clustering', () => {
+  const { db, store } = storeFixture();
+  try {
+    const previous = { ...profile(), version: 'old-profile' };
+    store.schedule(1, 'old', previous.version); store.finish(store.claim()!, previous);
+    const observed = store.profile(1);
+    const newer = { ...profile(), version: 'new-worker-version', builtAt: '2026-09-06T01:00:00Z' };
+    store.schedule(1, 'new', newer.version); store.finish(store.claim()!, newer);
+    const preview = { ...profile(), complete: false };
+    assert.equal(store.publishPreview(1, preview, observed), false);
+    assert.equal(store.publishPreview(1, preview, null), false);
+    assert.deepEqual(store.profile(1), newer);
+  } finally { db.close(); }
+});
+
+for (const action of ['delete', 'rename'] as const) test(`cached preview skips a user ${action}d during clustering`, async () => {
+  const { publishCachedPreviews } = await import('../src/matching-v3/preview.js');
+  const { classificationKey, embeddingKey } = await import('../src/matching-v3/pipeline.js');
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('previewfixture', 'Preview Fixture');
+    const repo = registry.repositoryFor(user), store = registry.matchingV3Store();
+    repo.upsertYoutubeCapture(normalizeYoutubeCapture({ sessionId: 'preview-fixture-session-001', videoId: 'V3FIXTURE01',
+      title: '羽球 #羽球', url: 'https://www.youtube.com/watch?v=V3FIXTURE01', watchedAt: '2026-09-04T12:00:00Z',
+      actualWatchedSeconds: 30, durationSeconds: 60 }, new Date('2026-09-05T12:00:00Z')));
+    const source = repo.matchingV3Source();
+    store.putCache(classificationKey(s, source.videos[0]), classification);
+    store.putCache(embeddingKey(s, '羽球'), [1, 0]);
+    const original = registry.repositoryFor.bind(registry);
+    registry.repositoryFor = candidate => {
+      assert.equal(registry.userByHandle(candidate.handle)?.id, candidate.id, 'never reopen a stale user database');
+      return original(candidate);
+    };
+    const raceCompute: Compute = { ...compute, cluster: async points => {
+      if (action === 'delete') registry.deleteUser(user.handle);
+      else registry.renameUser(user.handle, 'previewrenamed');
+      return compute.cluster(points);
+    } };
+    assert.deepEqual(await publishCachedPreviews(registry, s, raceCompute), { published: 0, skipped: 1 });
+    assert.equal(store.profile(user.id), null);
+  } finally { registry.close(); }
+});
+
+test('v3 comparison uses independent endpoint while clustering stays on background endpoint', async () => {
+  const original = globalThis.fetch, urls: string[] = [];
+  globalThis.fetch = (async url => { urls.push(String(url)); return new Response('{}'); }) as typeof fetch;
+  try {
+    const client = computeClient({ ...s, computeUrl:'http://background:8090', compareUrl:'http://interactive:8090' });
+    const g=profile().genres.Sport!; const multi={...g,clusters:[{...g.clusters[0],share:0.5},{...g.clusters[0],share:0.5}]};
+    await client.cluster([]); await client.compare(multi,multi);
+    assert.deepEqual(urls,['http://background:8090/cluster','http://interactive:8090/compare']);
+  } finally { globalThis.fetch=original; }
+});
+
+test('v3 singleton transport uses the exact cosine formula without remote solver', async () => {
+  const client = computeClient({...s, computeUrl:'http://unreachable.invalid',similarityFloor:0.7});
+  const g=profile().genres.Sport!;
+  const one=(vector:number[])=>({...g,clusters:[{...g.clusters[0],centroid:vector,share:1}]});
+  assert.equal((await client.compare(one([2,0]),one([4,0]))).score,1);
+  assert.equal((await client.compare(one([1,0]),one([0,1]))).score,0);
+  assert.ok(Math.abs((await client.compare(one([1,0]),one([0.8,0.6]))).score-1/3)<1e-12);
+});
+
+test('v3 cache monitoring can use the compact statistics index', () => {
+  const {db}=storeFixture();
+  try {
+    const plan=db.prepare(`EXPLAIN QUERY PLAN SELECT CASE WHEN json_type(value_json)='array' THEN 'embedding'
+      WHEN json_type(value_json,'$.assignments')='array' THEN 'classification' ELSE 'channel' END kind,
+      count(*) count,max(created_at) latest FROM matching_v3_cache GROUP BY kind`).all();
+    assert.ok(plan.some(row=>String(row.detail).includes('matching_v3_cache_stats')));
+  } finally { db.close(); }
 });
