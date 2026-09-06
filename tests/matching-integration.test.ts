@@ -168,17 +168,17 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
     registry.matchingV3Store().savePreferences(alice.id,{genres:['Music','Sport'],topics:[]});
     registry.matchingV3Store().savePreferences(bob.id,{genres:['Music','Sport'],topics:[]});
     const missing = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
-    assert.equal(missing('.mt-vs-score strong').text(),'—');
+    assert.equal(missing('.mt-vs-score strong').text(),'65%');
     assert.equal(missing('input[name="genre"]').length,0);
     assert.equal(missing('.mt-vs-score a').length,0);
-    assert.match(missing('.mt-vs-center').text(),/運動尚無可比較結果/);
+    assert.doesNotMatch(missing('.mt-vs-center').text(),/尚無可比較結果|無法計算/);
     const selected = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh&genre=Music',{headers})).text());
     assert.equal(selected('.mt-vs-score strong').text(),'65%');
     assert.match(selected('.mt-range a').first().attr('href')!,/genre=Music/);
     registry.setMatchingOptIn(bob.handle,false);
     const $ = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
-    assert.equal($('.mt-vs-score strong').text(),'—');
-    assert.match($('.mt-vs-center').text(),/尚無雙方共同開放/);
+    assert.equal($('.mt-vs-score strong').text(),'尚無資料');
+    assert.doesNotMatch($('.mt-vs-center').text(),/尚無雙方共同開放/);
     assert.equal($('.mt-blend-keywords').length,0);
   } finally {registry.close();}
 });

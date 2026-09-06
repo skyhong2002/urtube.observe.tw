@@ -315,21 +315,14 @@ export function matchingCandidatePage(
     return `<div class="mt-blend-category" data-blend-genre="${html(detail.genre)}">${metric(genreLabels(lang)[detail.genre], detail.score === null ? null : Math.round(detail.score * 100))}
       ${keywords.length ? `<div class="mt-blend-keywords" aria-label="${html(genreLabels(lang)[detail.genre])} · ${lang === 'zh' ? '共同關鍵字' : 'Shared keywords'}">${keywords.map(word => `<span>${html(word)}</span>`).join('')}</div>` : ''}</div>`;
   }).join('') : `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
-  const score = card.topicMatch ? card.topicMatch.score === null ? '—' : `${Math.round(card.topicMatch.score * 100)}%`
+  const score = card.topicMatch ? card.topicMatch.score === null ? (lang === 'zh' ? '尚無資料' : 'No data') : `${Math.round(card.topicMatch.score * 100)}%`
     : card.comparisonReady === false ? '—' : `${card.matchPercent}%`;
-  const scoreNote = !card.topicMatch ? '' : card.topicMatch.score !== null
-    ? ''
-    : card.topicMatch.unavailable === 'consent' ? (lang === 'zh' ? '尚無雙方共同開放的興趣類別' : 'No mutually shared interest categories')
-      : card.topicMatch.unavailable === 'service' ? (lang === 'zh' ? '計分服務暫時無法使用，請稍後重試' : 'Scoring is temporarily unavailable. Please try again.')
-        : (lang === 'zh' ? '所選類別的分析尚未齊全' : 'Analysis for the selected categories is not yet complete');
-  const missing = (card.topicMatch?.details ?? []).filter(detail => detail.score === null).map(detail => genreLabels(lang)[detail.genre]);
-  const missingNote = missing.length ? (lang === 'zh' ? `無法計算全部所選類別：${missing.join('、')}尚無可比較結果。` : `Cannot score all selected categories: ${missing.join(', ')} has no comparable results.`) : scoreNote;
   const actions = friendshipActions(card, viewer.handle, t, `/${card.handle}`, false);
   // Access is enforced before rendering; repeating its rules obscures the shared content.
   const basePath = `/${html(viewer.handle)}/compare/${html(card.handle)}`;
   const ranges = `<nav class="yt-range mt-range" aria-label="${html(t.matchesRange)}">${COMPARISON_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}${card.topicMatch?.selected ? html('&genre=' + card.topicMatch.selected.map(genre => encodeURIComponent(genre)).join('&genre=')) : ''}"${range === comparison.range ? ' aria-current="page"' : ''}>${html(t.ranges[range] ?? range)}</a>`).join('')}</nav>`;
-  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${score}</strong><span>${t.matchesFit}</span></div>${missingNote ? `<p class="mt-gate">${html(missingNote)}</p>` : ''}</div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
+  const header = `<div class="mt-vs"><section class="mt-side"><span class="mt-side-label">${t.matchesYou}</span><a class="mt-profile-link" href="/${html(viewer.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(viewer.handle)}" alt="" width="116" height="116"><h2>${html(viewerName)}</h2></a>${viewerInterests}</section><div class="mt-vs-center"><div class="mt-vs-score"><strong>${score}</strong><span>${t.matchesFit}</span></div></div><section class="mt-side"><span class="mt-side-label">${t.matchesCandidate}</span><a class="mt-profile-link" href="/${html(card.handle)}?range=${comparison.range}&lang=${lang}"><img src="/avatar/member/${html(card.handle)}" alt="" width="116" height="116"><h2>${html(card.displayName)}</h2></a>${candidateInterests}</section></div>`;
 
   const topicsSubtitle = comparison.topics.state === 'locked'
     ? t.matchesLockedTopics
@@ -344,7 +337,7 @@ export function matchingCandidatePage(
     weekdaySection(comparison, t),
     comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
-    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary>${card.topicMatch ? `<p>${lang === 'zh' ? '使用 v3 興趣分析，對本次選定且雙方共同開放的類別等權平均。計分方式與配對頁相同；比較類別相同時分數相同，不隨下方日期範圍改變。' : 'Uses v3 interest analysis, equally weighted across the selected, mutually shared categories. The same categories produce the same score as Matches, independently of the date range below.'}</p>` : `<p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p>`}</details></section>`,
+    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary>${card.topicMatch ? `<p>${lang === 'zh' ? '使用 v3 興趣分析，對本次選定、雙方共同開放且已有可比較結果的類別等權平均；缺少資料的類別不計入平均。計分方式與配對頁相同；比較類別相同時分數相同，不隨下方日期範圍改變。' : 'Uses v3 interest analysis, equally weighted across selected, mutually shared categories with comparable results; categories without data are excluded. The same categories produce the same score as Matches, independently of the date range below.'}</p>` : `<p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p>`}</details></section>`,
   ].join('');
   const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
   const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div>${ranges}${metricToggle}${sections}</div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;

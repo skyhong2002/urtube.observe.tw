@@ -43,9 +43,11 @@ export async function compareProfiles(left: Profile, right: Profile, genres: Gen
         : `${genre}：你的「${leftTags.join('、')}」群占${basis} ${percent(leftShare)}，對方的「${rightTags.join('、')}」群占 ${percent(rightShare)}。這組對應為此類別貢獻 ${(best.contribution * 100).toFixed(1)} 分。${hasGeneratedTags ? '代表 tag 含依影片標題補出的模型標籤。' : ''}`,
     });
   }
-  // Never normalize over only the available genres: that would inflate a
-  // candidate with missing data. A missing genre makes the total unavailable.
-  const score = details.some(d => d.score === null) ? null : details.reduce((sum, d) => sum + d.score!, 0) / genres.length;
+  // Compare the categories with actual results; absent categories are not zeroes.
+  // Preserve missing details/provisional metadata, and keep an entirely absent score null.
+  const comparable = details.filter((detail): detail is typeof detail & { score: number } =>
+    detail.score !== null && Number.isFinite(detail.score));
+  const score = comparable.length ? comparable.reduce((sum, detail) => sum + detail.score, 0) / comparable.length : null;
   return { score, provisional: details.some(d => d.status !== 'ready'), details, reasons,
     profileVersions: { algorithm: left.version, leftBuiltAt: left.builtAt, rightBuiltAt: right.builtAt } };
 }

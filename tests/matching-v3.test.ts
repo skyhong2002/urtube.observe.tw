@@ -92,13 +92,16 @@ test('v3 selection changes retain precomputed profiles', () => {
   } finally { db.close(); }
 });
 
-test('v3 comparisons expose factual provenance, keep missing totals unknown and reject mixed versions', async () => {
+test('v3 comparisons expose factual provenance, average available categories and reject mixed versions', async () => {
   const result = await compareProfiles(profile(), profile(), ['Sport'], compute);
   assert.equal(result.score, .5);
+  assert.equal((await compareProfiles(profile(), profile(), ['Music'], compute)).score, null);
+  assert.equal((await compareProfiles(profile(), profile(), [], compute)).score, null);
+  assert.equal((await compareProfiles(profile(), profile(), ['Sport', 'Music'], { ...compute, compare: async () => ({ score: 0, transport: [] }) })).score, 0, 'a valid zero remains comparable');
   assert.equal(result.reasons[0].hasGeneratedTags, true);
   assert.match(result.reasons[0].text, /50.0 分/);
   assert.match(result.reasons[0].text, /模型標籤/);
-  assert.equal((await compareProfiles(profile(), profile(), ['Sport', 'Music'], compute)).score, null);
+  assert.equal((await compareProfiles(profile(), profile(), ['Sport', 'Music'], compute)).score, .5);
   assert.equal((await compareProfiles({ ...profile(), complete: false }, profile(), ['Sport'], compute)).provisional, true);
   await assert.rejects(compareProfiles(profile(), { ...profile(), version: 'old' }, ['Sport'], compute));
 });
@@ -834,7 +837,7 @@ test('old profiles gain per-genre availability on read without altering stored w
     const partial = await compareProfiles(current, current, ['Music'], compute);
     assert.equal(partial.provisional, true);
     assert.equal(partial.score, full.score, 'availability does not change the scoring algorithm');
-    assert.equal((await compareProfiles(current, current, ['Sport', 'News'], compute)).score, null);
+    assert.equal((await compareProfiles(current, current, ['Sport', 'News'], compute)).score, full.score);
     assert.deepEqual(db.prepare('SELECT profile_json FROM matching_v3_profiles').get(), before);
     assert.deepEqual(store.status(1), job);
     assert.equal(db.prepare('SELECT count(*) n FROM matching_v3_operations').get()!.n, 0);

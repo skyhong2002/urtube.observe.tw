@@ -157,7 +157,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
       });
       candidates.sort((a, b) => Number(a.provisional) - Number(b.provisional) || (b.score ?? -1) - (a.score ?? -1));
       // Shared identity and friendship controls; raw watch rows and vectors remain private.
-      return c.json({ candidates, selected, scoreMeaning: 'selected_genres_equal_weight_distribution_similarity' });
+      return c.json({ candidates, selected, scoreMeaning: 'available_selected_genres_equal_weight_distribution_similarity' });
     } catch { return c.json({ error: 'matching_unavailable' }, 503); }
     finally { busy.delete(user.id); }
   });
