@@ -220,7 +220,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 ## 作品展示
 
 - **正式作品：[https://urtube.observe.tw](https://urtube.observe.tw)**。
-- **評選影片：待補**。
+- **評選影片：[觀看 Demo](https://youtu.be/DwJpR0RI4Vg)**。
 - 不登入可由首頁導覽開啟 Example dashboard；可重設的兩帳號合成示範使用 `npm run demo:matching`。
 - 展示操作與證據整理見 [Demo runbook](docs/demo-runbook.md)。
 
@@ -231,7 +231,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 - Google 登入、影片資訊與 AI 分類需要外部服務設定。大量歷史資料的處理時間、成本與使用體驗仍待進一步實測。
 - 後續將加強共同興趣的理解與呈現，探索長期喜好的穩定性，並透過使用者回饋改善配對品質。
 - 頻道規模與影片熱門度分布尚未加入洞察（[#50](https://github.com/skyhong2002/urtube.observe.tw/issues/50)）。
-- 評選影片仍待補充；第三方來源與授權聲明尚有 gateway shim 原始碼與映像層級 SBOM 待補，詳見聲明文件。
+- 第三方來源與授權聲明尚有 gateway shim 原始碼與映像層級 SBOM 待補，詳見聲明文件。
 
 ## 隱私與資料管理
 
