@@ -219,7 +219,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   if (v3.enabled) app.route('/', matchingRoutes(registry, v3, config.publicBaseUrl, services.matchingV3?.compute, (viewer, target, result, lang) => {
     const card = blendCard(viewer, target);
     if (viewer.matchingOptIn && target.matchingOptIn) card.actionToken = registry.issueMatchActionToken(viewer, target.id, card.disclosure.topics);
-    card.topicMatch = { score: result.score, provisional: result.provisional, reasons: result.reasons.map(reason => reason.text), detailsVisible: result.detailsVisible };
+    card.topicMatch = { score: result.score, provisional: result.provisional, reasons: result.reasons.map(reason => reason.text), detailsVisible: result.detailsVisible, selected: result.details.map(detail => detail.genre) };
     return candidateCard(card, viewer.handle, lang);
   }));
   const v3DataFor = (user: User) => {
@@ -386,6 +386,37 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       disclosure: { topics: [] },
     }), comparisonReady: Boolean(card), targetPublic: target.dashboardPublic,
       relationship: registry.matchingRelationshipFor(me, target.id) };
+  }
+
+  async function fillV3Score(me: User, other: User, card: ActionableMatchingCandidateCard, requested?: string[]): Promise<void> {
+    if (v3.enabled) {
+      const store = registry.matchingV3Store();
+      const available = store.preferences(me.id).genres.filter(genre => store.preferences(other.id).genres.includes(genre));
+      const selected = requested ? available.filter(genre => requested.includes(genre)) : available;
+      const left = store.profile(me.id), right = store.profile(other.id);
+      card.topicMatch = { score: null, provisional: true, reasons: [], detailsVisible: true,
+        details: [], unavailable: 'pending', available, selected };
+      if (!me.matchingOptIn || !other.matchingOptIn || !selected.length) card.topicMatch.unavailable = 'consent';
+      else if (left?.version === matchingV3Version(v3) && right?.version === matchingV3Version(v3)) {
+        try {
+          const result = await compareProfiles(
+            { ...left, complete: left.complete && store.status(me.id)?.state === 'done' },
+            { ...right, complete: right.complete && store.status(other.id)?.state === 'done' },
+            selected, services.matchingV3?.compute ?? computeClient(v3));
+          // Recheck session, visibility, profile freshness and both consents after computation.
+          const viewer = registry.userByHandle(me.handle), target = registry.userByHandle(other.handle);
+          if (!viewer || viewer.id !== me.id) return;
+          if (!target || (!target.dashboardPublic && !(viewer.matchingOptIn && target.matchingOptIn))) return;
+          if (viewer.matchingOptIn && target.matchingOptIn
+            && selected.every(genre => store.preferences(viewer.id).genres.includes(genre) && store.preferences(target.id).genres.includes(genre))
+            && store.profile(viewer.id)?.builtAt === left.builtAt && store.profile(target.id)?.builtAt === right.builtAt
+            && store.profile(viewer.id)?.version === left.version && store.profile(target.id)?.version === right.version) {
+            card.topicMatch = { score: result.score, provisional: result.provisional, reasons: [], detailsVisible: target.dashboardPublic || mutualFriends(viewer, target),
+              details: result.details.map(detail => ({ genre: detail.genre, score: detail.score, keywords: blendKeywords(left, right, [detail.genre], 12) })), unavailable: 'pending', available, selected };
+          }
+        } catch { card.topicMatch.unavailable = 'service'; }
+      }
+    }
   }
 
   async function dashboardResponse(
@@ -847,10 +878,31 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     });
     const recommendations = cohortRecommendations(viewer, [viewer, ...visiblePool], channelPolicy);
     const ranked = rankedMatchingCandidateCards(viewer, visiblePool);
-    const cards = [...ranked, ...[...new Map([...publicUsers, ...v3Members].map(user => [user.id, user])).values()].filter(user => {
+    const baseCards = [...ranked, ...[...new Map([...publicUsers, ...v3Members].map(user => [user.id, user])).values()].filter(user => {
       const target = registry.userByHandle(user.handle);
       return target && (target.dashboardPublic || (currentMe.matchingOptIn && target.matchingOptIn)) && !ranked.some(card => card.candidateUserId === user.id);
     }).map(user => blendCard(currentMe, user))];
+    const scoredCards = await Promise.all(baseCards.map(async candidate => {
+      const target = registry.userByHandle(candidate.handle);
+      if (!target) return null;
+      const card: ActionableMatchingCandidateCard = { ...candidate, relationship: registry.matchingRelationshipFor(currentMe, target.id), targetPublic: target.dashboardPublic };
+      await fillV3Score(currentMe, target, card);
+      return card;
+    }));
+    const finalViewer = sessionUser(c);
+    if (!finalViewer || finalViewer.id !== me.id) return c.redirect('/auth/google?next=%2Fmatches');
+    const cards = scoredCards.filter((card): card is ActionableMatchingCandidateCard => {
+      if (!card) return false;
+      const target = registry.userByHandle(card.handle);
+      if (!target || !(target.dashboardPublic || (finalViewer.matchingOptIn && target.matchingOptIn))) return false;
+      if (card.topicMatch && (!finalViewer.matchingOptIn || !target.matchingOptIn
+        || card.topicMatch.selected?.some(genre => !registry.matchingV3Store().preferences(me.id).genres.includes(genre)
+          || !registry.matchingV3Store().preferences(target.id).genres.includes(genre)))) {
+        card.topicMatch = { score:null,provisional:true,reasons:[],detailsVisible:false };
+      }
+      return true;
+    });
+    if (v3.enabled) cards.sort((a,b) => (b.topicMatch?.score ?? -1) - (a.topicMatch?.score ?? -1));
     if (!cards.length) return respond({ kind: 'empty' }, 200, recommendations);
     const batch = matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1));
     return respond({ kind: 'ready', batch: {
@@ -1060,35 +1112,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       return c.redirect(`/${other.handle}${querySuffix(c)}`);
     }
     const card = blendCard(me, other);
-    if (v3.enabled) {
-      const store = registry.matchingV3Store();
-      const available = store.preferences(me.id).genres.filter(genre => store.preferences(other.id).genres.includes(genre));
-      const requested = c.req.queries('genre');
-      const selected = requested ? available.filter(genre => requested.includes(genre)) : available;
-      const left = store.profile(me.id), right = store.profile(other.id);
-      card.topicMatch = { score: null, provisional: true, reasons: [], detailsVisible: true,
-        details: [], unavailable: 'pending', available, selected };
-      if (!me.matchingOptIn || !other.matchingOptIn || !selected.length) card.topicMatch.unavailable = 'consent';
-      else if (left?.version === matchingV3Version(v3) && right?.version === matchingV3Version(v3)) {
-        try {
-          const result = await compareProfiles(
-            { ...left, complete: left.complete && store.status(me.id)?.state === 'done' },
-            { ...right, complete: right.complete && store.status(other.id)?.state === 'done' },
-            selected, services.matchingV3?.compute ?? computeClient(v3));
-          // Recheck session, visibility, profile freshness and both consents after computation.
-          const viewer = sessionUser(c), target = registry.userByHandle(other.handle);
-          if (!viewer || viewer.id !== me.id) return c.redirect('/auth/google');
-          if (!target || (!target.dashboardPublic && !mutualFriends(viewer, target))) return notFoundPage(c);
-          if (viewer.matchingOptIn && target.matchingOptIn
-            && selected.every(genre => store.preferences(viewer.id).genres.includes(genre) && store.preferences(target.id).genres.includes(genre))
-            && store.profile(viewer.id)?.builtAt === left.builtAt && store.profile(target.id)?.builtAt === right.builtAt
-            && store.profile(viewer.id)?.version === left.version && store.profile(target.id)?.version === right.version) {
-            card.topicMatch = { score: result.score, provisional: result.provisional, reasons: [], detailsVisible: true,
-              details: result.details.map(detail => ({ genre: detail.genre, score: detail.score, keywords: blendKeywords(left, right, [detail.genre], 12) })), unavailable: 'pending', available, selected };
-          }
-        } catch { card.topicMatch.unavailable = 'service'; }
-      }
-    }
+    await fillV3Score(me, other, card, c.req.queries('genre'));
     const currentViewer = sessionUser(c), currentTarget = registry.userByHandle(other.handle);
     if (!currentViewer || currentViewer.id !== me.id) return c.redirect('/auth/google');
     if (!currentTarget || (!currentTarget.dashboardPublic && !mutualFriends(currentViewer, currentTarget))) return notFoundPage(c);
@@ -1113,7 +1137,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       card,
       comparison,
       lang,
-      `${c.req.path}?range=${range}&lang=${lang === 'zh' ? 'en' : 'zh'}`,
+      langToggle(c, lang).href,
     ));
   });
 

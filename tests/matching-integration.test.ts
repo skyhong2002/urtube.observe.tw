@@ -1,3 +1,4 @@
+import { compatibilityPercentage } from '../src/output/compatibility-score.js';
 import assert from 'node:assert/strict';
 import { load } from 'cheerio';
 import test from 'node:test';
@@ -44,7 +45,7 @@ test('one matching workspace keeps directory actions and compact topic cards wit
     const directory = load(await directoryResponse.text());
     assert.equal(directory('#mv-all,#mv-invites,#topics').length, 3);
     assert.equal(directory('#mv-directory .mt-card').length, 1);
-    assert.equal(directory('#mv-directory .mt-percent').text(), '—合拍度');
+    assert.equal(directory('#mv-directory .mt-percent').text(), '81%合拍度');
     assert.equal(directory('#mv-directory form[action="/matches/request"]').length, 1);
     assert.equal(directory('a[href="/matching-v3/admin"]').length, 0);
     assert.match(directory('#mv-invitations').text(), /目前沒有/);
@@ -62,8 +63,8 @@ test('one matching workspace keeps directory actions and compact topic cards wit
     assert.equal(card('.mt-person-link').attr('href'), '/integrate-bob');
     assert.equal(card('h2').text(), bob.displayName);
     assert.equal(card('script').length, 0);
-    assert.equal(card('.mv-topic-score, .mv-reasons, .mt-percent, .mt-icebreaker').length, 0);
-    assert.equal(card('.mt-card').attr('data-compatibility'), '-1');
+    assert.equal(card('.mv-topic-score, .mv-reasons, .mt-icebreaker').length, 0);
+    assert.equal(card('.mt-card').attr('data-compatibility'), '81');
     assert.equal(card('.mt-actions a[href*="/compare/"]').length, 0);
     const refreshedDirectory = load(await (await app.request('/matches?lang=zh', { headers })).text());
     const actionToken = refreshedDirectory('#mv-directory [name=actionToken]').attr('value')!;
@@ -81,8 +82,8 @@ test('one matching workspace keeps directory actions and compact topic cards wit
     assert.equal(friends.candidates[0].detailsVisible, true);
     assert.match(friends.candidates[0].reasons[0].text, /private-detail-tag/);
     const friendCard = load(friends.candidates[0].memberHtml);
-    assert.equal(friendCard('.mt-actions a').attr('href'), '/integrate-alice/compare/integrate-bob');
-    assert.equal(friendCard('.mv-reasons, .mt-percent, .mv-topic-score').length, 0);
+    assert.equal(friendCard('.mt-actions a').attr('href'), '/integrate-alice/compare/integrate-bob?genre=Music');
+    assert.equal(friendCard('.mv-reasons, .mv-topic-score').length, 0);
     for (const path of ['/integrate-bob','/integrate-bob/insights','/integrate-alice/compare/integrate-bob']) assert.equal((await app.request(path,{headers})).status,200,path);
     for (const path of ['/integrate-bob/history','/integrate-bob/recap']) assert.equal((await app.request(path,{headers})).status,404,path);
     registry.withdrawMatchRequest(alice, requestToken);
@@ -90,7 +91,7 @@ test('one matching workspace keeps directory actions and compact topic cards wit
     registry.setDashboardPublic(bob.handle, true);
     const publicCandidate = (await (await f.match()).json() as any).candidates[0];
     assert.equal(publicCandidate.detailsVisible, true);
-    assert.equal(load(publicCandidate.memberHtml)('.mt-actions a').attr('href'), '/integrate-alice/compare/integrate-bob');
+    assert.equal(load(publicCandidate.memberHtml)('.mt-actions a').attr('href'), '/integrate-alice/compare/integrate-bob?genre=Music');
     registry.setDashboardPublic(bob.handle, false);
     assert.equal((await (await f.match()).json() as any).candidates[0].detailsVisible, false);
     registry.setMatchingOptIn(bob.handle, false);
@@ -154,7 +155,7 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
     const matches = await (await app.request('/api/matching-v3/match', {method:'POST',headers:{...headers,origin:'http://localhost:3000','Content-Type':'application/json'},body:JSON.stringify({genres:['Music']})})).json() as {candidates:Array<{score:number}>};
     for (const range of ['28d','all']) {
       const $ = load(await (await app.request(`/v3-blend-a/compare/v3-blend-b?range=${range}&lang=zh`,{headers})).text());
-      assert.equal($('.mt-vs-score strong').text(), `${Math.round(matches.candidates[0].score*100)}%`);
+      assert.equal($('.mt-vs-score strong').text(), `${compatibilityPercentage(matches.candidates[0].score)}%`);
       assert.match($('.mt-panel').text(), /v3 興趣分析/);
       assert.doesNotMatch($('.mt-panel').text(), /cosine|0.4–0.95/);
       assert.equal($('.mt-blend-keywords').text(),'private-detail-tag');
@@ -168,12 +169,12 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
     registry.matchingV3Store().savePreferences(alice.id,{genres:['Music','Sport'],topics:[]});
     registry.matchingV3Store().savePreferences(bob.id,{genres:['Music','Sport'],topics:[]});
     const missing = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
-    assert.equal(missing('.mt-vs-score strong').text(),'65%');
+    assert.equal(missing('.mt-vs-score strong').text(),'81%');
     assert.equal(missing('input[name="genre"]').length,0);
     assert.equal(missing('.mt-vs-score a').length,0);
     assert.doesNotMatch(missing('.mt-vs-center').text(),/尚無可比較結果|無法計算/);
     const selected = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh&genre=Music',{headers})).text());
-    assert.equal(selected('.mt-vs-score strong').text(),'65%');
+    assert.equal(selected('.mt-vs-score strong').text(),'81%');
     assert.match(selected('.mt-range a').first().attr('href')!,/genre=Music/);
     registry.setMatchingOptIn(bob.handle,false);
     const $ = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
@@ -195,6 +196,31 @@ test('Blend rechecks visibility after asynchronous v3 scoring', async () => {
     }}}});
     const response = await app.request('/v3-race-a/compare/v3-race-b',{headers:{cookie:`urtube_session=${registry.createSession(alice)}`}});
     assert.equal(response.status,404);
-    assert.doesNotMatch(await response.text(),/65%|private-detail-tag/);
+    assert.doesNotMatch(await response.text(),/81%|private-detail-tag/);
   } finally {registry.close();}
+});
+
+
+test('directory and topic links preserve the v3 scoring scope when opening Blend', async () => {
+  const f=setup({...compute,compare:async(left)=>({score:left.totalMass===40?.81:.25,transport:[]})});
+  try {
+    f.registry.setDashboardPublic(f.bob.handle,true);
+    const store=f.registry.matchingV3Store();
+    for(const user of [f.alice,f.bob]) {
+      const p=store.profile(user.id)!;
+      p.genres.Sport={...p.genres.Music!,totalMass:40};
+      store.schedule(user.id,'two-genres',p.version);store.finish(store.claim()!,p);
+      store.savePreferences(user.id,{genres:['Music','Sport'],topics:[]});
+    }
+    const directory=load(await(await f.app.request('/matches?lang=en',{headers:f.headers})).text());
+    const card=directory('#mv-directory .mt-card').first();
+    assert.match(card.find('.mt-percent').text(),/^73%/);
+    const blend=load(await(await f.app.request(card.find('.mt-actions a').attr('href')!,{headers:f.headers})).text());
+    assert.equal(blend('.mt-vs-score strong').text(),'73%');
+    const topic=await(await f.match()).json() as any;
+    const topicCard=load(topic.candidates[0].memberHtml);
+    assert.match(topicCard('.mt-percent').text(),/^50%/);
+    const scoped=load(await(await f.app.request(topicCard('.mt-actions a').attr('href')!,{headers:f.headers})).text());
+    assert.equal(scoped('.mt-vs-score strong').text(),'50%');
+  } finally {f.registry.close();}
 });

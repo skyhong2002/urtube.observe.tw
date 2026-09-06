@@ -1,3 +1,4 @@
+import { compatibilityPercentage } from './compatibility-score.js';
 import { genreLabels } from './genre-labels.js';
 import type { Genre } from '../matching-v3/model.js';
 import { v3ProcessingStyles } from './v3-processing.js';
@@ -96,15 +97,18 @@ function friendshipIcons(card: ActionableMatchingCandidateCard, t: Messages): st
 export function candidateCard(card: ActionableMatchingCandidateCard, viewerHandle: string, lang: Lang, compactFriendship = false): string {
   const t = messages(lang);
   const topics = card.disclosure.topics;
-  const icons = compactFriendship && !card.topicMatch ? friendshipIcons(card, t) : '';
-  return `<article class="mt-card"${icons ? ` data-compact-friendship="${card.relationship.status}"` : ''}${card.topicMatch ? ` data-compatibility="${card.comparisonReady === false || !Number.isFinite(card.matchPercent) ? -1 : card.matchPercent}"` : ''}>
+  const score = card.topicMatch ? card.topicMatch.score === null ? '—' : `${compatibilityPercentage(card.topicMatch.score)}%`
+    : card.comparisonReady === false ? '—' : `${card.matchPercent}%`;
+  const blendQuery = card.topicMatch?.selected?.length ? '?' + card.topicMatch.selected.map(genre => 'genre=' + encodeURIComponent(genre)).join('&') : '';
+  const icons = compactFriendship ? friendshipIcons(card, t) : '';
+  return `<article class="mt-card"${icons ? ` data-compact-friendship="${card.relationship.status}"` : ''}${card.topicMatch ? ` data-compatibility="${card.topicMatch.score === null ? -1 : compatibilityPercentage(card.topicMatch.score)}"` : ''}>
     ${icons}
-    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2>${card.topicMatch ? '' : `<div class="mt-percent">${card.comparisonReady === false ? '—' : `${card.matchPercent}%`}<small>${t.matchesFit}</small></div>`}</div></a></div>
+    <div class="mt-person"><a class="mt-person-link" href="/${html(card.handle)}"><img class="mt-avatar" src="/avatar/member/${html(card.handle)}" alt="" width="54" height="54" loading="lazy"><div><h2>${html(card.displayName)}</h2><div class="mt-percent">${score}<small>${t.matchesFit}</small></div></div></a></div>
     <div class="mt-clues">
       ${topics.length ? `<div><span class="mt-clue-label">${t.matchesSharedTopics}</span><div class="mt-pills">${topics.map((topic) => `<span class="mt-pill">${html(topic)}</span>`).join('')}</div></div>` : ''}
       ${card.disclosure.channel ? `<div><span class="mt-clue-label">${t.matchesSharedChannel}</span><span class="mt-channel">${html(card.disclosure.channel)}</span></div>` : ''}
     </div>
-    ${card.topicMatch ? (card.targetPublic || card.relationship.status === 'connected' ? `<div class="mt-actions"><a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a></div>` : '') : `<div class="mt-actions">${compactFriendship ? (card.targetPublic || card.relationship.status === 'connected' ? `<a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}">${html(t.memberProfileBlend)}</a>` : '') : friendshipActions(card, viewerHandle, t, '/matches')}</div>`}
+    ${card.topicMatch ? (card.targetPublic || card.relationship.status === 'connected' ? `<div class="mt-actions"><a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}${html(blendQuery)}">${html(t.memberProfileBlend)}</a></div>` : '') : `<div class="mt-actions">${compactFriendship ? (card.targetPublic || card.relationship.status === 'connected' ? `<a class="mt-want" href="/${html(viewerHandle)}/compare/${html(card.handle)}${html(blendQuery)}">${html(t.memberProfileBlend)}</a>` : '') : friendshipActions(card, viewerHandle, t, '/matches')}</div>`}
   </article>`;
 }
 
@@ -312,10 +316,10 @@ export function matchingCandidatePage(
     : `<p>${t.matchesNoProfileTopics}</p>`;
   const metrics = card.topicMatch ? (card.topicMatch.details ?? []).map(detail => {
     const keywords = card.topicMatch?.detailsVisible ? detail.keywords ?? [] : [];
-    return `<div class="mt-blend-category" data-blend-genre="${html(detail.genre)}">${metric(genreLabels(lang)[detail.genre], detail.score === null ? null : Math.round(detail.score * 100))}
+    return `<div class="mt-blend-category" data-blend-genre="${html(detail.genre)}">${metric(genreLabels(lang)[detail.genre], detail.score === null ? null : compatibilityPercentage(detail.score))}
       ${keywords.length ? `<div class="mt-blend-keywords" aria-label="${html(genreLabels(lang)[detail.genre])} · ${lang === 'zh' ? '共同關鍵字' : 'Shared keywords'}">${keywords.map(word => `<span>${html(word)}</span>`).join('')}</div>` : ''}</div>`;
   }).join('') : `${metric(t.matchesTopicFit, card.topicPercent)}${metric(t.matchesChannelFit, card.channelPercent)}`;
-  const score = card.topicMatch ? card.topicMatch.score === null ? (lang === 'zh' ? '尚無資料' : 'No data') : `${Math.round(card.topicMatch.score * 100)}%`
+  const score = card.topicMatch ? card.topicMatch.score === null ? (lang === 'zh' ? '尚無資料' : 'No data') : `${compatibilityPercentage(card.topicMatch.score)}%`
     : card.comparisonReady === false ? '—' : `${card.matchPercent}%`;
   const actions = friendshipActions(card, viewer.handle, t, `/${card.handle}`, false);
   // Access is enforced before rendering; repeating its rules obscures the shared content.
@@ -337,7 +341,7 @@ export function matchingCandidatePage(
     weekdaySection(comparison, t),
     comparison.firstWatch ? edgeSection(t.matchesFirstWatch, comparison.firstWatch, names, t) : '',
     comparison.lastWatch ? edgeSection(t.matchesLastWatch, comparison.lastWatch, names, t) : '',
-    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary>${card.topicMatch ? `<p>${lang === 'zh' ? '使用 v3 興趣分析，對本次選定、雙方共同開放且已有可比較結果的類別等權平均；缺少資料的類別不計入平均。計分方式與配對頁相同；比較類別相同時分數相同，不隨下方日期範圍改變。' : 'Uses v3 interest analysis, equally weighted across selected, mutually shared categories with comparable results; categories without data are excluded. The same categories produce the same score as Matches, independently of the date range below.'}</p>` : `<p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p>`}</details></section>`,
+    `<section class="mt-panel"><h2>${t.matchesPercentBreakdown}</h2><div class="mt-metrics">${metrics}</div><details><summary>${lang === 'zh' ? '分數如何計算' : 'How the score is calculated'}</summary>${card.topicMatch ? `<p>${lang === 'zh' ? '使用 v3 興趣分析，對本次選定、雙方共同開放且已有可比較結果的類別等權平均；缺少資料的類別不計入平均。顯示分數為原始相似度的平方根 × 100；總分先平均再換算，各類別分數各自換算。計分方式與配對頁相同；比較類別相同時分數相同，不隨下方日期範圍改變。' : 'Uses v3 interest analysis, equally weighted across selected, mutually shared categories with comparable results; categories without data are excluded. Displayed scores use √similarity × 100; the total is averaged before calibration, while category scores are calibrated individually. The same categories produce the same score as Matches, independently of the date range below.'}</p>` : `<p>${t.matchesScoreScope}</p><p>${t.matchesFormulaNote}</p>`}</details></section>`,
   ].join('');
   const metricToggle = `<div class="mt-metric-bar"><div class="yt-metric-toggle" role="group" aria-label="${html(t.matchesMetric)}"><button type="button" data-metric="seconds" aria-pressed="true">${t.rhythmTime}</button><button type="button" data-metric="watches" aria-pressed="false">${t.rhythmWatches}</button></div><p class="mt-gate">${t.matchesBlendNote}</p></div>`;
   const body = `<style>${matchesStyles}${rhythmClockStyles}${comparisonStyles}</style><div class="mt-profile"><a class="mt-profile-back" href="/matches">← ${t.navMatches}</a>${header}<div class="mt-profile-actions">${actions}</div>${ranges}${metricToggle}${sections}</div><script>${metricScript}</script>${channelPreviewDrawer(lang, comparison.range)}`;
