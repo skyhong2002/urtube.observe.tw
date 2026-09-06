@@ -34,7 +34,50 @@ export interface Provider {
   embed(tags: string[]): Promise<number[][]>;
   channel(id: string, title: string): Promise<{ types: string[]; evidenceAvailable: boolean }>;
 }
+type ChannelSnippet = { title?: string; description?: string };
+
+// Collect requests issued in the same event-loop turn across account batches.
+// YouTube accepts up to 50 channel IDs; results may be reordered or omitted.
+function channelSnippetLoader(apiKey: string, request: typeof fetch) {
+  const pending = new Map<string, { resolve: (value: ChannelSnippet | null) => void; reject: (error: unknown) => void }>();
+  const inFlight = new Map<string, Promise<ChannelSnippet | null>>();
+  let scheduled = false;
+  function flush() {
+    scheduled = false;
+    const entries = [...pending]; pending.clear();
+    for (let offset = 0; offset < entries.length; offset += 50) {
+      const batch = entries.slice(offset, offset + 50);
+      void (async () => {
+        try {
+          const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+          url.search = new URLSearchParams({ part: 'snippet', id: batch.map(([id]) => id).join(','), key: apiKey }).toString();
+          const response = await request(url, { signal: AbortSignal.timeout(30_000) });
+          if (!response.ok) throw new ProviderError(response.status === 429 || response.status >= 500, response.status);
+          const result = z.object({ items: z.array(z.object({ id: z.string(), snippet: z.object({
+            title: z.string().optional(), description: z.string().optional(),
+          }).optional() })).optional() }).parse(await response.json());
+          const byId = new Map((result.items ?? []).map(item => [item.id, item.snippet ?? null]));
+          for (const [id, waiter] of batch) waiter.resolve(byId.get(id) ?? null);
+        } catch (error) {
+          for (const [, waiter] of batch) waiter.reject(error);
+        } finally {
+          for (const [id] of batch) inFlight.delete(id);
+        }
+      })();
+    }
+  }
+  return (id: string): Promise<ChannelSnippet | null> => {
+    const existing = inFlight.get(id);
+    if (existing) return existing;
+    const promise = new Promise<ChannelSnippet | null>((resolve, reject) => pending.set(id, { resolve, reject }));
+    inFlight.set(id, promise);
+    if (!scheduled) { scheduled = true; setImmediate(flush); }
+    return promise;
+  };
+}
+
 export function matchingProvider(s: Settings, youtubeApiKey: string, request: typeof fetch = fetch): Provider {
+  const channelSnippet = channelSnippetLoader(youtubeApiKey, request);
   const keys = s.embeddingApiKeys.length ? s.embeddingApiKeys : [s.embeddingApiKey].filter(Boolean);
   const poolId = digest([s.embeddingBaseUrl, s.embeddingModel, keys]);
   let pool = geminiPools.get(poolId);
@@ -96,12 +139,7 @@ export function matchingProvider(s: Settings, youtubeApiKey: string, request: ty
     },
     async channel(id, title) {
       if (!youtubeApiKey) return { types: [], evidenceAvailable: false };
-      const url = new URL('https://www.googleapis.com/youtube/v3/channels');
-      url.search = new URLSearchParams({ part: 'snippet', id, key: youtubeApiKey }).toString();
-      const response = await request(url, { signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new ProviderError(response.status === 429 || response.status >= 500, response.status);
-      const result = await response.json() as { items?: { snippet?: { title?: string; description?: string } }[] };
-      const snippet = result.items?.[0]?.snippet;
+      const snippet = await channelSnippet(id);
       if (!snippet?.description?.trim()) return { types: [], evidenceAvailable: false };
       const raw = await generate(
         `Identify publicly evidenced channel operating types: ${CHANNEL_TYPES.join(', ')}. personal creator: individual host/creator; media team: newsroom/editorial publisher; educational institution: school or professional educational institution; official brand: official company/brand channel; curated compilation: compilation/curation channel. Multi-label allowed. Use channel description and name as evidence. If uncertain return no types; do not guess from a single video or political stance.`,

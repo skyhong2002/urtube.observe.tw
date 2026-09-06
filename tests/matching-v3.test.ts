@@ -144,7 +144,7 @@ test('v3 Gemini embeddings send tag text alone with an independent key and norma
 test('v3 channel classification sends only bounded text name and description', async () => {
   const fakeFetch = (async (url: unknown, options?: RequestInit) => {
     if (String(url).startsWith('https://www.googleapis.com/')) {
-      return new Response(JSON.stringify({ items: [{ snippet: { title: 'School', description: 'Education '.repeat(1000) } }] }));
+      return new Response(JSON.stringify({ items: [{ id: 'fixture', snippet: { title: 'School', description: 'Education '.repeat(1000) } }] }));
     }
     const body = JSON.parse(String(options?.body));
     const input = JSON.parse(body.messages[1].content);
@@ -696,11 +696,11 @@ for (const action of ['delete', 'rename'] as const) test(`cached preview skips a
 
 test('v3 comparison uses independent endpoint while clustering stays on background endpoint', async () => {
   const original = globalThis.fetch, urls: string[] = [];
-  globalThis.fetch = (async url => { urls.push(String(url)); return new Response('{}'); }) as typeof fetch;
+  globalThis.fetch = (async url => { urls.push(String(url)); return Response.json({ clusters: [], totalMass: 1, retainedCoverage: 0 }); }) as typeof fetch;
   try {
     const client = computeClient({ ...s, computeUrl:'http://background:8090', compareUrl:'http://interactive:8090' });
     const g=profile().genres.Sport!; const multi={...g,clusters:[{...g.clusters[0],share:0.5},{...g.clusters[0],share:0.5}]};
-    await client.cluster([]); await client.compare(multi,multi);
+    await client.cluster([{ text: 'fixture', vector: [1, 0], count: 1, generatedCount: 0 }]); await client.compare(multi,multi);
     assert.deepEqual(urls,['http://background:8090/cluster','http://interactive:8090/compare']);
   } finally { globalThis.fetch=original; }
 });
@@ -839,4 +839,65 @@ test('old profiles gain per-genre availability on read without altering stored w
     assert.deepEqual(store.status(1), job);
     assert.equal(db.prepare('SELECT count(*) n FROM matching_v3_operations').get()!.n, 0);
   } finally { db.close(); }
+});
+
+test('channel metadata batches 50 IDs, deduplicates lookups, and maps unordered or missing results by ID', async () => {
+  const requests: string[][] = [];
+  let modelCalls = 0;
+  const provider = matchingProvider({ ...s, apiKey: 'fixture' }, 'fixture', async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'www.googleapis.com') {
+      const ids = url.searchParams.get('id')!.split(','); requests.push(ids);
+      return Response.json({ items: ids.filter(id => id !== 'channel-3').reverse().map(id => ({ id,
+        snippet: { title: id, description: id === 'channel-4' ? '' : `Description ${id}` } })) });
+    }
+    modelCalls++;
+    const body = JSON.parse(String(init?.body));
+    const payload = JSON.parse(body.messages[1].content);
+    assert.equal(payload.description, `Description ${payload.title}`);
+    return Response.json({ choices: [{ message: { content: '{"types":["personal creator"]}' } }] });
+  });
+  const results = await Promise.all(Array.from({ length: 101 }, (_, i) => provider.channel(`channel-${i}`, 'Fallback')));
+  assert.deepEqual(requests.map(ids => ids.length), [50, 50, 1]);
+  assert.equal(modelCalls, 99);
+  assert.deepEqual(results[3], { types: [], evidenceAvailable: false });
+  assert.deepEqual(results[4], { types: [], evidenceAvailable: false });
+  assert.deepEqual(results[100], { types: ['personal creator'], evidenceAvailable: true });
+  await Promise.all([provider.channel('shared', ''), provider.channel('shared', '')]);
+  assert.deepEqual(requests[3], ['shared']);
+});
+
+test('a failed channel metadata batch rejects every waiter and a later retry refetches it', async () => {
+  let calls = 0;
+  const provider = matchingProvider(s, 'fixture', async () => {
+    calls++;
+    return calls === 1 ? new Response('', { status: 429 }) : Response.json({ items: [] });
+  });
+  const failed = await Promise.allSettled(['one', 'two'].map(id => provider.channel(id, '')));
+  assert.ok(failed.every(result => result.status === 'rejected' && result.reason.status === 429 && result.reason.retryable));
+  assert.deepEqual(await provider.channel('one', ''), { types: [], evidenceAvailable: false });
+  assert.equal(calls, 2);
+});
+
+test('cluster uploads queue per endpoint while comparison stays responsive', async () => {
+  const original = globalThis.fetch;
+  let clusterCalls = 0;
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  globalThis.fetch = (async url => {
+    if (String(url).endsWith('/cluster')) { clusterCalls++; if (clusterCalls === 1) await blocked; }
+    return Response.json({ clusters: [], totalMass: 1, retainedCoverage: 0, score: 0, transport: [] });
+  }) as typeof fetch;
+  try {
+    const client = computeClient({ ...s, computeUrl: 'http://queue-fixture', compareUrl: 'http://compare-fixture' });
+    const points = [{ text: 'fixture', vector: [1, 0], count: 1, generatedCount: 0 }];
+    const first = client.cluster(points), second = client.cluster(points);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(clusterCalls, 1);
+    const g = { ...profile().genres.Sport!, clusters: profile().genres.Sport!.clusters.map(c => ({ ...c, representative: c.centroid })) };
+    assert.equal((await client.compare(g, g)).score, 0);
+    assert.equal(clusterCalls, 1);
+    release(); await Promise.all([first, second]);
+    assert.equal(clusterCalls, 2);
+  } finally { release(); globalThis.fetch = original; }
 });

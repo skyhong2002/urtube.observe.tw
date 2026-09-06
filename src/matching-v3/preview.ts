@@ -21,7 +21,7 @@ export async function cachedPreview(source: SourceSnapshot, store: MatchingStore
       const vector = store.cache<number[]>(embeddingKey(s, text));
       if (vector) points.push({ text, ...counts, vector });
     }
-    if (!points.length || points.length > 10000) continue;
+    if (!points.length || points.length > 250000) continue;
     const result = await compute.cluster(points);
     const availableMass = points.reduce((sum, point) => sum + point.count, 0);
     genres[genre] = { ...result, videoCount, status: 'insufficient',

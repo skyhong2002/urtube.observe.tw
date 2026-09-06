@@ -126,7 +126,7 @@ export async function buildProfile(
       text, ...counts, vector: store.cache<number[]>(embeddingKey(s, text))!,
     }));
     // Explicitly fail, never silently truncate a large user profile.
-    if (points.length > 10000) throw new Error('Genre exceeds 10000 unique tags');
+    if (points.length > 250000) throw new Error('Genre exceeds 250000 unique tags');
     const result = points.length ? await compute.cluster(points) : { clusters: [], totalMass: 0, retainedCoverage: 0 };
     profiles[genre] = { ...result, videoCount,
       // Unknown videos prevent claiming an absent interest, but do not

@@ -29,8 +29,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check and test
-        run: npm run check
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test numerical matching service
+        env:
+          OPENBLAS_NUM_THREADS: 1
+          OMP_NUM_THREADS: 1
+          PYTHONDONTWRITEBYTECODE: 1
+        run: |
+          python3 -m pip install -r services/matching-compute/requirements.txt
+          python3 -m unittest discover -s services/matching-compute -p 'test_*.py'
+          export MATCHING_V3_COMPUTE_TOKEN=isolated-numeric-test-token-32-characters
+          python3 services/matching-compute/compute.py &
+          compute_pid=$!
+          trap 'kill "$compute_pid"' EXIT
+          python3 - <<'PYTHON'
+          import socket
+          import time
+          for attempt in range(100):
+              try:
+                  connection = socket.create_connection(('127.0.0.1', 8090), .1)
+                  connection.close()
+                  break
+              except OSError:
+                  time.sleep(.1)
+          else:
+              raise SystemExit('Compute did not start')
+          PYTHON
+          MATCHING_V3_TEST_COMPUTE_URL=http://127.0.0.1:8090 npm test
 
       - name: Build production image
         run: docker build -t urtube:${{ github.sha }} .

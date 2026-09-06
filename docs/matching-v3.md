@@ -84,7 +84,7 @@
 - 每個使用者工作有租約 token、心跳、重試時間。新輸入會使舊工作失效；啟用輪廓前再次核對來源／授權及工作 token，在單一 transaction 內發布。
 - API 429／5xx／timeout 採指數退避，最長一小時，持續自動重試；其他 HTTP 錯誤直接標示失敗，持續無效資料則最多失敗五次後等候處理。紀錄僅保存安全錯誤碼，不保存 provider 回應或金鑰。
 - 每個帳號每輪最多 3 次操作以輪流推進；每一 cycle 預設最多 20 次外部處理操作；達上限的工作續接快取，不重新呼叫已成功完成的項目。另有 `MATCHING_V3_DAILY_API_CALLS=200` 的全站每日操作上限，SQLite 原子計數跨 worker／重啟保留。到達上限暫停至 UTC 午夜（台灣上午 8 點），失敗請求也計入；這不是美元金額保證，API gateway 仍可能有不同計價。設定 `0` 可取消每日上限但持續計數；目前部署仍使用 `200`；無上限啟動遭自動核准審查拒絕，調整前需明確費用授權，沒有全站 1 RPM 限制。
-- 每個 genre 超過 10,000 個不同 tag 明確失敗，避免默默截斷使用者興趣。數值容器限制 2 GB、2 CPU；大型資料仍需再做記憶體／延遲壓測。
+- compact-medoid 每個 genre 可接收最多 250,000 個不同 tag，超過時明確失敗，避免默默截斷使用者興趣。使用分塊計算、暫存檔與 bit-packed 鄰接矩陣；舊 DBSCAN 相容路徑仍保留 10,000 上限。數值容器限制 2 GiB、2 CPU；已驗證 52,000 個 768 維合成向量，250,000 是輸入保護上限而非延遲保證。
 - 完整掃描判定使用現有 `history-start` 覆蓋證據。只有匯入部分 archive 或尚未完整掃描的使用者，仍可看到標記為暫定的结果。
 
 ## 啟用
@@ -418,3 +418,41 @@ The same interpretation applies when reading stored profiles and monitoring
 snapshots. This is a status interpretation change: profile version, cache keys,
 stored profiles, cluster vectors, score computation, and job scheduling remain
 unchanged. No migration, reclustering, or provider backfill is required.
+
+
+## Large clusters and batched channel lookups (2026-09-06)
+
+The compact-medoid algorithm retains its cosine threshold, greedy diameter
+check, anchor ordering, weighted representative, top-ten groups, and coverage
+weighting. Neighbors are bit-packed in a temporary mapped file; vector and
+support calculations use bounded row blocks. Temporary files are removed on
+completion or exceptions. This reduces resident memory but still requires
+quadratic compute time and approximately N²/8 bytes of scratch disk. The
+52,000 × 768 synthetic benchmark completed in 114.5 seconds with 832.6 MiB peak
+process RSS in an isolated container limited to 2 GiB and 2 CPUs. Its input was
+306.5 MiB. Larger or differently distributed data can take longer.
+
+`/cluster` accepts `application/x-urtube-vectors`: four-byte little-endian JSON
+header length, the JSON metadata with sorted points and dimensions, then row-major
+little-endian float64 vectors. Upload and parsing are incremental; full JSON
+vector arrays are not materialized. Small legacy JSON requests remain supported.
+Cluster calls queue per compute endpoint before upload and allow 30 minutes for
+large work. Interactive comparison retains its independent endpoint and timeout.
+Cache namespaces and profile versions stay unchanged because grouping and score
+semantics are preserved; this release does not expand the per-account source
+window or start a full-history backfill.
+
+Channel metadata requests arriving in the same event-loop turn are coalesced
+into `channels.list` requests with up to 50 IDs. Replies are mapped by ID, not
+response order. Missing IDs and empty descriptions remain unknown; HTTP and
+validation failures reject all affected callers for the existing retry path.
+Concurrent duplicate lookups share a request; the pipeline's existing cache-key
+coordination and persistent positive/negative caches remain in effect. GPT still
+classifies each evidenced channel individually. For 35,126 uncached channel IDs,
+full batches would need 703 YouTube lookups before retries, rather than 35,126;
+actual batching depends on eligible concurrent work.
+
+CI runs the Python numeric tests, a dense reference equivalence test, a streamed
+10,001-point capacity test, and the Node-to-Python HTTP integration. The larger
+resource benchmark is `services/matching-compute/benchmark_capacity.py`; it uses
+synthetic vectors only and can be mounted read-only into the numeric image.
