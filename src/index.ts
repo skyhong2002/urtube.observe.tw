@@ -515,6 +515,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       basePath: pagePath,
       profilePath,
       profileHtml: profileDetails(user, viewerOwns, lang),
+      viewerOwns,
       page,
       lang,
       nav: siteNav(c, lang, viewerOwns

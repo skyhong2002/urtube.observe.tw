@@ -50,7 +50,8 @@ test('member links open identity profiles while private history and dashboard ke
     assert.equal($('.mp-pills').text(), 'Music');
     assert.equal($('.mp-profile img').attr('src'), '/avatar/member/profile-bob');
     assert.equal($('.mp-blend').length, 0);
-    assert.equal($('.mt-actions form').attr('action'), '/matches/request');
+    assert.equal($('.mp-title-row .mt-actions form').attr('action'), '/matches/request');
+    assert.equal($('[data-youtube-import-control]').length, 0);
     assert.doesNotMatch(markup, /Private watch|2026-09-04T01:23:45|Legacy private biography|@private-contact/);
     assert.ok(!markup.includes(bob.dashboardToken));
     for (const path of ['/profile-bob/history', '/profile-bob/insights', '/profile-bob/recap', '/u/profile-bob/summary.json', '/u/profile-bob/crystal.json']) {
@@ -67,11 +68,22 @@ test('member links open identity profiles while private history and dashboard ke
     assert.equal(optedOut('.mp-blend,.mp-interests,.mp-profile img').length, 0);
     const owner = load(await (await app.request('/profile-bob', { headers: { cookie: `urtube_session=${registry.createSession(bob)}` } })).text());
     assert.equal(owner('.yt-profile').length, 1);
+    assert.equal(owner('.yt-profile-title-row [data-youtube-import-control]').length, 1);
+    const bobHeaders = { cookie: `urtube_session=${registry.createSession(bob)}` };
+    for (const suffix of ['/insights', '/history', '/recap']) {
+      const page = load(await (await app.request(`/profile-bob${suffix}`, { headers: bobHeaders })).text());
+      assert.equal(page('.yt-profile-title-row [data-youtube-import-control]').length, 1, suffix);
+    }
     const keyed = load(await (await app.request(`/profile-bob?key=${bob.dashboardToken}`, { headers })).text());
     assert.equal(keyed('.yt-profile').length, 1);
+    assert.equal(keyed('[data-youtube-import-control]').length, 0);
     registry.setDashboardPublic(bob.handle, true);
     const published = load(await (await app.request('/profile-bob', { headers })).text());
     assert.equal(published('.yt-profile').length, 1);
+    assert.equal(published('[data-youtube-import-control]').length, 0);
+    const visitor = load(await (await app.request('/profile-bob', { headers })).text());
+    assert.equal(visitor('[data-youtube-import-control]').length, 0);
+    assert.equal(visitor('.yt-profile-title-row a[href^="/blend/"]').length, 1);
     assert.equal(published('.mp-profile').length, 0);
     registry.deleteSession(token);
     assert.equal((await app.request('/profile-new', { headers })).status, 404);

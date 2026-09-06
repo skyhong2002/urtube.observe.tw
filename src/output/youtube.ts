@@ -465,7 +465,7 @@ export const rhythmClockStyles = `
 `;
 
 const dashboardStyles = `${rhythmClockStyles}
-  .yt-import-control{align-items:center;display:flex;gap:12px;margin:0 0 18px}.yt-import-control[hidden]{display:none}
+  .yt-import-control{align-items:center;display:flex;gap:8px;flex-wrap:wrap;margin:0}.yt-import-control[hidden]{display:none}
   .yt-import-control button{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:600;padding:7px 14px}
   .yt-import-control button:hover{border-color:var(--muted)}.yt-import-control button:disabled{cursor:wait;opacity:.6}
   .yt-import-control span{color:var(--muted);font-size:11px}
@@ -700,6 +700,8 @@ export type YoutubeDashboardPageKind = 'overview' | 'insights' | 'history' | 're
 
 export interface YoutubeDashboardOptions {
   profileHtml?: string;
+  // Only the signed-in owner sees the extension import controls.
+  viewerOwns?: boolean;
   // Path the dashboard is served under; range/sort links stay on it.
   basePath?: string;
   nav?: ShellNavItem[];
@@ -750,9 +752,9 @@ export function youtubeDashboardPage(
     now: t.syncNow, cancel: t.syncCancel, last: t.syncLast, failed: t.syncFailed,
     ready: t.syncReady, events: t.syncEvents, rows: t.syncRows,
   }).replace(/</g, '\\u003c');
-  const importControl = `<div class="yt-import-control" data-youtube-import-control hidden>
+  const importControl = options.viewerOwns ? `<div class="yt-import-control" data-youtube-import-control hidden>
     <button type="button">${t.syncNow}</button><span aria-live="polite"></span>
-  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>`;
+  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>` : '';
   const heroHours = data.stats.estimatedWatchSeconds === null ? null : Math.round(data.stats.estimatedWatchSeconds / 3600);
   const hero = `<section class="card yt-hero">
     <div class="yt-hero-figure">
@@ -863,13 +865,13 @@ export function youtubeDashboardPage(
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=false;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
   const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}${popularShelfStyles}${dashboardFlatStyles}
-    .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin-top:16px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
+    .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin:0}.yt-profile-copy{flex:1}.yt-profile-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px 20px}.yt-profile-title-row h1{margin:0}.yt-profile-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.yt-profile-actions .yt-profile-meta a{margin:0}.yt-profile-scope{margin:6px 0;color:var(--muted);font-size:14px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
   </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
     <div class="yt-profile-copy"><div class="eyebrow">${t.eyebrowArchive}</div>
-    <h1>${html(ownerName)}<em class="h1-scope" data-youtube-sort-scope>${scope}</em></h1>
-    ${options.profileHtml ?? ''}
-    ${options.blendHref ? `<div class="yt-profile-meta"><a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a></div>` : ''}${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}</div></section>`;
+    <div class="yt-profile-title-row"><h1>${html(ownerName)}</h1><div class="yt-profile-actions">${importControl}${options.friendshipHtml ? `<div class="yt-friendship">${options.friendshipHtml}</div>` : ''}${options.blendHref ? `<div class="yt-profile-meta"><a href="${html(options.blendHref)}">${html(t.memberProfileBlend)}</a></div>` : ''}</div></div>
+    <div class="yt-profile-scope" data-youtube-sort-scope>${scope}</div>
+    ${options.profileHtml ?? ''}</div></section>`;
   const showRecent = options.showRecent !== false;
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + keywords + channelList + topVideos + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
@@ -882,7 +884,7 @@ export function youtubeDashboardPage(
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   // A private page is not a private default, and friends may still have access.
-  const content = (options.processingHtml ?? '') + (page === 'overview' ? importControl + overview
+  const content = (options.processingHtml ?? '') + (page === 'overview' ? overview
     : page === 'insights' ? insights
       : page === 'history' ? history : recap);
   return shell(`${ownerName} · YouTube · ${scope}`, intro + pageNav + rangeNav + `<div class="yt-dashboard-content">${content}</div>`,

@@ -181,7 +181,7 @@ for (const decision of ['accept', 'decline', 'withdraw'] as const) {
       assert.equal(blend('.mt-locked').length, 0);
       const profile = load(await (await app.request('/invite-public?lang=zh', { headers: recipientHeaders })).text());
       assert.equal(profile('.yt-profile').length, 1);
-      assert.equal(profile('.yt-friendship button[value=accept]').text(), '接受好友邀請');
+      assert.equal(profile('.yt-profile-title-row .yt-friendship button[value=accept]').text(), '接受好友邀請');
       assert.equal(profile('.yt-friendship [name=requestToken]').attr('value'), requestToken);
       assert.equal(profile('.yt-page-nav a').length, 2);
       if (decision === 'withdraw') {
