@@ -6,6 +6,7 @@ import {
   PERSONAL_TAXONOMY_MIN_AVAILABLE_VIDEOS,
   PERSONAL_TAXONOMY_PROMPT_VERSION,
   PERSONAL_TOPICS,
+  PersonalClassificationEvidenceError,
   decidePersonalClassification,
   samplePersonalTaxonomy,
   type PersonalClassificationEvidence,
@@ -200,9 +201,9 @@ export async function classifyYoutubeVideosWithClient(
   const system = 'Classify every supplied YouTube video into exactly one governed topic. '
     + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
     + '"alternativeSlug":null,"alternativeConfidence":null,'
-    + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.0}]}]}. '
+    + '"evidence":[{"text":"exact metadata text","source":"title|channel|tag|description","score":0.9}]}]}. '
     + 'Use Other for clear content outside the listed subjects. Use Unknown when metadata is insufficient. '
-    + 'Give at most three evidence items per video. Each evidence text must be a verbatim quote of at most 80 characters '
+    + 'For Unknown return an empty evidence array. Give at most three evidence items per video. Each evidence text must be a verbatim quote of at most 80 characters '
     + 'from its declared public metadata source, with a score above 0 and at most 1. '
     + 'Return every videoId exactly once. Do not return secondary assignments or infer viewer identity.';
   const classifyBatch = async (batch: YoutubeVideoMetadata[]): Promise<void> => {
@@ -245,7 +246,7 @@ export async function classifyYoutubeVideosWithClient(
             if (!item) throw new Error('AI classification must return every supplied videoId');
             const evidence = Array.isArray(item.evidence)
               ? item.evidence.map((raw): PersonalClassificationEvidence => {
-                  if (!raw || typeof raw !== 'object') throw new Error('AI evidence entries must be objects');
+                  if (!raw || typeof raw !== 'object') throw new PersonalClassificationEvidenceError('AI evidence entries must be objects');
                   const value = raw as Record<string, unknown>;
                   return {
                     text: String(value.text ?? ''),
@@ -265,7 +266,19 @@ export async function classifyYoutubeVideosWithClient(
               });
             repository.savePersonalYoutubeVideoTopic(run, video, decision);
             classified += 1;
-          } catch (error) { remaining.push(video); lastError = error; }
+          } catch (error) {
+            if (attempt === 3 && error instanceof PersonalClassificationEvidenceError) {
+              // Repeatedly unsupported evidence is an abstention, never a
+              // fabricated known topic. Unknown still counts against the
+              // taxonomy's activation quality gates. Infrastructure failures
+              // retain the existing account retry path.
+              repository.savePersonalYoutubeVideoTopic(run, video, decidePersonalClassification(video, {
+                slug: 'unknown', confidence: 0, alternativeSlug: null,
+                alternativeConfidence: null, evidence: [],
+              }));
+              classified += 1;
+            } else { remaining.push(video); lastError = error; }
+          }
         }
         pending = remaining;
       } catch (error) {

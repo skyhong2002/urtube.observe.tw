@@ -1340,7 +1340,7 @@ test('YouTube keywords segment Unicode, ignore URLs, and count each video once',
   assert.deepEqual(stopWords, []);
 });
 
-test('classification feeds rejections back to the model and skips a stubborn batch', async () => {
+test('classification feeds rejections back to the model and abstains for a stubborn batch', async () => {
   const repository = new Repository(':memory:');
   try {
     const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
@@ -1398,16 +1398,14 @@ test('classification feeds rejections back to the model and skips a stubborn bat
     const client: YoutubeAiClient = { baseUrl: 'https://ai.example.test/v1', apiKey: 'test-key', model: 'test-model', fetchImpl };
     await ensureYoutubeTaxonomyWithClient(repository, false, client);
 
-    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 20);
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 24);
     const shape = (entries: typeof requests) => entries
       .map((entry) => [entry.batch, entry.feedback === null ? null : /rejected: Personal classification evidence must occur/.test(entry.feedback)] as const)
       .sort((a, b) => b[0] - a[0] || Number(a[1]) - Number(b[1]));
     assert.deepEqual(shape(requests), [[20, null], [20, true], [4, null], [4, true], [4, true]]);
-    // Only the skipped batch remains; it is retried on the next cycle and
-    // the cycle reports the failure when nothing at all could be saved.
-    await assert.rejects(classifyYoutubeVideosWithClient(repository, 100, client), /must occur in its declared metadata source/);
-    assert.equal(requests.length, 8);
-    assert.equal(requests.slice(5).every((entry) => entry.batch === 4), true);
+    // Unsupported assignments are Unknown; the next cycle reuses all results.
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 0);
+    assert.equal(requests.length, 5);
   } finally {
     repository.close();
   }
@@ -1787,11 +1785,11 @@ test('classification saves valid siblings and retries only invalid videos', asyn
     const recent = repository.youtubeVideosForPersonalClassification(run, 100, new Date('2026-07-30T00:00:00Z'));
     assert.equal(recent.length, 23, 'older tier is not dispatched alongside the latest 28 days');
     assert.equal(recent.some(video => video.videoId === metadata[0].videoId), false);
-    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 23);
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, client), 24);
     for (const video of metadata.slice(1)) assert.equal(requests.flat().filter(id => id === video.videoId).length, 1);
     assert.equal(requests.flat().filter(id => id === metadata[0].videoId).length, 3);
     const remaining = repository.youtubeVideosForPersonalClassification(repository.youtubeTaxonomyRuns()[0], 100);
-    assert.deepEqual(remaining.map(video => video.videoId), [metadata[0].videoId]);
+    assert.deepEqual(remaining, []);
     // A quality-approved candidate can still save its remaining classifications.
     const ready = { ...repository.youtubeTaxonomyRuns()[0], status: 'ready' as const };
     assert.doesNotThrow(() => repository.savePersonalYoutubeVideoTopic(ready, metadata[1], { slug:'technology', confidence:0.9, alternativeSlug:null, alternativeConfidence:null, decision:'accepted', evidence:[] }));
@@ -1800,6 +1798,6 @@ test('classification saves valid siblings and retries only invalid videos', asyn
     assert.equal(selected.topics.processed, 23);
     const all = repository.youtubeProcessingWindow('all', new Date('2026-07-30T00:00:00Z'));
     assert.equal(all.topics.total, 24);
-    assert.equal(all.topics.processed, 23);
+    assert.equal(all.topics.processed, 24);
   } finally { repository.close(); }
 });

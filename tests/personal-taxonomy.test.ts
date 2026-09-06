@@ -505,3 +505,66 @@ test('first-topic automatic activation preserves quality gates and prior active 
     } finally { repository.close(); }
   }
 });
+
+for (const allInvalid of [false, true]) test(`persistent invalid evidence abstains without failing the account (all=${allInvalid})`, async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('evidence-fixture', 'Evidence fixture');
+    const repository = registry.repositoryFor(user);
+    const videos = seedWatchedVideos(repository);
+    const attempts = new Map<string, number>();
+    const client: YoutubeAiClient = { baseUrl: 'https://example.test', apiKey: 'fixture', model: 'fixture-model',
+      fetchImpl: async (_url, options) => {
+        const request = JSON.parse(JSON.parse(String(options?.body)).messages[1].content);
+        return Response.json({ choices: [{ message: { content: JSON.stringify({
+          videos: request.videos.map((video: { videoId: string }) => {
+            attempts.set(video.videoId, (attempts.get(video.videoId) ?? 0) + 1);
+            return { videoId: video.videoId, slug: 'technology', confidence: 0.95,
+              alternativeSlug: null, alternativeConfidence: null,
+              evidence: [{ text: 'Software lesson', source: 'title',
+                score: allInvalid || video.videoId === videos[0].videoId ? 0 : 0.95 }] };
+          }),
+        }) } }] });
+      } };
+    const steps: YoutubeWorkerSteps = { portability: async () => 'idle', metadata: async () => 0,
+      channelMetadata: async () => 0, matchingClassification: async () => 0,
+      classification: (repo, member) => classifyYoutubeVideosWithClient(repo, 1000, client, member.autoActivateInitialTopics) };
+    repository.setYoutubeSyncState('last_error', 'Previous evidence failure');
+    const results = await runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds: [user.id] });
+    assert.equal(results[0].error, undefined);
+    assert.equal(results[0].classified, 24);
+    assert.equal(repository.youtubeSyncState('last_error'), '');
+    assert.equal(repository.youtubeSyncState('worker_stage'), 'idle');
+    assert.equal(repository.youtubeSyncState('worker_retry_attempts'), '0');
+    assert.equal(attempts.get(videos[0].videoId), 3);
+    assert.equal(attempts.get(videos[1].videoId), allInvalid ? 3 : 1);
+    assert.equal(repository.youtubeTaxonomyRuns()[0].status, allInvalid ? 'blocked' : 'active');
+    if (!allInvalid) {
+      const stats = repository.youtubeDashboard('all').stats;
+      assert.equal(stats.topicUnknownCoverage, 1 / 24);
+      assert.equal(stats.topicCoverage, 23 / 24);
+    }
+    const calls = [...attempts.values()].reduce((a, b) => a + b, 0);
+    await runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds: [user.id] });
+    assert.equal([...attempts.values()].reduce((a, b) => a + b, 0), calls);
+  } finally { registry.close(); }
+});
+
+test('provider outages remain account failures and never become Unknown assignments', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const user = registry.createUser('outage-fixture', 'Outage fixture');
+    const repository = registry.repositoryFor(user);
+    seedWatchedVideos(repository);
+    const client: YoutubeAiClient = { baseUrl: 'https://example.test', apiKey: 'fixture', model: 'fixture-model',
+      fetchImpl: async () => new Response('Service unavailable', { status: 503 }) };
+    const steps: YoutubeWorkerSteps = { portability: async () => 'idle', metadata: async () => 0,
+      channelMetadata: async () => 0, matchingClassification: async () => 0,
+      classification: (repo, member) => classifyYoutubeVideosWithClient(repo, 1000, client, member.autoActivateInitialTopics) };
+    const results = await runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds: [user.id] });
+    assert.match(results[0].error!, /HTTP 503/);
+    assert.equal(repository.youtubeSyncState('worker_stage'), 'failed');
+    assert.equal(repository.youtubeTopicProcessingProgress().processed, 0);
+    assert.ok(Number(repository.youtubeSyncState('worker_retry_at')) > Date.now());
+  } finally { registry.close(); }
+});

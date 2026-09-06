@@ -273,6 +273,8 @@ function normalizeEvidence(value: string): string {
   return value.normalize('NFKC').trim().toLocaleLowerCase();
 }
 
+export class PersonalClassificationEvidenceError extends Error {}
+
 export function decidePersonalClassification(
   video: YoutubeVideoMetadata,
   input: PersonalClassificationInput,
@@ -295,17 +297,17 @@ export function decidePersonalClassification(
   } else if (input.alternativeConfidence !== null) {
     throw new Error('Personal classification alternative confidence needs a topic');
   }
-  if (input.evidence.length > 3) throw new Error('Personal classification evidence is limited to three items');
+  if (input.evidence.length > 3) throw new PersonalClassificationEvidenceError('Personal classification evidence is limited to three items');
   const evidence = input.evidence.map((item) => {
     const text = item.text.trim();
     if (!['title', 'channel', 'tag', 'description'].includes(item.source)
       || !text || text.length > 80
       || !Number.isFinite(item.score) || item.score <= 0 || item.score > 1) {
-      throw new Error('Personal classification evidence must have bounded text and a positive score');
+      throw new PersonalClassificationEvidenceError('Personal classification evidence must have bounded text and a positive score');
     }
     const needle = normalizeEvidence(text);
     if (!evidenceSource(video, item.source).some((value) => normalizeEvidence(value).includes(needle))) {
-      throw new Error('Personal classification evidence must occur in its declared metadata source');
+      throw new PersonalClassificationEvidenceError('Personal classification evidence must occur in its declared metadata source');
     }
     return { ...item, text };
   });
@@ -315,7 +317,7 @@ export function decidePersonalClassification(
   if (input.confidence < PERSONAL_TAXONOMY_CONFIDENCE_MIN) {
     return { ...input, slug: 'unknown', evidence: [], decision: 'low-confidence' };
   }
-  if (!evidence.length) throw new Error('Known personal classifications require metadata evidence');
+  if (!evidence.length) throw new PersonalClassificationEvidenceError('Known personal classifications require metadata evidence');
   return { ...input, evidence, decision: 'accepted' };
 }
 
