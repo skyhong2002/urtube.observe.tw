@@ -42,7 +42,7 @@ export function describeV3Processing(input: {
   const currentProfile = profile?.version === input.profileVersion;
   const currentJob = job?.version === input.profileVersion;
   const provisional = !profile?.complete
-    || GENRES.some(genre => !profile.genres[genre] || profile.genres[genre]!.status === 'insufficient');
+    || GENRES.some(genre => !profile.genres[genre] || ['insufficient', 'partial'].includes(profile.genres[genre]!.status));
   let state: V3ProcessingState;
   if (!input.enabled) state = 'disabled';
   else if (job && !currentJob) state = 'stale';

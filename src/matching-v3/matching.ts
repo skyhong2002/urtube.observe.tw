@@ -1,5 +1,5 @@
 import type { Compute } from './compute.js';
-import type { Genre, Profile } from './model.js';
+import { assessProfileAvailability, type Genre, type Profile } from './model.js';
 
 const percent = (value: number) => `${(100 * value).toFixed(1)}%`;
 export interface MatchReason {
@@ -13,6 +13,8 @@ export interface MatchReason {
   hasGeneratedTags: boolean;
 }
 export async function compareProfiles(left: Profile, right: Profile, genres: Genre[], compute: Compute) {
+  left = assessProfileAvailability(left);
+  right = assessProfileAvailability(right);
   if (left.version !== right.version) throw new Error('Incompatible profile versions');
   const details: { genre: Genre; score: number | null; status: 'ready' | 'provisional' | 'missing'; leftCoverage: number; rightCoverage: number }[] = [];
   const reasons: MatchReason[] = [];
@@ -23,7 +25,7 @@ export async function compareProfiles(left: Profile, right: Profile, genres: Gen
       continue;
     }
     const result = await compute.compare(a, b);
-    const provisional = !left.complete || !right.complete || a.status === 'insufficient' || b.status === 'insufficient';
+    const provisional = !left.complete || !right.complete || a.status === 'partial' || b.status === 'partial' || a.status === 'insufficient' || b.status === 'insufficient';
     details.push({ genre, score: result.score, status: provisional ? 'provisional' : 'ready', leftCoverage: a.retainedCoverage, rightCoverage: b.retainedCoverage });
     const best = result.transport.find(pair => pair.contribution > 1e-9);
     if (!best) continue;

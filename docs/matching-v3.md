@@ -400,3 +400,21 @@ it is not a probability or a claim of validated compatibility.
 可在 `.env` 設定 `MATCHING_V3_ADMIN_USERNAME` 與 `MATCHING_V3_ADMIN_PASSWORD`，正式部署請放入 `MATCHING_V3_ENV_FILE` 指向的環境檔（目前為部署端 `.env.matching-v3`），重新部署後生效。兩者均未設定時沿用既有網站登入與管理員白名單；只設定其中一個時拒絕管理介面存取。
 
 設定帳密後，白名單內的已登入管理員開啟 `/matching-v3/admin` 會收到瀏覽器帳密提示。管理頁、JavaScript、監控資料 API 和重試 API 都要求相同驗證；此帳密不會取代 `MATCHING_V3_ADMIN_HANDLES` 白名單，POST 仍驗證 Origin。正式站需使用 HTTPS。帳密不得提交 Git，變更後重新部署；瀏覽器可能快取舊帳密，必要時關閉瀏覽器工作階段再登入。
+
+## Per-genre availability (2026-09-06)
+
+Availability is interpreted from each genre's existing clusters and retained
+coverage. A nonempty cluster set with coverage >= 50% is `ready`; a nonempty
+set below that threshold is `partial` and can produce provisional scores.
+Without clusters, a previously established `empty` genre stays empty;
+otherwise it is `insufficient` and cannot provide a score. Unknown videos do
+not invalidate populated genres, but still prevent claiming an absent interest.
+Content coverage measures represented tag weight; channel-type coverage measures
+the fraction of source videos with an identified channel type. Neither certifies
+that every source video was classified. The admin page shows these measures.
+Incomplete source profiles continue to produce provisional comparisons.
+
+The same interpretation applies when reading stored profiles and monitoring
+snapshots. This is a status interpretation change: profile version, cache keys,
+stored profiles, cluster vectors, score computation, and job scheduling remain
+unchanged. No migration, reclustering, or provider backfill is required.

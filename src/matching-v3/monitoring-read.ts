@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Profile } from './model.js';
+import { assessProfileAvailability, type Profile } from './model.js';
 import type { JobProgress } from './store.js';
 
 // Read-only queries shared by the diagnostic store API and the isolated reader.
@@ -21,16 +21,16 @@ export function readAdminSnapshot(db: DatabaseSync, profileVersion: string) {
     j.state, j.attempts, j.error, j.retry_at, j.progress_json
     FROM users u LEFT JOIN matching_v3_profiles p ON p.user_id=u.id
     LEFT JOIN matching_v3_jobs j ON j.user_id=u.id ORDER BY u.id`).all().map(row => {
-      const p: Profile | null = row.profile_json ? JSON.parse(String(row.profile_json)) : null;
+      const p: Profile | null = row.profile_json ? assessProfileAvailability(JSON.parse(String(row.profile_json))) : null;
       const currentVersion = p?.version === profileVersion;
       return { id: Number(row.id), handle: String(row.handle), currentVersion,
         job: row.state == null ? null : { state: String(row.state), attempts: Number(row.attempts),
           error: row.error == null ? null : String(row.error), retry_at: Number(row.retry_at),
           progress: row.progress_json ? JSON.parse(String(row.progress_json)) as JobProgress : null },
-        usable: Boolean(currentVersion && p && Object.values(p.genres).some(g => g.status === 'ready')),
+        usable: Boolean(currentVersion && p && Object.values(p.genres).some(g => g.status === 'ready' || g.status === 'partial')),
         profile: p ? { builtAt: p.builtAt, totalVideos: p.totalVideos, processedVideos: p.processedVideos,
           genres: Object.fromEntries(Object.entries(p.genres).map(([genre, value]) =>
-            [genre, { status: value.status, clusterCount: value.clusters.length }])) } : null };
+            [genre, { status: value.status, clusterCount: value.clusters.length, retainedCoverage: value.retainedCoverage ?? null, videoCount: value.videoCount ?? null }])) } : null };
     });
   return { ...readMonitoring(db), users, sampledAt: Date.now() };
 }

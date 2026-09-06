@@ -1,6 +1,6 @@
 import { createDispatchLimiter } from './dispatch.js';
 import { type AsyncLimiter } from '../youtube/concurrency.js';
-import { GENRES, CHANNEL_TYPES, CONTENT_GENRES, digest, version, type Classification, type Genre, type GenreProfile, type Profile, type Settings, type SourceSnapshot, type TagPoint, type VideoInput } from './model.js';
+import { assessProfileAvailability, GENRES, CHANNEL_TYPES, CONTENT_GENRES, digest, version, type Classification, type Genre, type GenreProfile, type Profile, type Settings, type SourceSnapshot, type TagPoint, type VideoInput } from './model.js';
 import type { Compute } from './compute.js';
 import { PartialClassificationError, ProviderError, type Provider } from './provider.js';
 import { MatchingStore, sourceKey, type JobProgress } from './store.js';
@@ -129,7 +129,9 @@ export async function buildProfile(
     if (points.length > 10000) throw new Error('Genre exceeds 10000 unique tags');
     const result = points.length ? await compute.cluster(points) : { clusters: [], totalMass: 0, retainedCoverage: 0 };
     profiles[genre] = { ...result, videoCount,
-      status: !source.videos.length || uncertain || (videoCount > 0 && tags.size === 0) || (points.length > 0 && result.retainedCoverage < 0.5) ? 'insufficient' : result.clusters.length ? 'ready' : 'empty' };
+      // Unknown videos prevent claiming an absent interest, but do not
+      // invalidate evidence already available for another genre.
+      status: result.clusters.length ? 'ready' : !source.videos.length || uncertain || videoCount > 0 ? 'insufficient' : 'empty' };
   }
   if (genres.includes('channel type')) {
     progress({ phase: 'channels', processed: 0, total: source.videos.length });
@@ -162,17 +164,17 @@ export async function buildProfile(
     const totalMass = [...counts.values()].reduce((a, b) => a + b, 0);
     profiles['channel type'] = {
       videoCount, totalMass, retainedCoverage: source.videos.length ? videoCount / source.videos.length : 0,
-      status: !source.videos.length || unknown ? 'insufficient' : totalMass ? 'ready' : 'empty',
+      status: totalMass ? 'ready' : !source.videos.length || unknown ? 'insufficient' : 'empty',
       clusters: CHANNEL_TYPES.filter(type => counts.has(type)).map(type => ({
         centroid: CHANNEL_TYPES.map(t => t === type ? 1 : 0), mass: counts.get(type)!, share: counts.get(type)! / totalMass,
         tags: [{ text: type, count: counts.get(type)!, generatedCount: 0 }],
       })),
     };
   }
-  return { version: version(s), sourceFingerprint: source.fingerprint, builtAt: new Date().toISOString(),
+  return assessProfileAvailability({ version: version(s), sourceFingerprint: source.fingerprint, builtAt: new Date().toISOString(),
     complete: source.complete, totalVideos: source.videos.length,
     processedVideos: contentRequested ? classifications.size : profiles['channel type']?.videoCount ?? 0,
-    genres: profiles };
+    genres: profiles });
 }
 
 export async function runCycle(registry: UserRegistry, s: Settings, provider: Provider, compute: Compute, shouldStop: () => boolean = () => false): Promise<void> {

@@ -68,7 +68,7 @@ export interface Cluster {
   tags: { text: string; count: number; generatedCount: number }[];
 }
 export interface GenreProfile {
-  status: 'ready' | 'empty' | 'insufficient';
+  status: 'ready' | 'partial' | 'empty' | 'insufficient';
   clusters: Cluster[];
   totalMass: number;
   retainedCoverage: number;
@@ -86,3 +86,14 @@ export interface Profile {
 export interface TagPoint { text: string; vector: number[]; count: number; generatedCount: number }
 export interface Transport { left: number; right: number; mass: number; similarity: number; contribution: number }
 export interface Comparison { score: number; transport: Transport[] }
+
+// Read-time interpretation also repairs old all-or-nothing status flags without
+// rebuilding profiles, changing cache keys, or scheduling provider work.
+export function assessProfileAvailability(profile: Profile): Profile {
+  return { ...profile, genres: Object.fromEntries(Object.entries(profile.genres).map(([genre, value]) => {
+    const status: GenreProfile['status'] = value.clusters.length
+      ? Number.isFinite(value.retainedCoverage) && value.retainedCoverage >= 0.5 ? 'ready' : 'partial'
+      : value.status === 'empty' ? 'empty' : 'insufficient';
+    return [genre, { ...value, status }];
+  })) };
+}

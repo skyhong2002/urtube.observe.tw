@@ -16,7 +16,13 @@ function renderUsers() {
     if (user.profile) {
       profile.append(node('small', `${number(user.profile.processedVideos)} / ${number(user.profile.totalVideos)} 部影片 · ${user.currentVersion ? '目前版本' : '舊版本'}`));
       const detail = node('details'); detail.append(node('summary', '查看九類狀態'));
-      for (const genre of data.genres) detail.append(node('small', `${genre}：${labels[user.profile.genres[genre]?.status] || '尚未建立'} · ${user.profile.genres[genre]?.clusterCount ?? 0} 個 cluster`));
+      for (const genre of data.genres) {
+        const value = user.profile.genres[genre];
+        const status = value?.status === 'partial' ? '部分資料可用' : labels[value?.status] || '尚未建立';
+        const coverage = Number.isFinite(value?.retainedCoverage) ? `${(100 * value.retainedCoverage).toFixed(1)}%` : '尚無紀錄';
+        detail.append(node('small', `${genre}：${status} · ${value?.clusterCount ?? 0} 個群集 · ${genre === 'channel type' ? '影片類型辨識率' : '群集涵蓋 tag 權重'} ${coverage}`));
+      }
+      detail.append(node('small', '有群集且覆蓋率達 50% 為可用；未達門檻仍可提供暫定分數。覆蓋率不代表所有影片皆已成功分類。'));
       profile.append(detail, node('small', `建立於 ${date(user.profile.builtAt)}`));
     }
     const error = node('div', `${job?.attempts || 0} 次失敗`);

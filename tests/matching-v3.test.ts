@@ -789,3 +789,54 @@ test('old recoverable failures resume automatically but provider authorization e
     assert.equal(store.claim(200000)?.userId, user.id);
   } finally { registry.close(); }
 });
+
+test('one unclassified video does not invalidate another genre or mostly identified channels', async () => {
+  const { db, store } = storeFixture();
+  const unknown = { ...video, id: 'unknown-video', channelId: null };
+  const provider: Provider = {
+    classify: async v => v.id === unknown.id ? { tags: [], tagSource: 'original', assignments: [] } : classification,
+    embed: async tags => tags.map(() => [1, 0]),
+    channel: async () => ({ types: ['personal creator'], evidenceAvailable: true }),
+  };
+  try {
+    const p = await buildProfile({ videos: [video, unknown], complete: true, fingerprint: 'mixed' },
+      ['Sport', 'Music', 'channel type'], store, s, provider, compute);
+    assert.equal(p.genres.Sport?.status, 'ready');
+    assert.equal(p.genres.Music?.status, 'insufficient', 'unknown does not establish absence of an interest');
+    assert.equal(p.genres['channel type']?.retainedCoverage, 0.5);
+    assert.equal(p.genres['channel type']?.status, 'ready');
+    const low = await buildProfile({ videos: [video, unknown, { ...unknown, id: 'another-unknown' }], complete: true, fingerprint: 'low' },
+      ['channel type'], store, s, provider, compute);
+    assert.equal(low.genres['channel type']?.status, 'partial');
+    assert.equal((await compareProfiles(low, low, ['channel type'], compute)).provisional, true);
+  } finally { db.close(); }
+});
+
+test('old profiles gain per-genre availability on read without altering stored work or caches', async () => {
+  const { db, store } = storeFixture();
+  try {
+    const old = profile();
+    old.genres.Sport!.status = 'insufficient';
+    old.genres.Music = { ...old.genres.Sport!, retainedCoverage: 0.49 };
+    old.genres.News = { ...old.genres.Sport!, clusters: [], retainedCoverage: 0 };
+    store.schedule(1, 'source', version(s)); store.finish(store.claim()!, old);
+    const before = db.prepare('SELECT profile_json FROM matching_v3_profiles').get();
+    const job = store.status(1);
+    const current = store.profile(1)!;
+    assert.equal(current.genres.Sport?.status, 'ready');
+    assert.equal(current.genres.Music?.status, 'partial');
+    assert.equal(current.genres.News?.status, 'insufficient');
+    assert.equal(current.version, old.version);
+    assert.equal(current.builtAt, old.builtAt);
+    assert.deepEqual(current.genres.Sport?.clusters, old.genres.Sport?.clusters);
+    const full = await compareProfiles(current, current, ['Sport'], compute);
+    assert.equal(full.provisional, false);
+    const partial = await compareProfiles(current, current, ['Music'], compute);
+    assert.equal(partial.provisional, true);
+    assert.equal(partial.score, full.score, 'availability does not change the scoring algorithm');
+    assert.equal((await compareProfiles(current, current, ['Sport', 'News'], compute)).score, null);
+    assert.deepEqual(db.prepare('SELECT profile_json FROM matching_v3_profiles').get(), before);
+    assert.deepEqual(store.status(1), job);
+    assert.equal(db.prepare('SELECT count(*) n FROM matching_v3_operations').get()!.n, 0);
+  } finally { db.close(); }
+});

@@ -3,7 +3,7 @@ import type { V3JobStatus } from '../youtube/v3-processing.js';
 import type { TokenObservation } from './telemetry.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { digest, type Genre, type Profile } from './model.js';
+import { assessProfileAvailability, digest, type Genre, type Profile } from './model.js';
 
 export interface Preferences { genres: Genre[]; topics: { id: string; name: string; genres: Genre[] }[] }
 export interface Job { userId: number; fingerprint: string; version: string; token: string; attempts: number }
@@ -98,7 +98,7 @@ export class MatchingStore {
   }
   profile(userId: number): Profile | null {
     const row = this.db.prepare('SELECT profile_json FROM matching_v3_profiles WHERE user_id=?').get(userId);
-    return row ? JSON.parse(String(row.profile_json)) : null;
+    return row ? assessProfileAvailability(JSON.parse(String(row.profile_json))) : null;
   }
   status(userId: number) {
     const row = this.db.prepare('SELECT state, attempts, error, retry_at, progress_json FROM matching_v3_jobs WHERE user_id=?').get(userId);
