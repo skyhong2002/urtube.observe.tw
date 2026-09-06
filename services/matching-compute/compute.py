@@ -193,8 +193,10 @@ def read_exact(stream, size):
 
 def cluster_stream(stream, size):
     """Length-prefixed JSON metadata followed by little-endian float64 rows."""
+    if size < 4:
+        raise ValueError("Invalid metadata length")
     header_size = struct.unpack("<I", read_exact(stream, 4))[0]
-    if not 0 < header_size <= 64 * 1024 * 1024:
+    if not 0 < header_size <= min(64 * 1024 * 1024, size - 4):
         raise ValueError("Invalid metadata length")
     data = json.loads(read_exact(stream, header_size))
     points, dimensions = data["points"], data["dimensions"]
