@@ -4,7 +4,7 @@ import { isVisibleKeyword } from './keyword-display.js';
 
 // Presentation only: intersect original source tags within shared categories.
 // Similar clusters or generated tags are not evidence of a shared keyword.
-export function blendKeywords(left: Profile, right: Profile, selected: Genre[]): string[] {
+export function blendKeywords(left: Profile, right: Profile, selected: Genre[], limit = 5): string[] {
   const categoryNames = [...GENRES, ...Object.values(genreLabels('zh')), ...Object.values(genreLabels('en'))];
   const shared = new Map<string, { text: string; count: number }>();
   const tagsFor = (profile: Profile, genre: Genre) => {
@@ -28,5 +28,5 @@ export function blendKeywords(left: Profile, right: Profile, selected: Genre[]):
     }
   }
   return [...shared.values()].sort((a, b) => b.count - a.count || a.text.localeCompare(b.text))
-    .slice(0, 5).map(tag => tag.text);
+    .slice(0, limit).map(tag => tag.text);
 }

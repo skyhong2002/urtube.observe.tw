@@ -158,7 +158,9 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
       assert.match($('.mt-panel').text(), /v3 興趣分析/);
       assert.doesNotMatch($('.mt-panel').text(), /cosine|0.4–0.95/);
       assert.equal($('.mt-blend-keywords').text(),'private-detail-tag');
-      assert.equal($('.mt-blend-keywords').closest('.mt-vs-center').length,1);
+      assert.equal($('.mt-vs-center .mt-blend-keywords').length,0);
+      assert.equal($('.mt-blend-keywords').closest('[data-blend-genre="Music"]').length,1);
+      assert.equal($('.mt-blend-keywords').closest('.mt-metrics').length,1);
       assert.equal($('input[name="genre"]').length,0);
       assert.doesNotMatch($('h2').text(), /比較類別|Comparison categories/);
       assert.doesNotMatch($.text(), /暫定分數|本次選取|更新比較|Provisional score|categories selected|Update comparison/);
