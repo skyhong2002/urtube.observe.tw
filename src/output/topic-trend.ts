@@ -54,7 +54,7 @@ export function buildTopicTrendModel(months: YoutubeTopicTrendMonth[], t: Messag
       totals.set(topic.slug, (totals.get(topic.slug) ?? 0) + topic.estimatedWatchSeconds);
     }
   }
-  const topics = [...names].filter(([slug]) => (totals.get(slug) ?? 0) > 0)
+  const topics = [...names].filter(([slug]) => (totals.get(slug) ?? 0) > 0 || months.some(month => month.topics.some(topic => topic.slug === slug && topic.movingAverageShare > 0)))
     .map(([slug, name]) => ({ slug, name, color: topicColor(slug) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const frames = months.map((month) => ({
@@ -69,9 +69,9 @@ export function buildTopicTrendModel(months: YoutubeTopicTrendMonth[], t: Messag
       return {
         slug: topic.slug,
         name: topic.name,
-        share: month.classifiedWatchSeconds > 0 && value ? value.movingAverageShare : null,
+        share: value && month.topics.some(topic => topic.movingAverageShare > 0) ? value.movingAverageShare : null,
         rawShare: month.classifiedWatchSeconds > 0 && value ? value.share : null,
-        smoothedShare: month.classifiedWatchSeconds > 0 && value ? value.movingAverageShare : null,
+        smoothedShare: value && month.topics.some(topic => topic.movingAverageShare > 0) ? value.movingAverageShare : null,
         estimatedWatchSeconds: value?.estimatedWatchSeconds ?? 0,
       };
     }),
@@ -193,7 +193,7 @@ export function topicTrendSection(data: YoutubeDashboardData, t: Messages): stri
   const model = buildTopicTrendModel(data.topicTrend, t);
   // View labels describe what changes visually, without classification-version terminology.
   const rawLabel = t.topicTrendOther === '其他' ? '每日／每週' : 'Daily / weekly';
-  const smoothedLabel = t.topicTrendOther === '其他' ? '趨勢' : 'Trend';
+  const smoothedLabel = t.topicTrendOther === '其他' ? '90 天衰減趨勢' : '90-day decay trend';
   if (!model.frames.length) {
     return `<section class="section"><div class="section-head"><div><h2>${t.topicTrendTitle}</h2><span>${t.topicTrendSub}</span></div></div><p class="muted">${t.topicTrendEmpty}</p><p class="yt-topic-trend-method">${t.topicTrendMethod}</p></section>`;
   }

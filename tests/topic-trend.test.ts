@@ -61,11 +61,12 @@ test('topic trend views share one 12-month, 20-topic model', () => {
   assert.match(output, /50% classified · provisional/);
 });
 
-test('months without classified time stay unknown instead of becoming zero', () => {
+test('periods without classified time retain smoothed history while raw shares stay unknown', () => {
   const months = trendFixture();
   months[4] = { ...months[4], classifiedWatchEvents: 0, classificationCoverage: 0, classifiedWatchSeconds: 0 };
   const model = buildTopicTrendModel(months, messages('en'));
-  assert.equal(model.frames[4].values[0].share, null);
+  assert.equal(model.frames[4].values[0].rawShare, null);
+  assert.equal(model.frames[4].values[0].smoothedShare, .01);
 
   const output = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('en'));
   assert.match(output, /No usable classifications for this period/);
@@ -73,7 +74,7 @@ test('months without classified time stay unknown instead of becoming zero', () 
 });
 
 
-test('topic dynamics renders stable ranked rows and an empty state for an unclassified latest period', () => {
+test('topic dynamics retains ranked history in an unclassified latest period', () => {
   const months = trendFixture();
   const output = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('zh'));
   assert.match(output, /<h2>主題動態<\/h2>/);
@@ -84,6 +85,6 @@ test('topic dynamics renders stable ranked rows and an empty state for an unclas
   }
   months[11] = { ...months[11], classifiedWatchEvents: 0, classifiedWatchSeconds: 0, classificationCoverage: 0 };
   const empty = topicTrendSection({ topicTrend: months } as YoutubeDashboardData, messages('zh'));
-  assert.match(empty, /data-race-empty>本期尚無可用分類/);
-  assert.match(empty, /data-race-list style="height:441px"><\/ol>/);
+  assert.match(empty, /data-race-empty hidden/);
+  assert.match(empty, /data-race-slug="topic-20"/);
 });

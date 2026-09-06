@@ -58,7 +58,7 @@ test('topic history includes dated backfills, preserves estimates and explains e
     for (const page of ['overview', 'insights'] as const) {
       const $ = load(youtubeDashboardPage('Synthetic', year, 'duration', { lang: 'zh', page }));
       const race = JSON.parse($('[data-rank-race="topics"] [data-chase-data]').text());
-      assert.equal(race.frames[1].entries[0][1], 1);
+      assert.ok(race.frames[1].entries[0][1] > .999, 'old history decays but is not reset at the range boundary');
       assert.equal(race.frames[1].empty, model.frames[1].empty);
       assert.match(race.frames[0].note, /部分期間/);
     }

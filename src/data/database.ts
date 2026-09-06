@@ -1,3 +1,4 @@
+import { applyTopicDecay, INTEREST_HALF_LIFE_DAYS } from '../youtube/topic-decay.js';
 import { timelineWindow, timelineBounds, taipeiDate } from '../youtube/timeline.js';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -239,7 +240,7 @@ export interface ChannelRaceWeekRow {
   estimatedWatchSeconds: number;
 }
 
-export const CHANNEL_RACE_HALF_LIFE_DAYS = 90;
+export const CHANNEL_RACE_HALF_LIFE_DAYS = INTEREST_HALF_LIFE_DAYS;
 const CHANNEL_RACE_TOP = 8;
 const CHANNEL_RACE_MIN_SECONDS = 60;
 
@@ -1782,7 +1783,7 @@ export class Repository {
     }));
   }
 
-  // Calendar dates suffice for daily/monthly trends; hourly rhythm remains exact-only.
+  // Calendar dates suffice for daily/weekly trends; hourly rhythm remains exact-only.
   youtubeTopicTrend(range: YoutubeRange = 'all', now = new Date()): YoutubeTopicTrendMonth[] {
     this.ensureEstimatedEvents();
     const firstWatch = this.db.prepare(`
@@ -1833,8 +1834,23 @@ export class Repository {
         AND a.occurred_precision IN ('exact', 'day') AND e.watched_at>=? AND e.watched_at<?
       GROUP BY month, t.id ORDER BY month, t.name
     `).all(selectedWindow.start, selectedWindow.end) as Array<Record<string, string | number>>;
+    const topicHistoryRows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT date(e.watched_at, '+8 hours') month,
+        t.slug, t.name, COALESCE(SUM(e.estimated_watch_seconds), 0) estimated_watch_seconds
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      JOIN youtube_videos v ON v.video_id=e.video_id
+      JOIN youtube_video_topics vt
+        ON vt.video_id=e.video_id AND vt.rank=1 AND vt.metadata_hash=v.metadata_hash
+      JOIN youtube_topics t ON t.id=vt.topic_id
+        AND t.taxonomy_version=${ACTIVE_PERSONAL_TAXONOMY_VERSION_SQL}
+      WHERE vt.decision='accepted' AND t.slug<>'unknown'
+        AND a.occurred_precision IN ('exact', 'day') AND e.watched_at<?
+      GROUP BY month, t.id ORDER BY month, t.name
+    `).all(selectedWindow.end) as Array<Record<string, string | number>>;
     const monthly = new Map(monthlyRows.map((row) => [String(row.month), row]));
-    const topicNames = new Map(topicRows.map((row) => [String(row.slug), String(row.name)]));
+    const topicNames = new Map(topicHistoryRows.map((row) => [String(row.slug), String(row.name)]));
     const topicSeconds = new Map<string, Map<string, number>>();
     for (const row of topicRows) {
       const month = String(row.month);
@@ -1880,15 +1896,7 @@ export class Repository {
         }),
       };
     });
-    for (let index = 0; index < result.length; index += 1) {
-      const trailing = result.slice(Math.max(0, index - selectedWindow.smoothing + 1), index + 1);
-      const denominator = trailing.reduce((sum, month) => sum + month.classifiedWatchSeconds, 0);
-      for (const topic of result[index].topics) {
-        const numerator = trailing.reduce((sum, month) =>
-          sum + (month.topics.find((item) => item.slug === topic.slug)?.estimatedWatchSeconds ?? 0), 0);
-        topic.movingAverageShare = denominator ? numerator / denominator : 0;
-      }
-    }
+    applyTopicDecay(result, topicHistoryRows.map(row => ({ day: String(row.month), slug: String(row.slug), seconds: Number(row.estimated_watch_seconds) })));
     return result;
   }
 

@@ -1136,13 +1136,15 @@ test('topic trend uses dated events, current classifications, and weighted movin
         coverage: march.classificationCoverage, seconds: march.classifiedWatchSeconds },
       { classifiable: 2, classified: 1, coverage: 0.5, seconds: 300 },
     );
-    assert.equal(march.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 0.4);
-    assert.equal(march.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 0.6);
+    const decay = (days: number) => 0.5 ** (days / 90);
+    const alphaMarch = 100 * decay(14) + 100 * decay(7);
+    assert.ok(Math.abs(march.topics.find(topic => topic.slug === 'alpha')!.movingAverageShare - alphaMarch / (alphaMarch + 300)) < 1e-12);
     const april = trend.find((month) => month.month === '2026-03-16')!;
     assert.equal(april.classifiableWatchEvents, 2);
     assert.equal(april.classifiedWatchSeconds, 1000);
-    assert.equal(april.topics.find((topic) => topic.slug === 'alpha')?.movingAverageShare, 1 / 14);
-    assert.equal(april.topics.find((topic) => topic.slug === 'beta')?.movingAverageShare, 13 / 14);
+    const alphaApril = 100 * decay(22) + 100 * decay(15);
+    const betaApril = 300 * decay(8) + 100 * decay(1) + 900;
+    assert.ok(Math.abs(april.topics.find(topic => topic.slug === 'alpha')!.movingAverageShare - alphaApril / (alphaApril + betaApril)) < 1e-12);
 
     const sevenDays = repository.youtubeTopicTrend('7d', now);
     assert.equal(sevenDays.length, 8);
@@ -1160,7 +1162,7 @@ test('topic trend uses dated events, current classifications, and weighted movin
     assert.match(html, /日期範圍沿用上方選擇/);
     assert.match(html, /data-trend-smoothing="raw"/);
     assert.match(html, /已分類 50% · 暫定/);
-    assert.match(html, /依已分類的估計觀看時間計算占比/);
+    assert.match(html, /90 天半衰期加權/);
     assert.match(html, /\.yt-short-absolute\{[^}]*overflow:hidden/,
       'dense history columns stay contained instead of widening the mobile page');
   } finally {
