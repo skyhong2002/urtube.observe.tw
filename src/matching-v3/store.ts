@@ -32,6 +32,12 @@ export class MatchingStore {
         user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         preferences_json TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS matching_v3_scores (
+        left_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        right_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        selection TEXT NOT NULL, value_json TEXT NOT NULL,
+        PRIMARY KEY(left_id, right_id, selection)
+      );
       CREATE TABLE IF NOT EXISTS matching_v3_profiles (
         user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         profile_json TEXT NOT NULL
@@ -83,6 +89,13 @@ export class MatchingStore {
   }
   putCache(key: string, value: unknown): void {
     this.db.prepare('INSERT OR REPLACE INTO matching_v3_cache VALUES (?, ?, ?)').run(key, JSON.stringify(value), Date.now());
+  }
+  score<T>(leftId: number, rightId: number, selection: string): T | null {
+    const row = this.db.prepare('SELECT value_json FROM matching_v3_scores WHERE left_id=? AND right_id=? AND selection=?').get(leftId, rightId, selection);
+    return row ? JSON.parse(String(row.value_json)) as T : null;
+  }
+  saveScore(leftId: number, rightId: number, selection: string, value: unknown): void {
+    this.db.prepare('INSERT OR REPLACE INTO matching_v3_scores VALUES (?,?,?,?)').run(leftId, rightId, selection, JSON.stringify(value));
   }
   preferences(userId: number): Preferences {
     const row = this.db.prepare('SELECT preferences_json FROM matching_v3_preferences WHERE user_id=?').get(userId);

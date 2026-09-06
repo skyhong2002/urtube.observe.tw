@@ -224,3 +224,38 @@ test('directory and topic links preserve the v3 scoring scope when opening Blend
     assert.equal(scoped('.mt-vs-score strong').text(),'50%');
   } finally {f.registry.close();}
 });
+
+test('successful scores survive rollout, reuse persisted cache, replace on completion and respect consent', async () => {
+  let calls = 0, value = .65, fail = false;
+  const f = setup({ ...compute, compare: async () => {
+    calls++; if (fail) throw new Error('compare unavailable');
+    return { score: value, transport: [] };
+  } });
+  try {
+    const store = f.registry.matchingV3Store();
+    const score = async () => (await (await f.match()).json() as any).candidates[0]?.score;
+    assert.equal(await score(), .65);
+    assert.equal(await score(), .65);
+    assert.equal(calls, 1, 'same snapshots use persistent score');
+    const page = await f.app.request('/matches?view=all', { headers: f.headers });
+    assert.match(await page.text(), /81%/);
+    assert.equal(calls, 1, 'directory shares API cache');
+    const old = store.profile(f.alice.id)!;
+    store.schedule(f.alice.id, 'rollout', 'new-version');
+    assert.equal(await score(), .65);
+    const job = store.claim()!;
+    store.finish(job, { ...old, version: 'new-version', builtAt: '2026-09-06T01:00:00Z' });
+    assert.equal(await score(), .65, 'mixed versions keep last successful result');
+    store.schedule(f.bob.id, 'rollout', 'new-version');
+    store.finish(store.claim()!, { ...store.profile(f.bob.id)!, version: 'new-version', builtAt: '2026-09-06T01:00:00Z' });
+    fail = true;
+    assert.equal(await score(), .65, 'service errors keep result');
+    fail = false; value = .81;
+    assert.equal(await score(), .81, 'completed new snapshots replace result');
+    const after = calls;
+    assert.equal(await score(), .81);
+    assert.equal(calls, after);
+    store.savePreferences(f.bob.id, { genres: [], topics: [] });
+    assert.equal(await score(), undefined, 'cached score cannot bypass revoked genre consent');
+  } finally { f.registry.close(); }
+});

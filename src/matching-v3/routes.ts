@@ -1,3 +1,4 @@
+import { cachedScore } from './score-cache.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
@@ -121,7 +122,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
     if (!user.matchingOptIn || selected.some(g => !store.preferences(user.id).genres.includes(g))) return c.json({ error: 'opt_in_required' }, 403);
     if (busy.has(user.id)) return c.json({ error: 'matching_in_progress' }, 429);
     const left = store.profile(user.id);
-    if (!left || left.version !== version(s)) return c.json({ error: 'profile_pending' }, 409);
+    if (!left) return c.json({ error: 'profile_pending' }, 409);
     busy.add(user.id);
     try {
       const computed: { user: User; builtAt: string; result: Awaited<ReturnType<typeof compareProfiles>> }[] = [];
@@ -130,10 +131,9 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
         const consent = store.preferences(other.id).genres;
         if (selected.some(g => !consent.includes(g))) continue;
         const right = store.profile(other.id);
-        if (!right || right.version !== version(s)) continue;
-        const result = await compareProfiles(
-          { ...left, complete: left.complete && store.status(user.id)?.state === 'done' },
-          { ...right, complete: right.complete && store.status(other.id)?.state === 'done' }, selected, compute);
+        if (!right) continue;
+        const result = await cachedScore(store, user.id, other.id, left, right, selected, compute);
+        if (!result) continue;
         // Recheck consent after async computation; opt-out must apply immediately.
         const freshOther = registry.userByHandle(other.handle);
         if (!freshOther?.matchingOptIn || selected.some(g => !store.preferences(other.id).genres.includes(g))) continue;
@@ -151,7 +151,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
           || selected.some(g => !store.preferences(target.id).genres.includes(g))
           || store.profile(target.id)?.builtAt !== builtAt) return [];
         const detailsVisible = target.dashboardPublic || registry.matchingRelationshipFor(current, target.id).status === 'connected';
-        const safe = { ...result, detailsVisible, reasons: detailsVisible ? result.reasons : [], details: detailsVisible ? result.details : [] };
+        const safe = { score: result.score, provisional: result.provisional, profileVersions: result.profileVersions, detailsVisible, reasons: detailsVisible ? result.reasons : [], details: detailsVisible ? result.details : [] };
         return [{ id: target.handle, handle: target.handle, displayName: target.displayName,
           ...safe, ...(renderMember ? { memberHtml: renderMember(current, target, safe, pickLang(c.req.query('lang'), getCookie(c, 'urtube_lang'), c.req.header('Accept-Language'))) } : {}) }];
       });

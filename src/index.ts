@@ -1,4 +1,4 @@
-import { blendKeywords } from './output/blend-keywords.js';
+import { cachedScore } from './matching-v3/score-cache.js';
 import { presentationError } from './output/presentation-errors.js';
 import { normalizeSocialUrl } from './social-links.js';
 import { createHash } from 'node:crypto';
@@ -17,7 +17,6 @@ import { config } from './config.js';
 import { settings as matchingV3Settings, version as matchingV3Version, GENRES } from './matching-v3/model.js';
 import { matchingRoutes } from './matching-v3/routes.js';
 import { computeClient, type Compute } from './matching-v3/compute.js';
-import { compareProfiles } from './matching-v3/matching.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
 import { cachedRead, clearReadCaches } from './data/read-cache.js';
@@ -397,12 +396,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       card.topicMatch = { score: null, provisional: true, reasons: [], detailsVisible: true,
         details: [], unavailable: 'pending', available, selected };
       if (!me.matchingOptIn || !other.matchingOptIn || !selected.length) card.topicMatch.unavailable = 'consent';
-      else if (left?.version === matchingV3Version(v3) && right?.version === matchingV3Version(v3)) {
+      else if (left && right) {
         try {
-          const result = await compareProfiles(
-            { ...left, complete: left.complete && store.status(me.id)?.state === 'done' },
-            { ...right, complete: right.complete && store.status(other.id)?.state === 'done' },
+          const result = await cachedScore(store, me.id, other.id, left, right,
             selected, services.matchingV3?.compute ?? computeClient(v3));
+          if (!result) return;
           // Recheck session, visibility, profile freshness and both consents after computation.
           const viewer = registry.userByHandle(me.handle), target = registry.userByHandle(other.handle);
           if (!viewer || viewer.id !== me.id) return;
@@ -412,7 +410,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
             && store.profile(viewer.id)?.builtAt === left.builtAt && store.profile(target.id)?.builtAt === right.builtAt
             && store.profile(viewer.id)?.version === left.version && store.profile(target.id)?.version === right.version) {
             card.topicMatch = { score: result.score, provisional: result.provisional, reasons: [], detailsVisible: target.dashboardPublic || mutualFriends(viewer, target),
-              details: result.details.map(detail => ({ genre: detail.genre, score: detail.score, keywords: blendKeywords(left, right, [detail.genre], 12) })), unavailable: 'pending', available, selected };
+              details: result.details.map(detail => ({ genre: detail.genre, score: detail.score, keywords: result.keywords[detail.genre] ?? [] })), unavailable: 'pending', available, selected };
           }
         } catch { card.topicMatch.unavailable = 'service'; }
       }

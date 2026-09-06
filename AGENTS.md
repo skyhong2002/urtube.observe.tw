@@ -86,3 +86,7 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
   expansion. The approved limit is versioned in deploy/komodo/matching-rollout.json
   and applied atomically through CD. Preserve cache namespaces and current API
   concurrency/budgets. Do not automatically promote beyond 5,000.
+
+- On 2026-09-06 the user approved persistent last-successful compatibility
+  scores during profile refreshes. Replace them when new results finish, without
+  an updating label. Always enforce current consent and genre selection.
