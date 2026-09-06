@@ -157,6 +157,8 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
       assert.equal($('.mt-vs-score strong').text(), `${Math.round(matches.candidates[0].score*100)}%`);
       assert.match($('.mt-panel').text(), /v3 興趣分析/);
       assert.doesNotMatch($('.mt-panel').text(), /cosine|0.4–0.95/);
+      assert.equal($('.mt-blend-keywords').text(),'private-detail-tag');
+      assert.equal($('.mt-blend-keywords').closest('.mt-vs-center').length,1);
       assert.equal($('input[name="genre"]').length,0);
       assert.doesNotMatch($('h2').text(), /比較類別|Comparison categories/);
       assert.doesNotMatch($.text(), /暫定分數|本次選取|更新比較|Provisional score|categories selected|Update comparison/);
@@ -167,14 +169,15 @@ test('Blend uses the v3 score below old activity thresholds and explains unavail
     assert.equal(missing('.mt-vs-score strong').text(),'—');
     assert.equal(missing('input[name="genre"]').length,0);
     assert.equal(missing('.mt-vs-score a').length,0);
-    assert.match(missing('.mt-vs-score').text(),/運動尚無可比較結果/);
+    assert.match(missing('.mt-vs-center').text(),/運動尚無可比較結果/);
     const selected = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh&genre=Music',{headers})).text());
     assert.equal(selected('.mt-vs-score strong').text(),'65%');
     assert.match(selected('.mt-range a').first().attr('href')!,/genre=Music/);
     registry.setMatchingOptIn(bob.handle,false);
     const $ = load(await (await app.request('/v3-blend-a/compare/v3-blend-b?lang=zh',{headers})).text());
     assert.equal($('.mt-vs-score strong').text(),'—');
-    assert.match($('.mt-vs-score').text(),/尚無雙方共同開放/);
+    assert.match($('.mt-vs-center').text(),/尚無雙方共同開放/);
+    assert.equal($('.mt-blend-keywords').length,0);
   } finally {registry.close();}
 });
 

@@ -1,3 +1,4 @@
+import { blendKeywords } from './output/blend-keywords.js';
 import { presentationError } from './output/presentation-errors.js';
 import { normalizeSocialUrl } from './social-links.js';
 import { createHash } from 'node:crypto';
@@ -1083,6 +1084,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
             && store.profile(viewer.id)?.builtAt === left.builtAt && store.profile(target.id)?.builtAt === right.builtAt
             && store.profile(viewer.id)?.version === left.version && store.profile(target.id)?.version === right.version) {
             card.topicMatch = { score: result.score, provisional: result.provisional, reasons: [], detailsVisible: true,
+              keywords: blendKeywords(left, right, selected),
               details: result.details.map(detail => ({ genre: detail.genre, score: detail.score })), unavailable: 'pending', available, selected };
           }
         } catch { card.topicMatch.unavailable = 'service'; }
