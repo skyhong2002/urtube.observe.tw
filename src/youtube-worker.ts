@@ -129,6 +129,13 @@ export function youtubeRetryDue(repository: Repository, now = Date.now()): boole
   return Number(repository.youtubeSyncState('worker_retry_at') ?? 0) <= now;
 }
 
+// Include accounts waiting for their persisted retry deadline, even when
+// this sweep only processed a subset of users.
+export function youtubeWorkerFailedUsers(registry: UserRegistry): number {
+  return registry.listUsers().filter(user =>
+    registry.repositoryFor(user).youtubeSyncState('worker_stage') === 'failed').length;
+}
+
 export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
   return results.some((result) =>
     (result.metadata ?? 0) + (result.channelMetadata ?? 0)
@@ -215,7 +222,7 @@ if (process.env.NODE_ENV !== 'test') {
     try {
       const users = await runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { activeUsers });
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
-      const failedUsers = users.filter((result) => result.error).length;
+      const failedUsers = youtubeWorkerFailedUsers(registry);
       for (const result of users) {
         if (result.error) console.error(`[${result.user}] ${result.error}`);
       }
@@ -276,9 +283,9 @@ if (process.env.NODE_ENV !== 'test') {
     if (userIds.length) {
       recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
       void runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { userIds, activeUsers })
-      .then(results => {
+      .then(() => {
         if (!running && !activeUsers.size) recordStatus({ running: false, lastCompletedAt: new Date().toISOString(),
-          failedUsers: results.filter(result => result.error).length });
+          failedUsers: youtubeWorkerFailedUsers(registry) });
       })
       .catch(() => console.error('Account retry sweep failed; will check again.'));
     }

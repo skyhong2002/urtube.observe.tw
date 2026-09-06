@@ -3,9 +3,10 @@ import test from 'node:test';
 import type { Repository } from '../src/data/database.js';
 import { UserRegistry, type User } from '../src/users.js';
 import {
-  runYoutubeWorkerCycle, youtubeRetryDelay, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
+  runYoutubeWorkerCycle, youtubeWorkerFailedUsers, youtubeRetryDelay, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
   type YoutubeWorkerSteps,
 } from '../src/youtube-worker.js';
+import { workerOpsReady } from '../src/ops-status.js';
 import { classifyYoutubeVideosForMatching } from '../src/youtube/matching.js';
 
 test('YouTube worker enriches every user while keeping portability owner-only', async () => {
@@ -167,4 +168,33 @@ test('failed accounts retry after their own backoff while another account is sti
     assert.equal(youtubeRetryDelay(30), 3600000);
     release(); await first;
   } finally { release(); registry.close(); }
+});
+
+
+test('readiness retains failures for accounts outside a retry sweep until each recovers', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const alice = registry.createUser('retry-alice', 'Alice');
+    const bob = registry.createUser('retry-bob', 'Bob');
+    const now = new Date();
+    const ready = () => workerOpsReady({ running: false, lastCompletedAt: now.toISOString(),
+      failedUsers: youtubeWorkerFailedUsers(registry) }, now.getTime());
+    for (const user of [alice, bob]) {
+      const repo = registry.repositoryFor(user);
+      repo.setYoutubeSyncState('worker_stage', 'failed');
+      repo.setYoutubeSyncState('worker_retry_at', String(now.getTime() + 3600_000));
+    }
+    const steps: YoutubeWorkerSteps = { portability: async () => 'idle', metadata: async () => 0,
+      channelMetadata: async () => 0, matchingClassification: async () => 0, classification: async () => 0 };
+    const skipped = await runYoutubeWorkerCycle(registry, steps, () => now);
+    assert.equal(skipped.filter(result => result.error).length, 0);
+    assert.equal(youtubeWorkerFailedUsers(registry), 2);
+    assert.equal(ready(), false);
+    for (const [index, user] of [alice, bob].entries()) {
+      registry.repositoryFor(user).setYoutubeSyncState('worker_retry_at', '0');
+      await runYoutubeWorkerCycle(registry, steps, () => now, { userIds: [user.id] });
+      assert.equal(youtubeWorkerFailedUsers(registry), 1 - index);
+      assert.equal(ready(), index === 1);
+    }
+  } finally { registry.close(); }
 });
