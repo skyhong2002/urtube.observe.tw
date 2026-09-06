@@ -80,3 +80,9 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 - Latest avatar instruction: request Google basic profile and obtain the Google
   login/UserInfo picture. Temporarily use Gravatar if unavailable, then local
   initials. Keep Google first and retry temporary fallbacks promptly.
+
+- On 2026-09-06 the user approved the first staged expansion to 5,000 latest
+  distinct videos per account, observing throughput and 429 before further
+  expansion. The approved limit is versioned in deploy/komodo/matching-rollout.json
+  and applied atomically through CD. Preserve cache namespaces and current API
+  concurrency/budgets. Do not automatically promote beyond 5,000.

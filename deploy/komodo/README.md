@@ -35,9 +35,12 @@ The shared database volume remains `urtube_urtube-data`. Environment values,
 ports, mounts and commands were compared with the previous effective config.
 The tunnel keeps its existing digest.
 
-CI updates images only. A service, volume, port or environment change requires
-an explicit update to the host-owned configuration; changing repository Compose
-files alone does not apply such changes. Never run the old `urtube-deploy` or
+CI updates images and the approved `MATCHING_V3_BACKFILL_VIDEO_LIMIT` from
+`matching-rollout.json`. This single environment override is applied to every
+application service in the same atomic release, taking precedence over private
+env files. Other service, volume, port or environment changes require an explicit
+update to the host-owned configuration; changing repository Compose files alone
+does not apply them. Never run the old `urtube-deploy` or
 source-build Compose command alongside Komodo.
 
 ## Backup, checks and cleanup
@@ -70,3 +73,14 @@ Use `urtube-snapshot` for manual data backups. `docker ps` / `docker logs` remai
 available. Back up Komodo's MongoDB, named keys volume and private `~/komodo`
 configuration separately when maintaining the host; database snapshots of the
 application do not include Komodo management state.
+
+
+## Matching rollout stages
+
+The current approved stage is 5,000 latest distinct videos per account. Change
+`matching-rollout.json` through main and the normal Check/publish/CD workflow.
+There is no timer or automatic promotion to a larger stage. Keep provider budgets,
+concurrency and cache namespaces unchanged. Observe the new-version job states,
+completed items per minute, 429/5xx and backoff before proposing the next stage.
+The source-window change creates a new profile version but reuses successful
+video, embedding and channel caches. Older profiles remain stored until replaced.
