@@ -63,8 +63,8 @@ export interface AiCallMetrics {
 }
 let encoder: import('js-tiktoken').Tiktoken | undefined;
 export async function chatJson(system: string, input: unknown, client: YoutubeAiClient,
-  feedbackOrOptions: string | { maxCompletionTokens?: number; reasoningEffort?: 'low'; onUsage?: (value: AiCallMetrics) => void } = {}): Promise<unknown> {
-  const feedback = typeof feedbackOrOptions === 'string' ? feedbackOrOptions : undefined;
+  feedbackOrOptions: string | { feedback?: string; maxCompletionTokens?: number; reasoningEffort?: 'low'; onUsage?: (value: AiCallMetrics) => void } = {}): Promise<unknown> {
+  const feedback = typeof feedbackOrOptions === 'string' ? feedbackOrOptions : feedbackOrOptions.feedback;
   const options = typeof feedbackOrOptions === 'string' ? {} : feedbackOrOptions;
   const queuedAt = performance.now();
   return (client.requestLimiter ?? aiRequest)(async () => {
@@ -75,7 +75,8 @@ export async function chatJson(system: string, input: unknown, client: YoutubeAi
         method: 'POST',
         headers: { authorization: `Bearer ${client.apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({ model: client.model,
-          ...(!options.reasoningEffort || new URL(client.baseUrl).hostname !== 'api.openai.com' ? { temperature: 0 } : {}), response_format: { type: 'json_object' },
+          // OpenAI reasoning models reject any temperature other than the default.
+          ...(new URL(client.baseUrl).hostname === 'api.openai.com' ? {} : { temperature: 0 }), response_format: { type: 'json_object' },
           ...(options.maxCompletionTokens ? { max_completion_tokens: options.maxCompletionTokens } : {}),
           ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
           messages: [{ role: 'system', content: system }, { role: 'user', content: inputText },
@@ -223,7 +224,7 @@ export async function classifyYoutubeVideosWithClient(
             videos: pending.map(youtubePublicMetadata),
           },
           client,
-          feedback,
+          { feedback, reasoningEffort: 'low' },
         );
         if (!response || typeof response !== 'object' || !Array.isArray((response as any).videos)) {
           throw new Error('AI classification response must contain a videos array');

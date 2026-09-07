@@ -2,9 +2,24 @@
 
 Personal-taxonomy classification (`AI_CLASSIFICATION_ENABLED=true`) talks to an
 OpenAI-compatible `/v1/chat/completions` endpoint at `AI_BASE_URL` with
-`AI_API_KEY` as a bearer token. Production does not call a hosted model
-directly; it uses a small shim that runs `codex exec` under the operator's
-Codex CLI subscription.
+`AI_API_KEY` as a bearer token.
+
+Since 2026-09-08 production calls `https://api.openai.com/v1` directly with the
+same OpenAI Platform service-account key that Matching v3 uses
+(`MATCHING_V3_API_KEY`), so both classifiers bill to one API account instead of
+the operator's Codex subscription. Requests to `api.openai.com` omit
+`temperature` (reasoning models only accept the default) and send
+`reasoning_effort: low`, matching what the Codex shim used. The values live in
+the Komodo host-owned env files (`/home/urtube/komodo/*.env`); change them there
+and let Komodo recreate the containers.
+
+The Codex shim below is kept as a documented fallback and still runs on the
+host, but nothing in production points at it anymore.
+
+## Codex shim (fallback)
+
+Production previously used a small shim that runs `codex exec` under the
+operator's Codex CLI subscription.
 
 ## Layout on the production host
 
