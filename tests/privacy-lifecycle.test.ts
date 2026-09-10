@@ -102,7 +102,7 @@ test('matching opt-out and account deletion revoke every discovery path immediat
     assert.equal(existsSync(goneDatabase), true);
 
     const deleted = await app.request('/account/delete', post(goneCookie, {
-      confirmHandle: gone.handle,
+      confirmVideos: String(goneRepository.youtubeCounts().videos),
     }));
     assert.equal(deleted.status, 302);
     assert.equal(deleted.headers.get('location'), '/');

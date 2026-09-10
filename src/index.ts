@@ -269,6 +269,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   const accountStateFor = (user: User, state: AccountPageState = {}): AccountPageState => ({
     extensionVersion: extensionVersion(),
+    videoCount: countsFor(registry.repositoryFor(user)).videos,
     ...state,
     v3Processing: v3DataFor(user).processing,
   });
@@ -1363,16 +1364,19 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.body(download.stream);
   });
 
-  // Self-serve deletion: session plus retyping the handle. deleteUser refuses
-  // the instance owner, which we surface as a friendly error.
+  // Self-serve deletion: session plus retyping the archive's current video
+  // count, GitHub-style, so a stray click cannot delete anything. deleteUser
+  // refuses the instance owner, which we surface as a friendly error.
   app.post('/account/delete', async (c) => {
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
     const lang = langOf(c);
     const t = messages(lang);
     const form = await c.req.parseBody();
-    if (String(form.confirmHandle ?? '').trim() !== me.handle) {
-      return c.html(accountPage(me, accountStateFor(me, { error: t.errDeleteConfirm }), lang), 400);
+    const expectedVideos = countsFor(registry.repositoryFor(me)).videos;
+    const typed = String(form.confirmVideos ?? '').trim();
+    if (!/^\d+$/.test(typed) || Number(typed) !== expectedVideos) {
+      return c.html(accountPage(me, accountStateFor(me, { error: t.errDeleteConfirm(expectedVideos) }), lang), 400);
     }
     if (me.storageName === DEFAULT_HANDLE) {
       return c.html(accountPage(me, accountStateFor(me, { error: t.errOwnerDelete }), lang), 400);

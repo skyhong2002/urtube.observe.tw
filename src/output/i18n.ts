@@ -473,12 +473,11 @@ const en = {
   accountTakeoutUnavailable: "Import is currently unavailable. Try again later or contact us.",
   accountTakeoutFailed: (detail: string) => `Takeout import failed: ${detail}`,
   accountDelete: 'Account and data deletion',
-  accountDeletePara: 'To request deletion of your account and data, email <a href="mailto:me@skyhong.tw">me@skyhong.tw</a> from the email address you used to register your account. You can <a href="#account-export">export your data</a> before submitting your request.',
-  accountDeleteButton: 'Email the team to request deletion',
-  accountDeleteAddressHint: 'If the link does not open a mail app, copy the address and write to us from your own mail client. Include your handle so we can find the account.',
-  accountDeleteCopy: 'Copy email address',
-  accountDeleteCopied: 'Copied',
-  errDeleteConfirm: 'Type your handle exactly to confirm deletion.',
+  accountDeletePara: 'Permanently deletes your account together with your watch and search history, playback progress, sync records, interest analysis and matching records. There is no undo. <a href="#account-export">Export your data</a> first if you want a copy.',
+  accountDeleteConfirm: (videos: number) => `To confirm, type the number of videos currently in your archive: <strong>${videos}</strong>`,
+  accountDeleteButton: 'Delete my account permanently',
+  accountDeleteContact: 'If you cannot sign in, or would rather have a person handle it, email <a href="mailto:me@skyhong.tw">me@skyhong.tw</a> from your registered address.',
+  errDeleteConfirm: (videos: number) => `Type your current video count (${videos}) exactly to confirm deletion.`,
   errOwnerDelete: 'The instance owner cannot delete itself from here.',
   accountExportTitle: 'Export my data',
   accountExportPara: "Download your watch and search history, playback progress, sync records, video information, interest analysis and matching records as a ZIP. Login credentials and other people’s private data are excluded.",
@@ -536,7 +535,7 @@ const en = {
   ],
   [
     "Export and deletion requests",
-    "You can <a href=\"/account#account-export\">export your data</a> as a ZIP. To request account and data deletion, email <a href=\"mailto:me@skyhong.tw\">me@skyhong.tw</a> from your registered email address. Our team will help with your request."
+    "You can <a href=\"/account#account-export\">export your data</a> as a ZIP and <a href=\"/account#account-delete\">delete your account and data</a> yourself from the account page. If you cannot sign in, email <a href=\"mailto:me@skyhong.tw\">me@skyhong.tw</a> from your registered email address and our team will help."
   ],
   [
     "Contact",
@@ -1059,12 +1058,11 @@ const zh: typeof en = {
   accountTakeoutUnavailable: "目前無法匯入資料，請稍後再試或聯絡我們。",
   accountTakeoutFailed: (detail: string) => `Takeout 匯入失敗：${detail}`,
   accountDelete: '帳號與資料刪除',
-  accountDeletePara: '如需刪除帳號與資料，請使用註冊帳號時的電子郵件，寄信至 <a href="mailto:me@skyhong.tw">me@skyhong.tw</a> 向團隊提出申請。申請前可先<a href="#account-export">匯出你的資料</a>。',
-  accountDeleteButton: '寄信申請刪除',
-  accountDeleteAddressHint: '若按下連結後沒有開啟郵件程式，請複製這個地址，用你自己的信箱寄信給我們，並附上你的代號以便我們找到帳號。',
-  accountDeleteCopy: '複製 Email 地址',
-  accountDeleteCopied: '已複製',
-  errDeleteConfirm: '請輸入完全一致的代號以確認刪除。',
+  accountDeletePara: '永久刪除你的帳號，以及觀看與搜尋紀錄、播放進度、同步紀錄、興趣分析與配對紀錄。刪除後無法復原。需要備份請先<a href="#account-export">匯出你的資料</a>。',
+  accountDeleteConfirm: (videos: number) => `確認刪除：請輸入你目前檔案館中的影片數量 <strong>${videos}</strong>`,
+  accountDeleteButton: '永久刪除我的帳號',
+  accountDeleteContact: '若無法登入，或希望由團隊人工處理，請使用註冊時的電子郵件寄信至 <a href="mailto:me@skyhong.tw">me@skyhong.tw</a>。',
+  errDeleteConfirm: (videos: number) => `請輸入目前的影片數量（${videos}）以確認刪除。`,
   errOwnerDelete: '站台擁有者無法在這裡刪除自己。',
   accountExportTitle: '匯出我的資料',
   accountExportPara: "下載你的觀看與搜尋紀錄、播放進度、同步紀錄、影片資訊、興趣分析與配對紀錄，整理為 ZIP 檔案。檔案不包含登入憑證或他人的私人資料。",
@@ -1120,7 +1118,7 @@ const zh: typeof en = {
   ],
   [
     "資料匯出與刪除申請",
-    "你可以從<a href=\"/account#account-export\">設定頁匯出資料</a>為 ZIP。如需刪除帳號與資料，請使用註冊時的電子郵件，寄信至 <a href=\"mailto:me@skyhong.tw\">me@skyhong.tw</a>，由團隊協助處理。"
+    "你可以從<a href=\"/account#account-export\">設定頁匯出資料</a>為 ZIP，也可以在<a href=\"/account#account-delete\">設定頁自行刪除帳號與資料</a>。若無法登入，請使用註冊時的電子郵件寄信至 <a href=\"mailto:me@skyhong.tw\">me@skyhong.tw</a>，由團隊協助處理。"
   ],
   [
     "聯絡方式",

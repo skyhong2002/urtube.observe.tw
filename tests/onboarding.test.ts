@@ -324,11 +324,9 @@ test('account page toggles dashboard visibility and edits the display name', asy
     const accountHtml = await (await app.request('/account', { headers: { cookie: session } })).text();
     assert.match(accountHtml, /extension\.zip/);
     assert.ok(accountHtml.includes(`v${bundledVersion}`), 'account shows the bundled extension version');
-    // Deletion is by email; the address is visible as text and copyable, not
-    // only a mailto: link, since many desktop browsers have no mail handler.
-    assert.match(accountHtml, /href="mailto:me@skyhong\.tw\?subject=[^"]+&amp;body=urtube%20handle%3A%20/);
-    assert.match(accountHtml, /data-copy-address="me@skyhong\.tw"/);
-    assert.match(accountHtml, /data-delete-address[^>]*>me@skyhong\.tw</);
+    // Self-serve deletion asks the user to retype their current video count.
+    assert.match(accountHtml, /action="\/account\/delete"/);
+    assert.match(accountHtml, /name="confirmVideos"[^>]*data-expected="0"/);
     assert.deepEqual(await (await app.request('/extension-version.json')).json(), { version: bundledVersion });
 
     // Display name edits apply immediately with the session-bound form token.
@@ -351,7 +349,7 @@ test('account page toggles dashboard visibility and edits the display name', asy
   }
 });
 
-test('self-serve deletion needs the retyped handle and spares the owner', async () => {
+test('self-serve deletion needs the retyped video count and spares the owner', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
@@ -364,9 +362,12 @@ test('self-serve deletion needs the retyped handle and spares the owner', async 
       body,
     });
 
-    assert.equal((await post('confirmHandle=wrong')).status, 400);
+    const wrong = await post('confirmVideos=999');
+    assert.equal(wrong.status, 400);
+    assert.match(await wrong.text(), /\(0\)/, 'the error names the current count');
+    assert.equal((await post('confirmVideos=')).status, 400);
     assert.ok(registry.userByHandle('deleteme'));
-    const gone = await post('confirmHandle=deleteme');
+    const gone = await post('confirmVideos=0');
     assert.equal(gone.status, 302);
     assert.equal(registry.userByHandle('deleteme'), null);
     assert.equal(registry.userByGoogleSub('google-sub-40'), null);
@@ -380,7 +381,7 @@ test('self-serve deletion needs the retyped handle and spares the owner', async 
     const refused = await app.request('/account/delete', {
       method: 'POST',
       headers: { cookie: ownerSession, 'content-type': 'application/x-www-form-urlencoded' },
-      body: `confirmHandle=${owner.handle}`,
+      body: `confirmVideos=${registry.repositoryFor(registry.userByHandle(owner.handle)!).youtubeCounts().videos}`,
     });
     assert.equal(refused.status, 400);
     assert.ok(registry.userByHandle(owner.handle));

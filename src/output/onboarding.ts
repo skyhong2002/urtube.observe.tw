@@ -8,16 +8,6 @@ import { processingVisibilitySetting } from './processing-visibility.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 
-// Deletion requests go to a person, not a form: the mailto pre-fills the handle
-// so the team can find the account, and the page also exposes the bare
-// address for browsers without a mail handler.
-export const DELETION_CONTACT = 'me@skyhong.tw';
-export function deletionMailto(handle: string): string {
-  const subject = encodeURIComponent('urtube account and data deletion');
-  const body = encodeURIComponent(`urtube handle: ${handle}\n`);
-  return `mailto:${DELETION_CONTACT}?subject=${subject}&body=${body}`;
-}
-
 export const formStyles = `
   .ob-intro{margin:14px 0 26px}
   .ob-profile{align-items:center;display:flex;gap:16px}.ob-profile .ob-avatar{border-radius:50%;flex:0 0 64px;height:64px;object-fit:cover;width:64px}.ob-profile h1{margin-top:3px}
@@ -38,6 +28,8 @@ export const formStyles = `
   .ob-check input{accent-color:var(--accent)}
   .ob-form button{background:var(--accent);border:1px solid var(--accent);border-radius:999px;color:#fff;cursor:pointer;font:inherit;font-weight:700;margin-top:14px;padding:11px 16px}
   .ob-form button:hover{background:#b02f2f}
+  .ob-form button:disabled{cursor:not-allowed;opacity:.45}
+  .ob-form button:disabled:hover{background:var(--accent)}
   .ob-error{background:rgba(208,59,59,.12);border:1px solid rgba(208,59,59,.4);border-radius:10px;color:var(--accent-text);font-size:13px;margin-bottom:14px;padding:10px 12px}
   .ob-token{background:var(--raised);border:1px solid var(--line);border-radius:8px;display:block;font-family:ui-monospace,monospace;font-size:12px;margin:6px 0 14px;overflow-wrap:anywhere;padding:10px 12px;user-select:all}
   .ob-warn{background:rgba(250,178,25,.1);border:1px solid rgba(250,178,25,.35);border-radius:10px;color:#f5c95e;font-size:13px;margin:14px 0;padding:10px 12px}
@@ -139,11 +131,15 @@ export interface AccountPageState {
   // and on every later visit until the worker catches up.
   processing?: YoutubeProcessingStatus;
   v3Processing?: V3ProcessingStatus;
+  // Distinct videos in the archive; the deletion form asks the user to retype
+  // it as a GitHub-style guard against accidental clicks.
+  videoCount?: number;
 }
 
 export function accountPage(user: User, state: AccountPageState = {}, lang: Lang = 'en'): string {
   const t = messages(lang);
   const dashboardHref = `/${user.handle}`;
+  const videoCount = state.videoCount ?? 0;
   const rotatedHtml = state.rotated ? `
       <div class="ob-warn">${t.accountRotated}</div>
       <p style="margin-bottom:2px">${t.accountCaptureToken}</p>
@@ -234,16 +230,14 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <h2>${t.accountRotate}</h2>
       <p>${t.accountRotatePara}</p>
       <form method="post" action="/account/rotate" class="ob-form"><button type="submit">${t.accountRotate}</button></form>
-      <details style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
-      <div class="ob-form" style="margin-top:10px">
+      <details id="account-delete" style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
+      <form method="post" action="/account/delete" class="ob-form" style="margin-top:10px" data-delete-form>
         <p style="margin:0">${t.accountDeletePara}</p>
-        <code class="ob-token" data-delete-address style="margin-bottom:0">${DELETION_CONTACT}</code>
-        <p class="ob-help">${t.accountDeleteAddressHint}</p>
-        <div style="align-items:center;display:flex;flex-wrap:wrap;gap:10px">
-          <a class="ob-google" href="${html(deletionMailto(user.handle))}">${t.accountDeleteButton}</a>
-          <button type="button" data-copy-address="${DELETION_CONTACT}" data-copied-label="${html(t.accountDeleteCopied)}" style="margin-top:0">${t.accountDeleteCopy}</button>
-        </div>
-      </div></details>
+        <label for="confirm-videos">${t.accountDeleteConfirm(videoCount)}</label>
+        <input id="confirm-videos" name="confirmVideos" type="text" inputmode="numeric" autocomplete="off" required data-expected="${videoCount}">
+        <button type="submit">${t.accountDeleteButton}</button>
+        <p class="ob-help">${t.accountDeleteContact}</p>
+      </form></details>
       `, !!state.rotated || !!state.error)}
       <div class="st-footer"><a href="/privacy">${t.privacyLink}</a><form method="post" action="/logout" class="ob-form"><button type="submit">${t.accountLogout}</button></form></div>
     </div>
@@ -258,23 +252,16 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       };
       addEventListener('hashchange', revealTarget);
       revealTarget();
-      // mailto: links silently do nothing on machines without a mail handler,
-      // so the deletion address can also be copied or selected as plain text.
-      const copy = document.querySelector('[data-copy-address]');
-      copy?.addEventListener('click', async () => {
-        const label = copy.textContent;
-        try {
-          await navigator.clipboard.writeText(copy.dataset.copyAddress);
-        } catch {
-          const range = document.createRange();
-          range.selectNodeContents(document.querySelector('[data-delete-address]'));
-          getSelection().removeAllRanges();
-          getSelection().addRange(range);
-          return;
-        }
-        copy.textContent = copy.dataset.copiedLabel;
-        setTimeout(() => { copy.textContent = label; }, 2000);
-      });
+      // GitHub-style guard: the delete button only enables once the typed
+      // number matches the count shown. The server re-checks on submit.
+      const form = document.querySelector('[data-delete-form]');
+      if (form) {
+        const input = form.querySelector('input[name=confirmVideos]');
+        const button = form.querySelector('button');
+        const sync = () => { button.disabled = input.value.trim() !== input.dataset.expected; };
+        input.addEventListener('input', sync);
+        sync();
+      }
     })();</script>`;
   return shell(t.accountTitle, body, primaryNav(lang, {
     active: 'account', dashboardHref,
