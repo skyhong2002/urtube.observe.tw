@@ -8,6 +8,16 @@ import { processingVisibilitySetting } from './processing-visibility.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 
+// Deletion requests go to a person, not a form: the mailto pre-fills the handle
+// so the team can find the account, and the page also exposes the bare
+// address for browsers without a mail handler.
+export const DELETION_CONTACT = 'me@skyhong.tw';
+export function deletionMailto(handle: string): string {
+  const subject = encodeURIComponent('urtube account and data deletion');
+  const body = encodeURIComponent(`urtube handle: ${handle}\n`);
+  return `mailto:${DELETION_CONTACT}?subject=${subject}&body=${body}`;
+}
+
 export const formStyles = `
   .ob-intro{margin:14px 0 26px}
   .ob-profile{align-items:center;display:flex;gap:16px}.ob-profile .ob-avatar{border-radius:50%;flex:0 0 64px;height:64px;object-fit:cover;width:64px}.ob-profile h1{margin-top:3px}
@@ -227,7 +237,12 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <details style="margin-top:26px"><summary style="color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:700">${t.accountDelete}</summary>
       <div class="ob-form" style="margin-top:10px">
         <p style="margin:0">${t.accountDeletePara}</p>
-        <a href="mailto:me@skyhong.tw?subject=urtube%20account%20and%20data%20deletion">${t.accountDeleteButton}</a>
+        <code class="ob-token" data-delete-address style="margin-bottom:0">${DELETION_CONTACT}</code>
+        <p class="ob-help">${t.accountDeleteAddressHint}</p>
+        <div style="align-items:center;display:flex;flex-wrap:wrap;gap:10px">
+          <a class="ob-google" href="${html(deletionMailto(user.handle))}">${t.accountDeleteButton}</a>
+          <button type="button" data-copy-address="${DELETION_CONTACT}" data-copied-label="${html(t.accountDeleteCopied)}" style="margin-top:0">${t.accountDeleteCopy}</button>
+        </div>
       </div></details>
       `, !!state.rotated || !!state.error)}
       <div class="st-footer"><a href="/privacy">${t.privacyLink}</a><form method="post" action="/logout" class="ob-form"><button type="submit">${t.accountLogout}</button></form></div>
@@ -243,6 +258,23 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       };
       addEventListener('hashchange', revealTarget);
       revealTarget();
+      // mailto: links silently do nothing on machines without a mail handler,
+      // so the deletion address can also be copied or selected as plain text.
+      const copy = document.querySelector('[data-copy-address]');
+      copy?.addEventListener('click', async () => {
+        const label = copy.textContent;
+        try {
+          await navigator.clipboard.writeText(copy.dataset.copyAddress);
+        } catch {
+          const range = document.createRange();
+          range.selectNodeContents(document.querySelector('[data-delete-address]'));
+          getSelection().removeAllRanges();
+          getSelection().addRange(range);
+          return;
+        }
+        copy.textContent = copy.dataset.copiedLabel;
+        setTimeout(() => { copy.textContent = label; }, 2000);
+      });
     })();</script>`;
   return shell(t.accountTitle, body, primaryNav(lang, {
     active: 'account', dashboardHref,

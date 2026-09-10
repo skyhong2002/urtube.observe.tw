@@ -324,6 +324,11 @@ test('account page toggles dashboard visibility and edits the display name', asy
     const accountHtml = await (await app.request('/account', { headers: { cookie: session } })).text();
     assert.match(accountHtml, /extension\.zip/);
     assert.ok(accountHtml.includes(`v${bundledVersion}`), 'account shows the bundled extension version');
+    // Deletion is by email; the address is visible as text and copyable, not
+    // only a mailto: link, since many desktop browsers have no mail handler.
+    assert.match(accountHtml, /href="mailto:me@skyhong\.tw\?subject=[^"]+&amp;body=urtube%20handle%3A%20/);
+    assert.match(accountHtml, /data-copy-address="me@skyhong\.tw"/);
+    assert.match(accountHtml, /data-delete-address[^>]*>me@skyhong\.tw</);
     assert.deepEqual(await (await app.request('/extension-version.json')).json(), { version: bundledVersion });
 
     // Display name edits apply immediately with the session-bound form token.

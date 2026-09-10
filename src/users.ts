@@ -1147,6 +1147,8 @@ export class UserRegistry {
       this.repositories.delete(String(user.id));
     }
     this.db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
+    // handle_aliases has no FK; drop them so the old handles free up.
+    this.db.prepare('DELETE FROM handle_aliases WHERE user_id=?').run(user.id);
     this.db.prepare('DELETE FROM users WHERE handle=?').run(handle);
     const path = this.databasePathFor(user);
     if (path !== ':memory:') {
