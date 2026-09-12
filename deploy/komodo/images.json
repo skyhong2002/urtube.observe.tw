@@ -1,0 +1,40 @@
+{
+  "services": {
+    "app": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:6febed505fe8ca2bf29d11d42cf81daf0c041b4808f532013926c0be2fc01ff0",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000"
+      }
+    },
+    "ingest": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:6febed505fe8ca2bf29d11d42cf81daf0c041b4808f532013926c0be2fc01ff0",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000"
+      }
+    },
+    "worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:6febed505fe8ca2bf29d11d42cf81daf0c041b4808f532013926c0be2fc01ff0",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000"
+      }
+    },
+    "backup": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:6febed505fe8ca2bf29d11d42cf81daf0c041b4808f532013926c0be2fc01ff0",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000"
+      }
+    },
+    "matching-worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:6febed505fe8ca2bf29d11d42cf81daf0c041b4808f532013926c0be2fc01ff0",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000"
+      }
+    },
+    "matching-compute": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:b5c0dcf7d604b5c6da8cede84f3b6de5d5f4b437cc458d2dc46f6ba62f9d6634"
+    },
+    "matching-compare": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:b5c0dcf7d604b5c6da8cede84f3b6de5d5f4b437cc458d2dc46f6ba62f9d6634"
+    }
+  }
+}
