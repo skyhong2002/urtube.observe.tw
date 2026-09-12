@@ -68,7 +68,7 @@ export async function runYoutubeWorkerCycle(
   registry: UserRegistry,
   steps: YoutubeWorkerSteps = defaultSteps,
   now = () => new Date(),
-  options: { userIds?: number[]; activeUsers?: Set<number> } = {},
+  options: { userIds?: number[]; activeUsers?: Set<number>; onUserSettled?: () => void } = {},
 ): Promise<YoutubeWorkerUserResult[]> {
   // Repositories are independent SQLite files. Start every archive together;
   // the external-service limiters provide bounded, FIFO backpressure. Promise
@@ -117,7 +117,10 @@ export async function runYoutubeWorkerCycle(
       const message = errorMessage(error);
       repository.setYoutubeSyncState('last_error', message.slice(0, 2000));
       return { user: user.handle, error: message };
-    } finally { options.activeUsers?.delete(user.id); }
+    } finally {
+      options.activeUsers?.delete(user.id);
+      options.onUserSettled?.();
+    }
   }));
 }
 
@@ -202,6 +205,9 @@ if (process.env.NODE_ENV !== 'test') {
       console.error(`worker status write failed: ${errorMessage(error)}`);
     }
   };
+  // Publish each account's outcome even while unrelated retries are still
+  // running. Waiting for the entire sweep leaves recovered failures visible.
+  const onUserSettled = () => recordStatus({ failedUsers: youtubeWorkerFailedUsers(registry) });
 
   const CATCHUP_MS = YOUTUBE_WORKER_CATCHUP_MINUTES * 60_000;
   const FULL_CYCLE_MS = YOUTUBE_WORKER_FULL_CYCLE_MINUTES * 60_000;
@@ -220,7 +226,7 @@ if (process.env.NODE_ENV !== 'test') {
       recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
     }, WORKER_HEARTBEAT_INTERVAL_MS);
     try {
-      const users = await runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { activeUsers });
+      const users = await runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { activeUsers, onUserSettled });
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
       const failedUsers = youtubeWorkerFailedUsers(registry);
       for (const result of users) {
@@ -231,7 +237,7 @@ if (process.env.NODE_ENV !== 'test') {
         lastStartedAt,
         lastCompletedAt: new Date().toISOString(),
         heartbeatAt: new Date().toISOString(),
-        running: false,
+        running: activeUsers.size > 0,
         users: users.length,
         failedUsers,
         lastError: '',
@@ -282,7 +288,7 @@ if (process.env.NODE_ENV !== 'test') {
     }).map(user => user.id);
     if (userIds.length) {
       recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
-      void runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { userIds, activeUsers })
+      void runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { userIds, activeUsers, onUserSettled })
       .then(() => {
         if (!running && !activeUsers.size) recordStatus({ running: false, lastCompletedAt: new Date().toISOString(),
           failedUsers: youtubeWorkerFailedUsers(registry) });

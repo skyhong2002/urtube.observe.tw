@@ -146,6 +146,8 @@ test('failed accounts retry after their own backoff while another account is sti
     const b = registry.createUser('retry-b','Retry B');
     const activeUsers = new Set<number>();
     let attempts = 0;
+    const publishedFailures: number[] = [];
+    const onUserSettled = () => publishedFailures.push(youtubeWorkerFailedUsers(registry));
     const steps: YoutubeWorkerSteps = {
       portability: async () => 'idle', metadata: async () => 0, channelMetadata: async () => 0,
       matchingClassification: async () => 0,
@@ -155,15 +157,17 @@ test('failed accounts retry after their own backoff while another account is sti
         return 1;
       },
     };
-    const first = runYoutubeWorkerCycle(registry, steps, () => new Date(100000), {activeUsers});
+    const first = runYoutubeWorkerCycle(registry, steps, () => new Date(100000), {activeUsers, onUserSettled});
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(activeUsers.has(b.id), true);
+    assert.deepEqual(publishedFailures, [1]);
     assert.equal(registry.repositoryFor(a).youtubeSyncState('worker_retry_at'), '130000');
     await runYoutubeWorkerCycle(registry, steps, () => new Date(129999), {userIds:[a.id],activeUsers});
     assert.equal(attempts, 1);
-    const result = await runYoutubeWorkerCycle(registry, steps, () => new Date(130000), {userIds:[a.id,b.id],activeUsers});
+    const result = await runYoutubeWorkerCycle(registry, steps, () => new Date(130000), {userIds:[a.id,b.id],activeUsers, onUserSettled});
     assert.equal(result.find(r => r.user === a.handle)?.classified, 1);
     assert.equal(activeUsers.has(b.id), true, 'no duplicate run or wait for the slow account');
+    assert.deepEqual(publishedFailures, [1, 0], 'publish recovery before the slow account settles');
     assert.equal(registry.repositoryFor(a).youtubeSyncState('worker_retry_at'), '0');
     assert.equal(youtubeRetryDelay(30), 3600000);
     release(); await first;

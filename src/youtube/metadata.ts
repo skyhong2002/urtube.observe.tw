@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
 import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, nextYoutubeQuotaReset, type YoutubeApiKeyPool } from './api-keys.js';
 import { createAsyncLimiter } from './concurrency.js';
+import { youtubeRequestJson } from './request-json.js';
 import type { YoutubeChannelMetadata, YoutubeChannelStatistics, YoutubeVideoMetadata } from './types.js';
 
 // Shared by every account in this worker process. Four concurrent requests
@@ -61,11 +62,12 @@ async function youtubeApiGet<T>(label: string, url: URL, pool: YoutubeApiKeyPool
     try {
       return await youtubeApiRequest(async () => {
         countYoutubeApiRequest();
-        const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-        if (response.ok) return response.json() as Promise<T>;
-        const detail = `${label}: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`;
-        if (response.status === 403 && QUOTA_EXHAUSTED.test(detail)) throw new YoutubeQuotaExceededError(detail);
-        throw new Error(detail);
+        return youtubeRequestJson(url, fetchImpl, async (response) => {
+          if (response.ok) return response.json() as Promise<T>;
+          const detail = `${label}: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`;
+          if (response.status === 403 && QUOTA_EXHAUSTED.test(detail)) throw new YoutubeQuotaExceededError(detail);
+          throw new Error(detail);
+        });
       });
     } catch (error) {
       if (!(error instanceof YoutubeQuotaExceededError)) throw error;
