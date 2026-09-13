@@ -206,6 +206,23 @@ export interface YoutubeRecentVideo {
   watchCount: number;
 }
 
+// One watch as a clock interval for private cross-platform overlap merges.
+// `precision: 'day'` rows only know the calendar day (history-page backfill);
+// their `watchedAt` is the local-noon placeholder that ingestion assigned.
+export interface YoutubeWatchInterval {
+  eventId: string;
+  videoId: string | null;
+  title: string;
+  channelTitle: string;
+  watchedAt: string;
+  precision: 'exact' | 'day';
+  durationSeconds: number | null;
+  /** Extension-measured playback seconds, when a capture session exists. */
+  actualWatchedSeconds: number | null;
+  /** The dashboard's per-event estimate (equals actualWatchedSeconds when measured). */
+  estimatedWatchSeconds: number;
+}
+
 export interface YoutubeChannelSummary {
   channelId: string | null;
   name: string;

@@ -237,6 +237,8 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 
 資料使用方式見[隱私權政策](https://urtube.observe.tw/privacy)。帳號與資料可在帳號設定頁自行刪除，確認時需輸入目前的影片數量；刪除前可先匯出自己的資料。若無法登入，請使用註冊帳號時的電子郵件，寄信至 [me@skyhong.tw](mailto:me@skyhong.tw) 由團隊協助處理。
 
+自己的其他工具（例如跨平台時間統計）可以透過 `GET /u/<handle>/intervals.json` 取得每一筆觀看的時鐘區間：`watchedAt`、擴充功能實測的 `actualWatchedSeconds`、以及儀表板估計的 `estimatedWatchSeconds`。這個端點只接受 dashboard token（`?key=`、cookie 或 `Authorization: Bearer`），把儀表板設成公開並不會開放它；可用 `since` 與 `limit` 分頁，回應的 `nextSince` 是下一次的起點，因為最新幾筆的估計值會隨後續活動修正，建議每次從檢查點往前多拉一天再以 `eventId` 覆寫。
+
 ## 第三方服務、資料與素材
 
 套件、AI 服務、Google／YouTube 資料、頻道標籤、頭像與專案素材的來源及授權，集中於 [第三方來源與授權聲明](THIRD_PARTY_NOTICES.md)。

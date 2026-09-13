@@ -31,6 +31,7 @@ import type {
   YoutubeTopic,
   YoutubeTopicTrendMonth,
   YoutubeVideoMetadata,
+  YoutubeWatchInterval,
 } from '../youtube/types.js';
 import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
 import type { YoutubeProcessingCounts } from '../youtube/processing.js';
@@ -1708,6 +1709,40 @@ export class Repository {
       actualWatchedSeconds: row.actual_watched_seconds === null ? null : Number(row.actual_watched_seconds),
       watchedAt: String(row.watched_at),
       watchCount: 1,
+    }));
+  }
+
+  // Private feed for the owner's other tools (Infovore's activity coverage):
+  // every video watch since `since` as watchedAt + seconds, oldest first.
+  // Estimates for the newest events shift once later activity arrives (the
+  // gap to the next event bounds them), so consumers should re-read a short
+  // window before their checkpoint and upsert by eventId.
+  youtubeWatchIntervals({ since = null, limit = 2000 }: { since?: string | null; limit?: number } = {}): YoutubeWatchInterval[] {
+    this.ensureEstimatedEvents();
+    const rows = this.db.prepare(`
+      ${YOUTUBE_ESTIMATED_EVENTS_VIEW}
+      SELECT e.event_id, e.video_id,
+        COALESCE(NULLIF(v.title, ''), e.raw_title, '') title,
+        COALESCE(NULLIF(e.channel_title, ''), NULLIF(v.channel_title, ''), '') channel_title,
+        e.watched_at, a.occurred_precision, v.duration_seconds,
+        e.actual_watched_seconds, e.estimated_watch_seconds
+      FROM estimated_events e
+      JOIN activities a ON a.id=e.activity_id
+      LEFT JOIN youtube_videos v ON v.video_id=e.video_id
+      WHERE (? IS NULL OR e.watched_at>=?)
+      ORDER BY e.watched_at ASC, e.event_id ASC
+      LIMIT ?
+    `).all(since, since, Math.max(1, Math.min(5000, Math.trunc(limit) || 1))) as Array<Record<string, string | number | null>>;
+    return rows.map((row) => ({
+      eventId: String(row.event_id),
+      videoId: row.video_id === null ? null : String(row.video_id),
+      title: String(row.title),
+      channelTitle: String(row.channel_title),
+      watchedAt: String(row.watched_at),
+      precision: row.occurred_precision === 'day' ? 'day' : 'exact',
+      durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+      actualWatchedSeconds: row.actual_watched_seconds === null ? null : Number(row.actual_watched_seconds),
+      estimatedWatchSeconds: Number(row.estimated_watch_seconds ?? 0),
     }));
   }
 

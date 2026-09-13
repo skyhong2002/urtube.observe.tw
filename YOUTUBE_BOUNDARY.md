@@ -21,7 +21,7 @@ credentials cross over, and which stay behind.
 | `src/data/database.ts` | `src/data/database.ts` | Keeps the Infovore-compatible base and applies additive urtube migrations through `user_version` 11. Non-YouTube repository methods are dropped while their tables remain for restore compatibility. |
 | `src/data/activity.ts`, `src/data/time.ts`, `src/data/types.ts` | same | Needed by the YouTube ingestion path (`activities` rows with `visibility='summary'`). |
 | `src/ingest.ts` | `src/ingest.ts` | YouTube endpoints only. The generic `/api/ingest/events` endpoint **stays in Infovore** — it is not YouTube data. |
-| `src/index.ts` (YouTube routes) | `src/index.ts` | Canonical `/<handle>` overview/insights/history/recap pages, legacy `/youtube` owner redirect, `/api/youtube/summary.json`, `/api/youtube/recent.json`, `/status`, `/healthz`, and `/readyz`. |
+| `src/index.ts` (YouTube routes) | `src/index.ts` | Canonical `/<handle>` overview/insights/history/recap pages, legacy `/youtube` owner redirect, `/api/youtube/summary.json`, `/api/youtube/recent.json`, the dashboard-token-only `/u/<handle>/intervals.json` interval feed, `/status`, `/healthz`, and `/readyz`. |
 | `src/output/youtube.ts` | `src/output/youtube.ts` | HTML dashboard. The satori/resvg SVG **cards are not extracted** (Infovore-site presentation; drops heavy native deps from the image). |
 | `src/youtube-worker.ts`, `src/import-youtube.ts`, `src/youtube-topics.ts` | same | Scheduled worker, Takeout CLI, taxonomy rebuild CLI. |
 | `chrome-extension/*` | `chrome-extension/*` | All `infovore` identifiers renamed to `urtube`; endpoint and host permissions point at `urtube.observe.tw`; dashboard integration covers profile routes while excluding account, signup, and auth pages. |

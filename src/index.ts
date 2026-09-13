@@ -1512,6 +1512,34 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.json({ ...data, recent: undefined });
   });
 
+  // Private interval feed for the owner's other tools. Public dashboards do
+  // not unlock it: precise timestamps stay behind the dashboard token (query
+  // key, cookie, or Bearer header) or the owner's own session.
+  app.get('/u/:handle/intervals.json', (c) => {
+    const user = registry.userByHandle(c.req.param('handle'));
+    if (!user) return c.json({ error: 'not found' }, 404);
+    const auth = c.req.header('authorization') ?? '';
+    const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const allowed = privateDashboardAccess(c, user)
+      || Boolean(bearer && registry.userByDashboardToken(user.handle, bearer));
+    if (!allowed) return c.json({ error: 'not found' }, 404);
+    const sinceRaw = c.req.query('since');
+    const since = sinceRaw && !Number.isNaN(Date.parse(sinceRaw)) ? new Date(sinceRaw).toISOString() : null;
+    if (sinceRaw && !since) return c.json({ error: 'since must be an ISO 8601 timestamp' }, 400);
+    const limit = Math.max(1, Math.min(5000, Number.parseInt(c.req.query('limit') ?? '', 10) || 2000));
+    const intervals = registry.repositoryFor(user).youtubeWatchIntervals({ since, limit });
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Robots-Tag', 'noindex');
+    return c.json({
+      generatedAt: new Date().toISOString(),
+      since,
+      limit,
+      // Re-read from here (inclusive) on the next pull; rows repeat by eventId.
+      nextSince: intervals.length === limit ? intervals[intervals.length - 1]!.watchedAt : null,
+      intervals,
+    });
+  });
+
   app.get('/api/youtube/summary.json', (c) => {
     const user = registry.ensureDefaultUser();
     if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);

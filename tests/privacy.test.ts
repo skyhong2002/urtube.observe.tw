@@ -10,6 +10,7 @@ import { Repository } from '../src/data/database.js';
 import { createApp } from '../src/index.js';
 import { UserRegistry } from '../src/users.js';
 import { decryptPrivateValue } from '../src/youtube/crypto.js';
+import { normalizeYoutubeCapture } from '../src/youtube/capture.js';
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 
 const SECRET = process.env.YOUTUBE_PRIVATE_DATA_KEY!;
@@ -160,6 +161,64 @@ test('private dashboards need their dashboard token; users cannot see each other
       registry.dataKeyFor(registry.userByHandle('dad')!),
       registry.dataKeyFor(registry.userByHandle('sky2')!),
     );
+  } finally {
+    registry.close();
+  }
+});
+
+test('intervals.json serves clock intervals only behind the dashboard token', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  try {
+    const user = registry.createUser('feed', 'Feed', { dashboardPublic: true });
+    const repository = registry.repositoryFor(user);
+    repository.ingestYoutubeArchive(parseYoutubeArchive(fixtureZip(), SECRET));
+    const now = new Date();
+    const watchedAt = new Date(now.getTime() - 3_600_000).toISOString();
+    repository.upsertYoutubeCapture(normalizeYoutubeCapture({
+      sessionId: 'feed-session-000001', videoId: 'feedvideo01', title: 'Feed fixture',
+      url: 'https://www.youtube.com/watch?v=feedvideo01', channelTitle: 'Feed Channel',
+      watchedAt, actualWatchedSeconds: 420, durationSeconds: 900,
+    }, now));
+
+    // Public dashboard flag does not expose timestamps.
+    assert.equal((await app.request('/u/feed/intervals.json')).status, 404);
+    assert.equal((await app.request('/u/feed/intervals.json?key=wrong')).status, 404);
+    const other = registry.createUser('other', 'Other');
+    assert.equal((await app.request('/u/feed/intervals.json', {
+      headers: { authorization: `Bearer ${other.dashboardToken}` },
+    })).status, 404);
+
+    const keyed = await app.request('/u/feed/intervals.json?key=' + user.dashboardToken);
+    assert.equal(keyed.status, 200);
+    assert.equal(keyed.headers.get('cache-control'), 'no-store');
+    const body = await keyed.json() as {
+      nextSince: string | null;
+      intervals: Array<Record<string, unknown>>;
+    };
+    assert.equal(body.nextSince, null);
+    assert.ok(body.intervals.length >= 2);
+    const measured = body.intervals.find((row) => row.videoId === 'feedvideo01')!;
+    assert.equal(measured.watchedAt, watchedAt);
+    assert.equal(measured.precision, 'exact');
+    assert.equal(measured.actualWatchedSeconds, 420);
+    assert.equal(measured.estimatedWatchSeconds, 420);
+    assert.equal(measured.durationSeconds, 900);
+    for (let i = 1; i < body.intervals.length; i += 1) {
+      assert.ok(String(body.intervals[i - 1]!.watchedAt) <= String(body.intervals[i]!.watchedAt));
+    }
+    assert.ok(!JSON.stringify(body).includes(PLAINTEXT_QUERY));
+
+    const bearer = await app.request('/u/feed/intervals.json?since=' + encodeURIComponent(watchedAt) + '&limit=1', {
+      headers: { authorization: `Bearer ${user.dashboardToken}` },
+    });
+    assert.equal(bearer.status, 200);
+    const page = await bearer.json() as { nextSince: string | null; intervals: Array<Record<string, unknown>> };
+    assert.equal(page.intervals.length, 1);
+    assert.equal(page.intervals[0]!.videoId, 'feedvideo01');
+    assert.equal(page.nextSince, watchedAt);
+
+    assert.equal((await app.request('/u/feed/intervals.json?since=nope&key=' + user.dashboardToken)).status, 400);
   } finally {
     registry.close();
   }
