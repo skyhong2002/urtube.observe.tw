@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
 import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, nextYoutubeQuotaReset, type YoutubeApiKeyPool } from './api-keys.js';
 import { createAsyncLimiter } from './concurrency.js';
-import { youtubeRequestJson } from './request-json.js';
+import { retryYoutubeTimeouts, youtubeRequestJson } from './request-json.js';
 import type { YoutubeChannelMetadata, YoutubeChannelStatistics, YoutubeVideoMetadata } from './types.js';
 
 // Shared by every account in this worker process. Four concurrent requests
@@ -60,7 +60,7 @@ async function youtubeApiGet<T>(label: string, url: URL, pool: YoutubeApiKeyPool
     if (!key) throw new YoutubeQuotaExceededError(`${label}: every configured API key has exhausted its daily quota`);
     url.searchParams.set('key', key);
     try {
-      return await youtubeApiRequest(async () => {
+      return await retryYoutubeTimeouts(() => youtubeApiRequest(async () => {
         countYoutubeApiRequest();
         return youtubeRequestJson(url, fetchImpl, async (response) => {
           if (response.ok) return response.json() as Promise<T>;
@@ -68,7 +68,7 @@ async function youtubeApiGet<T>(label: string, url: URL, pool: YoutubeApiKeyPool
           if (response.status === 403 && QUOTA_EXHAUSTED.test(detail)) throw new YoutubeQuotaExceededError(detail);
           throw new Error(detail);
         });
-      });
+      }));
     } catch (error) {
       if (!(error instanceof YoutubeQuotaExceededError)) throw error;
       pool.exhausted(key);

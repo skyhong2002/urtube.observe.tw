@@ -15,6 +15,7 @@ import {
 } from '../src/ops-status.js';
 import { UserRegistry } from '../src/users.js';
 import { youtubeWorkerCycleStartedStatus } from '../src/youtube-worker.js';
+import { backupCycleStartedStatus } from '../scripts/backup-worker.js';
 
 // Form posts as the browser would send them after the Google step: the
 // pending-signup token rides in the urtube_signup cookie.
@@ -496,6 +497,24 @@ test('readyz accepts a fresh worker heartbeat or completion and rejects failed o
     const ready = await app.request('/readyz');
     assert.equal(ready.status, 200);
     assert.equal((await ready.json() as Record<string, unknown>).status, 'ready');
+
+    writeOpsStatus('backup', backupCycleStartedStatus({
+      lastStartedAt: now, lastCompletedAt: now, lastError: '',
+    }, new Date()));
+    assert.equal((await app.request('/readyz')).status, 200,
+      'a new backup keeps the previous fresh successful bundle ready');
+    for (const previous of [null,
+      { lastStartedAt: now, lastCompletedAt: now, lastError: 'backup failed' },
+      { lastStartedAt: now, lastCompletedAt: new Date(Date.now()
+        - (config.backup.intervalHours + 3) * 3600_000).toISOString() },
+    ]) {
+      writeOpsStatus('backup', backupCycleStartedStatus(previous, new Date()));
+      const response = await app.request('/readyz');
+      assert.equal(response.status, 503);
+      assert.equal((await response.json() as { checks: { backup: boolean } }).checks.backup, false,
+        'starting a backup cannot hide missing, failed, or stale backups');
+    }
+    writeOpsStatus('backup', { lastCompletedAt: now, lastError: '' });
 
     writeOpsStatus('worker', {
       lastCompletedAt: now, running: false, failedUsers: 1, lastError: 'previous cycle failed',

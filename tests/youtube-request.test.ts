@@ -1,9 +1,53 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { youtubeRequestJson } from '../src/youtube/request-json.js';
+import { retryYoutubeTimeouts, youtubeRequestJson } from '../src/youtube/request-json.js';
 import { createAsyncLimiter } from '../src/youtube/concurrency.js';
 
 const url = new URL('https://example.invalid/videos');
+
+test('YouTube timeout retries release the shared slot and recover with a fresh deadline', async () => {
+  const limit = createAsyncLimiter(1);
+  const signals: AbortSignal[] = [];
+  const delays: number[] = [];
+  const fetchImpl = (async (_url, options) => {
+    signals.push(options!.signal as AbortSignal);
+    if (signals.length < 3) return new Promise<Response>(() => {});
+    return Response.json({ items: [] });
+  }) as typeof fetch;
+  const result = await retryYoutubeTimeouts(
+    () => limit(() => youtubeRequestJson(url, fetchImpl, response => response.json(), 15)),
+    async ms => {
+      delays.push(ms);
+      assert.equal(await limit(async () => 'another account'), 'another account');
+    },
+  );
+  assert.deepEqual(result, { items: [] });
+  assert.deepEqual(delays, [1000, 2000]);
+  assert.equal(new Set(signals).size, 3);
+  assert.deepEqual(signals.map(signal => signal.aborted), [true, true, false]);
+});
+
+test('YouTube persistent timeout fails after exactly two retries', async () => {
+  let attempts = 0;
+  const failure = new DOMException('YouTube request timed out', 'TimeoutError');
+  await assert.rejects(retryYoutubeTimeouts(async () => {
+    attempts++;
+    throw failure;
+  }, async () => {}), error => error === failure);
+  assert.equal(attempts, 3);
+});
+
+test('YouTube retry preserves ordinary failures without retrying them', async () => {
+  for (const failure of [new Error('YouTube: HTTP 403: quotaExceeded'),
+    new Error('YouTube: HTTP 401'), new SyntaxError('Invalid JSON')]) {
+    let attempts = 0;
+    await assert.rejects(retryYoutubeTimeouts(async () => {
+      attempts++;
+      throw failure;
+    }, async () => assert.fail('unexpected retry')), error => error === failure);
+    assert.equal(attempts, 1);
+  }
+});
 
 for (const phase of ['headers', 'body', 'error body']) {
   test(`YouTube timeout releases a slot when ${phase} ignores abort`, async () => {

@@ -2,10 +2,26 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createYoutubeApiKeyPool, nextYoutubeQuotaReset, parseYoutubeApiKeys } from '../src/youtube/api-keys.js';
-import { fetchYoutubeMetadata, youtubeApiUsage } from '../src/youtube/metadata.js';
+import { fetchYoutubeChannelMetadata, fetchYoutubeMetadata, youtubeApiUsage } from '../src/youtube/metadata.js';
 
 const quotaBody = JSON.stringify({ error: { code: 403, errors: [{ domain: 'youtube.quota', reason: 'quotaExceeded' }] } });
 const okBody = (id: string) => JSON.stringify({ items: [{ id, snippet: { title: id } }] });
+
+test('video and channel enrichment recover from timeouts and count every attempt', async () => {
+  for (const fetchMetadata of [fetchYoutubeMetadata, fetchYoutubeChannelMetadata]) {
+    const before = youtubeApiUsage().requestsSinceReset;
+    const seenKeys: string[] = [];
+    const fetchImpl = (async (input) => {
+      seenKeys.push(new URL(String(input)).searchParams.get('key')!);
+      if (seenKeys.length === 1) throw new DOMException('request timed out', 'TimeoutError');
+      return new Response(okBody('fixture-id'));
+    }) as typeof fetch;
+    const result = await fetchMetadata(['fixture-id'], ['first', 'second'], fetchImpl);
+    assert.equal(result.length, 1);
+    assert.deepEqual(seenKeys, ['first', 'first'], 'a timeout does not exhaust an API key');
+    assert.equal(youtubeApiUsage().requestsSinceReset - before, 2);
+  }
+});
 
 test('YouTube quota reset is midnight Pacific time in both DST and standard time', () => {
   assert.equal(new Date(nextYoutubeQuotaReset(Date.parse('2026-09-06T12:00:00Z'))).toISOString(), '2026-09-07T07:00:00.000Z');

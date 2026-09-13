@@ -15,13 +15,25 @@ const backupRoot = resolve(config.backup.directory);
 const intervalHours = config.backup.intervalHours;
 const retentionDays = config.backup.retentionDays;
 
-interface BackupStatus {
+export interface BackupStatus {
   lastStartedAt: string;
   lastCompletedAt?: string;
   lastBundle?: string;
   files?: number;
   users?: number;
   lastError?: string;
+}
+
+export function backupCycleStartedStatus(previous: BackupStatus | null, now: Date): BackupStatus {
+  // The last restorable bundle remains valid while the next one is written.
+  // A previous failure must remain visible until a new backup succeeds.
+  return { ...previous, lastStartedAt: now.toISOString() };
+}
+
+export function backupCycleDue(previous: BackupStatus | null, now = Date.now()): boolean {
+  const completedAt = Date.parse(previous?.lastCompletedAt ?? '');
+  return Boolean(previous?.lastError) || !Number.isFinite(completedAt)
+    || now - completedAt >= intervalHours * 3600_000;
 }
 
 function recordStatus(status: BackupStatus): void {
@@ -44,7 +56,7 @@ function pruneOldBundles(now = Date.now()): void {
 }
 
 export function runBackupCycle(now = new Date()): BackupStatus {
-  const started: BackupStatus = { lastStartedAt: now.toISOString() };
+  const started = backupCycleStartedStatus(readOpsStatus<BackupStatus>('backup'), now);
   recordStatus(started);
   try {
     const name = `urtube-${now.toISOString().replace(/[:.]/g, '-')}`;
@@ -88,8 +100,7 @@ if (process.env.NODE_ENV !== 'test') {
     }
   };
   const previous = readOpsStatus<BackupStatus>('backup');
-  const due = !previous?.lastCompletedAt
-    || Date.now() - Date.parse(previous.lastCompletedAt) >= intervalHours * 3600_000;
+  const due = backupCycleDue(previous);
   let timer: NodeJS.Timeout;
   const schedule = (delay: number) => {
     timer = setTimeout(() => {
