@@ -5,7 +5,8 @@ import type { Repository } from './data/database.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './users.js';
 import { securityHeaders } from './security-headers.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
-import { parseYoutubeArchive } from './youtube/takeout.js';
+import { PayloadTooLarge, readLimitedBody } from './request-security.js';
+import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
 import { normalizeYoutubeBackfillBatch, normalizeYoutubeHistoryBatch } from './youtube/history-sync.js';
 import { normalizeYoutubeProgressBatch } from './youtube/progress.js';
@@ -79,13 +80,13 @@ export function createIngestApp(registry: UserRegistry): Hono {
       return c.json({ error: 'Upload the Takeout ZIP as application/zip' }, 415);
     }
     try {
-      const archive = new Uint8Array(await c.req.arrayBuffer());
+      const archive = await readLimitedBody(c.req.raw, MAX_YOUTUBE_ARCHIVE_BYTES);
       const parsed = parseYoutubeArchive(archive, context.dataKey, 'takeout');
       const result = context.repository.ingestYoutubeArchive(parsed);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result, totals: context.repository.youtubeCounts() }, 201);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, error instanceof PayloadTooLarge ? 413 : 400);
     }
   });
   app.get('/api/ingest/youtube/capture/status', (c) => {
@@ -105,16 +106,13 @@ export function createIngestApp(registry: UserRegistry): Hono {
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 16 * 1024) {
-        return c.json({ error: 'Capture payload exceeds 16 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 16 * 1024));
       const input = normalizeYoutubeCapture(JSON.parse(body));
       const result = context.repository.upsertYoutubeCapture(input);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, ...result }, result.inserted ? 201 : 200);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, error instanceof PayloadTooLarge ? 413 : 400);
     }
   });
   app.post('/api/ingest/youtube/progress', async (c) => {
@@ -126,16 +124,13 @@ export function createIngestApp(registry: UserRegistry): Hono {
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 96 * 1024) {
-        return c.json({ error: 'Progress payload exceeds 96 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 96 * 1024));
       const input = normalizeYoutubeProgressBatch(JSON.parse(body));
       const result = context.repository.ingestYoutubeProgress(input);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, ...result }, result.completed ? 200 : 202);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, error instanceof PayloadTooLarge ? 413 : 400);
     }
   });
   app.get('/api/ingest/youtube/history/status', (c) => {
@@ -159,16 +154,13 @@ export function createIngestApp(registry: UserRegistry): Hono {
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 256 * 1024) {
-        return c.json({ error: 'Backfill payload exceeds 256 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 256 * 1024));
       const input = normalizeYoutubeBackfillBatch(JSON.parse(body));
       const result = context.repository.ingestYoutubeArchive(input);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result }, 201);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, error instanceof PayloadTooLarge ? 413 : 400);
     }
   });
 
@@ -184,10 +176,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
       return c.json({ error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, 503);
     }
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 256 * 1024) {
-        return c.json({ error: 'History payload exceeds 256 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 256 * 1024));
       const input = normalizeYoutubeHistoryBatch(
         JSON.parse(body),
         context.dataKey,
@@ -200,7 +189,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
         history: context.repository.youtubeHistoryStatus(),
       }, 200);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, error instanceof PayloadTooLarge ? 413 : 400);
     }
   });
   // Google Data Portability stays owner-only for now: the OAuth client and

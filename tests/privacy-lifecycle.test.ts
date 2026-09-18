@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { UserRegistry, type User } from '../src/users.js';
 import { MATCHING_TAXONOMY } from '../src/youtube/matching.js';
 import {

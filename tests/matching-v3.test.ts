@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { UserRegistry } from '../src/users.js';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { MatchingStore, sourceKey } from '../src/matching-v3/store.js';
 import { aggregateTags, buildProfile, runCycle } from '../src/matching-v3/pipeline.js';
 import { settings, version, normalizeTag, type Classification, type Profile, type VideoInput } from '../src/matching-v3/model.js';

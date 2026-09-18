@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { strToU8, zipSync } from 'fflate';
 import { config } from '../src/config.js';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { createIngestApp } from '../src/ingest.js';
 import {
   patchOpsStatus,

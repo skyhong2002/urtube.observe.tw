@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { createIngestApp } from '../src/ingest.js';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { UserRegistry } from '../src/users.js';
 import { RESERVED_HANDLES, type ProfileInput } from '../src/profile.js';
 import { profileDetails } from '../src/output/profile.js';

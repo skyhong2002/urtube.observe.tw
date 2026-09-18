@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { guidedOnboardingState } from '../src/onboarding-flow.js';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { matchesPage } from '../src/output/matches.js';
 import { guidedOnboardingPage } from '../src/output/onboarding.js';
 import { UserRegistry, type User } from '../src/users.js';
@@ -92,7 +92,7 @@ test('guided onboarding resumes from stored data and records either matching cho
     const privateCookie = `urtube_session=${registry.createSession(privateUser)}`;
 
     const consent = await app.request('/onboarding', { headers: { cookie: privateCookie } });
-    assert.equal(consent.headers.get('cache-control'), 'no-store');
+    assert.equal(consent.headers.get('cache-control'), 'private, no-store');
     assert.equal(consent.headers.get('x-robots-tag'), 'noindex');
     assert.doesNotMatch(await consent.text(), /selectedTopicKeys|watchEvents|estimatedWatchSeconds|topicCoverage/);
     assert.equal((await app.request('/onboarding/interests', {

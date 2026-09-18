@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { UserRegistry, type User } from '../src/users.js';
 import { MATCHING_TAXONOMY } from '../src/youtube/matching.js';
 import {
@@ -102,7 +102,7 @@ test('signed-in owner receives a streamed, readable, privacy-bounded ZIP', async
     const cookie = `urtube_session=${registry.createSession(owner)}`;
     const response = await postExport(app, cookie);
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.equal(response.headers.get('x-robots-tag'), 'noindex');
     assert.equal(response.headers.get('content-type'), 'application/zip');
     assert.match(response.headers.get('content-disposition') ?? '', /urtube-export-owner-\d{4}-\d{2}-\d{2}\.zip/);
@@ -180,7 +180,7 @@ test('export requires the current user session and explicit confirmation', async
     assert.equal((await postExport(app, expired)).status, 401);
 
     const account = await app.request('/account', { headers: { cookie } });
-    assert.equal(account.headers.get('cache-control'), 'no-store');
+    assert.equal(account.headers.get('cache-control'), 'private, no-store');
     assert.match(await account.text(), /Export my data/);
     assert.match(await (await app.request('/privacy')).text(), /export your data/);
   } finally {
