@@ -22,7 +22,7 @@ export const formStyles = `
   .ob-card p{color:var(--ink-2);font-size:13px;margin:0 0 16px}
   .ob-form{display:grid;gap:10px}
   .ob-form label{color:var(--ink-2);font-size:12px;font-weight:700;margin-top:6px}
-  .ob-form input[type=text],.ob-form select,.ob-form textarea{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
+  .ob-form input[type=text],.ob-form input[type=password],.ob-form select,.ob-form textarea{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
   .ob-form textarea{min-height:82px;resize:vertical}
   .ob-form input[type=file]{background:var(--raised);border:1px dashed var(--line-strong);border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;padding:14px 12px;width:100%}
   .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(208,59,59,.3)}
