@@ -878,9 +878,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     });
     const recommendations = cohortRecommendations(viewer, [viewer, ...visiblePool], channelPolicy);
     const ranked = rankedMatchingCandidateCards(viewer, visiblePool);
+    const rankedIds = new Set(ranked.map(card => card.candidateUserId));
     const baseCards = [...ranked, ...[...new Map([...publicUsers, ...v3Members].map(user => [user.id, user])).values()].filter(user => {
       const target = registry.userByHandle(user.handle);
-      return target && (target.dashboardPublic || (currentMe.matchingOptIn && target.matchingOptIn)) && !ranked.some(card => card.candidateUserId === user.id);
+      return target && (target.dashboardPublic || (currentMe.matchingOptIn && target.matchingOptIn)) && !rankedIds.has(user.id);
     }).map(user => blendCard(currentMe, user))];
     const scoredCards = await Promise.all(baseCards.map(async candidate => {
       const target = registry.userByHandle(candidate.handle);
