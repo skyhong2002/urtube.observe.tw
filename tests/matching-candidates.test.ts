@@ -230,7 +230,7 @@ test('/matches renders twenty bounded people, a finite next page, and no private
     const cookie = `urtube_session=${registry.createSession(viewer)}`;
     const firstResponse = await app.request('/matches', { headers: { cookie } });
     assert.equal(firstResponse.status, 200);
-    assert.equal(firstResponse.headers.get('cache-control'), 'no-store');
+    assert.equal(firstResponse.headers.get('cache-control'), 'private, no-store');
     assert.equal(firstResponse.headers.get('x-robots-tag'), 'noindex');
     const first = await firstResponse.text();
     assert.equal((first.match(/<article class="mt-card"[^>]*>/g) ?? []).length, 20);

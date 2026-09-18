@@ -431,6 +431,9 @@ export class Repository {
     return changed;
   }
 
+  // Verify a core table is readable without aggregating the entire archive.
+  checkReadable(): void { this.db.prepare('SELECT 1 FROM youtube_watch_events LIMIT 1').get(); }
+
   close(): void { this.db.close(); }
 
   openPortableExport(dataKey: string): PortableRepositoryExport {

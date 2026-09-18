@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
+import { limitedBody, PayloadTooLarge, readLimitedBody, sameOriginWrites } from './request-security.js';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
 import { AvatarService, type AvatarImage } from './avatars.js';
@@ -69,7 +69,7 @@ import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
-import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
+import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
   MATCHING_CANDIDATE_POOL_LIMIT,
   matchingCandidateBatch,
@@ -160,6 +160,7 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 }
 
 interface AppServices {
+  googleFetch: typeof fetch;
   matchingV3: { settings: MatchingSettings; compute: Compute };
   loadTagLists: () => Promise<TagListSnapshot>;
   avatarService: Pick<AvatarService, 'avatarFor'>;
@@ -192,7 +193,18 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return entry.result;
   };
   app.use('*', securityHeaders(true));
-  app.use('/account/profile', bodyLimit({ maxSize: 100_000 }));
+  app.use('*', async (c, next) => {
+    const sensitive = /^\/(?:auth|login|signup|logout|account|onboarding|extension-setup|matches|matching-v3|status|healthz|readyz)(?:\/|$)/.test(c.req.path)
+      || /(?:^|;\s*)urtube_(?:session|signup|dash_[^=]+)=/.test(c.req.header('cookie') ?? '');
+    await next();
+    if (sensitive) c.header('Cache-Control', 'private, no-store');
+  });
+  app.use('*', sameOriginWrites(config.publicBaseUrl));
+  app.use('*', async (c, next) => {
+    // These routes enforce their own limits after authentication.
+    if (c.req.path === '/account/takeout' || /^\/(?:api\/)?matching-v3(?:\/|$)/.test(c.req.path)) return next();
+    return limitedBody(100_000)(c, next);
+  });
   app.use('*', async (c, next) => {
     if (c.req.method === 'GET' || c.req.method === 'HEAD') {
       const url = new URL(c.req.url);
@@ -317,6 +329,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   }
 
   const secureCookies = config.publicBaseUrl.startsWith('https://');
+  const loginCookie = secureCookies ? '__Host-urtube_login' : 'urtube_login';
 
   function sessionUser(c: Context): User | null {
     const token = getCookie(c, 'urtube_session') ?? '';
@@ -637,20 +650,35 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // there after the round trip (same-site paths only).
   app.get('/auth/google', (c) => {
     try {
-      return c.redirect(googleLoginUrl(registry, c.req.query('next') ?? ''));
+      const url = googleLoginUrl(registry, c.req.query('next') ?? '');
+      setCookie(c, loginCookie, new URL(url).searchParams.get('state')!, {
+        httpOnly: true, sameSite: 'Lax', path: '/', secure: secureCookies, maxAge: 600,
+      });
+      return c.redirect(url);
     } catch (error) {
       return c.text(presentationError(error, langOf(c), 'login'), 503);
     }
   });
 
   app.get('/auth/google/callback', async (c) => {
-    // e.g. the user pressed Cancel on the Google consent screen.
-    if (c.req.query('error')) return c.redirect('/signup');
     const code = c.req.query('code');
     const state = c.req.query('state');
-    if (!code || !state) return c.text(presentationError(null, langOf(c), 'login'), 400);
+    const browserState = getCookie(c, loginCookie);
+    // Do not consume a state or clear a valid browser login on an unrelated callback.
+    if (!state || !browserState || !timingSafeEquals(state, browserState)) {
+      return c.text(presentationError(null, langOf(c), 'login'), 400);
+    }
+    deleteCookie(c, loginCookie, { path: '/', secure: secureCookies });
+    if (c.req.query('error')) {
+      registry.consumeLoginState(state);
+      return c.redirect('/signup');
+    }
+    if (!code) {
+      registry.consumeLoginState(state);
+      return c.text(presentationError(null, langOf(c), 'login'), 400);
+    }
     try {
-      const identity = await completeGoogleLogin(registry, code, state);
+      const identity = await completeGoogleLogin(registry, code, state, services.googleFetch);
       const existing = registry.userByGoogleSub(identity.sub);
       if (existing) {
         const refreshed = registry.refreshGoogleIdentity(existing, identity.email, identity.avatarUrl);
@@ -1300,13 +1328,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     // Multipart framing adds a little overhead around the ZIP itself. Reject
     // obviously oversized bodies before asking the runtime to buffer them.
     if (contentLength > MAX_YOUTUBE_ARCHIVE_BYTES + 1024 * 1024) {
+      void c.req.raw.body?.cancel().catch(() => {});
       return renderError(t.accountTakeoutTooLarge, 413);
     }
     if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data')) {
       return renderError(t.accountTakeoutChooseZip);
     }
     try {
-      const form = await c.req.formData();
+      const body = await readLimitedBody(c.req.raw, MAX_YOUTUBE_ARCHIVE_BYTES + 1024 * 1024);
+      const form = await new Response(body, { headers: { 'content-type': c.req.header('content-type')! } }).formData();
       const upload = form.get('takeout');
       if (!upload || typeof upload === 'string' || !upload.name.toLowerCase().endsWith('.zip')) {
         return renderError(t.accountTakeoutChooseZip);
@@ -1327,6 +1357,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         takeoutResult: result,
       }), lang));
     } catch (error) {
+      if (error instanceof PayloadTooLarge) return renderError(t.accountTakeoutTooLarge, 413);
       return renderError(presentationError(error, lang, 'takeout'));
     }
   });
@@ -1563,6 +1594,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   });
 
   app.get('/status', (c) => {
+    const viewer = sessionUser(c);
+    if (!viewer) return c.json({ error: 'login_required' }, 401);
+    if (viewer.storageName !== DEFAULT_HANDLE) return c.json({ error: 'owner_required' }, 403);
     const user = registry.ensureDefaultUser();
     const repository = registry.repositoryFor(user);
     return c.json({
@@ -1600,18 +1634,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/healthz', (c) => {
     try {
       const user = registry.ensureDefaultUser();
-      const counts = registry.repositoryFor(user).youtubeCounts();
+      registry.repositoryFor(user).checkReadable();
       return c.json({
         status: 'healthy',
         service: 'urtube',
-        counts,
-        lastError: registry.repositoryFor(user).youtubeSyncState('last_error') || null,
       });
-    } catch (error) {
+    } catch {
       return c.json({
         status: 'unhealthy',
         service: 'urtube',
-        error: error instanceof Error ? error.message : String(error),
       }, 503);
     }
   });
@@ -1630,7 +1661,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const users = registry.listUsers();
     for (const user of users) {
       try {
-        registry.repositoryFor(user).youtubeCounts();
+        registry.repositoryFor(user).checkReadable();
       } catch {
         databaseFailures++;
       }
@@ -1646,14 +1677,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.json({
       status: ready ? 'ready' : 'not_ready',
       checks,
-      users: { total: users.length, databaseFailures },
-      worker: {
-        running: worker?.running ?? false,
-        heartbeatAt: worker?.heartbeatAt ?? null,
-        lastCompletedAt: worker?.lastCompletedAt ?? null,
-        failedUsers: worker?.failedUsers ?? null,
-      },
-      backup: { lastCompletedAt: backup?.lastCompletedAt ?? null },
     }, ready ? 200 : 503);
   });
 

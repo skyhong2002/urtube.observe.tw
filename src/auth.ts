@@ -19,6 +19,17 @@ export function googleLoginConfigured(): boolean {
   return Boolean(config.login.googleClientId && config.login.googleClientSecret);
 }
 
+export function safeLoginNext(value: string): string {
+  if (!value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u0020\u007f]/.test(value)) return '';
+  const base = 'https://urtube.invalid';
+  try {
+    const url = new URL(value, base);
+    // Normalization can turn /a/..//host into a protocol-relative path.
+    if (url.origin !== base || url.pathname.startsWith('//')) return '';
+    return url.pathname + url.search + url.hash;
+  } catch { return ''; }
+}
+
 export function googleLoginUrl(registry: UserRegistry, next = ''): string {
   if (!googleLoginConfigured()) {
     throw new Error('Google login is not configured (set GOOGLE_LOGIN_CLIENT_ID / GOOGLE_LOGIN_CLIENT_SECRET)');
@@ -43,6 +54,8 @@ export async function completeGoogleLogin(
   if (!consumed.valid) throw new Error('OAuth state is invalid or expired');
   const response = await fetchImpl('https://oauth2.googleapis.com/token', {
     method: 'POST',
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
@@ -53,15 +66,25 @@ export async function completeGoogleLogin(
     }).toString(),
   });
   const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok || typeof body.id_token !== 'string') {
-    throw new Error(`Google token exchange failed: ${JSON.stringify(body).slice(0, 300)}`);
+  if (!response.ok || !body || typeof body.id_token !== 'string') {
+    throw new Error('Google token exchange failed');
   }
   // The id_token arrives directly from Google's token endpoint over TLS, so
-  // decoding without signature verification is safe here.
+  // a separate signature-key fetch is unnecessary here. Still validate that
+  // this identity token was issued by Google for this client and is current.
   const payload = body.id_token.split('.')[1] ?? '';
-  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
-  const sub = String(claims.sub ?? '');
-  if (!sub) throw new Error('Google id_token is missing the sub claim');
+  const decoded: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString());
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw new Error('Invalid Google identity token');
+  const claims = decoded as Record<string, unknown>;
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (typeof claims.iss !== 'string' || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss) ||
+      !config.login.googleClientId || !audiences.every(audience => typeof audience === 'string') || !audiences.includes(config.login.googleClientId) ||
+      ((audiences.length > 1 || claims.azp !== undefined) && claims.azp !== config.login.googleClientId) ||
+      typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= Date.now() / 1000 ||
+      typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 255) {
+    throw new Error('Invalid Google identity token');
+  }
+  const sub = claims.sub;
   let avatarUrl = safeGoogleAvatarUrl(claims.picture);
   if (!avatarUrl && typeof body.access_token === 'string') {
     try {
@@ -76,10 +99,10 @@ export async function completeGoogleLogin(
     } catch { /* A missing profile image must not prevent sign-in. */ }
   }
   // Only same-site absolute paths may be continued to after login.
-  const next = consumed.next.startsWith('/') && !consumed.next.startsWith('//') ? consumed.next : '';
+  const next = safeLoginNext(consumed.next);
   return {
     sub,
-    email: claims.email ? String(claims.email) : '',
+    email: typeof claims.email === 'string' ? claims.email : '',
     avatarUrl,
     next,
   };

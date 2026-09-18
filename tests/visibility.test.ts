@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { load } from 'cheerio';
 import test from 'node:test';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { UserRegistry, type User } from '../src/users.js';
 import { MATCHING_TAXONOMY } from '../src/youtube/matching.js';
 import { REGISTRY_CRYSTAL_VERSION } from '../src/youtube/registry-crystal.js';
