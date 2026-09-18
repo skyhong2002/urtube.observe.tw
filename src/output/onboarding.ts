@@ -148,7 +148,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
   const currentSetting = state.updated === 'visibility'
     ? (lang === 'zh' ? (user.dashboardPublic ? '個人檔案目前公開。' : '個人檔案目前不公開。') : (user.dashboardPublic ? 'Your profile is currently public.' : 'Your profile is currently private.'))
     : state.updated === 'matching'
-      ? (lang === 'zh' ? (user.matchingOptIn ? '目前已加入配對。' : '目前已退出配對。') : (user.matchingOptIn ? 'You are currently participating in matching.' : 'You are currently opted out of matching.'))
+      ? (lang === 'zh' ? (user.matchingOptIn ? '目前已開啟好友探索。' : '目前已關閉好友探索。') : (user.matchingOptIn ? 'Friend discovery is currently on.' : 'Friend discovery is currently off.'))
       : state.updated === 'reference'
         ? (lang === 'zh' ? (user.referenceOptIn ? '目前已參與匿名整體統計。' : '目前未參與匿名整體統計。') : (user.referenceOptIn ? 'You currently contribute to anonymous community statistics.' : 'You currently do not contribute to anonymous community statistics.'))
         : '';
@@ -268,7 +268,9 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       addEventListener('hashchange', revealTarget);
       revealTarget();
       const feedback = document.querySelector('#account-error, #account-takeout .ob-error, #settings-feedback');
-      if (feedback) { feedback.tabIndex = -1; feedback.focus(); }
+      const focusFeedback = () => { if (feedback) { feedback.tabIndex = -1; feedback.focus(); } };
+      if (document.readyState === 'loading') addEventListener('pageshow', focusFeedback, { once: true });
+      else focusFeedback();
       // GitHub-style guard: the delete button only enables once the typed
       // number matches the count shown. The server re-checks on submit.
       const form = document.querySelector('[data-delete-form]');
