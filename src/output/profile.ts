@@ -5,6 +5,7 @@ import type { ProfileInput } from '../profile.js';
 import { html, primaryNav, shell } from './pages.js';
 import { formStyles } from './onboarding.js';
 import type { Lang } from './i18n.js';
+import { unsavedProfileScript } from './form-feedback.js';
 
 export function profileMessages(lang: Lang) {
   return lang === 'zh' ? {
@@ -90,7 +91,7 @@ ${html(value.bio)}</textarea><small id="bio-count" aria-live="polite">${t.remain
     <div class="profile-actions"><button type="submit">${t.save}</button><a href="/${html(user.handle)}">${t.cancel}</a></div>
     </form><template id="link-template">${row({ name: '', url: '' })}</template></div>
     <script>(()=>{
-      const form=document.querySelector('#profile-form'), links=document.querySelector('#profile-links'), add=document.querySelector('#add-link'), bio=document.querySelector('#bio'), handle=document.querySelector('#handle'), confirm=document.querySelector('#confirm-change');
+      const form=document.querySelector('#profile-form'), links=document.querySelector('#profile-links'), add=document.querySelector('#add-link'), bio=document.querySelector('#bio'), handle=document.querySelector('#handle'), confirm=document.querySelector('#confirm-change'), displayName=document.querySelector('#displayName');
       const presets=${JSON.stringify(SOCIAL_PRESETS)}, icons=${JSON.stringify(Object.fromEntries(SOCIAL_PRESETS.map(preset => [preset.id, socialIcon(preset.id)]))).replace(/</g, '\\u003c')}, websiteName=${JSON.stringify(t.website)};
       const normalizeUrl=${normalizeSocialUrl.toString()};
       const usernameLabel=${JSON.stringify(t.username)}, urlLabel=${JSON.stringify(t.url)};
@@ -103,7 +104,8 @@ ${html(value.bio)}</textarea><small id="bio-count" aria-live="polite">${t.remain
       links.addEventListener('click',e=>{const button=e.target.closest('button');if(!button)return;const row=button.closest('fieldset');if(button.dataset.action==='remove'){const next=row.nextElementSibling||row.previousElementSibling;row.remove();(next?.querySelector('[name=linkUrl]')||add).focus();}else if(button.dataset.action==='up'&&row.previousElementSibling){links.insertBefore(row,row.previousElementSibling);button.focus();}else if(button.dataset.action==='down'&&row.nextElementSibling){links.insertBefore(row.nextElementSibling,row);button.focus();}refresh();});
       const count=()=>{const remaining=300-[...bio.value.replace(/\\r\\n/g,'\\n')].length;document.querySelector('#remaining').textContent=remaining;bio.setCustomValidity(remaining<0?${JSON.stringify(t.errors.bio)}:'');};
       const handleChange=()=>{const changed=handle.value!==original;document.querySelector('#handle-warning').hidden=!changed;confirm.required=changed;document.querySelector('#new-url').textContent='/'+handle.value;};
-      handle.addEventListener('input',handleChange);bio.addEventListener('input',count);refresh();count();handleChange();document.querySelector('#profile-error')?.focus();
-    })();</script>`;
+      const nameValidity=()=>{const length=[...displayName.value.trim()].length;displayName.setCustomValidity(length<1||length>80?${JSON.stringify(t.errors.displayName)}:'');};
+      handle.addEventListener('input',handleChange);bio.addEventListener('input',count);displayName.addEventListener('input',nameValidity);refresh();count();nameValidity();handleChange();document.querySelector('#profile-error')?.focus();
+    })();${unsavedProfileScript}</script>`;
   return shell(t.title, body, primaryNav(lang, { active: 'account', dashboardHref: `/${user.handle}`, languageHref: '/account/profile?lang=' + (lang === 'zh' ? 'en' : 'zh') }), '', lang);
 }

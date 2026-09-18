@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Test release manifest
         run: PYTHONDONTWRITEBYTECODE=1 python3 deploy/komodo/test_release.py
@@ -31,6 +33,9 @@ jobs:
 
       - name: Type-check
         run: npm run typecheck
+
+      - name: Audit tracked secrets and production dependencies
+        run: npm run security:audit
 
       - name: Test numerical matching service
         env:

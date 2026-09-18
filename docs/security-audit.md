@@ -2,6 +2,13 @@
 
 Last verified: 2026-09-05 (Asia/Taipei).
 
+CI integration added on 2026-09-19: every check now fetches complete Git
+history and runs `security:audit`. npm, the numerical service's Python
+dependencies, and GitHub Actions also receive weekly Dependabot update PRs.
+See the [frontend audit delivery](frontend-audit-2026-09-19.md) for the latest
+validation scope and outstanding dependency-audit qualification. The original
+verification date above is not a claim that all security findings are closed.
+
 The release audit is intentionally repeatable and uses synthetic identities
 only. Never paste a production credential, cookie, email, or viewing record
 into an issue, test fixture, screenshot, or command output.

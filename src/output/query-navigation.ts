@@ -39,6 +39,9 @@ export const queryNavigationScript = String.raw`(()=>{
     cancel();
     const id = serial;
     pending = new AbortController();
+    const request = pending;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; request.abort(); }, 15000);
     const scroll = [scrollX, scrollY];
     loading(true);
     try {
@@ -87,8 +90,9 @@ export const queryNavigationScript = String.raw`(()=>{
       requestAnimationFrame(() => { if (id === serial) scrollTo(...scroll); });
       dispatchEvent(new Event('urtube:page-updated'));
     } catch (error) {
-      if (id === serial && error.name !== 'AbortError') location.assign(url);
+      if (id === serial && (timedOut || error.name !== 'AbortError')) location.assign(url);
     } finally {
+      clearTimeout(timeout);
       if (id === serial) loading(false);
     }
   };
