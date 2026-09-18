@@ -75,7 +75,7 @@ export function profileEditPage(user: User, csrf: string, lang: Lang, value: Pro
     <div class="ob-card profile-form">
     ${error ? `<div class="ob-error" role="alert" tabindex="-1" id="profile-error">${html(error)}</div>` : ''}
     ${saved ? `<div class="ob-success" role="status">${t.saved}</div>` : ''}
-    <form method="post" action="/account/profile" class="ob-form" id="profile-form">
+    <form method="post" action="/account/profile" class="ob-form" id="profile-form" data-unsaved="${error ? 'true' : 'false'}">
     <input type="hidden" name="csrf" value="${html(csrf)}">
     <label for="displayName">${t.name}</label><input id="displayName" type="text" name="displayName" required value="${html(value.displayName)}">
     <label for="handle">${t.handle}</label><input id="handle" type="text" name="handle" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.\\-]{1,31}" autocapitalize="none" spellcheck="false" value="${html(value.handle)}" aria-describedby="handle-hint handle-warning">

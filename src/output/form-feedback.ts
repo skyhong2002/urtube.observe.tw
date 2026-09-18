@@ -5,13 +5,21 @@ export const unsavedProfileScript = String.raw`(()=>{
   const snapshot = () => JSON.stringify([...new FormData(form)]);
   const original = snapshot();
   let submitting = false;
-  addEventListener('beforeunload', event => {
-    if (submitting || snapshot() === original) return;
+  const dirty = () => form.dataset.unsaved === 'true' || snapshot() !== original;
+  const warn = event => {
+    if (submitting || !dirty()) return;
     event.preventDefault();
     event.returnValue = '';
-  });
-  form.addEventListener('submit', () => { submitting = true; });
-  addEventListener('pageshow', () => { submitting = false; });
+  };
+  const refresh = () => {
+    if (!submitting && dirty()) addEventListener('beforeunload', warn);
+    else removeEventListener('beforeunload', warn);
+  };
+  // Click also covers adding/removing/reordering rows without text input.
+  for (const type of ['input', 'change', 'click']) form.addEventListener(type, refresh);
+  form.addEventListener('submit', event => { if (!event.defaultPrevented) { submitting = true; refresh(); } });
+  addEventListener('pageshow', () => { submitting = false; refresh(); });
+  refresh();
 })();`;
 
 export const uploadFeedbackScript = String.raw`(()=>{

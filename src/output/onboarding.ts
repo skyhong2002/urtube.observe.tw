@@ -126,6 +126,7 @@ export function signupCompletePage(
 }
 
 export interface AccountPageState {
+  updated?: 'visibility' | 'matching' | 'reference';
   rotated?: { captureToken: string; dashboardToken: string };
   error?: string;
   extensionVersion?: string;
@@ -144,6 +145,14 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
   const t = messages(lang);
   const dashboardHref = `/${user.handle}`;
   const videoCount = state.videoCount ?? 0;
+  const currentSetting = state.updated === 'visibility'
+    ? (lang === 'zh' ? (user.dashboardPublic ? '個人檔案目前公開。' : '個人檔案目前不公開。') : (user.dashboardPublic ? 'Your profile is currently public.' : 'Your profile is currently private.'))
+    : state.updated === 'matching'
+      ? (lang === 'zh' ? (user.matchingOptIn ? '目前已加入配對。' : '目前已退出配對。') : (user.matchingOptIn ? 'You are currently participating in matching.' : 'You are currently opted out of matching.'))
+      : state.updated === 'reference'
+        ? (lang === 'zh' ? (user.referenceOptIn ? '目前已參與匿名整體統計。' : '目前未參與匿名整體統計。') : (user.referenceOptIn ? 'You currently contribute to anonymous community statistics.' : 'You currently do not contribute to anonymous community statistics.'))
+        : '';
+  const settingsFeedback = currentSetting ? `<p class="ob-success" id="settings-feedback" role="status" tabindex="-1">${currentSetting}</p>` : '';
   const rotatedHtml = state.rotated ? `
       <div class="ob-warn">${t.accountRotated}</div>
       <p style="margin-bottom:2px">${t.accountCaptureToken}</p>
@@ -198,6 +207,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <p><a class="ob-google" href="/account/profile">${lang === 'zh' ? '編輯個人檔案' : 'Edit profile'}</a></p>
       `)}
       ${group('settings-privacy', t.settingsPrivacy, `
+      ${settingsFeedback}
       ${matchingSettings}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
@@ -211,7 +221,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
         <button type="submit">${t.accountReferenceSave}</button>
       </form>
-      `)}
+      `, Boolean(state.updated))}
       ${group('settings-sync', t.settingsSync, `
       <h2>${t.accountExtension}</h2>
       <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
@@ -257,7 +267,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       };
       addEventListener('hashchange', revealTarget);
       revealTarget();
-      const feedback = document.querySelector('#account-error, #account-takeout .ob-error');
+      const feedback = document.querySelector('#account-error, #account-takeout .ob-error, #settings-feedback');
       if (feedback) { feedback.tabIndex = -1; feedback.focus(); }
       // GitHub-style guard: the delete button only enables once the typed
       // number matches the count shown. The server re-checks on submit.

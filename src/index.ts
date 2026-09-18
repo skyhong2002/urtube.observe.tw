@@ -803,7 +803,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
     c.header('Cache-Control', 'no-store');
-    return c.html(accountPage(me, accountStateFor(me), langOf(c)));
+    const updated = c.req.query('updated');
+    return c.html(accountPage(me, accountStateFor(me, {
+      updated: updated === 'visibility' || updated === 'matching' || updated === 'reference' ? updated : undefined,
+    }), langOf(c)));
   });
 
   // Retire the review UI without deleting stored legacy classifications or
@@ -1251,7 +1254,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
     registry.setDashboardPublic(me.handle, form.dashboardPublic === '1');
-    return c.redirect('/account');
+    return c.redirect(`/account?updated=visibility&lang=${langOf(c)}#settings-privacy`);
   });
 
   // One switch: joining matching shares everything the comparison page can
@@ -1263,7 +1266,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     try {
       registry.setMatchingPreferences(me.handle, form.matchingOptIn === '1', 'topics_and_channel', true);
-      return c.redirect('/account');
+      return c.redirect(`/account?updated=matching&lang=${langOf(c)}#settings-privacy`);
     } catch (error) {
       const current = registry.userByHandle(me.handle) ?? me;
       return c.html(accountPage(current, accountStateFor(current, {
@@ -1277,7 +1280,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
     registry.setReferenceOptIn(me.handle, form.referenceOptIn === '1');
-    return c.redirect('/account');
+    return c.redirect(`/account?updated=reference&lang=${langOf(c)}#settings-privacy`);
   });
 
   // Browser-friendly Takeout import: same parser and idempotent ingest as

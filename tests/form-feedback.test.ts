@@ -8,29 +8,38 @@ test('profile drafts warn on changed values and ordering, but allow undo and val
   const formEvents = new Map<string, () => void>();
   let values = [['displayName', 'Alice'], ['linkUrl', 'https://example.invalid/a'], ['linkUrl', 'https://example.invalid/b']];
   const original = values.map(pair => [...pair]);
-  const form = { addEventListener: (type: string, fn: () => void) => formEvents.set(type, fn) };
+  const form = { dataset: { unsaved: 'false' }, addEventListener: (type: string, fn: () => void) => formEvents.set(type, fn) };
   const context = {
     document: { querySelector: () => form },
     FormData: class { [Symbol.iterator]() { return values[Symbol.iterator](); } },
     addEventListener: (type: string, fn: () => void) => events.set(type, fn),
+    removeEventListener: (type: string) => events.delete(type),
   };
   vm.runInNewContext(unsavedProfileScript, context);
   const warns = () => {
     let prevented = false;
-    (events.get('beforeunload') as (event: object) => void)({ preventDefault() { prevented = true; } });
+    (events.get('beforeunload') as ((event: object) => void) | undefined)?.({ preventDefault() { prevented = true; } });
     return prevented;
   };
+  assert.equal(events.has('beforeunload'), false, 'a clean page keeps the browser history cache eligible');
   assert.equal(warns(), false);
   values = [original[0], original[2], original[1]];
+  formEvents.get('click')!();
   assert.equal(warns(), true, 'reordering social links is an unsaved change');
   values = original;
+  formEvents.get('input')!();
+  assert.equal(events.has('beforeunload'), false);
   assert.equal(warns(), false, 'undoing a change does not prompt');
   values = [['displayName', 'Changed']];
+  formEvents.get('input')!();
   assert.equal(warns(), true);
-  formEvents.get('submit')!();
+  (formEvents.get('submit') as (event: object) => void)({ defaultPrevented: false });
   assert.equal(warns(), false, 'saving must not trigger a leave warning');
   events.get('pageshow')!();
   assert.equal(warns(), true, 'returning from browser history re-enables draft protection');
+  values = original; form.dataset.unsaved = 'true';
+  vm.runInNewContext(unsavedProfileScript, context);
+  assert.equal(warns(), true, 'server-rejected drafts are still unsaved on the error page');
 });
 
 test('upload feedback prevents duplicate submits and recovers after browser history restoration', () => {
