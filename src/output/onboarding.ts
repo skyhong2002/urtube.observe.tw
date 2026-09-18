@@ -7,6 +7,8 @@ import { html, primaryNav, shell } from './pages.js';
 import { processingVisibilitySetting } from './processing-visibility.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
+import { MAX_YOUTUBE_ARCHIVE_BYTES } from '../youtube/takeout.js';
+import { uploadFeedbackScript } from './form-feedback.js';
 
 export const formStyles = `
   .ob-intro{margin:14px 0 26px}
@@ -20,7 +22,7 @@ export const formStyles = `
   .ob-card p{color:var(--ink-2);font-size:13px;margin:0 0 16px}
   .ob-form{display:grid;gap:10px}
   .ob-form label{color:var(--ink-2);font-size:12px;font-weight:700;margin-top:6px}
-  .ob-form input[type=text],.ob-form select,.ob-form textarea{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
+  .ob-form input[type=text],.ob-form input[type=password],.ob-form select,.ob-form textarea{background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;padding:11px 12px;width:100%}
   .ob-form textarea{min-height:82px;resize:vertical}
   .ob-form input[type=file]{background:var(--raised);border:1px dashed var(--line-strong);border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;padding:14px 12px;width:100%}
   .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(208,59,59,.3)}
@@ -64,7 +66,7 @@ export function signupStartPage(error = '', lang: Lang = 'en'): string {
   const t = messages(lang);
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupTitle}</h1>
     <p>${t.signupStartPara}</p></section>
-    <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
+    <div class="ob-card">${error ? `<div class="ob-error" role="alert">${html(error)}</div>` : ''}
     ${googleButton(t.signinGoogle)}</div>`;
   return shell(t.signupTitle, body, signupNav(lang), '', lang, '/signup');
 }
@@ -79,10 +81,11 @@ export function signupCompletePage(
   const t = messages(lang);
   const body = `<style>${formStyles}</style><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupCompleteTitle}</h1>
     <p>${t.signupCompletePara(html(pending.email))}</p></section>
-    <div class="ob-card">${error ? `<div class="ob-error">${html(error)}</div>` : ''}
+    <div class="ob-card">${error ? `<div class="ob-error" role="alert" tabindex="-1" id="signup-error">${html(error)}</div>` : ''}
     <form class="ob-form" method="post" action="/signup">
-      <label for="handle">${t.signupHandle} <span id="handle-hint" style="font-weight:400"></span></label>
-      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="alex" autocomplete="off">
+      <label for="handle">${t.signupHandle}</label>
+      <input id="handle" name="handle" type="text" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9.\\-]{1,31}" value="${html(pending.suggestedHandle)}" placeholder="alex" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="handle-hint">
+      <span id="handle-hint" role="status" aria-live="polite"></span>
       <label for="displayName">${t.signupName}</label>
       <input id="displayName" name="displayName" type="text" required maxlength="80" value="${html(pending.email.split('@')[0] ?? '')}" placeholder="Alex">
       <button type="submit">${t.signupSubmit}</button>
@@ -93,7 +96,7 @@ export function signupCompletePage(
       <label for="claimHandle">${t.signupClaimHandle}</label>
       <input id="claimHandle" name="claimHandle" type="text" maxlength="32" placeholder="alex">
       <label for="claimKey">${t.signupClaimKey}</label>
-      <input id="claimKey" name="claimKey" type="text" maxlength="128" autocomplete="off">
+      <input id="claimKey" name="claimKey" type="password" maxlength="128" autocomplete="off" spellcheck="false">
       <button type="submit">${t.signupClaimSubmit}</button>
     </form></details>
     <script>(() => {
@@ -117,11 +120,13 @@ export function signupCompletePage(
       };
       input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(check, 300); });
       if (input.value) check();
+      document.getElementById('signup-error')?.focus();
     })();</script></div>`;
   return shell(t.signupCompleteTitle, body, signupNav(lang), '', lang, '/signup');
 }
 
 export interface AccountPageState {
+  updated?: 'visibility' | 'matching' | 'reference';
   rotated?: { captureToken: string; dashboardToken: string };
   error?: string;
   extensionVersion?: string;
@@ -140,6 +145,14 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
   const t = messages(lang);
   const dashboardHref = `/${user.handle}`;
   const videoCount = state.videoCount ?? 0;
+  const currentSetting = state.updated === 'visibility'
+    ? (lang === 'zh' ? (user.dashboardPublic ? '個人檔案目前公開。' : '個人檔案目前不公開。') : (user.dashboardPublic ? 'Your profile is currently public.' : 'Your profile is currently private.'))
+    : state.updated === 'matching'
+      ? (lang === 'zh' ? (user.matchingOptIn ? '目前已開啟好友探索。' : '目前已關閉好友探索。') : (user.matchingOptIn ? 'Friend discovery is currently on.' : 'Friend discovery is currently off.'))
+      : state.updated === 'reference'
+        ? (lang === 'zh' ? (user.referenceOptIn ? '目前已參與匿名整體統計。' : '目前未參與匿名整體統計。') : (user.referenceOptIn ? 'You currently contribute to anonymous community statistics.' : 'You currently do not contribute to anonymous community statistics.'))
+        : '';
+  const settingsFeedback = currentSetting ? `<p class="ob-success" id="settings-feedback" role="status" tabindex="-1">${currentSetting}</p>` : '';
   const rotatedHtml = state.rotated ? `
       <div class="ob-warn">${t.accountRotated}</div>
       <p style="margin-bottom:2px">${t.accountCaptureToken}</p>
@@ -161,11 +174,12 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <p>${t.accountTakeoutPara}</p>
       <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
       ${takeoutFeedback}
-      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form">
+      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form" data-takeout-form data-max-bytes="${MAX_YOUTUBE_ARCHIVE_BYTES}" data-invalid-file="${html(t.accountTakeoutChooseZip)}" data-too-large="${html(t.accountTakeoutTooLarge)}" data-uploading="${lang === 'zh' ? '匯入中…' : 'Importing…'}" data-wait="${lang === 'zh' ? '正在上傳並匯入紀錄，請保持此頁開啟。完成後會顯示結果。' : 'Uploading and importing your history. Keep this page open until the result appears.'}">
         <label for="takeout">${t.accountTakeoutFile}</label>
-        <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required>
-        <p class="ob-help">${t.accountTakeoutLimit}</p>
+        <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required aria-describedby="takeout-limit takeout-status">
+        <p class="ob-help" id="takeout-limit">${t.accountTakeoutLimit}</p>
         <button type="submit">${t.accountTakeoutSubmit}</button>
+        <p id="takeout-status" role="status" aria-live="polite"></p>
       </form>
     </section>`;
   const matchingSettings = `
@@ -185,7 +199,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
     .st-group{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}.st-group>summary{cursor:pointer;font-size:15px;font-weight:700;padding:20px 24px}.st-group>summary:hover{background:var(--raised)}.st-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}.st-content{border-top:1px solid var(--line);padding:24px}.st-content h2{font-size:15px;margin:26px 0 8px}.st-content h2:first-child{margin-top:0}.st-content h3{color:var(--ink-2);font-size:13px;margin:0 0 6px}.st-content p{color:var(--ink-2);font-size:13px}.st-content .ob-advanced{margin-top:20px}.st-content .ob-form button{justify-self:start}.st-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px}.st-footer .ob-form button{margin:0;background:var(--raised);border-color:var(--line-strong);color:var(--ink)}
     @media(max-width:480px){.st-content{padding:18px}.st-group>summary{padding:18px}}
     </style><div class="st-page"><header class="st-heading"><section class="ob-intro"><h1>${t.accountTitle}</h1><p>${t.settingsIntro}</p></section><a href="${dashboardHref}">${html(user.displayName)} ↗</a></header>
-      ${state.error ? `<div class="ob-error" role="alert">${html(state.error)}</div>` : ''}
+      ${state.error ? `<div class="ob-error" role="alert" tabindex="-1" id="account-error">${html(state.error)}</div>` : ''}
       ${processingVisibilitySetting(lang)}
       <div id="processing">${state.takeoutResult ? '' : processing}</div>
       ${group('settings-profile', t.settingsProfile, `
@@ -193,6 +207,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <p><a class="ob-google" href="/account/profile">${lang === 'zh' ? '編輯個人檔案' : 'Edit profile'}</a></p>
       `)}
       ${group('settings-privacy', t.settingsPrivacy, `
+      ${settingsFeedback}
       ${matchingSettings}
       <h2>${t.accountVisibility}</h2>
       <p>${t.accountVisibilityPara}</p>
@@ -206,7 +221,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         <label class="ob-check"><input type="checkbox" name="referenceOptIn" value="1"${user.referenceOptIn ? ' checked' : ''}> ${t.accountReferenceOptIn}</label>
         <button type="submit">${t.accountReferenceSave}</button>
       </form>
-      `)}
+      `, Boolean(state.updated))}
       ${group('settings-sync', t.settingsSync, `
       <h2>${t.accountExtension}</h2>
       <p>${t.accountExtensionPara(html(state.extensionVersion ?? '?'))}</p>
@@ -252,6 +267,10 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       };
       addEventListener('hashchange', revealTarget);
       revealTarget();
+      const feedback = document.querySelector('#account-error, #account-takeout .ob-error, #settings-feedback');
+      const focusFeedback = () => { if (feedback) { feedback.tabIndex = -1; feedback.focus(); } };
+      if (document.readyState === 'loading') addEventListener('pageshow', focusFeedback, { once: true });
+      else focusFeedback();
       // GitHub-style guard: the delete button only enables once the typed
       // number matches the count shown. The server re-checks on submit.
       const form = document.querySelector('[data-delete-form]');
@@ -262,7 +281,7 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
         input.addEventListener('input', sync);
         sync();
       }
-    })();</script>`;
+    })();${uploadFeedbackScript}</script>`;
   return shell(t.accountTitle, body, primaryNav(lang, {
     active: 'account', dashboardHref,
     languageHref: `/account?lang=${lang === 'zh' ? 'en' : 'zh'}`,

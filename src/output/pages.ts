@@ -55,7 +55,9 @@ const styles = `
   html{scroll-behavior:smooth}
   body{background:var(--bg);background-image:radial-gradient(1100px 420px at 50% -180px,rgba(208,59,59,.09),transparent 70%);background-repeat:no-repeat;color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;min-height:100vh}
   a{color:var(--accent-text)}
-  a:focus-visible,button:focus-visible,input:focus-visible,[tabindex]:focus-visible{border-radius:6px;outline:2px solid var(--accent-text);outline-offset:3px}
+  a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{border-radius:6px;outline:2px solid var(--accent-text);outline-offset:3px}
+  .skip-link{position:fixed;left:16px;top:12px;z-index:200;padding:10px 16px;background:var(--ink);color:var(--bg);border-radius:6px;transform:translateY(-180%)}
+  .skip-link:focus{transform:none}
   ::selection{background:rgba(208,59,59,.35)}
   h1,h2,h3,p{overflow-wrap:anywhere}
   .eyebrow{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
@@ -116,7 +118,7 @@ const styles = `
 
   @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column;gap:10px;padding-block:14px}.site-nav{width:100%}.site-main{padding-top:16px}.section{padding:16px}}
   @media(max-width:560px){.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}}
-  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
 
 // One floating tooltip for every chart on the page: any element carrying
@@ -206,8 +208,9 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0d0d0c"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${html(title)}</title><style>${styles}${extraStyles}${processingVisibilityStyles}</style><script>${processingVisibilityScript}</script><script>${queryNavigationScript}</script></head><body>
+  <a class="skip-link" href="#main-content">${lang === 'zh' ? '跳到主要內容' : 'Skip to main content'}</a>
   <header class="site-header"><a class="site-brand" href="/">${brandMark}<span><strong>urtube</strong><small>${t.tagline}</small></span></a><nav class="site-nav" aria-label="${html(t.navLabel)}">${links}</nav></header>
-  <main class="site-main">${body}</main>
+  <main class="site-main" id="main-content" tabindex="-1">${body}</main>
   <div data-navigation-status role="status" aria-live="polite"></div>
   <footer class="site-footer">${t.footer()} · <a href="/privacy" style="color:inherit">${t.privacyLink}</a></footer>
   <script>${tooltipScript}</script>
