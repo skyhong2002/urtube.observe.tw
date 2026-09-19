@@ -734,6 +734,17 @@ export interface YoutubeDashboardOptions {
   dashboardPrivate?: boolean;
 }
 
+export function youtubeImportControl(lang: Lang): string {
+  const t = messages(lang);
+  const importLabels = JSON.stringify({
+    now: t.syncNow, cancel: t.syncCancel, last: t.syncLast, failed: t.syncFailed,
+    ready: t.syncReady, events: t.syncEvents, rows: t.syncRows,
+  }).replace(/</g, '\\u003c');
+  return `<div class="yt-import-control" data-youtube-import-control hidden>
+    <button type="button">${t.syncNow}</button><span aria-live="polite"></span>
+  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>`;
+}
+
 export function youtubeDashboardPage(
   ownerName: string,
   data: YoutubeDashboardData,
@@ -748,13 +759,7 @@ export function youtubeDashboardPage(
   const rangeNav = `<nav class="yt-range" aria-label="Time range">${YOUTUBE_RANGES.map((range) =>
     `<a href="${basePath}?range=${range}&sort=${sort}"${range === data.range ? ' aria-current="page"' : ''}>${t.ranges[range]}</a>`
   ).join('')}</nav>`;
-  const importLabels = JSON.stringify({
-    now: t.syncNow, cancel: t.syncCancel, last: t.syncLast, failed: t.syncFailed,
-    ready: t.syncReady, events: t.syncEvents, rows: t.syncRows,
-  }).replace(/</g, '\\u003c');
-  const importControl = options.viewerOwns ? `<div class="yt-import-control" data-youtube-import-control hidden>
-    <button type="button">${t.syncNow}</button><span aria-live="polite"></span>
-  </div><script>(()=>{const c=document.querySelector('[data-youtube-import-control]');if(!c)return;const L=${importLabels};const b=c.querySelector('button');const s=c.querySelector('span');let state='idle';window.addEventListener('urtube-youtube-import-status',()=>{let value={};try{value=JSON.parse(c.dataset.extensionStatus||'{}')}catch{}if(!value.extensionReady)return;c.hidden=false;state=value.state||'idle';const running=state==='running';b.disabled=false;b.textContent=running?L.cancel:L.now;if(running){s.textContent=value.stage==='activity'?(value.events+' '+L.events):(value.videos+' '+L.rows)}else if(state==='complete'&&value.lastSuccessAt){s.textContent=L.last+' '+new Date(value.lastSuccessAt).toLocaleString()}else if(state==='error'){s.textContent=L.failed}else{s.textContent=L.ready}},{signal:window.urtubePageController.signal});b.addEventListener('click',()=>{b.disabled=true;c.dataset.importAction=state==='running'?'cancel':'start';window.dispatchEvent(new Event('urtube-youtube-import-request'));},{signal:window.urtubePageController.signal});})();</script>` : '';
+  const importControl = options.viewerOwns ? youtubeImportControl(lang) : '';
   const heroHours = data.stats.estimatedWatchSeconds === null ? null : Math.round(data.stats.estimatedWatchSeconds / 3600);
   const hero = `<section class="card yt-hero">
     <div class="yt-hero-figure">
