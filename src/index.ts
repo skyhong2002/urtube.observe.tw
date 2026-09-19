@@ -54,6 +54,8 @@ import {
   type PrimaryNavActive, type ShellNavItem,
 } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
+import { historyPage } from './output/history.js';
+import { HistoryQueryError, type YoutubeHistoryPage } from './youtube/history.js';
 import { v3ProcessingNotice } from './output/v3-processing.js';
 import { describeV3Processing } from './youtube/v3-processing.js';
 import { describePipeline, estimatePipeline, processingComplete } from './youtube/pipeline-progress.js';
@@ -197,6 +199,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (c.req.method === 'GET' || c.req.method === 'HEAD') {
       const url = new URL(c.req.url);
       const match = url.pathname.match(/^\/(?:u\/)?([^/]+)(\/(?:insights|history|recap|tags|summary\.json|crystal\.json))?$/);
+      if (match?.[2] === '/history') {
+        c.header('Cache-Control', 'private, no-store');
+        c.header('X-Robots-Tag', 'noindex');
+      }
       const user = match && validHandle(match[1]) ? registry.userByAlias(match[1]) : null;
       if (user && match) {
         // Carry a previously issued handle cookie into the stable ID cookie.
@@ -208,7 +214,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         const page = match[2] === '/history' ? 'history' : match[2] === '/recap' ? 'recap' : match[2] === '/insights' ? 'insights' : 'overview';
         if (!profileAccess(c, user, page) && !keyed && !(oldKey && registry.userByDashboardToken(user.handle, oldKey))) return notFoundPage(c);
         url.searchParams.delete('key');
-        c.header('Cache-Control', 'no-store');
+        c.header('Cache-Control', page === 'history' ? 'private, no-store' : 'no-store');
         return c.redirect(`${url.pathname.startsWith('/u/') ? '/u' : ''}/${user.handle}${match[2] ?? ''}${url.search}`, 302);
       }
     }
@@ -1674,6 +1680,46 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!user || !profileAccess(c, user, page)) {
       c.header('X-Robots-Tag', 'noindex');
       return notFoundPage(c);
+    }
+    if (page === 'history') {
+      c.header('X-Robots-Tag', 'noindex');
+      // profileAccess has already persisted a valid dashboard key. Always
+      // remove it before rendering links, forms or a language toggle.
+      if (c.req.query('key') !== undefined) {
+        const clean = new URLSearchParams();
+        for (const name of ['q', 'from', 'to', 'range', 'cursor', 'direction', 'lang']) {
+          const value = c.req.query(name);
+          if (value !== undefined) clean.set(name, value);
+        }
+        const query = clean.toString();
+        return c.redirect(`/${user.handle}/history${query ? `?${query}` : ''}`, 302);
+      }
+      const lang = langOf(c);
+      const input = {
+        range: c.req.query('range'), q: c.req.query('q'), from: c.req.query('from'), to: c.req.query('to'),
+        cursor: c.req.query('cursor'), direction: c.req.query('direction'),
+      };
+      let result: YoutubeHistoryPage;
+      let error: 'q' | 'dates' | 'cursor' | undefined;
+      try {
+        result = registry.repositoryFor(user).youtubeHistoryPage({ ...input, range: requestedRange(input.range) });
+      } catch (cause) {
+        if (!(cause instanceof HistoryQueryError)) throw cause;
+        error = cause.field;
+        // Preserve bounded form input so the person can correct it; do not
+        // run a fallback query or display unrelated results for invalid input.
+        result = { entries: [], olderCursor: null, newerCursor: null, filters: {
+          range: input.from || input.to ? 'all' : requestedRange(input.range),
+          q: [...(input.q ?? '')].slice(0, 240).join(''),
+          from: (input.from ?? '').slice(0, 10), to: (input.to ?? '').slice(0, 10),
+        } };
+      }
+      const viewerOwns = sessionUser(c)?.id === user.id;
+      return c.html(historyPage({
+        ownerName: user.displayName, profilePath: `/${user.handle}`,
+        profileHtml: profileDetails(user, viewerOwns, lang), viewerOwns,
+        nav: siteNav(c, lang, viewerOwns ? 'dashboard' : undefined), lang, result, error, hasCursor: Boolean(input.cursor),
+      }), error ? 400 : 200);
     }
     return dashboardResponse(c, user, `/${user.handle}`, page);
   };

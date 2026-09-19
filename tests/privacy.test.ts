@@ -142,7 +142,7 @@ test('private dashboards need their dashboard token; users cannot see each other
     assert.equal((await app.request('/nobody')).status, 404);
     assert.equal((await app.request(`/dad?key=${dad.dashboardToken}`)).status, 200);
     assert.equal((await app.request(`/dad/insights?key=${dad.dashboardToken}`)).status, 200);
-    assert.equal((await app.request(`/dad/history?key=${dad.dashboardToken}`)).status, 200);
+    assert.equal((await app.request(`/dad/history?key=${dad.dashboardToken}`)).status, 302);
     assert.equal((await app.request(`/dad/recap?key=${dad.dashboardToken}`)).status, 200);
     assert.equal((await app.request(`/u/dad/summary.json?key=${dad.dashboardToken}`)).status, 200);
 
@@ -248,7 +248,11 @@ test('public dashboards expose aggregates but keep individual recent watches pri
     assert.ok(keyedHtml.includes('<h2>Recently watched</h2>'));
     assert.ok(keyedHtml.includes('<h3>Privacy Fixture Video</h3>'));
     const keyedHistory = await app.request(`/public-view/history?range=all&key=${publicUser.dashboardToken}`);
-    const keyedHistoryHtml = await keyedHistory.text();
+    assert.equal(keyedHistory.status, 302);
+    const historyResponse = await app.request(keyedHistory.headers.get('location')!, {
+      headers: { cookie: keyedHistory.headers.get('set-cookie')!.split(';')[0] },
+    });
+    const keyedHistoryHtml = await historyResponse.text();
     assert.ok(keyedHistoryHtml.includes('<h2>Watch history</h2>'));
     assert.ok(keyedHistoryHtml.includes('Privacy Fixture Video'));
   } finally {
