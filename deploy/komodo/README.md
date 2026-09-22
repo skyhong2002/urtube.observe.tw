@@ -42,10 +42,19 @@ ingress routes, monitoring deadlines, and application behavior are unchanged.
 To roll back this transport choice, revert the manifest override on main and
 let CD restore the host-owned default (`auto`, currently QUIC).
 
+On 2026-09-23, the user approved a follow-up `TUNNEL_REGION=us` trial because
+HTTP/2 alone did not resolve the timeouts. External probes reached Cloudflare's
+edge successfully in 20/20 attempts, while 4/20 requests forwarded to URtube
+exceeded 12 seconds; local probes stayed healthy. US-only tunnel connections
+test an alternative forwarding path and may add latency. Keep HTTP/2 and compare
+local and external probes after CD. If timeouts persist, remove only
+`TUNNEL_REGION` from the release manifest and its test, then let CD roll back
+the region override. This does not change the public hostname or origin routes.
+
 CI updates images and the approved `MATCHING_V3_BACKFILL_VIDEO_LIMIT` from
 `matching-rollout.json`. This single environment override is applied to every
 application service in the same atomic release, taking precedence over private
-env files. Apart from the tunnel transport override above, other service,
+env files. Apart from the tunnel transport and region overrides above, other service,
 volume, port or environment changes require an explicit
 update to the host-owned configuration; changing repository Compose files alone
 does not apply them. Never run the old `urtube-deploy` or

@@ -3,7 +3,7 @@ from release import manifest, rollout_limit
 app, compute = "sha256:" + "a" * 64, "sha256:" + "b" * 64
 services = manifest(app, compute)["services"]
 assert len(services) == 8
-assert services["tunnel"] == {"environment": {"TUNNEL_TRANSPORT_PROTOCOL": "http2"}}
+assert services["tunnel"] == {"environment": {"TUNNEL_TRANSPORT_PROTOCOL": "http2", "TUNNEL_REGION": "us"}}
 assert all(services[name]["image"].endswith(app) for name in ("app", "ingest", "worker", "backup", "matching-worker"))
 assert all(services[name]["image"].endswith(compute) for name in ("matching-compute", "matching-compare"))
 assert rollout_limit() == 5000
