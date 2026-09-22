@@ -1,4 +1,4 @@
-"""Publish immutable images and the explicitly approved matching rollout limit."""
+"""Publish immutable images, matching rollout limit, and tunnel transport."""
 import json
 import os
 from pathlib import Path
@@ -20,6 +20,7 @@ def manifest(app, compute):
         raise ValueError("Both images must have immutable SHA-256 digests")
     limit = rollout_limit()
     return {"services": {
+        "tunnel": {"environment": {"TUNNEL_TRANSPORT_PROTOCOL": "http2"}},
         **{name: {"image": "ghcr.io/skyhong2002/urtube.observe.tw@" + app,
                   "environment": {"MATCHING_V3_BACKFILL_VIDEO_LIMIT": str(limit)}} for name in ("app", "ingest", "worker", "backup", "matching-worker")},
         **{name: {"image": "ghcr.io/skyhong2002/urtube-matching-compute@" + compute} for name in ("matching-compute", "matching-compare")},

@@ -33,12 +33,20 @@ command wrapper is `[[COMPOSE_COMMAND]] --no-env-resolution`, included for
 `config` only, so deployment logs do not expand secrets. Keep this setting.
 The shared database volume remains `urtube_urtube-data`. Environment values,
 ports, mounts and commands were compared with the previous effective config.
-The tunnel keeps its existing digest.
+The tunnel keeps its existing digest. The release manifest sets
+`TUNNEL_TRANSPORT_PROTOCOL=http2`, so the transport change also runs through CD.
+This was approved on 2026-09-22 as a mitigation for intermittent public probe
+timeouts while local readiness remained healthy. QUIC being the sole cause is
+not established; compare public and local probes after deployment. Credentials,
+ingress routes, monitoring deadlines, and application behavior are unchanged.
+To roll back this transport choice, revert the manifest override on main and
+let CD restore the host-owned default (`auto`, currently QUIC).
 
 CI updates images and the approved `MATCHING_V3_BACKFILL_VIDEO_LIMIT` from
 `matching-rollout.json`. This single environment override is applied to every
 application service in the same atomic release, taking precedence over private
-env files. Other service, volume, port or environment changes require an explicit
+env files. Apart from the tunnel transport override above, other service,
+volume, port or environment changes require an explicit
 update to the host-owned configuration; changing repository Compose files alone
 does not apply them. Never run the old `urtube-deploy` or
 source-build Compose command alongside Komodo.
