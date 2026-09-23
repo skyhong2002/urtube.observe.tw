@@ -22,6 +22,8 @@ export interface YoutubeAiClient {
   baseUrl: string;
   apiKey: string;
   model: string;
+  // Reuse a prior taxonomy contract without changing the request model.
+  reuseModel?: string;
   timeoutMs?: number;
   concurrency?: number;
   fetchImpl?: typeof fetch;
@@ -33,6 +35,7 @@ function defaultClient(): YoutubeAiClient {
     baseUrl: config.ai.baseUrl,
     apiKey: config.ai.apiKey,
     model: config.ai.model,
+    reuseModel: config.ai.reuseModel,
     timeoutMs: config.ai.timeoutMs,
   };
 }
@@ -137,11 +140,7 @@ export async function ensureYoutubeTaxonomyWithClient(
   client: YoutubeAiClient,
 ): Promise<YoutubeTopic[]> {
   if (!configured(client)) return repository.youtubeTopics();
-  const existing = repository.youtubeTaxonomyRunForContract(
-    PERSONAL_TAXONOMY_DEFINITION_VERSION,
-    client.model,
-    PERSONAL_TAXONOMY_PROMPT_VERSION,
-  );
+  const existing = taxonomyRun(repository, client);
   if (existing && !rebuild) return repository.youtubeTopics(existing.taxonomyVersion);
   // Migrated archives keep their generated v1 active until their owner
   // explicitly starts a governed candidate. Otherwise the first worker cycle
@@ -172,12 +171,18 @@ export async function classifyYoutubeVideos(repository: Repository, limit = 250,
   return classifyYoutubeVideosWithClient(repository, limit, defaultClient(), autoActivateFirst);
 }
 
-function workRun(repository: Repository, client: YoutubeAiClient): PersonalTaxonomyRun | null {
-  const run = repository.youtubeTaxonomyRunForContract(
+function taxonomyRun(repository: Repository, client: YoutubeAiClient): PersonalTaxonomyRun | null {
+  return repository.youtubeTaxonomyRunForContract(
     PERSONAL_TAXONOMY_DEFINITION_VERSION,
     client.model,
     PERSONAL_TAXONOMY_PROMPT_VERSION,
-  );
+  ) ?? (client.reuseModel ? repository.youtubeTaxonomyRunForContract(
+    PERSONAL_TAXONOMY_DEFINITION_VERSION, client.reuseModel, PERSONAL_TAXONOMY_PROMPT_VERSION,
+  ) : null);
+}
+
+function workRun(repository: Repository, client: YoutubeAiClient): PersonalTaxonomyRun | null {
+  const run = taxonomyRun(repository, client);
   return run && (run.status === 'candidate' || run.status === 'active' || run.status === 'ready') ? run : null;
 }
 

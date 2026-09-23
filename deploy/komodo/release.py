@@ -1,4 +1,4 @@
-"""Publish immutable images, matching rollout limit, and tunnel transport."""
+"""Publish immutable images, model migration, matching limit, and tunnel transport."""
 import json
 import os
 from pathlib import Path
@@ -22,7 +22,13 @@ def manifest(app, compute):
     return {"services": {
         "tunnel": {"environment": {"TUNNEL_TRANSPORT_PROTOCOL": "http2", "TUNNEL_REGION": "us"}},
         **{name: {"image": "ghcr.io/skyhong2002/urtube.observe.tw@" + app,
-                  "environment": {"MATCHING_V3_BACKFILL_VIDEO_LIMIT": str(limit)}} for name in ("app", "ingest", "worker", "backup", "matching-worker")},
+                  "environment": {
+                      "MATCHING_V3_BACKFILL_VIDEO_LIMIT": str(limit),
+                      "AI_MODEL": "gpt-6-sol",
+                      "AI_REUSE_MODEL": "gpt-5.6-sol",
+                      "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+                      "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna",
+                  }} for name in ("app", "ingest", "worker", "backup", "matching-worker")},
         **{name: {"image": "ghcr.io/skyhong2002/urtube-matching-compute@" + compute} for name in ("matching-compute", "matching-compare")},
     }}
 

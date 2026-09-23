@@ -68,6 +68,12 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 
 # Main branch workflow
 
+- On 2026-09-23 the user requested all GPT model settings move to GPT-6.
+  Matching uses gpt-6-luna and personal taxonomy uses gpt-6-sol, both low.
+  Preserve completed work through explicit cache/taxonomy compatibility IDs;
+  old model IDs in reuse settings are not outgoing request models. Keep Gemini
+  embeddings, provider budgets/concurrency and the 5,000-video source limit.
+
 - User instruction (2026-09-06): consolidate completed work into `main` and do
   future development directly on `main`. Do not create feature branches or
   isolated worktrees for routine work. Preserve unrelated uncommitted changes.

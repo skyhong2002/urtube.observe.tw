@@ -465,6 +465,38 @@ test('a new imported account automatically classifies and activates its first qu
   } finally { registry.close(); }
 });
 
+test('GPT-6 reuses a previous taxonomy and sends only unfinished videos to the new model', async () => {
+  const repository = new Repository(':memory:');
+  try {
+    seedWatchedVideos(repository);
+    const requested: string[] = [];
+    const previous: YoutubeAiClient = { baseUrl: 'https://api.openai.com/v1', apiKey: 'fixture', model: 'gpt-5.6-sol',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(String(options?.body));
+        requested.push(body.model);
+        assert.equal(body.reasoning_effort, 'low');
+        const request = JSON.parse(body.messages[1].content);
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+          videos: request.videos.map((video: { videoId: string }) => ({ videoId: video.videoId,
+            slug: 'technology', confidence: 0.95, alternativeSlug: null, alternativeConfidence: null,
+            evidence: [{ text: 'Software lesson', source: 'title', score: 0.95 }] })),
+        }) } }] }));
+      } };
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 20, previous), 20);
+    const originalVersion = repository.youtubeTaxonomyRuns()[0].taxonomyVersion;
+    const upgraded = { ...previous, model: 'gpt-6-sol', reuseModel: previous.model };
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, upgraded), 4);
+    assert.equal(repository.youtubeTaxonomyRuns().length, 1);
+    assert.equal(repository.youtubeTaxonomyRuns()[0].taxonomyVersion, originalVersion);
+    assert.deepEqual(requested, ['gpt-5.6-sol', 'gpt-6-sol']);
+    assert.equal(await classifyYoutubeVideosWithClient(repository, 100, upgraded), 0);
+    assert.equal(requested.length, 2);
+    await ensureYoutubeTaxonomyWithClient(repository, true, upgraded);
+    assert.equal(repository.youtubeTaxonomyRuns().length, 2);
+    assert.ok(repository.youtubeTaxonomyRunForContract(PERSONAL_TAXONOMY_DEFINITION_VERSION, 'gpt-6-sol', PERSONAL_TAXONOMY_PROMPT_VERSION));
+  } finally { repository.close(); }
+});
+
 test('existing accounts keep first-topic auto-activation disabled after migration', () => {
   const root = mkdtempSync(join(tmpdir(), 'urtube-auto-topics-upgrade-'));
   const file = join(root, 'users.sqlite');

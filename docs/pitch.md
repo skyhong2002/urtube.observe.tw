@@ -65,7 +65,7 @@ AI never decides who should meet. Two scores exist and neither is written by
 a model. The overall compatibility percentage uses a source-controlled
 canonical taxonomy, bounded aggregate vectors from the latest 90 days, and the
 reproducible `calibrated-v2` formula. The topic compatibility (matching v3)
-uses AI only to interpret public video metadata: GPT-5.6 Luna assigns each
+uses AI only to interpret public video metadata: GPT-6 Luna assigns each
 video to fixed content genres, Gemini embeds each public tag once, weighted
 DBSCAN groups a person's tags per genre, and an exact optimal-transport step
 compares the two distributions. The percentage, the ordering and the shared

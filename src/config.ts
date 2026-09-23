@@ -87,6 +87,7 @@ export const config = {
     baseUrl: (process.env.AI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, ''),
     apiKey: process.env.AI_API_KEY ?? '',
     model: process.env.AI_MODEL ?? '',
+    reuseModel: process.env.AI_REUSE_MODEL || undefined,
     // Per-request budget. A queued self-hosted gateway (docs/ai-gateway.md)
     // needs minutes, not the one-minute default sized for hosted APIs.
     timeoutMs: Math.max(1000, Number(process.env.AI_TIMEOUT_MS ?? 60_000) || 60_000),

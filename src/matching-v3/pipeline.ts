@@ -16,7 +16,7 @@ async function settleWork(work: Promise<unknown>[]) {
 
 export class CycleBudgetReached extends Error {}
 export class DailyBudgetReached extends Error {}
-export const classificationKey = (s: Settings, video: VideoInput) => digest(['video-classification-3', s.classificationCacheNamespace, s.classificationModel, video.id, video.title, video.tags.filter(t => t.length <= 100).slice(0, 30)]);
+export const classificationKey = (s: Settings, video: VideoInput) => digest(['video-classification-3', s.classificationCacheNamespace, s.classificationCacheModel, video.id, video.title, video.tags.filter(t => t.length <= 100).slice(0, 30)]);
 export const embeddingKey = (s: Settings, text: string) => digest(['tag-embedding-2', s.embeddingBaseUrl, s.embeddingModel, s.task, s.dimensions, text]);
 
 export function aggregateTags(videos: VideoInput[], classifications: Map<string, Classification>, genre: Genre) {
@@ -140,7 +140,7 @@ export async function buildProfile(
     let unknown = false;
     const channels = [...new Map(source.videos.filter(v => v.channelId).map(v => [v.channelId, v])).values()];
     await settleWork(channels.map(video => {
-      const key = digest(['channel-types-2', s.classificationCacheNamespace, s.classificationModel, video.channelId]);
+      const key = digest(['channel-types-2', s.classificationCacheNamespace, s.classificationCacheModel, video.channelId]);
       return cachedWork([key], async () => {
         let value = store.cache<{ types: string[]; evidenceAvailable: boolean }>(key, 30 * 86400_000);
         if (value && !value.evidenceAvailable) value = store.cache(key, 300_000);
@@ -150,7 +150,7 @@ export async function buildProfile(
     }));
     for (const video of source.videos) {
       if (!video.channelId) { unknown = true; continue; }
-      const key = digest(['channel-types-2', s.classificationCacheNamespace, s.classificationModel, video.channelId]);
+      const key = digest(['channel-types-2', s.classificationCacheNamespace, s.classificationCacheModel, video.channelId]);
       let channel = store.cache<{ types: string[]; evidenceAvailable: boolean }>(key, 30 * 86400_000);
       if (channel && !channel.evidenceAvailable) channel = store.cache(key, 300_000);
       if (!channel) {

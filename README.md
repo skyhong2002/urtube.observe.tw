@@ -68,7 +68,7 @@ AI 分類使用公開影片資訊，例如標題、頻道名稱與描述；搜�
 
 | 類型 | 技術／服務 | 用途 |
 | --- | --- | --- |
-| Sponsor 技術 | OpenAI GPT 5.6 Luna | 負責所有需要語言模型的內容理解與生成工作，從影片資訊整理興趣主題。 |
+| Sponsor 技術 | OpenAI GPT 6 Luna | 負責所有需要語言模型的內容理解與生成工作，從影片資訊整理興趣主題。 |
 | Sponsor 技術 | Google Gemini embedding | 進行語意分析，理解內容與興趣之間的關聯，支援同好探索。 |
 | 前端 | HTML、CSS、JavaScript、SVG | 呈現興趣洞察、時間趨勢、好友頁面與互動圖表。 |
 | 後端 | TypeScript、Node.js、Hono | 處理帳號、匯入、背景分析與好友互動。 |

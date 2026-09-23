@@ -14,6 +14,37 @@ import { compareProfiles } from '../src/matching-v3/matching.js';
 
 const s = settings({ MATCHING_V3_ENABLED: 'true' });
 
+test('GPT-6 upgrade preserves video, channel, embedding caches and profile versions', async () => {
+  const before = settings({ MATCHING_V3_CLASSIFICATION_MODEL: 'gpt-5.6-luna' });
+  const after = settings({ MATCHING_V3_CLASSIFICATION_CACHE_MODEL: before.classificationModel });
+  assert.equal(after.classificationModel, 'gpt-6-luna');
+  assert.equal(version(before), version(after));
+  assert.notEqual(version(before), version(settings({})));
+  const { db, store } = storeFixture();
+  let calls = 0;
+  const provider: Provider = {
+    classify: async () => { calls++; return classification; },
+    embed: async tags => { calls++; return tags.map(() => [1, 0]); },
+    channel: async () => { calls++; return { types: ['personal creator'], evidenceAvailable: true }; },
+  };
+  try {
+    const source = { videos: [video], complete: true, fingerprint: 'upgrade' };
+    const first = await buildProfile(source, ['Sport', 'channel type'], store, before, provider, compute);
+    const initialCalls = calls;
+    const second = await buildProfile(source, ['Sport', 'channel type'], store, after, provider, compute);
+    assert.equal(initialCalls, 3);
+    assert.equal(calls, initialCalls);
+    assert.deepEqual(second.genres, first.genres);
+    const request = (async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      assert.equal(body.model, 'gpt-6-luna');
+      assert.equal(body.reasoning_effort, 'low');
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"genres":["Sport"]}' } }] }));
+    }) as typeof fetch;
+    await matchingProvider({ ...after, apiKey: 'fake' }, '', request).classify(video);
+  } finally { db.close(); }
+});
+
 test('compact profiles invalidate legacy clusters while preserving the bounded source', () => {
   assert.equal(s.backfillVideoLimit, 2000);
   assert.notEqual(version(s), '20376b513a2150fb5899e999bd53812dc9c3dae98b4ce7b8849c27477f276d88');
@@ -111,7 +142,7 @@ test('v3 genre-only classification never generates tags and retains all existing
     const body = JSON.parse(String(options.body));
     assert.deepEqual(body.response_format, { type: 'json_object' });
     assert.equal(body.temperature, undefined);
-    assert.equal(body.model, 'gpt-5.6-luna');
+    assert.equal(body.model, 'gpt-6-luna');
     assert.equal(body.reasoning_effort, 'low');
     assert.equal(body.max_completion_tokens, 2048);
     assert.ok(body.messages.every((m: { content: unknown }) => typeof m.content === 'string'));
@@ -173,7 +204,7 @@ test('v3 daily request ceiling survives worker restarts and resets by UTC day', 
 
 test('v3 settings keep GPT and Gemini credentials independent', () => {
   const gateway = settings({ AI_BASE_URL: 'http://gateway:8320/v1', AI_API_KEY: 'gateway-key' });
-  assert.equal(gateway.classificationModel, 'gpt-5.6-luna');
+  assert.equal(gateway.classificationModel, 'gpt-6-luna');
   assert.equal(gateway.apiKey, 'gateway-key');
   assert.equal(gateway.embeddingApiKey, '');
   const split = settings({ AI_BASE_URL: 'http://gateway:8320/v1', AI_API_KEY: 'gateway-key', GEMINI_API_KEY: 'gemini-key' });

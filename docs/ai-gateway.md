@@ -10,8 +10,20 @@ same OpenAI Platform service-account key that Matching v3 uses
 the operator's Codex subscription. Requests to `api.openai.com` omit
 `temperature` (reasoning models only accept the default) and send
 `reasoning_effort: low`, matching what the Codex shim used. The values live in
-the Komodo host-owned env files (`/home/urtube/komodo/*.env`); change them there
-and let Komodo recreate the containers.
+the Komodo host-owned env files (`/home/urtube/komodo/*.env`), except for the
+versioned model overrides below. Deploy changes through CD.
+
+As of 2026-09-23, CD selects `AI_MODEL=gpt-6-sol` for personal taxonomy and
+`MATCHING_V3_CLASSIFICATION_MODEL=gpt-6-luna` for matching. Both retain `low`
+reasoning. `AI_REUSE_MODEL=gpt-5.6-sol` allows an existing taxonomy contract to
+finish with GPT-6 without reclassifying completed videos; new archives and
+explicit rebuilds record the new model. This setting never selects a request
+model. Matching uses `MATCHING_V3_CLASSIFICATION_CACHE_MODEL=gpt-5.6-luna`
+solely as a stable cache/profile identity, alongside its existing endpoint
+namespace. Old successful results remain reusable; new requests use GPT-6 and
+matching operation metrics record the actual requested/returned model. Existing
+results are not relabeled as GPT-6 output. Gemini embeddings, prompts, budgets,
+concurrency, and the 5,000-video source limit stay unchanged.
 
 The Codex shim below is kept as a documented fallback and still runs on the
 host, but nothing in production points at it anymore.

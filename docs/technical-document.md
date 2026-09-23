@@ -91,7 +91,7 @@ v3 先取最近觀看的不同影片，再依影片 ID 固定排序並建立 fin
 
 ### 4.1 語言模型與向量模型分工
 
-v3 使用 OpenAI gpt-5.6-luna、low reasoning effort，將影片標題與原始 tags 分到固定內容 genres。模型回應經 Zod 檢查欄位、類別列舉值與批次筆數；不合法的單筆結果保留為失敗，已成功的同批結果仍可快取。提示中的 JSON schema 用於描述預期格式，輸出有效性由應用層驗證。[6]
+v3 使用 OpenAI gpt-6-luna、low reasoning effort，將影片標題與原始 tags 分到固定內容 genres。模型回應經 Zod 檢查欄位、類別列舉值與批次筆數；不合法的單筆結果保留為失敗，已成功的同批結果仍可快取。提示中的 JSON schema 用於描述預期格式，輸出有效性由應用層驗證。[6]
 
 內容類別為 Politic、Music、Sport、Education、Video gaming、Streaming、News、Podcast；影片可屬於多類。第九類 channel type 另依公開頻道名稱與描述判斷經營類型，不加入內容 tag 分群。
 

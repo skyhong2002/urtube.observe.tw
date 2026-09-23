@@ -17,6 +17,7 @@ export function settings(env = process.env) {
   // Gemini has its own credential. Never reuse a GPT/gateway key here.
   const embeddingApiKey = env.GEMINI_API_KEY || '';
   const embeddingApiKeys = [...new Set((env.GEMINI_API_KEYS || embeddingApiKey).split(/[\s,]+/).map(key => key.trim()).filter(Boolean))];
+  const classificationModel = env.MATCHING_V3_CLASSIFICATION_MODEL || 'gpt-6-luna';
   const number = (key: string, fallback: number, min: number, max: number) => {
     const value = Number(env[key] ?? fallback);
     if (!Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid ${key}`);
@@ -29,7 +30,9 @@ export function settings(env = process.env) {
     adminPassword: env.MATCHING_V3_ADMIN_PASSWORD || '',
     baseUrl, apiKey, embeddingBaseUrl, embeddingApiKey, embeddingApiKeys,
     classificationCacheNamespace: env.MATCHING_V3_CLASSIFICATION_CACHE_NAMESPACE || baseUrl,
-    classificationModel: env.MATCHING_V3_CLASSIFICATION_MODEL || 'gpt-5.6-luna',
+    classificationModel,
+    // Cache compatibility is independent of the model used for new requests.
+    classificationCacheModel: env.MATCHING_V3_CLASSIFICATION_CACHE_MODEL || classificationModel,
     embeddingModel: env.MATCHING_V3_EMBEDDING_MODEL || 'gemini-embedding-001',
     dimensions: Math.trunc(number('MATCHING_V3_DIMENSIONS', 768, 128, 3072)),
     task: 'SEMANTIC_SIMILARITY',
@@ -49,7 +52,7 @@ export function settings(env = process.env) {
   };
 }
 export function version(s: Settings) {
-  return digest(['matching-v3.4-compact-medoid-v1', 'classification-3-openai-text-only', s.classificationCacheNamespace, s.classificationModel,
+  return digest(['matching-v3.4-compact-medoid-v1', 'classification-3-openai-text-only', s.classificationCacheNamespace, s.classificationCacheModel,
     s.backfillVideoLimit, s.embeddingBaseUrl, s.embeddingModel, s.dimensions, s.task, s.compactDistance, s.eps, s.minSamples, s.minShare, s.similarityFloor]);
 }
 export interface VideoInput { id: string; title: string; tags: string[]; channelId: string | null; channelTitle: string | null }

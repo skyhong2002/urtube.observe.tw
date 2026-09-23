@@ -106,7 +106,7 @@ coverage 門檻；未達主題 coverage 時只顯示頻道 fallback，不把低�
 結果包裝成精確主題結論。
 
 主題合拍度（matching v3）另行顯示、不與上式混算：以最近 2,000 部不同影片為範圍，
-GPT-5.6 Luna 對每部影片指定固定 genre，Gemini `gemini-embedding-001` 為每個公開 tag
+GPT-6 Luna 對每部影片指定固定 genre，Gemini `gemini-embedding-001` 為每個公開 tag
 建立 768 維向量，加權 DBSCAN 依不同影片數在每個 genre 保留最多十個興趣群，
 兩人同 genre 的群以 `K = clamp((cosine − 0.7) / 0.3, 0, 1)` 經精確 optimal transport
 比較分布，所選 genre 等權平均後四捨五入為 0–100。掃描不完整、覆蓋率低、缺少
