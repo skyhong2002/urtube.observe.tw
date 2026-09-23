@@ -1,0 +1,66 @@
+{
+  "services": {
+    "tunnel": {
+      "environment": {
+        "TUNNEL_TRANSPORT_PROTOCOL": "http2",
+        "TUNNEL_REGION": "us"
+      }
+    },
+    "app": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:5bdf95f757927be0992eb935e800f14968cbd70181ac1affab4ac82b953eb95c",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "gpt-6-sol",
+        "AI_REUSE_MODEL": "gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "ingest": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:5bdf95f757927be0992eb935e800f14968cbd70181ac1affab4ac82b953eb95c",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "gpt-6-sol",
+        "AI_REUSE_MODEL": "gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:5bdf95f757927be0992eb935e800f14968cbd70181ac1affab4ac82b953eb95c",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "gpt-6-sol",
+        "AI_REUSE_MODEL": "gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "backup": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:5bdf95f757927be0992eb935e800f14968cbd70181ac1affab4ac82b953eb95c",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "gpt-6-sol",
+        "AI_REUSE_MODEL": "gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "matching-worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:5bdf95f757927be0992eb935e800f14968cbd70181ac1affab4ac82b953eb95c",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "gpt-6-sol",
+        "AI_REUSE_MODEL": "gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "matching-compute": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:3149b65c2c1a207042376277f02691105d92a08b95e74552830726da8298a00f"
+    },
+    "matching-compare": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:3149b65c2c1a207042376277f02691105d92a08b95e74552830726da8298a00f"
+    }
+  }
+}
