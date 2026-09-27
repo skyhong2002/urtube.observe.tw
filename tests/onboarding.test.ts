@@ -49,7 +49,7 @@ function accountTakeoutZip(): Uint8Array {
   });
 }
 
-test('Google-gated signup enables discovery and public pages without exposing tokens', async () => {
+test('Google-gated signup stays private despite forged sharing fields and never exposes tokens', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
@@ -70,15 +70,15 @@ test('Google-gated signup enables discovery and public pages without exposing to
     assert.doesNotMatch(formHtml, /name="dashboardPublic"/);
 
     const created = await app.request('/signup', signupBody(pending, {
-      handle: 'newbie', displayName: 'New User', dashboardPublic: '1',
+      handle: 'newbie', displayName: 'New User', dashboardPublic: '1', matchingOptIn: '1',
     }));
     assert.equal(created.status, 302);
     assert.equal(created.headers.get('location'), '/onboarding');
     assert.equal(registry.userByGoogleSub('google-sub-1')?.handle, 'newbie');
-    assert.equal(registry.userByGoogleSub('google-sub-1')?.dashboardPublic, true,
-      'new signups publish Overview and Insights by default');
+    assert.equal(registry.userByGoogleSub('google-sub-1')?.dashboardPublic, false,
+      'new signups stay private until an explicit sharing choice');
 
-    assert.equal(registry.userByGoogleSub('google-sub-1')?.matchingOptIn, true);
+    assert.equal(registry.userByGoogleSub('google-sub-1')?.matchingOptIn, false);
 
     // Signup started a session: the cookie opens the dashboard and
     // the account page without any ?key=.
@@ -87,7 +87,10 @@ test('Google-gated signup enables discovery and public pages without exposing to
     const session = sessionCookie!.split(';')[0];
     assert.equal((await app.request('/newbie', { headers: { cookie: session } })).status, 200);
     assert.equal((await app.request('/account', { headers: { cookie: session } })).status, 200);
-    assert.equal((await app.request('/newbie')).status, 200);
+    assert.equal((await app.request('/newbie')).status, 404);
+    assert.equal((await app.request('/newbie/insights')).status, 404);
+    assert.equal((await app.request('/u/newbie/crystal.json')).status, 404);
+    assert.doesNotMatch(await (await app.request('/sitemap.xml')).text(), /\/newbie/);
     const guided = await (await app.request('/onboarding', { headers: { cookie: session } })).text();
     assert.match(guided, /first scan needs desktop Chrome/);
     assert.match(guided, /href="\/extension-setup"/);
@@ -302,8 +305,8 @@ test('account page toggles dashboard visibility and edits the display name', asy
     const created = await app.request('/signup', signupBody(pending, { handle: 'vis', displayName: 'Vis' }));
     const session = created.headers.getSetCookie().find((v) => v.startsWith('urtube_session='))!.split(';')[0];
 
-    // Public by default; the visibility form still supports opting out.
-    assert.equal((await app.request('/vis')).status, 200);
+    // Private by default; publication requires an explicit settings action.
+    assert.equal((await app.request('/vis')).status, 404);
     const publish = await app.request('/account/visibility', {
       method: 'POST',
       headers: { cookie: session, 'content-type': 'application/x-www-form-urlencoded' },

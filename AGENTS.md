@@ -68,6 +68,12 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 
 # Main branch workflow
 
+- On 2026-09-28 the user approved the first privacy trial: new accounts start
+  private with discovery off; onboarding previews prospective sharing before
+  saving. Preserve existing accounts' choices, friendships and processing.
+  Previewing or importing data must not enable sharing. Keep private personal
+  analysis available; do not change matching algorithms or API budgets.
+
 - On 2026-09-23 the user requested all GPT model settings move to GPT-6.
   Matching uses gpt-6-luna and personal taxonomy uses gpt-6-sol, both low.
   Preserve completed work through explicit cache/taxonomy compatibility IDs;

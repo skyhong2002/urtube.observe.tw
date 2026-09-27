@@ -7,6 +7,7 @@ import { html, primaryNav, shell } from './pages.js';
 import { processingVisibilitySetting } from './processing-visibility.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
+import { sharingPreview, sharingPreviewScript, sharingPreviewStyles } from './sharing-preview.js';
 
 export const formStyles = `
   .ob-intro{margin:14px 0 26px}
@@ -316,21 +317,23 @@ export function guidedOnboardingPage(
       <div class="go-actions"><a class="go-primary" href="/onboarding">${t.onboardingRefresh}</a><a class="go-secondary" href="/extension-setup">${t.onboardingSetupCta}</a><a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
   } else if (state.step === 'consent') {
     content = `<h2>${t.onboardingConsentTitle}</h2><p>${t.onboardingConsentPara}</p>${provisional}
+      <p><a href="${dashboardHref}">${lang === 'zh' ? '先查看我的分析結果，再決定分享' : 'Review my results before choosing what to share'}</a></p>
       <form method="post" action="/onboarding/finish" class="ob-form">
         <input type="hidden" name="preferencesSubmitted" value="1">
         <div class="ob-switches">
           <label class="ob-switch"><input type="checkbox" name="matchingOptIn" value="1"${user.matchingOptIn ? ' checked' : ''}><span><strong>${t.accountMatchingOptIn}</strong><small>${t.accountMatchingOptInHelp}</small></span></label>
           <label class="ob-switch"><input type="checkbox" name="dashboardPublic" value="1"${user.dashboardPublic ? ' checked' : ''}><span><strong>${t.accountVisibilityToggle}</strong><small>${t.accountVisibilityPara}</small></span></label>
         </div>
+        ${sharingPreview(user, lang)}
         <button type="submit">${t.onboardingFinish}</button>
-      </form>`;
+      </form>${sharingPreviewScript}`;
   } else {
     content = `<h2>${t.onboardingCompleteTitle}</h2><p>${t.onboardingCompletePara}</p>
       <div class="go-actions">${user.matchingOptIn ? `<a class="go-primary" href="/matches">${t.onboardingOpenMatches}</a>` : ''}<a class="go-secondary" href="${dashboardHref}">${t.onboardingOpenDashboard}</a></div>`;
   }
   const refresh = state.step === 'processing' || (state.step === 'setup' && state.scanStatus === 'running')
     ? '<script>setTimeout(()=>location.reload(),15000)</script>' : '';
-  const body = `<style>${formStyles}${v3ProcessingStyles}${guidedStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}${state.step === 'setup' || state.step === 'processing' ? `<p><a href="/account#settings-privacy">${t.onboardingSharingSettings}</a></p>` : ''}</section>${refresh}`;
+  const body = `<style>${formStyles}${v3ProcessingStyles}${guidedStyles}${sharingPreviewStyles}</style><section class="ob-intro"><div class="eyebrow">${t.onboardingEyebrow}</div><h1>${t.onboardingTitle}</h1><p>${t.onboardingPara}</p></section>${progress}<section class="go-card">${content}${state.step === 'setup' || state.step === 'processing' ? `<p><a href="/account#settings-privacy">${t.onboardingSharingSettings}</a></p>` : ''}</section>${refresh}`;
   return shell(t.onboardingTitle, body, primaryNav(lang, {
     dashboardHref,
     languageHref: `/onboarding?lang=${lang === 'zh' ? 'en' : 'zh'}`,

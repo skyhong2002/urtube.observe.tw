@@ -60,8 +60,7 @@ export function guidedOnboardingState(input: GuidedOnboardingInput): GuidedOnboa
     dimensions: input.dimensions,
     scanStatus: scanStatus(input.latestScan),
   };
-  // Matching starts on, so opt-in alone no longer proves the person saw the
-  // consent step; only finishing it does.
+  // Existing sharing preferences alone do not prove completion of this step.
   if (input.user.onboardingCompletedAt) {
     return { ...base, step: 'complete', activeStep: 5 };
   }

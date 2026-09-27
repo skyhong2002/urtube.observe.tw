@@ -54,6 +54,7 @@ test('every canonical topic is usable for everyone who joined matching', async (
   const app = createApp(registry);
   try {
     const user = registry.createUser('dimension-user', 'Dimension User');
+    registry.setMatchingOptIn(user.handle, true);
     const cookie = `urtube_session=${registry.createSession(user)}`;
     const allKeys = MATCHING_TAXONOMY.topics.map((topic) => topic.key);
     const pending = registry.matchingDimensionsFor(user);

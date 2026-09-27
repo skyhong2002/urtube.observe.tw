@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { load } from 'cheerio';
 import { guidedOnboardingState } from '../src/onboarding-flow.js';
 import { createApp } from '../src/index.js';
 import { matchesPage } from '../src/output/matches.js';
@@ -105,7 +106,7 @@ test('guided onboarding resumes from stored data and records either matching cho
       headers: { cookie: privateCookie },
     })).text();
     assert.match(consentHtml, /Discover people and share your page/);
-    assert.match(consentHtml, /name="matchingOptIn"[^>]*checked/);
+    assert.doesNotMatch(consentHtml, /name="matchingOptIn"[^>]*checked/);
     assert.doesNotMatch(consentHtml, /name="dashboardPublic"[^>]*checked/);
     assert.doesNotMatch(consentHtml, /matchingDisclosure|<select/);
 
@@ -226,8 +227,11 @@ test('onboarding independently saves all sharing combinations and preserves them
         seedWatch(registry, user);
         const cookie = `urtube_session=${registry.createSession(user)}`;
         const before = await (await app.request('/onboarding', { headers: { cookie } })).text();
-        assert.match(before, /name="matchingOptIn"[^>]*checked/);
+        assert.doesNotMatch(before, /name="matchingOptIn"[^>]*checked/);
         assert.match(before, /name="dashboardPublic"[^>]*checked/);
+        const preview = load(before);
+        assert.equal(preview('[data-sharing-variant]:not([hidden])').attr('data-sharing-variant'), '01');
+        assert.equal(registry.userByHandle(user.handle)!.matchingOptIn, false, 'preview does not save consent');
         const values: Record<string, string> = { preferencesSubmitted: '1' };
         if (matchingOptIn) values.matchingOptIn = '1';
         if (dashboardPublic) values.dashboardPublic = '1';
@@ -240,6 +244,12 @@ test('onboarding independently saves all sharing combinations and preserves them
         assert.equal(saved.matchingOptIn, matchingOptIn);
         assert.equal(saved.dashboardPublic, dashboardPublic);
         assert.ok(saved.onboardingCompletedAt);
+        for (const path of [`/${user.handle}`, `/${user.handle}/insights`]) {
+          assert.equal((await app.request(path)).status, dashboardPublic ? 200 : 404);
+        }
+        for (const page of ['history', 'recap']) {
+          assert.equal((await app.request(`/${user.handle}/${page}`)).status, 404, 'raw history stays restricted');
+        }
         await app.request('/onboarding', { headers: { cookie } });
         assert.equal(registry.userByHandle(user.handle)!.matchingOptIn, matchingOptIn);
         assert.equal(registry.userByHandle(user.handle)!.dashboardPublic, dashboardPublic);

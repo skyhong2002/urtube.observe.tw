@@ -390,7 +390,7 @@ const en = {
   onboardingRefresh: 'Check again',
   onboardingConsentTitle: 'Discover people and share your page',
   // Describe actual defaults here so removing repetitive permission notes does not hide sharing choices.
-  onboardingConsentPara: "Friend discovery and public profiles are on by default. Review your sharing settings below. You can change them later.",
+  onboardingConsentPara: "New accounts start private, with discovery off. Review your own results first, then choose what to share. You can finish setup without sharing.",
   onboardingFinish: 'Finish setup',
   onboardingSharingSettings: 'You can adjust friend discovery and your public page now in Settings.',
   onboardingProvisional: "Interest analysis is not yet complete. You can continue setup now.",
@@ -502,7 +502,7 @@ const en = {
   accountReferenceSave: "Save statistics preference",
   privacyLink: 'Privacy',
   privacyTitle: 'Privacy policy',
-  privacyIntro: "urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: 2026-09-06.",
+  privacyIntro: "urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: 2026-09-28.",
   // Plain language still needs complete collection, third-party processing and sharing disclosures.
   privacySections: [
   [
@@ -519,7 +519,7 @@ const en = {
   ],
   [
     "Friend discovery and public profiles",
-    "New accounts enable friend discovery and public Overview and Insights by default. You can turn either off during setup or in Settings. Friend discovery lets members find you and send requests, and includes your viewing in channel rankings and combined statistics. Turning it off removes requests and friendships, and your ranking contributions on the next load. A public profile stays public until you change its sharing setting."
+    "New accounts start with friend discovery and public profiles off. You can choose to enable either during setup or in Settings. Existing accounts keep their saved choices. Friend discovery lets members find you and send requests, and includes your viewing in channel rankings and combined statistics. Turning it off removes requests and friendships, and your ranking contributions on the next load. A public profile stays public until you change its sharing setting."
   ],
   [
     "Anonymous community statistics",
@@ -976,7 +976,7 @@ const zh: typeof en = {
   onboardingMoreData: "近期觀看紀錄還不夠，請繼續同步。",
   onboardingRefresh: '重新檢查',
   onboardingConsentTitle: '探索合拍的人，分享你的頁面',
-  onboardingConsentPara: "好友探索與公開頁面預設開啟。確認下方的分享設定，之後也能隨時調整。",
+  onboardingConsentPara: "新帳號預設私人，好友探索也關閉。先看自己的結果，再決定分享範圍；不分享也可以完成設定。",
   onboardingFinish: '完成設定',
   onboardingSharingSettings: '你也可以現在就到設定頁，調整好友探索與公開頁面。',
   onboardingProvisional: "興趣分析尚未完成，你可以先繼續設定。",
@@ -1086,7 +1086,7 @@ const zh: typeof en = {
   accountReferenceSave: "儲存統計偏好",
   privacyLink: '隱私權',
   privacyTitle: '隱私權政策',
-  privacyIntro: "urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：2026-09-06。",
+  privacyIntro: "urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：2026-09-28。",
   privacySections: [
   [
     "收集什麼",
@@ -1102,7 +1102,7 @@ const zh: typeof en = {
   ],
   [
     "好友探索與公開頁面",
-    "新帳號預設開啟好友探索與公開總覽、洞察。可在引導設定或設定頁分別關閉。好友探索讓成員找到你並送出邀請，也會在頻道頁呈現你的觀看排行及合計統計。關閉好友探索會撤銷邀請與好友關係，並在下次載入移除排行貢獻。已公開的頁面仍會保持公開，可另行調整公開設定。"
+    "新帳號預設關閉好友探索與公開頁面。你可在引導設定或設定頁自行開啟；既有帳號保留已儲存的選擇。好友探索讓成員找到你並送出邀請，也會在頻道頁呈現你的觀看排行及合計統計。關閉好友探索會撤銷邀請與好友關係，並在下次載入移除排行貢獻。已公開的頁面仍會保持公開，可另行調整公開設定。"
   ],
   [
     "匿名社群統計",

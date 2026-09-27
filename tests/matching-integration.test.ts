@@ -27,6 +27,8 @@ function setup(customCompute = compute) {
   const registry = new UserRegistry(':memory:');
   const alice = registry.createUser('integrate-alice', 'Alice');
   const bob = registry.createUser('integrate-bob', 'Bob <script>');
+  registry.setMatchingOptIn(alice.handle, true);
+  registry.setMatchingOptIn(bob.handle, true);
   publish(registry, alice); publish(registry, bob);
   const session = registry.createSession(alice), bobSession = registry.createSession(bob);
   const headers = { cookie: `urtube_session=${session}`, origin: 'http://localhost:3000', 'content-type': 'application/json' };

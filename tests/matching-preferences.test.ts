@@ -77,13 +77,15 @@ test('matching settings are session-only and independent from dashboard visibili
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);
   try {
-    const candidate = registry.createUser('private-match', 'Private Match');
-    const viewer = registry.createUser('viewer', 'Viewer');
+    registry.createUser('private-match', 'Private Match');
+    const candidate = registry.setMatchingPreferences('private-match', true, 'topics_and_channel');
+    registry.createUser('viewer', 'Viewer');
+    const viewer = registry.setMatchingPreferences('viewer', true, 'topics_and_channel');
     publish(registry, candidate, 'Private aggregate channel');
     publish(registry, viewer, 'Viewer aggregate channel');
     const session = `urtube_session=${registry.createSession(candidate)}`;
 
-    // Matching starts on; the dashboard stays private.
+    // Explicit matching consent leaves the dashboard private.
     assert.equal(candidate.dashboardPublic, false);
     assert.equal(candidate.matchingOptIn, true);
     assert.equal(candidate.matchingDisclosure, 'topics_and_channel');
@@ -146,14 +148,14 @@ test('privacy page explains optional matching and withdrawal in both languages',
   const app = createApp(registry);
   try {
     const english = await (await app.request('/privacy')).text();
-    assert.match(english, /New accounts enable friend discovery and public Overview and Insights by default/);
+    assert.match(english, /New accounts start with friend discovery and public profiles off/);
     assert.match(english, /Friends can view your Overview, Insights and Blend/);
     assert.match(english, /Turning it off removes requests and friendships/);
     assert.match(english, /A public profile stays public until you change its sharing setting/);
     assert.match(english, /History and Recap require your signed-in account or private access key/);
     assert.match(english, /Your sign-in email and search terms are not provided to other members/);
     const chinese = await (await app.request('/privacy?lang=zh')).text();
-    assert.match(chinese, /新帳號預設開啟好友探索/);
+    assert.match(chinese, /新帳號預設關閉好友探索/);
     assert.match(chinese, /好友可查看你的總覽、洞察與 Blend/);
     assert.match(chinese, /關閉好友探索會撤銷邀請與好友關係/);
     assert.match(chinese, /已公開的頁面仍會保持公開/);

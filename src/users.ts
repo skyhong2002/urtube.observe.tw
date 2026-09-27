@@ -447,8 +447,8 @@ export class UserRegistry {
         handle, displayName, tokenHash(captureToken), tokenHash(dashboardToken),
         options.dashboardPublic ? 1 : 0, options.dataKeyMode ?? 'derived', handle, createdAt,
         options.googleSub ?? null, options.googleEmail ?? null, options.avatarUrl ?? null,
-        // Matching switches start on; the account page turns each one off.
-        1, 'topics_and_channel', 1,
+        // New accounts join discovery only after an explicit sharing choice.
+        0, 'topics_and_channel', 1,
       );
       this.db.prepare('UPDATE users SET storage_name=handle WHERE handle=?').run(handle);
       const user = this.userByHandle(handle)!;

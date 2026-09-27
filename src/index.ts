@@ -728,7 +728,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       }
       const created = registry.createUser(handle, displayName, {
         googleSub: pending.sub, googleEmail: pending.email, avatarUrl: pending.avatarUrl ?? undefined,
-        dashboardPublic: true,
+        dashboardPublic: false,
       });
       finish(created);
       c.header('Cache-Control', 'no-store');
