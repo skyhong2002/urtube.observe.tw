@@ -65,6 +65,7 @@ import {
 } from './youtube/processing.js';
 import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
+import { forceHttps } from './https-redirect.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
@@ -192,6 +193,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return entry.result;
   };
   app.use('*', securityHeaders(true));
+  app.use('*', forceHttps());
   app.use('/account/profile', bodyLimit({ maxSize: 100_000 }));
   app.use('*', async (c, next) => {
     if (c.req.method === 'GET' || c.req.method === 'HEAD') {

@@ -23,6 +23,15 @@ and runs as the `urtube` user, with systemd lingering enabled.
 
 ## Production configuration
 
+The website and ingestion service enforce HTTPS for the hostname configured in
+`PUBLIC_BASE_URL` when that URL uses HTTPS. HTTP visitor requests receive a 308
+redirect with their path and query preserved. Cloudflare's `X-Forwarded-Proto`
+distinguishes HTTPS visitors from the tunnel's HTTP origin hop, preventing loops.
+Keep origin ports loopback-only behind the trusted proxy. Local health checks
+continue using HTTP. This change is released through the normal CD pipeline;
+the attempted Cloudflare redirect rule was denied by API authorization and was
+not installed. No zone-wide Cloudflare setting was changed.
+
 Stack project name is `urtube`; file paths are:
 
 1. `/home/urtube/komodo/production.compose.json` (host-owned effective settings)

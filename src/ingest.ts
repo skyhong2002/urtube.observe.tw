@@ -4,6 +4,7 @@ import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './users.js';
 import { securityHeaders } from './security-headers.js';
+import { forceHttps } from './https-redirect.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
 import { parseYoutubeArchive } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
@@ -58,6 +59,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
 
   const app = new Hono();
   app.use('*', securityHeaders());
+  app.use('*', forceHttps());
   app.get('/healthz', (c) => {
     const configured = Boolean(config.ingestToken || config.youtube.captureToken || registry.listUsers().length);
     return c.json(
