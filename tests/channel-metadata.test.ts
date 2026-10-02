@@ -11,6 +11,9 @@ import { UserRegistry } from '../src/users.js';
 import { fetchYoutubeChannelMetadata } from '../src/youtube/metadata.js';
 import type { YoutubeChannelMetadata } from '../src/youtube/types.js';
 
+// Fixtures use fixed 2026 watch dates; freeze the clock so 28/90-day windows stay stable.
+const FIXTURE_NOW = Date.parse('2026-09-28T00:00:00Z');
+
 const ID = 'UCaaaaaaaaaaaaaaaaaaaaaa';
 const metadata: YoutubeChannelMetadata = {
   channelId: ID, name: 'Music Channel', thumbnailUrl: '',
@@ -150,7 +153,7 @@ for (const preview of [false, true]) test(`membership is rechecked when a public
   } finally { registry.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test('channel preview returns an escaped, authenticated fragment and rechecks community opt-in', async () => {
+test('channel preview returns an escaped, authenticated fragment and rechecks community opt-in', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const root = mkdtempSync(join(tmpdir(), 'urtube-channel-preview-'));
   const registry = new UserRegistry(join(root, 'users.sqlite'), join(root, 'users'));
   try {

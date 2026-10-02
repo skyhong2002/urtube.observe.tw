@@ -19,6 +19,9 @@ import {
 } from '../src/youtube/registry-crystal.js';
 import type { YoutubeComparisonProfile, YoutubeParsedArchive, YoutubeVideoMetadata } from '../src/youtube/types.js';
 
+// Fixtures use fixed 2026 watch dates; freeze the clock so 28/90-day windows stay stable.
+const FIXTURE_NOW = Date.parse('2026-09-28T00:00:00Z');
+
 const NOW = new Date('2026-09-05T08:00:00.000Z');
 
 function watch(
@@ -227,7 +230,7 @@ function form(values: Record<string, string>, cookie: string): RequestInit {
   };
 }
 
-test('the compare page is a stats.fm style side-by-side that unlocks on mutual consent', async () => {
+test('the compare page is a stats.fm style side-by-side that unlocks on mutual consent', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const root = mkdtempSync(join(tmpdir(), 'urtube-compare-'));
   const registry = new UserRegistry(join(root, 'users.sqlite'), join(root, 'users'));
   const app = createApp(registry);

@@ -28,6 +28,9 @@ import {
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 import type { YoutubeParsedArchive, YoutubeVideoMetadata } from '../src/youtube/types.js';
 
+// Fixtures use fixed 2026 watch dates; freeze the clock so 28/90-day windows stay stable.
+const FIXTURE_NOW = Date.parse('2026-09-28T00:00:00Z');
+
 const SECRET = 'test-private-data-key-with-at-least-32-characters';
 
 function fixtureZip(): Uint8Array {
@@ -1342,7 +1345,7 @@ test('YouTube keywords segment Unicode, ignore URLs, and count each video once',
   assert.deepEqual(stopWords, []);
 });
 
-test('classification feeds rejections back to the model and abstains for a stubborn batch', async () => {
+test('classification feeds rejections back to the model and abstains for a stubborn batch', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const repository = new Repository(':memory:');
   try {
     const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
@@ -1413,7 +1416,7 @@ test('classification feeds rejections back to the model and abstains for a stubb
   }
 });
 
-test('personal taxonomy v2 is gated, versioned, restart-safe, and public-metadata only', async () => {
+test('personal taxonomy v2 is gated, versioned, restart-safe, and public-metadata only', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const repository = new Repository(':memory:');
   try {
     const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({
@@ -1736,7 +1739,7 @@ test('OAuth state is single-use and expires', () => {
   }
 });
 
-test('classification saves valid siblings and retries only invalid videos', async () => {
+test('classification saves valid siblings and retries only invalid videos', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const repository = new Repository(':memory:');
   try {
     const metadata = Array.from({ length: 24 }, (_, index): YoutubeVideoMetadata => ({

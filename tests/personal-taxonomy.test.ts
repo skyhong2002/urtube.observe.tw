@@ -24,6 +24,9 @@ import {
 } from '../src/youtube/personal-taxonomy.js';
 import type { YoutubeVideoMetadata } from '../src/youtube/types.js';
 
+// Fixtures use fixed 2026 watch dates; freeze the clock so 28/90-day windows stay stable.
+const FIXTURE_NOW = Date.parse('2026-09-28T00:00:00Z');
+
 function candidate(index: number, overrides: Partial<PersonalTaxonomySampleCandidate> = {}): PersonalTaxonomySampleCandidate {
   const month = String(index % 12 + 1).padStart(2, '0');
   return {
@@ -179,7 +182,7 @@ function seedWatchedVideos(repository: Repository, count = 24): YoutubeVideoMeta
   return videos;
 }
 
-test('candidate assignments survive a worker restart without creating another run', () => {
+test('candidate assignments survive a worker restart without creating another run', (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const directory = mkdtempSync(join(tmpdir(), 'urtube-taxonomy-restart-'));
   const databasePath = join(directory, 'archive.sqlite');
   try {
@@ -428,7 +431,7 @@ test('owner audit offers an explicit candidate start only when allowed', () => {
 });
 
 
-test('a new imported account automatically classifies and activates its first quality-approved topics', async () => {
+test('a new imported account automatically classifies and activates its first quality-approved topics', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const registry = new UserRegistry(':memory:');
   try {
     const user = registry.createUser('auto-topics-fixture', 'Automatic topics');
@@ -538,7 +541,7 @@ test('first-topic automatic activation preserves quality gates and prior active 
   }
 });
 
-for (const allInvalid of [false, true]) test(`persistent invalid evidence abstains without failing the account (all=${allInvalid})`, async () => {
+for (const allInvalid of [false, true]) test(`persistent invalid evidence abstains without failing the account (all=${allInvalid})`, async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const registry = new UserRegistry(':memory:');
   try {
     const user = registry.createUser('evidence-fixture', 'Evidence fixture');
