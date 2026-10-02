@@ -10,12 +10,16 @@ assert rollout_limit() == 5000
 for name in ("app", "ingest", "worker", "backup", "matching-worker"):
     assert services[name]["environment"] == {
         "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
-        "AI_MODEL": "gpt-6-sol", "AI_REUSE_MODEL": "gpt-5.6-sol",
-        "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+        "AI_MODEL": "sky-quality", "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
         "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna",
     }
 for name in ("matching-compute", "matching-compare"):
     assert set(services[name]) == {"image"}
+# Outgoing models are gateway aliases only; concrete names are compatibility IDs.
+for name in ("app", "ingest", "worker", "backup", "matching-worker"):
+    env = services[name]["environment"]
+    assert env["AI_MODEL"].startswith("sky-") and env["MATCHING_V3_CLASSIFICATION_MODEL"].startswith("sky-")
 # CD manages request models and explicit reuse of completed work. Provider keys,
 # concurrency, budgets, and endpoint cache namespaces remain host-owned.
 assert all(set(value) <= {"image", "environment"} for value in services.values())

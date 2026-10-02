@@ -80,6 +80,13 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
   old model IDs in reuse settings are not outgoing request models. Keep Gemini
   embeddings, provider budgets/concurrency and the 5,000-video source limit.
 
+- On 2026-10-02 the user requested every project use the central ai-gateway
+  (one shared ChatGPT subscription), reversing the 2026-09-08 OpenAI API
+  billing decision. Personal taxonomy requests `sky-quality`, matching requests
+  `sky-fast`; never put concrete request models in code or CD. Keep the reuse
+  and cache compatibility IDs so completed work is not reclassified. Concurrency
+  was lowered for the shared subscription (docs/ai-gateway.md).
+
 - User instruction (2026-09-06): consolidate completed work into `main` and do
   future development directly on `main`. Do not create feature branches or
   isolated worktrees for routine work. Preserve unrelated uncommitted changes.

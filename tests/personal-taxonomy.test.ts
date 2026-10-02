@@ -465,7 +465,7 @@ test('a new imported account automatically classifies and activates its first qu
   } finally { registry.close(); }
 });
 
-test('GPT-6 reuses a previous taxonomy and sends only unfinished videos to the new model', async () => {
+test('a gateway alias reuses a previous taxonomy and sends only unfinished videos to it', async () => {
   const repository = new Repository(':memory:');
   try {
     seedWatchedVideos(repository);
@@ -484,16 +484,16 @@ test('GPT-6 reuses a previous taxonomy and sends only unfinished videos to the n
       } };
     assert.equal(await classifyYoutubeVideosWithClient(repository, 20, previous), 20);
     const originalVersion = repository.youtubeTaxonomyRuns()[0].taxonomyVersion;
-    const upgraded = { ...previous, model: 'gpt-6-sol', reuseModel: previous.model };
+    const upgraded = { ...previous, model: 'sky-quality', reuseModels: ['gpt-6-sol', previous.model] };
     assert.equal(await classifyYoutubeVideosWithClient(repository, 100, upgraded), 4);
     assert.equal(repository.youtubeTaxonomyRuns().length, 1);
     assert.equal(repository.youtubeTaxonomyRuns()[0].taxonomyVersion, originalVersion);
-    assert.deepEqual(requested, ['gpt-5.6-sol', 'gpt-6-sol']);
+    assert.deepEqual(requested, ['gpt-5.6-sol', 'sky-quality']);
     assert.equal(await classifyYoutubeVideosWithClient(repository, 100, upgraded), 0);
     assert.equal(requested.length, 2);
     await ensureYoutubeTaxonomyWithClient(repository, true, upgraded);
     assert.equal(repository.youtubeTaxonomyRuns().length, 2);
-    assert.ok(repository.youtubeTaxonomyRunForContract(PERSONAL_TAXONOMY_DEFINITION_VERSION, 'gpt-6-sol', PERSONAL_TAXONOMY_PROMPT_VERSION));
+    assert.ok(repository.youtubeTaxonomyRunForContract(PERSONAL_TAXONOMY_DEFINITION_VERSION, 'sky-quality', PERSONAL_TAXONOMY_PROMPT_VERSION));
   } finally { repository.close(); }
 });
 

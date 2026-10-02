@@ -22,8 +22,11 @@ export interface YoutubeAiClient {
   baseUrl: string;
   apiKey: string;
   model: string;
-  // Reuse a prior taxonomy contract without changing the request model.
-  reuseModel?: string;
+  // Earlier contract model IDs whose taxonomy runs may finish with this
+  // client. Never sent upstream; preferred in the listed order.
+  reuseModels?: readonly string[];
+  // Sent only when configured; reasoning models may reject non-default values.
+  temperature?: number;
   timeoutMs?: number;
   concurrency?: number;
   fetchImpl?: typeof fetch;
@@ -35,7 +38,8 @@ function defaultClient(): YoutubeAiClient {
     baseUrl: config.ai.baseUrl,
     apiKey: config.ai.apiKey,
     model: config.ai.model,
-    reuseModel: config.ai.reuseModel,
+    reuseModels: config.ai.reuseModels,
+    temperature: config.ai.temperature,
     timeoutMs: config.ai.timeoutMs,
   };
 }
@@ -78,8 +82,7 @@ export async function chatJson(system: string, input: unknown, client: YoutubeAi
         method: 'POST',
         headers: { authorization: `Bearer ${client.apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({ model: client.model,
-          // OpenAI reasoning models reject any temperature other than the default.
-          ...(new URL(client.baseUrl).hostname === 'api.openai.com' ? {} : { temperature: 0 }), response_format: { type: 'json_object' },
+          ...(client.temperature === undefined ? {} : { temperature: client.temperature }), response_format: { type: 'json_object' },
           ...(options.maxCompletionTokens ? { max_completion_tokens: options.maxCompletionTokens } : {}),
           ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
           messages: [{ role: 'system', content: system }, { role: 'user', content: inputText },
@@ -172,13 +175,13 @@ export async function classifyYoutubeVideos(repository: Repository, limit = 250,
 }
 
 function taxonomyRun(repository: Repository, client: YoutubeAiClient): PersonalTaxonomyRun | null {
-  return repository.youtubeTaxonomyRunForContract(
-    PERSONAL_TAXONOMY_DEFINITION_VERSION,
-    client.model,
-    PERSONAL_TAXONOMY_PROMPT_VERSION,
-  ) ?? (client.reuseModel ? repository.youtubeTaxonomyRunForContract(
-    PERSONAL_TAXONOMY_DEFINITION_VERSION, client.reuseModel, PERSONAL_TAXONOMY_PROMPT_VERSION,
-  ) : null);
+  for (const model of [client.model, ...(client.reuseModels ?? [])]) {
+    const run = repository.youtubeTaxonomyRunForContract(
+      PERSONAL_TAXONOMY_DEFINITION_VERSION, model, PERSONAL_TAXONOMY_PROMPT_VERSION,
+    );
+    if (run) return run;
+  }
+  return null;
 }
 
 function workRun(repository: Repository, client: YoutubeAiClient): PersonalTaxonomyRun | null {
@@ -204,6 +207,8 @@ export async function classifyYoutubeVideosWithClient(
   let classified = 0;
   let failedBatches = 0;
   let firstFailure: unknown;
+  // Rows keep the stable contract model; this records who actually answered.
+  const answeredBy = new Set<string>();
   const system = 'Classify every supplied YouTube video into exactly one governed topic. '
     + 'Return JSON {"videos":[{"videoId":"...","slug":"...","confidence":0.0,'
     + '"alternativeSlug":null,"alternativeConfidence":null,'
@@ -229,7 +234,7 @@ export async function classifyYoutubeVideosWithClient(
             videos: pending.map(youtubePublicMetadata),
           },
           client,
-          { feedback, reasoningEffort: 'low' },
+          { feedback, reasoningEffort: 'low', onUsage: ({ returnedModel }) => { answeredBy.add(returnedModel ?? 'unreported'); } },
         );
         if (!response || typeof response !== 'object' || !Array.isArray((response as any).videos)) {
           throw new Error('AI classification response must contain a videos array');
@@ -312,6 +317,10 @@ export async function classifyYoutubeVideosWithClient(
     }
   }));
   repository.refreshPersonalTaxonomyRunQuality(run.taxonomyVersion);
+  if (answeredBy.size) {
+    console.log(JSON.stringify({ personalClassification: { classified, failedBatches,
+      contractModel: run.model, requestedModel: client.model, returnedModels: [...answeredBy] } }));
+  }
   if (autoActivateFirst) activateInitialTopicsIfReady(repository);
   if (failedBatches && !classified) throw firstFailure;
   return classified;

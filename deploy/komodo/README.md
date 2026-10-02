@@ -63,12 +63,13 @@ the region override. This does not change the public hostname or origin routes.
 CI updates images and the approved `MATCHING_V3_BACKFILL_VIDEO_LIMIT` from
 `matching-rollout.json`. This environment override is applied to every
 application service in the same atomic release, taking precedence over private
-env files. Since 2026-09-23, `release.py` also sets `AI_MODEL=gpt-6-sol` and
-`MATCHING_V3_CLASSIFICATION_MODEL=gpt-6-luna` on all application services.
-`AI_REUSE_MODEL=gpt-5.6-sol` and
+env files. Since 2026-10-02, `release.py` also sets the ai-gateway aliases
+`AI_MODEL=sky-quality` and `MATCHING_V3_CLASSIFICATION_MODEL=sky-fast` on all
+application services. `AI_REUSE_MODEL=gpt-6-sol,gpt-5.6-sol` and
 `MATCHING_V3_CLASSIFICATION_CACHE_MODEL=gpt-5.6-luna` preserve completed work;
 these are compatibility identifiers, never outgoing request models. Keep the
-existing host-owned endpoint cache namespace. See [model migration](../../docs/ai-gateway.md).
+existing host-owned endpoint cache namespace. Gateway URL, key and concurrency
+are host-owned. See [AI gateway](../../docs/ai-gateway.md).
 Apart from these model/reuse and tunnel transport/region overrides, other service,
 volume, port or environment changes require an explicit
 update to the host-owned configuration; changing repository Compose files alone

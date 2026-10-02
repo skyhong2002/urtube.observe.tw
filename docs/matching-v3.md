@@ -2,7 +2,7 @@
 
 ## 2026-09-23：GPT-6 模型升級
 
-新分類請求使用 `gpt-6-luna`／`low`，個人 taxonomy 使用 `gpt-6-sol`／`low`。
+新分類請求透過 ai-gateway 使用別名 `sky-fast`／`low`，個人 taxonomy 使用 `sky-quality`／`low`；實際模型由 gateway 決定並記錄於回應 `model`（見 [ai-gateway](ai-gateway.md)）。
 CD 以 `MATCHING_V3_CLASSIFICATION_CACHE_MODEL=gpt-5.6-luna` 保持影片、頻道及輪廓版本識別；
 此值只代表相容快取，並非請求模型。沿用已完成結果，不清空快取或觸發全站重算。
 Gemini embeddings、併發、額度與來源數量限制不變。以下歷史紀錄保留當時的模型名稱。
@@ -34,9 +34,9 @@ Gemini embeddings、併發、額度與來源數量限制不變。以下歷史紀
 
 ## 文字與費用限制
 
-分類使用 `gpt-6-luna`（API ID 為 luna，不是 lunar），沿用 `src/youtube/ai.ts` 的 `chatJson`：Chat Completions + `response_format=json_object`、`reasoning_effort=low`（官方端點不送 temperature），請求最多 2,048 output tokens；JSON schema 放在文字提示並以 Zod 驗證。相容現有 gateway 沒有 `finish_reason` 的回應及 fenced JSON。影片 payload 僅含 title（最多 1,000 字元）及 tags（最多 30 個，每個最多 100 字元）；頻道 payload 僅含名稱（200 字元）與描述（3,000 字元）。所有 messages.content 都是純文字，沒有圖片、影音、附件、工具或網頁搜尋。Gemini embedding 僅傳每個 tag 的 text part，不包含媒體內容。
+分類使用 gateway 別名 `sky-fast`（目前解析為 `gpt-6-luna`），沿用 `src/youtube/ai.ts` 的 `chatJson`：Chat Completions + `response_format=json_object`、`reasoning_effort=low`（預設不送 temperature），請求最多 2,048 output tokens；JSON schema 放在文字提示並以 Zod 驗證。相容現有 gateway 沒有 `finish_reason` 的回應及 fenced JSON。影片 payload 僅含 title（最多 1,000 字元）及 tags（最多 30 個，每個最多 100 字元）；頻道 payload 僅含名稱（200 字元）與描述（3,000 字元）。所有 messages.content 都是純文字，沒有圖片、影音、附件、工具或網頁搜尋。Gemini embedding 僅傳每個 tag 的 text part，不包含媒體內容。
 
-分類沿用專案的 `AI_BASE_URL`／`AI_API_KEY`，新版配對使用 `gpt-6-luna`，個人 taxonomy 的 `AI_MODEL` 使用 `gpt-6-sol`。可用 `MATCHING_V3_BASE_URL`／`MATCHING_V3_API_KEY` 個別覆寫；沒有既有設定時才使用 `OPENAI_BASE_URL`／`OPENAI_API_KEY`。Embedding 固定呼叫 Google Gemini Developer API，僅讀取獨立的 `GEMINI_API_KEY`，不沿用 GPT key，也不再使用 gateway 的 `/embeddings`。
+分類沿用專案的 `AI_BASE_URL`／`AI_API_KEY`，新版配對使用 `sky-fast`，個人 taxonomy 的 `AI_MODEL` 使用 `sky-quality`。可用 `MATCHING_V3_BASE_URL`／`MATCHING_V3_API_KEY` 個別覆寫；沒有既有設定時才使用 `OPENAI_BASE_URL`／`OPENAI_API_KEY`。Embedding 固定呼叫 Google Gemini Developer API，僅讀取獨立的 `GEMINI_API_KEY`，不沿用 GPT key，也不再使用 gateway 的 `/embeddings`。
 
 新版輪廓版本已更換為 GPT 分類 + Gemini embedding；模型、task、維度及 endpoint 都納入快取識別，舊 OpenAI 向量不會混入。
 
@@ -44,7 +44,7 @@ Gemini embeddings、併發、額度與來源數量限制不變。以下歷史紀
 
 1. 依使用者要求，全站帳號預先建立固定九類輪廓，不等待選擇。主題可選 1–9 類；選擇僅控制結果與揭露，改變選擇不刪除已算好的輪廓。bootstrap 只對已參與配對且尚無新版設定的帳號建立預設主題，保留既有選擇。
 2. worker 每輪完成後休息 30 秒，讀取全站使用者的所有可用歷史，以 `DISTINCT video_id` 去重。掃描或中繼資料變化會產生新 fingerprint；新增資料不必等待使用者按配對才開始分類。
-3. 分類預設每批 5 部（`MATCHING_V3_CLASSIFICATION_BATCH_SIZE` 可設 1–20），失敗重試時縮小批次；每批分類落庫後立即建立缺少的 tag 向量，不等完整帳號分類完。公開標題與原始 tags／hashtags 送 `gpt-6-luna`，多標籤分類到前八個內容類別，逐 tag 指定其適用類別。**沒有 tag 才根據標題補最多 5 個保守 tag**；保留 `tagSource=generated`，資訊不足允許空結果。既有 tags 不讓模型任意添加。
+3. 分類預設每批 5 部（`MATCHING_V3_CLASSIFICATION_BATCH_SIZE` 可設 1–20），失敗重試時縮小批次；每批分類落庫後立即建立缺少的 tag 向量，不等完整帳號分類完。公開標題與原始 tags／hashtags 送 `sky-fast`，多標籤分類到前八個內容類別，逐 tag 指定其適用類別。**沒有 tag 才根據標題補最多 5 個保守 tag**；保留 `tagSource=generated`，資訊不足允許空結果。既有 tags 不讓模型任意添加。
 4. embedding 的唯一文字輸入是正規化後的 **單一 tag**；不拼上標題、genre、次數或個人資訊。使用 `gemini-embedding-001`、`SEMANTIC_SIMILARITY` task、768 維並 L2 正規化。64 個 tag 一批，回傳數量／維度／數值皆驗證。
 5. 每個使用者、每個內容 genre：同一影片的同一 tag 只計一次。以不同影片數作 DBSCAN 的 `sample_weight`，cosine distance、`eps=0.2`、`min_samples=5`。移除 noise、低於總 tag 權重 5% 的群，保留權重最大的最多 10 群。質心為群內加權平均後正規化，不把不同興趣全部平均。
 6. 保存群的質心、原始 mass、保留群中 share、代表 tags 及其原始／補標籤計數。`retainedCoverage` 的分母是**去除 noise／小群以前的總 tag 權重**，不把丟失的資料藏起來。低於 50% 時標為資料不足。
@@ -71,7 +71,7 @@ Gemini embeddings、併發、額度與來源數量限制不變。以下歷史紀
 - official brand：官方品牌／公司
 - curated compilation：策展／彙整型頻道
 
-透過 YouTube API 取得公開頻道名稱及 description，再由 `gpt-6-luna` 判斷。證據不足保留 unknown。以看過的不同影片計數；多類型頻道的影片在各適用類型貢獻一次，再將全部類型貢獻正規化。類型 one-hot 配對等價於 histogram intersection。這些內部類型不增加前端可選 genre。
+透過 YouTube API 取得公開頻道名稱及 description，再由 `sky-fast` 判斷。證據不足保留 unknown。以看過的不同影片計數；多類型頻道的影片在各適用類型貢獻一次，再將全部類型貢獻正規化。類型 one-hot 配對等價於 histogram intersection。這些內部類型不增加前端可選 genre。
 
 成功的頻道分類快取 30 天，缺少公開證據快取 5 分鐘，含 channel type 的輪廓每天重新檢查一次。未設定 `YOUTUBE_API_KEY` 時此類別會顯示資料不足。
 

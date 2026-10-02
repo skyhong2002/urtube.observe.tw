@@ -1,4 +1,4 @@
-"""Publish immutable images, model migration, matching limit, and tunnel transport."""
+"""Publish immutable images, gateway model aliases, matching limit, and tunnel transport."""
 import json
 import os
 from pathlib import Path
@@ -24,9 +24,11 @@ def manifest(app, compute):
         **{name: {"image": "ghcr.io/skyhong2002/urtube.observe.tw@" + app,
                   "environment": {
                       "MATCHING_V3_BACKFILL_VIDEO_LIMIT": str(limit),
-                      "AI_MODEL": "gpt-6-sol",
-                      "AI_REUSE_MODEL": "gpt-5.6-sol",
-                      "MATCHING_V3_CLASSIFICATION_MODEL": "gpt-6-luna",
+                      # Requests name ai-gateway aliases; the gateway picks the model.
+                      "AI_MODEL": "sky-quality",
+                      "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
+                      # Compatibility identities for completed work, never sent upstream.
+                      "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
                       "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna",
                   }} for name in ("app", "ingest", "worker", "backup", "matching-worker")},
         **{name: {"image": "ghcr.io/skyhong2002/urtube-matching-compute@" + compute} for name in ("matching-compute", "matching-compare")},

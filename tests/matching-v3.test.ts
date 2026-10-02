@@ -14,10 +14,10 @@ import { compareProfiles } from '../src/matching-v3/matching.js';
 
 const s = settings({ MATCHING_V3_ENABLED: 'true' });
 
-test('GPT-6 upgrade preserves video, channel, embedding caches and profile versions', async () => {
+test('gateway alias upgrade preserves video, channel, embedding caches and profile versions', async () => {
   const before = settings({ MATCHING_V3_CLASSIFICATION_MODEL: 'gpt-5.6-luna' });
   const after = settings({ MATCHING_V3_CLASSIFICATION_CACHE_MODEL: before.classificationModel });
-  assert.equal(after.classificationModel, 'gpt-6-luna');
+  assert.equal(after.classificationModel, 'sky-fast');
   assert.equal(version(before), version(after));
   assert.notEqual(version(before), version(settings({})));
   const { db, store } = storeFixture();
@@ -37,7 +37,7 @@ test('GPT-6 upgrade preserves video, channel, embedding caches and profile versi
     assert.deepEqual(second.genres, first.genres);
     const request = (async (_url, options) => {
       const body = JSON.parse(String(options?.body));
-      assert.equal(body.model, 'gpt-6-luna');
+      assert.equal(body.model, 'sky-fast');
       assert.equal(body.reasoning_effort, 'low');
       return new Response(JSON.stringify({ choices: [{ message: { content: '{"genres":["Sport"]}' } }] }));
     }) as typeof fetch;
@@ -142,7 +142,7 @@ test('v3 genre-only classification never generates tags and retains all existing
     const body = JSON.parse(String(options.body));
     assert.deepEqual(body.response_format, { type: 'json_object' });
     assert.equal(body.temperature, undefined);
-    assert.equal(body.model, 'gpt-6-luna');
+    assert.equal(body.model, 'sky-fast');
     assert.equal(body.reasoning_effort, 'low');
     assert.equal(body.max_completion_tokens, 2048);
     assert.ok(body.messages.every((m: { content: unknown }) => typeof m.content === 'string'));
@@ -204,7 +204,7 @@ test('v3 daily request ceiling survives worker restarts and resets by UTC day', 
 
 test('v3 settings keep GPT and Gemini credentials independent', () => {
   const gateway = settings({ AI_BASE_URL: 'http://gateway:8320/v1', AI_API_KEY: 'gateway-key' });
-  assert.equal(gateway.classificationModel, 'gpt-6-luna');
+  assert.equal(gateway.classificationModel, 'sky-fast');
   assert.equal(gateway.apiKey, 'gateway-key');
   assert.equal(gateway.embeddingApiKey, '');
   const split = settings({ AI_BASE_URL: 'http://gateway:8320/v1', AI_API_KEY: 'gateway-key', GEMINI_API_KEY: 'gemini-key' });
@@ -475,6 +475,23 @@ test('v3 metrics distinguish queue, HTTP time and estimated tokens when gateway 
   assert.equal(metrics.returnedModel, null); assert.equal(metrics.inputTokens, null); assert.equal(metrics.outputTokens, null);
   assert.ok(metrics.estimatedInputTokens! > 0); assert.ok(metrics.estimatedOutputTokens! > 0);
   assert.ok(metrics.requestMs >= 9); assert.ok(metrics.queueMs >= 0);
+});
+
+test('chat requests send temperature only when explicitly configured and keep the returned model', async () => {
+  const { chatJson } = await import('../src/youtube/ai.js');
+  const sent: unknown[] = [];
+  let returned: string | null = null;
+  const fetchImpl = (async (_url: unknown, options: RequestInit) => {
+    sent.push(JSON.parse(String(options.body)).temperature);
+    return new Response(JSON.stringify({ model: 'gpt-6-luna', choices: [{ message: { content: '{}' } }] }));
+  }) as typeof fetch;
+  for (const baseUrl of ['https://api.openai.com/v1', 'http://100.71.224.62:8318/v1']) {
+    await chatJson('Return JSON.', {}, { baseUrl, apiKey: 'test', model: 'sky-fast', fetchImpl },
+      { onUsage: value => { returned = value.returnedModel; } });
+  }
+  await chatJson('Return JSON.', {}, { baseUrl: 'http://gateway/v1', apiKey: 'test', model: 'sky-fast', temperature: 0, fetchImpl });
+  assert.deepEqual(sent, [undefined, undefined, 0]);
+  assert.equal(returned, 'gpt-6-luna');
 });
 
 test('v3 monitoring counts validated items in partial batches without calling all videos failures', async () => {

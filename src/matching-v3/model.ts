@@ -17,7 +17,7 @@ export function settings(env = process.env) {
   // Gemini has its own credential. Never reuse a GPT/gateway key here.
   const embeddingApiKey = env.GEMINI_API_KEY || '';
   const embeddingApiKeys = [...new Set((env.GEMINI_API_KEYS || embeddingApiKey).split(/[\s,]+/).map(key => key.trim()).filter(Boolean))];
-  const classificationModel = env.MATCHING_V3_CLASSIFICATION_MODEL || 'gpt-6-luna';
+  const classificationModel = env.MATCHING_V3_CLASSIFICATION_MODEL || 'sky-fast';
   const number = (key: string, fallback: number, min: number, max: number) => {
     const value = Number(env[key] ?? fallback);
     if (!Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid ${key}`);
