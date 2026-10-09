@@ -574,6 +574,7 @@ const dashboardStyles = `${rhythmClockStyles}
   .yt-keywords a:hover{color:var(--accent-text)}
 
   .yt-recent{display:grid;gap:0;grid-template-columns:1fr}
+  .yt-recent-history-link{color:var(--accent-text)!important;font-weight:650;text-decoration:none}.yt-recent-history-link:hover{text-decoration:underline}
   .yt-video{align-items:center;border-bottom:1px solid var(--line);color:inherit;display:grid;gap:10px;grid-template-columns:32px minmax(0,1fr) auto;min-width:0;padding:9px 0;text-decoration:none}.yt-video:last-child{border-bottom:0}
   .yt-video-media{aspect-ratio:16/9;background:var(--raised);border-radius:3px;display:block;overflow:hidden;width:32px}
   .yt-video img,.yt-video-placeholder{display:block;height:100%;object-fit:cover;transition:transform .25s ease;width:100%}
@@ -635,13 +636,20 @@ function taipeiTimeLabel(iso: string, lang: Lang): string {
   }).format(date);
 }
 
-function recentSection(data: YoutubeDashboardData, t: Messages, lang: Lang, showRecent: boolean): string {
+function recentSection(
+  data: YoutubeDashboardData,
+  t: Messages,
+  lang: Lang,
+  showRecent: boolean,
+  historyHref?: string,
+): string {
   if (!showRecent || !data.recent.length) return '';
   const rows = data.recent.map((video) => `<a class="yt-video" href="${html(video.url)}" title="${html(video.title)}">
     <span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy" width="32" height="18">` : '<span class="yt-video-placeholder"></span>'}</span>
     <span class="yt-video-copy"><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}${video.durationSeconds === null ? '' : ` · ${duration(video.durationSeconds, lang)}`}</p></span>
     <time class="yt-video-when" datetime="${html(video.watchedAt)}">${timeAgo(video.watchedAt, lang)}</time></a>`).join('');
-  return `<section class="section yt-recent-section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${rows}</div></section>`;
+  const historyLink = historyHref ? `<a class="yt-recent-history-link" href="${html(historyHref)}">${html(t.recentHistoryLink)}</a>` : '';
+  return `<section class="section yt-recent-section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}${historyLink ? ` · ${historyLink}` : ''}</span></div><div class="yt-recent">${rows}</div></section>`;
 }
 
 const historyFinderScript = String.raw`(()=>{
@@ -932,7 +940,8 @@ export function youtubeDashboardPage(
   const overview = page === 'overview' ? hero + (options.setupHtml ?? '') + keywords + channelList + topVideos + stableTopics
     + `<div class="yt-overview-dynamics">${channelChase(data, t)}${topicDynamics(data, t)}</div>`
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
-    + (options.v3Html ?? '') + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent) : '';
+    + (options.v3Html ?? '') + sortScript + popularShelfScript + recentSection(data, t, lang, showRecent,
+      `${profilePath}/history?range=${data.range}&sort=${sort}`) : '';
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
     + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`

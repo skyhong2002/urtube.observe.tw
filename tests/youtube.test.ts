@@ -382,10 +382,16 @@ test('dashboard ranks individual videos and tracks short-form time using known d
       { day: '2026-07-28', shortWatchSeconds: 60, liveWatchSeconds: 0, regularWatchSeconds: 0, knownDurationWatchSeconds: 60 },
       { day: '2026-07-29', shortWatchSeconds: 30, liveWatchSeconds: 0, regularWatchSeconds: 120, knownDurationWatchSeconds: 150 },
     ]);
-    const overviewPage = youtubeDashboardPage('Fixture', dashboard, 'duration', {
+    const overviewPage = youtubeDashboardPage('Fixture', {
+      ...dashboard,
+      recent: [{ videoId: 'SHORTFORM01', title: 'Short fixture', url: 'https://www.youtube.com/watch?v=SHORTFORM01',
+        channelId: null, channelTitle: 'Fixture Channel', thumbnailUrl: '', durationSeconds: 90,
+        actualWatchedSeconds: 30, watchedAt: '2026-07-29T10:00:00Z', watchCount: 1 }],
+    }, 'duration', {
       lang: 'zh', profilePath: '/fixture', page: 'overview',
     });
     assert.match(overviewPage, /href="\/fixture\/insights\?range=all&sort=duration"/);
+    assert.match(overviewPage, /class="yt-recent-history-link" href="\/fixture\/history\?range=all&amp;sort=duration"/);
     assert.match(overviewPage, /data-youtube-sort="watches"/);
     assert.match(overviewPage, /data-youtube-sort-list="channels"/);
     assert.match(overviewPage, /history\.pushState/);
