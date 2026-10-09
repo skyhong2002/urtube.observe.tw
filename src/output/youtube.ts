@@ -586,6 +586,8 @@ const dashboardStyles = `${rhythmClockStyles}
 
   .yt-history-day{border-top:1px solid var(--line);padding-top:16px}.yt-history-day:first-child{border-top:0;padding-top:0}.yt-history-day>h2{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.04em;margin:0 0 6px}.yt-history-day-rows{display:grid;gap:0;grid-template-columns:1fr}
   .yt-history-row{align-items:center;border-bottom:1px solid var(--line);color:inherit;display:grid;gap:14px;grid-template-columns:90px minmax(0,1fr) auto;padding:10px 0;text-decoration:none}.yt-history-row:last-child{border-bottom:0}.yt-history-row img,.yt-history-placeholder{aspect-ratio:16/9;background:var(--raised);border-radius:7px;height:auto;object-fit:cover;width:90px}.yt-history-copy{min-width:0}.yt-history-copy strong,.yt-history-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yt-history-copy strong{font-size:12px}.yt-history-copy span,.yt-history-when{color:var(--muted);font-size:10px}.yt-history-when{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .yt-history-finder [hidden]{display:none!important}.yt-history-filters{align-items:end;display:grid;gap:12px;grid-template-columns:minmax(0,1fr) minmax(0,240px) auto;margin-bottom:10px}.yt-history-filters label{display:grid;gap:6px;color:var(--ink-2);font-size:12px;min-width:0}.yt-history-filters :is(input,select,button){background:var(--raised);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font:inherit;min-height:44px;padding:10px 12px;width:100%}.yt-history-filters input::placeholder{color:var(--muted)}.yt-history-filters :is(input,select,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}.yt-history-filters button{cursor:pointer;font-size:12px;white-space:nowrap}.yt-history-filters button:disabled{cursor:default;opacity:.45}.yt-history-search-meta{align-items:baseline;color:var(--muted);display:flex;flex-wrap:wrap;font-size:12px;gap:6px 18px;justify-content:space-between;margin-bottom:20px}.yt-history-search-meta p{margin:0}.yt-history-search-empty{color:var(--ink-2);padding:24px 0}.yt-history-finder .yt-history-copy strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.5;white-space:normal;overflow-wrap:anywhere}.yt-history-finder .yt-history-row:hover strong{color:var(--accent-text)}
+  @media(max-width:700px){.yt-history-filters{grid-template-columns:minmax(0,1fr) auto}.yt-history-filters label:first-child{grid-column:1/-1}.yt-history-filters :is(input,select){font-size:16px}.yt-history-search-meta{align-items:start;flex-direction:column}}
   .yt-private-note{text-align:center}.yt-private-note p{color:var(--ink-2);margin:0 auto;max-width:560px}
   .yt-recap-intro{padding:34px 28px}.yt-recap-intro h2{font-size:clamp(30px,5vw,54px);letter-spacing:-.045em;line-height:1.02;margin:5px 0 10px}.yt-recap-intro p{color:var(--ink-2);margin:0}
   .yt-recap-chapter{padding:30px 28px}.yt-recap-figure>strong{display:block;font-size:clamp(30px,5vw,58px);letter-spacing:-.04em;line-height:1;margin:8px 0 12px}.yt-recap-copy{align-self:center}.yt-recap-chapter h2{font-size:17px;margin:0 0 7px}.yt-recap-chapter p{color:var(--ink-2);font-size:14px;margin:0;max-width:720px}.yt-recap-chapter a{color:inherit;text-decoration:none}.yt-recap-chapter a:hover{color:var(--accent-text)}
@@ -642,6 +644,45 @@ function recentSection(data: YoutubeDashboardData, t: Messages, lang: Lang, show
   return `<section class="section yt-recent-section"><div class="section-head"><h2>${t.recent}</h2><span>${t.recentSub(data.recent.length)}</span></div><div class="yt-recent">${rows}</div></section>`;
 }
 
+const historyFinderScript = String.raw`(()=>{
+  const root=document.currentScript?.closest('[data-history-finder]');
+  if(!root)return;
+  const form=root.querySelector('[data-history-filters]');
+  const search=form.querySelector('input');
+  const channel=form.querySelector('select');
+  const clear=form.querySelector('button');
+  const count=root.querySelector('[data-history-count]');
+  const empty=root.querySelector('[data-history-empty]');
+  const normalize=value=>value.normalize('NFKC').toLowerCase();
+  const rows=[...root.querySelectorAll('[data-history-row]')].map(row=>({
+    row,text:normalize([...row.querySelectorAll('.yt-history-copy strong,.yt-history-copy span')].map(part=>part.textContent).join(' '))
+  }));
+  const days=[...root.querySelectorAll('[data-history-day]')];
+  const apply=()=>{
+    const words=normalize(search.value).trim().split(/\s+/u).filter(Boolean);
+    let shown=0;
+    for(const {row,text} of rows){
+      row.hidden=Boolean(channel.value&&row.dataset.historyChannel!==channel.value)||!words.every(word=>text.includes(word));
+      if(!row.hidden)shown++;
+    }
+    for(const day of days)day.hidden=![...day.querySelectorAll('[data-history-row]')].some(row=>!row.hidden);
+    count.textContent=count.dataset.countTemplate.replace('{shown}',String(shown)).replace('{total}',String(rows.length));
+    empty.hidden=shown>0;
+    clear.disabled=!search.value&&!channel.value;
+  };
+  form.addEventListener('submit',event=>event.preventDefault());
+  search.addEventListener('input',apply);
+  channel.addEventListener('change',apply);
+  clear.addEventListener('click',()=>{search.value='';channel.value='';apply();search.focus()});
+  form.hidden=false;
+  root.querySelector('[data-history-search-meta]').hidden=false;
+  apply();
+})();`;
+
+function historyChannelKey(video: YoutubeRecentVideo): string {
+  return video.channelId ? `id:${video.channelId}` : `name:${video.channelTitle}`;
+}
+
 function historySection(
   history: YoutubeRecentVideo[] | undefined,
   data: YoutubeDashboardData,
@@ -651,19 +692,34 @@ function historySection(
 ): string {
   if (!showRecent) return `<section class="section yt-private-note"><div class="section-head"><h2>${t.historyTitle}</h2></div><p>${t.historyPrivate}</p></section>`;
   if (!history?.length) return `<section class="section yt-private-note"><div class="section-head"><h2>${t.historyTitle}</h2></div><p>${t.historyEmpty}</p></section>`;
+  const channels = new Map<string, { name: string; watches: number }>();
   const groups = new Map<string, YoutubeRecentVideo[]>();
   for (const row of history) {
+    const key = historyChannelKey(row);
+    const channel = channels.get(key) ?? { name: row.channelTitle, watches: 0 };
+    channel.watches++;
+    channels.set(key, channel);
     const day = taipeiDateLabel(row.watchedAt, lang);
     const entries = groups.get(day) ?? [];
     entries.push(row);
     groups.set(day, entries);
   }
-  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day"><h2>${html(day)}</h2><div class="yt-history-day-rows">${entries.map((video) => `<a class="yt-history-row" href="${html(video.url)}">
+  const channelOptions = [...channels].sort((a, b) => b[1].watches - a[1].watches || a[1].name.localeCompare(b[1].name, t.htmlLang))
+    .map(([key, channel]) => `<option value="${html(key)}">${html(channel.name)} (${channel.watches})</option>`).join('');
+  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day" data-history-day><h2>${html(day)}</h2><div class="yt-history-day-rows">${entries.map((video) => `<a class="yt-history-row" data-history-row data-history-channel="${html(historyChannelKey(video))}" href="${html(video.url)}" title="${html(video.title)}">
     ${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-history-placeholder"></span>'}
     <span class="yt-history-copy"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
     <time class="yt-history-when" datetime="${html(video.watchedAt)}">${html(taipeiTimeLabel(video.watchedAt, lang))}</time>
   </a>`).join('')}</div></div>`).join('');
-  return `<section class="section"><div class="section-head"><h2>${t.historyTitle}</h2><span>${t.historySub(history.length, t.ranges[data.range])}</span></div>${days}</section>`;
+  return `<section class="section yt-history-finder" data-history-finder><div class="section-head"><h2>${t.historyTitle}</h2><span>${t.historySub(history.length, t.ranges[data.range])}</span></div>
+    <form class="yt-history-filters" data-history-filters role="search" aria-label="${html(t.historyTitle)}" hidden>
+      <label>${html(t.historySearchLabel)}<input type="search" placeholder="${html(t.historySearchPlaceholder)}" autocomplete="off" aria-describedby="history-search-scope"></label>
+      <label>${html(t.historyChannelLabel)}<select><option value="">${html(t.historyAllChannels)}</option>${channelOptions}</select></label>
+      <button type="button" disabled>${html(t.historyClearFilters)}</button>
+    </form>
+    <div class="yt-history-search-meta" data-history-search-meta hidden><p id="history-search-scope">${html(t.historySearchScope(history.length))}</p><span data-history-count data-count-template="${html(t.historySearchCount)}" role="status" aria-live="polite" aria-atomic="true"></span></div>
+    <div>${days}</div><p class="yt-history-search-empty" data-history-empty hidden>${html(t.historySearchEmpty)}</p>
+    <script>${historyFinderScript}</script></section>`;
 }
 
 function recapSection(data: YoutubeDashboardData, t: Messages): string {

@@ -468,7 +468,7 @@ test('a new imported account automatically classifies and activates its first qu
   } finally { registry.close(); }
 });
 
-test('a gateway alias reuses a previous taxonomy and sends only unfinished videos to it', async () => {
+test('a gateway alias reuses a previous taxonomy and sends only unfinished videos to it', async (t) => { t.mock.timers.enable({ apis: ['Date'], now: FIXTURE_NOW });
   const repository = new Repository(':memory:');
   try {
     seedWatchedVideos(repository);
