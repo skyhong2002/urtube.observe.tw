@@ -3,6 +3,7 @@ import { createAsyncLimiter, type AsyncLimiter } from '../youtube/concurrency.js
 import { reportTokens } from './telemetry.js';
 import { z } from 'zod';
 import { chatJson, AiHttpError } from '../youtube/ai.js';
+import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, type YoutubeApiKeyPool } from '../youtube/api-keys.js';
 import { CHANNEL_TYPES, CONTENT_GENRES, normalizeTag, digest, type Classification, type Settings, type VideoInput } from './model.js';
 
 // Shared across provider instances/cycles. Legacy classifiers keep their own limit.
@@ -38,7 +39,12 @@ type ChannelSnippet = { title?: string; description?: string };
 
 // Collect requests issued in the same event-loop turn across account batches.
 // YouTube accepts up to 50 channel IDs; results may be reordered or omitted.
-function channelSnippetLoader(apiKey: string, request: typeof fetch) {
+export type YoutubeApiKeySource = string | readonly string[] | YoutubeApiKeyPool;
+
+function channelSnippetLoader(apiKeys: YoutubeApiKeySource, request: typeof fetch) {
+  const pool = isYoutubeApiKeyPool(apiKeys)
+    ? apiKeys
+    : createYoutubeApiKeyPool(typeof apiKeys === 'string' ? [apiKeys] : apiKeys);
   const pending = new Map<string, { resolve: (value: ChannelSnippet | null) => void; reject: (error: unknown) => void }>();
   const inFlight = new Map<string, Promise<ChannelSnippet | null>>();
   let scheduled = false;
@@ -49,13 +55,27 @@ function channelSnippetLoader(apiKey: string, request: typeof fetch) {
       const batch = entries.slice(offset, offset + 50);
       void (async () => {
         try {
-          const url = new URL('https://www.googleapis.com/youtube/v3/channels');
-          url.search = new URLSearchParams({ part: 'snippet', id: batch.map(([id]) => id).join(','), key: apiKey }).toString();
-          const response = await request(url, { signal: AbortSignal.timeout(30_000) });
-          if (!response.ok) throw new ProviderError(response.status === 429 || response.status >= 500, response.status);
-          const result = z.object({ items: z.array(z.object({ id: z.string(), snippet: z.object({
-            title: z.string().optional(), description: z.string().optional(),
-          }).optional() })).optional() }).parse(await response.json());
+          let result: { items?: { id: string; snippet?: { title?: string; description?: string } }[] } | undefined;
+          for (;;) {
+            const key = pool.next();
+            if (!key) throw new ProviderError(false, 403);
+            const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+            url.search = new URLSearchParams({ part: 'snippet', id: batch.map(([id]) => id).join(','), key }).toString();
+            const response = await request(url, { signal: AbortSignal.timeout(30_000) });
+            if (response.ok) {
+              result = z.object({ items: z.array(z.object({ id: z.string(), snippet: z.object({
+                title: z.string().optional(), description: z.string().optional(),
+              }).optional() })).optional() }).parse(await response.json());
+              break;
+            }
+            let body = '';
+            try { body = await response.text(); } catch { /* The status is sufficient for retry classification. */ }
+            if (response.status === 403 && /quotaExceeded|dailyLimitExceeded|youtube\.quota/.test(body)) {
+              pool.exhausted(key);
+              continue;
+            }
+            throw new ProviderError(response.status === 429 || response.status >= 500, response.status);
+          }
           const byId = new Map((result.items ?? []).map(item => [item.id, item.snippet ?? null]));
           for (const [id, waiter] of batch) waiter.resolve(byId.get(id) ?? null);
         } catch (error) {
@@ -76,8 +96,11 @@ function channelSnippetLoader(apiKey: string, request: typeof fetch) {
   };
 }
 
-export function matchingProvider(s: Settings, youtubeApiKey: string, request: typeof fetch = fetch): Provider {
-  const channelSnippet = channelSnippetLoader(youtubeApiKey, request);
+export function matchingProvider(s: Settings, youtubeApiKeys: YoutubeApiKeySource, request: typeof fetch = fetch): Provider {
+  const channelPool = isYoutubeApiKeyPool(youtubeApiKeys)
+    ? youtubeApiKeys
+    : createYoutubeApiKeyPool(typeof youtubeApiKeys === 'string' ? [youtubeApiKeys] : youtubeApiKeys);
+  const channelSnippet = channelSnippetLoader(channelPool, request);
   const keys = s.embeddingApiKeys.length ? s.embeddingApiKeys : [s.embeddingApiKey].filter(Boolean);
   const poolId = digest([s.embeddingBaseUrl, s.embeddingModel, keys]);
   let pool = geminiPools.get(poolId);
@@ -138,7 +161,7 @@ export function matchingProvider(s: Settings, youtubeApiKey: string, request: ty
       });
     },
     async channel(id, title) {
-      if (!youtubeApiKey) return { types: [], evidenceAvailable: false };
+      if (!channelPool.size) return { types: [], evidenceAvailable: false };
       const snippet = await channelSnippet(id);
       if (!snippet?.description?.trim()) return { types: [], evidenceAvailable: false };
       const raw = await generate(

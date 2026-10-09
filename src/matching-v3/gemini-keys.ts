@@ -18,7 +18,10 @@ export class GeminiKeyPool {
       tried.add(index);
       const entry = this.entries[index];
       const response = await send(entry.key);
-      if (response.status === 401 || response.status === 403) {
+      // 402 means this key's AI Studio project has depleted its prepaid
+      // credits. Treat it like an unusable credential and continue with the
+      // next configured project instead of failing the whole embedding batch.
+      if (response.status === 401 || response.status === 402 || response.status === 403) {
         entry.disabled = true;
         await response.body?.cancel();
         continue;

@@ -930,6 +930,24 @@ test('a failed channel metadata batch rejects every waiter and a later retry ref
   assert.equal(calls, 2);
 });
 
+test('channel metadata rotates quota-exhausted YouTube keys and parks them', async () => {
+  const seen: string[] = [];
+  const provider = matchingProvider({ ...s, apiKey: 'fixture' }, ['depleted', 'available'], async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'www.googleapis.com' && url.searchParams.get('key') === 'depleted') {
+      seen.push(url.searchParams.get('key')!);
+      return Response.json({ error: { errors: [{ reason: 'quotaExceeded' }] } }, { status: 403 });
+    }
+    if (url.hostname === 'www.googleapis.com') {
+      seen.push(url.searchParams.get('key')!);
+      return Response.json({ items: [{ id: url.searchParams.get('id'), snippet: { title: 'Fixture', description: 'Description' } }] });
+    }
+    return Response.json({ choices: [{ message: { content: '{"types":[]}' } }] });
+  });
+  assert.deepEqual(await provider.channel('channel-1', 'Fallback'), { types: [], evidenceAvailable: true });
+  assert.deepEqual(seen, ['depleted', 'available']);
+});
+
 test('cluster uploads queue per endpoint while comparison stays responsive', async () => {
   const original = globalThis.fetch;
   let clusterCalls = 0;

@@ -38,3 +38,13 @@ test('Gemini all limited keys return without a retry storm; auth failures disabl
   assert.equal(invalid.allDisabled, true);
   await invalid.request(async () => { throw new Error('disabled key reused'); });
 });
+test('Gemini skips keys whose project has depleted prepaid credits', async () => {
+  const pool = new GeminiKeyPool(['depleted', 'available']);
+  const seen: string[] = [];
+  const result = await pool.request(async key => {
+    seen.push(key);
+    return key === 'depleted' ? new Response('{}', { status: 402 }) : new Response('{}');
+  });
+  assert.equal(result?.status, 200);
+  assert.deepEqual(seen, ['depleted', 'available']);
+});

@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { createYoutubeApiKeyPool } from '../youtube/api-keys.js';
 import { UserRegistry } from '../users.js';
 import { settings } from './model.js';
 import { matchingProvider } from './provider.js';
@@ -11,6 +12,10 @@ if (!s.enabled) throw new Error('Set MATCHING_V3_ENABLED=true to start the match
 if (!s.apiKey || !s.embeddingApiKeys.length || s.computeToken.length < 32) throw new Error('Configure GPT API credentials, GEMINI_API_KEY and MATCHING_V3_COMPUTE_TOKEN');
 const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
 const store = registry.matchingV3Store();
+// Keep quota-exhausted keys parked across worker cycles. Keys belonging to
+// distinct Google Cloud projects can continue the channel queue; keys in one
+// project still share that project's daily quota.
+const youtubeApiKeyPool = createYoutubeApiKeyPool(config.youtube.apiKeys);
 store.workerHeartbeat();
 const heartbeat = setInterval(() => store.workerHeartbeat(), 15000);
 let stopping = false;
@@ -18,7 +23,7 @@ process.on('SIGTERM', () => { stopping = true; });
 process.on('SIGINT', () => { stopping = true; });
 try {
   do {
-    try { await runCycle(registry, s, observedProvider(matchingProvider(s, config.youtube.apiKey), store), computeClient(s), () => stopping); }
+    try { await runCycle(registry, s, observedProvider(matchingProvider(s, youtubeApiKeyPool), store), computeClient(s), () => stopping); }
     catch { console.error('Matching v3 cycle failed; will retry.'); }
     if (process.argv.includes('--once') || stopping) break;
     const delay = store.nextWorkDelay();
