@@ -155,7 +155,7 @@ function youtubeCutoff(range: YoutubeRange, now: Date): string | null {
 // was watched, a known saved position is the stronger upper bound. The day
 // cap prevents a live stream's multi-day playback position from being mistaken
 // for one viewing session.
-const YOUTUBE_ESTIMATED_EVENTS_CTE = `
+export const YOUTUBE_ESTIMATED_EVENTS_CTE = `
       WITH timeline AS (
         SELECT 'watch' kind, event_id, watched_at occurred_at
         FROM youtube_watch_events WHERE activity_type='video'
@@ -174,6 +174,10 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
               SELECT 1 FROM youtube_watch_events measured
               WHERE measured.video_id=w.video_id
                 AND measured.actual_watched_seconds IS NOT NULL
+                -- Widen the indexed prefilter by one second; keep the original
+                -- predicate below for exactly the same floating-point boundary.
+                AND julianday(measured.watched_at) BETWEEN julianday(w.watched_at)-301.0/86400
+                  AND julianday(w.watched_at)+301.0/86400
                 AND ABS((julianday(measured.watched_at)-julianday(w.watched_at))*86400)<=300
             ) THEN 0
             WHEN a.occurred_precision='day' THEN MIN(
@@ -582,6 +586,22 @@ export class Repository {
           this.db.exec('ALTER TABLE youtube_videos ADD COLUMN is_livestream INTEGER CHECK (is_livestream IN (0, 1))');
         }
         this.db.exec('PRAGMA user_version = 13; COMMIT;');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
+    const afterBroadcast = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterBroadcast.user_version < 14) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS youtube_watch_measured_time_idx
+          ON youtube_watch_events(video_id, julianday(watched_at))
+          WHERE actual_watched_seconds IS NOT NULL;
+          PRAGMA user_version = 14;
+          COMMIT;
+        `);
       } catch (error) {
         this.db.exec('ROLLBACK');
         throw error;
@@ -1291,7 +1311,7 @@ export class Repository {
       );
       // A Takeout row may carry the channel id that earlier capture rows for the
       // same video lacked; reconcile before the import becomes visible.
-      this.backfillYoutubeChannelIds();
+      this.backfillYoutubeChannelIds([watch.videoId]);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');

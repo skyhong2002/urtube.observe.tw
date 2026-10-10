@@ -83,7 +83,7 @@ test('version 12 upgrade preserves history and queues available legacy metadata 
     try { assert.deepEqual(upgraded.youtubeVideosNeedingMetadata(), ['LEGACY00001']); }
     finally { upgraded.close(); }
     const migrated = new DatabaseSync(path);
-    assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 13);
+    assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 14);
     assert.equal(migrated.prepare('SELECT title FROM youtube_videos').get()?.title, 'Legacy');
     migrated.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
