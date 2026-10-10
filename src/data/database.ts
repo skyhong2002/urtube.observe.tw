@@ -7,6 +7,10 @@ import { digest, normalizeTag, type SourceSnapshot as MatchingSourceSnapshot } f
 import { activityFromEntry } from './activity.js';
 import { taipeiDay } from '../youtube/history-sync.js';
 import { weekdayExposure } from '../youtube/weekday-average.js';
+import {
+  historyCursor, normalizeHistoryQuery,
+  type HistoryQueryInput, type YoutubeHistoryEntry, type YoutubeHistoryPage,
+} from '../youtube/history.js';
 import type { Activity, SourceSnapshot } from './types.js';
 import type {
   YoutubeChannelMetadata,
@@ -404,6 +408,7 @@ export class Repository {
     this.path = path;
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
+    this.db.function('urtube_history_lower', { deterministic: true }, (value) => String(value ?? '').toLowerCase());
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.migrate();
     this.backfillYoutubeChannelIds();
@@ -1710,6 +1715,79 @@ export class Repository {
       watchedAt: String(row.watched_at),
       watchCount: 1,
     }));
+  }
+
+  // Bounded private history browsing: no count or offset over the whole archive,
+  // and repeated watches remain distinct. The caller must authorize the owner
+  // or an explicit private dashboard key before querying this repository.
+  youtubeHistoryPage(input: HistoryQueryInput = {}, now = new Date()): YoutubeHistoryPage {
+    const query = normalizeHistoryQuery(input);
+    const conditions = ["w.activity_type='video'"];
+    const values: string[] = [];
+    const cutoff = query.start ?? youtubeCutoff(query.filters.range, now);
+    if (cutoff) { conditions.push('w.watched_at>=?'); values.push(cutoff); }
+    if (query.end) { conditions.push('w.watched_at<?'); values.push(query.end); }
+    const title = "COALESCE(NULLIF(v.title, ''), w.raw_title)";
+    const channel = "COALESCE(NULLIF(w.channel_title, ''), NULLIF(v.channel_title, ''), 'Unknown channel')";
+    if (query.pattern) {
+      conditions.push(`(urtube_history_lower(${title}) LIKE ? ESCAPE '\\'
+        OR urtube_history_lower(${channel}) LIKE ? ESCAPE '\\')`);
+      values.push(query.pattern, query.pattern);
+    }
+    const joins = `FROM youtube_watch_events w
+      JOIN activities a ON a.id=w.activity_id
+      LEFT JOIN youtube_videos v ON v.video_id=w.video_id`;
+    const baseWhere = conditions.join(' AND ');
+    const pagingValues = [...values];
+    const comparison = query.direction === 'newer' ? '>' : '<';
+    if (query.cursor) {
+      conditions.push(`(w.watched_at, w.event_id) ${comparison} (?, ?)`);
+      pagingValues.push(query.cursor.at, query.cursor.id);
+    }
+    const order = query.direction === 'newer' ? 'ASC' : 'DESC';
+    const rows = this.db.prepare(`
+      SELECT w.event_id, w.video_id, ${title} title,
+        CASE WHEN w.video_id IS NULL THEN w.raw_url
+          ELSE 'https://www.youtube.com/watch?v=' || w.video_id END url,
+        COALESCE(w.channel_id, v.channel_id) channel_id, ${channel} channel_title,
+        COALESCE(v.thumbnail_url, '') thumbnail_url, v.duration_seconds,
+        w.actual_watched_seconds, w.watched_at, a.occurred_precision
+      ${joins}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY w.watched_at ${order}, w.event_id ${order}
+      LIMIT ?
+    `).all(...pagingValues, query.limit + 1) as Array<Record<string, string | number | null>>;
+    const more = rows.length > query.limit;
+    const selected = rows.slice(0, query.limit);
+    if (query.direction === 'newer') selected.reverse();
+    const entries: YoutubeHistoryEntry[] = selected.map((row) => ({
+      eventId: String(row.event_id),
+      videoId: row.video_id === null ? null : String(row.video_id),
+      title: String(row.title), url: String(row.url),
+      channelId: row.channel_id === null ? null : String(row.channel_id),
+      channelTitle: String(row.channel_title), thumbnailUrl: String(row.thumbnail_url),
+      durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+      actualWatchedSeconds: row.actual_watched_seconds === null ? null : Number(row.actual_watched_seconds),
+      watchedAt: String(row.watched_at), watchCount: 1,
+      precision: row.occurred_precision === 'day' ? 'day' : 'exact',
+    }));
+    const first = entries[0];
+    const last = entries.at(-1);
+    // A deleted anchor must not create a phantom link on the opposite side.
+    // The extra existence probe stops at one row and uses the same filters.
+    const opposite = query.cursor && first && last
+      ? Boolean(this.db.prepare(`SELECT 1 ${joins} WHERE ${baseWhere}
+          AND (w.watched_at, w.event_id) ${query.direction === 'newer' ? '<' : '>'} (?, ?) LIMIT 1`)
+        .get(...values, query.direction === 'newer' ? last.watchedAt : first.watchedAt,
+          query.direction === 'newer' ? last.eventId : first.eventId))
+      : false;
+    const hasOlder = query.direction === 'older' ? more : opposite;
+    const hasNewer = query.direction === 'newer' ? more : opposite;
+    return {
+      entries, filters: query.filters,
+      olderCursor: last && hasOlder ? historyCursor(last, query.filterHash) : null,
+      newerCursor: first && hasNewer ? historyCursor(first, query.filterHash) : null,
+    };
   }
 
   // Private feed for the owner's other tools (Infovore's activity coverage):

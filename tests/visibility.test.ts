@@ -68,7 +68,12 @@ test('profile visibility distinguishes friends, public guests, owners and key ho
     }
     for (const suffix of ['', '/insights', '/history', '/recap']) {
       for (const auth of ['owner', 'key']) {
-        const response = await app.request(`/visible-bob${suffix}?range=all${auth === 'key' ? `&key=${bob.dashboardToken}` : ''}`, { headers: auth === 'owner' ? owner : headers });
+        let response = await app.request(`/visible-bob${suffix}?range=all${auth === 'key' ? `&key=${bob.dashboardToken}` : ''}`, { headers: auth === 'owner' ? owner : headers });
+        if (auth === 'key' && suffix === '/history') {
+          assert.equal(response.status, 302);
+          const cookie = response.headers.getSetCookie().find(value => value.startsWith('urtube_dash_id_'))!.split(';')[0];
+          response = await app.request(response.headers.get('location')!, { headers: { cookie } });
+        }
         assert.equal(response.status, 200, `${auth}${suffix}`);
         assert.equal(load(await response.text())('.yt-page-nav a').length, 4);
       }
