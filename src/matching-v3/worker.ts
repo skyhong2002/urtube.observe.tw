@@ -1,5 +1,6 @@
 import { config } from '../config.js';
-import { createYoutubeApiKeyPool } from '../youtube/api-keys.js';
+import { createYoutubeApiKeyPool, youtubeApiUsage } from '../youtube/api-keys.js';
+import { patchOpsStatus, type MatchingOpsStatus } from '../ops-status.js';
 import { UserRegistry } from '../users.js';
 import { settings } from './model.js';
 import { matchingProvider } from './provider.js';
@@ -16,8 +17,17 @@ const store = registry.matchingV3Store();
 // distinct Google Cloud projects can continue the channel queue; keys in one
 // project still share that project's daily quota.
 const youtubeApiKeyPool = createYoutubeApiKeyPool(config.youtube.apiKeys);
-store.workerHeartbeat();
-const heartbeat = setInterval(() => store.workerHeartbeat(), 15000);
+// Channel lookups spend the same YouTube quota as the enrichment worker;
+// publish this process's count so /status can report the combined total.
+const publishUsage = () => {
+  const usage = youtubeApiUsage();
+  try {
+    patchOpsStatus<MatchingOpsStatus>('matching', { heartbeatAt: new Date().toISOString(),
+      youtubeApiRequestsSinceReset: usage.requestsSinceReset, youtubeApiQuotaResetAt: usage.quotaResetAt });
+  } catch { console.error('Matching v3 status write failed.'); }
+};
+store.workerHeartbeat(); publishUsage();
+const heartbeat = setInterval(() => { store.workerHeartbeat(); publishUsage(); }, 15000);
 let stopping = false;
 process.on('SIGTERM', () => { stopping = true; });
 process.on('SIGINT', () => { stopping = true; });

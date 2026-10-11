@@ -3,7 +3,7 @@ import { createAsyncLimiter, type AsyncLimiter } from '../youtube/concurrency.js
 import { reportTokens } from './telemetry.js';
 import { z } from 'zod';
 import { chatJson, AiHttpError } from '../youtube/ai.js';
-import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, type YoutubeApiKeyPool } from '../youtube/api-keys.js';
+import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, recordYoutubeApiRequest, type YoutubeApiKeyPool } from '../youtube/api-keys.js';
 import { CHANNEL_TYPES, CONTENT_GENRES, normalizeTag, digest, type Classification, type Settings, type VideoInput } from './model.js';
 
 // Shared across provider instances/cycles. Legacy classifiers keep their own limit.
@@ -33,7 +33,12 @@ export interface Provider {
   classify(video: VideoInput): Promise<Classification>;
   classifyBatch?(videos: VideoInput[]): Promise<Classification[]>;
   embed(tags: string[]): Promise<number[][]>;
-  channel(id: string, title: string): Promise<{ types: string[]; evidenceAvailable: boolean }>;
+  // `transient` marks a result that says nothing about the channel itself
+  // (no YouTube key configured), so callers must not cache it for long.
+  channel(id: string, title: string): Promise<{ types: string[]; evidenceAvailable: boolean; transient?: boolean }>;
+  // Start channel metadata lookups for upcoming channel() calls in one turn so
+  // they share 50-ID YouTube requests instead of one request per channel.
+  prefetchChannels?(ids: string[]): void;
 }
 type ChannelSnippet = { title?: string; description?: string };
 
@@ -61,6 +66,7 @@ function channelSnippetLoader(apiKeys: YoutubeApiKeySource, request: typeof fetc
             if (!key) throw new ProviderError(false, 403);
             const url = new URL('https://www.googleapis.com/youtube/v3/channels');
             url.search = new URLSearchParams({ part: 'snippet', id: batch.map(([id]) => id).join(','), key }).toString();
+            recordYoutubeApiRequest();
             const response = await request(url, { signal: AbortSignal.timeout(30_000) });
             if (response.ok) {
               result = z.object({ items: z.array(z.object({ id: z.string(), snippet: z.object({
@@ -101,6 +107,8 @@ export function matchingProvider(s: Settings, youtubeApiKeys: YoutubeApiKeySourc
     ? youtubeApiKeys
     : createYoutubeApiKeyPool(typeof youtubeApiKeys === 'string' ? [youtubeApiKeys] : youtubeApiKeys);
   const channelSnippet = channelSnippetLoader(channelPool, request);
+  // Consumed (and removed) by the next channel() call for that ID.
+  const prefetched = new Map<string, Promise<ChannelSnippet | null>>();
   const keys = s.embeddingApiKeys.length ? s.embeddingApiKeys : [s.embeddingApiKey].filter(Boolean);
   const poolId = digest([s.embeddingBaseUrl, s.embeddingModel, keys]);
   let pool = geminiPools.get(poolId);
@@ -160,9 +168,24 @@ export function matchingProvider(s: Settings, youtubeApiKeys: YoutubeApiKeySourc
         return vector.map(v => v / length);
       });
     },
+    prefetchChannels(ids) {
+      if (!channelPool.size) return;
+      // Entries normally leave on consumption; a peer account that filled the
+      // cache first can leave a few behind, so cap the map.
+      if (prefetched.size >= 10_000) prefetched.clear();
+      for (const id of ids) {
+        if (prefetched.has(id)) continue;
+        const pending = channelSnippet(id);
+        // Rejections surface from the channel() call that consumes them.
+        pending.catch(() => {});
+        prefetched.set(id, pending);
+      }
+    },
     async channel(id, title) {
-      if (!channelPool.size) return { types: [], evidenceAvailable: false };
-      const snippet = await channelSnippet(id);
+      if (!channelPool.size) return { types: [], evidenceAvailable: false, transient: true };
+      const pending = prefetched.get(id);
+      prefetched.delete(id);
+      const snippet = await (pending ?? channelSnippet(id));
       if (!snippet?.description?.trim()) return { types: [], evidenceAvailable: false };
       const raw = await generate(
         `Identify publicly evidenced channel operating types: ${CHANNEL_TYPES.join(', ')}. personal creator: individual host/creator; media team: newsroom/editorial publisher; educational institution: school or professional educational institution; official brand: official company/brand channel; curated compilation: compilation/curation channel. Multi-label allowed. Use channel description and name as evidence. If uncertain return no types; do not guess from a single video or political stance.`,

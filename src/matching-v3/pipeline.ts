@@ -14,6 +14,10 @@ async function settleWork(work: Promise<unknown>[]) {
   if (failed?.status === 'rejected') throw failed.reason;
 }
 
+type ChannelResult = Awaited<ReturnType<Provider['channel']>>;
+const CHANNEL_CACHE_MS = 30 * 86400_000;
+const CHANNEL_LOOKUP_CHUNK = 200;
+
 export class CycleBudgetReached extends Error {}
 export class DailyBudgetReached extends Error {}
 export const classificationKey = (s: Settings, video: VideoInput) => digest(['video-classification-3', s.classificationCacheNamespace, s.classificationCacheModel, video.id, video.title, video.tags.filter(t => t.length <= 100).slice(0, 30)]);
@@ -139,20 +143,33 @@ export async function buildProfile(
     let videoCount = 0;
     let unknown = false;
     const channels = [...new Map(source.videos.filter(v => v.channelId).map(v => [v.channelId, v])).values()];
-    await settleWork(channels.map(video => {
-      const key = digest(['channel-types-2', s.classificationCacheNamespace, s.classificationCacheModel, video.channelId]);
-      return cachedWork([key], async () => {
-        let value = store.cache<{ types: string[]; evidenceAvailable: boolean }>(key, 30 * 86400_000);
-        if (value && !value.evidenceAvailable) value = store.cache(key, 300_000);
-        if (value) return;
-        store.putCache(key, await call(() => provider.channel(video.channelId!, video.channelTitle ?? '')));
-      });
-    }));
+    const channelKey = (channelId: string) => digest(['channel-types-2', s.classificationCacheNamespace, s.classificationCacheModel, channelId]);
+    // A channel without a usable description stays without evidence for the
+    // normal cache lifetime; re-asking YouTube every few minutes spent the
+    // shared daily quota. Only a result that says nothing about the channel
+    // (no YouTube key configured) expires quickly.
+    const cachedChannel = (key: string) => {
+      const value = store.cache<ChannelResult>(key, CHANNEL_CACHE_MS);
+      return value?.transient ? store.cache<ChannelResult>(key, 300_000) : value;
+    };
+    const uncached = channels.filter(video => !cachedChannel(channelKey(video.channelId!)));
+    // Chunks share 50-ID YouTube requests while keeping in-flight lookups
+    // bounded on archives with thousands of channels.
+    for (let offset = 0; offset < uncached.length; offset += CHANNEL_LOOKUP_CHUNK) {
+      const chunk = uncached.slice(offset, offset + CHANNEL_LOOKUP_CHUNK);
+      provider.prefetchChannels?.(chunk.map(video => video.channelId!));
+      await settleWork(chunk.map(video => {
+        const key = channelKey(video.channelId!);
+        return cachedWork([key], async () => {
+          if (cachedChannel(key)) return;
+          store.putCache(key, await call(() => provider.channel(video.channelId!, video.channelTitle ?? '')));
+        });
+      }));
+    }
     for (const video of source.videos) {
       if (!video.channelId) { unknown = true; continue; }
-      const key = digest(['channel-types-2', s.classificationCacheNamespace, s.classificationCacheModel, video.channelId]);
-      let channel = store.cache<{ types: string[]; evidenceAvailable: boolean }>(key, 30 * 86400_000);
-      if (channel && !channel.evidenceAvailable) channel = store.cache(key, 300_000);
+      const key = channelKey(video.channelId);
+      let channel = cachedChannel(key);
       if (!channel) {
         channel = await call(() => provider.channel(video.channelId!, video.channelTitle ?? ''));
         store.putCache(key, channel);

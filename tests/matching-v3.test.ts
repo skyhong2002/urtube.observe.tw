@@ -970,3 +970,46 @@ test('cluster uploads queue per endpoint while comparison stays responsive', asy
     assert.equal(clusterCalls, 2);
   } finally { release(); globalThis.fetch = original; }
 });
+
+test('channels without description evidence stay cached instead of re-querying YouTube every few minutes', async () => {
+  const { db, store } = storeFixture();
+  let lookups = 0;
+  let transient = false;
+  const provider: Provider = {
+    classify: async () => classification,
+    embed: async tags => tags.map(() => [1, 0]),
+    channel: async () => { lookups++; return { types: [], evidenceAvailable: false, ...(transient ? { transient: true } : {}) }; },
+  };
+  const age = () => db.exec(`UPDATE matching_v3_cache SET created_at=${Date.now() - 3600_000}`);
+  try {
+    await buildProfile({ videos: [video], complete: true, fingerprint: 'a' }, ['channel type'], store, s, provider, compute);
+    age();
+    await buildProfile({ videos: [video], complete: true, fingerprint: 'b' }, ['channel type'], store, s, provider, compute);
+    assert.equal(lookups, 1, 'a channel with no description is a stable answer');
+    db.exec('DELETE FROM matching_v3_cache');
+    transient = true;
+    await buildProfile({ videos: [video], complete: true, fingerprint: 'c' }, ['channel type'], store, s, provider, compute);
+    age();
+    await buildProfile({ videos: [video], complete: true, fingerprint: 'd' }, ['channel type'], store, s, provider, compute);
+    assert.equal(lookups, 3, 'a no-key result still expires after five minutes');
+  } finally { db.close(); }
+});
+
+test('profile channel lookups share 50-ID YouTube requests', async () => {
+  const { db, store } = storeFixture();
+  const requests: number[] = [];
+  const provider = matchingProvider({ ...s, apiKey: 'fixture' }, 'fixture', async input => {
+    const url = new URL(String(input));
+    if (url.hostname === 'www.googleapis.com') {
+      const ids = url.searchParams.get('id')!.split(','); requests.push(ids.length);
+      return Response.json({ items: ids.map(id => ({ id, snippet: { title: id, description: '' } })) });
+    }
+    throw new Error('No model call is needed for channels without descriptions');
+  });
+  const videos = Array.from({ length: 120 }, (_, i) => ({ ...video, id: `video-${i}`, channelId: `channel-${i}` }));
+  try {
+    const p = await buildProfile({ videos, complete: true, fingerprint: 'batched' }, ['channel type'], store, s, provider, compute);
+    assert.equal(p.genres['channel type']?.status, 'insufficient');
+    assert.deepEqual(requests, [50, 50, 20]);
+  } finally { db.close(); }
+});

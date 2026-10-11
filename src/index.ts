@@ -63,7 +63,7 @@ import {
   youtubeProcessingCapabilities,
   type YoutubeProcessingStatus,
 } from './youtube/processing.js';
-import { readOpsStatus, workerOpsReady, type WorkerOpsStatus } from './ops-status.js';
+import { readOpsStatus, workerOpsReady, type MatchingOpsStatus, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
@@ -1582,13 +1582,17 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         },
         summary: '/api/youtube/summary.json',
         // Approximate YouTube Data API quota units spent since the last
-        // reset: the worker's count from its status file plus this app
-        // process's own channel-page lookups.
+        // reset: the worker's and matching worker's counts from their status
+        // files plus this app process's own channel-page lookups.
         apiUsage: (() => {
           const worker = readOpsStatus<WorkerOpsStatus>('worker');
+          const matching = readOpsStatus<MatchingOpsStatus>('matching');
           const app = youtubeApiUsage();
           return {
             workerRequestsSinceReset: worker?.youtubeApiRequestsSinceReset ?? null,
+            // A count published before the latest reset no longer applies.
+            matchingRequestsSinceReset: matching?.youtubeApiQuotaResetAt === app.quotaResetAt
+              ? matching.youtubeApiRequestsSinceReset ?? null : null,
             appRequestsSinceReset: app.requestsSinceReset,
             quotaResetAt: app.quotaResetAt,
           };

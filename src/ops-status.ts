@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 
-export type OpsStatusName = 'backup' | 'worker';
+export type OpsStatusName = 'backup' | 'worker' | 'matching';
 
 export interface WorkerOpsStatus {
   lastStartedAt?: string;
@@ -14,6 +14,13 @@ export interface WorkerOpsStatus {
   lastError?: string;
   // YouTube Data API requests this worker process made since the last quota
   // reset (one request = one quota unit). See youtubeApiUsage().
+  youtubeApiRequestsSinceReset?: number;
+  youtubeApiQuotaResetAt?: string;
+}
+
+// Published by the matching worker, which shares the YouTube API keys.
+export interface MatchingOpsStatus {
+  heartbeatAt?: string;
   youtubeApiRequestsSinceReset?: number;
   youtubeApiQuotaResetAt?: string;
 }

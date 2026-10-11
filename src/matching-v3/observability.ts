@@ -22,5 +22,6 @@ export function observedProvider(provider: Provider, store: MatchingStore): Prov
       observe('gpt_classification', videos.length, () => provider.classifyBatch!(videos)) } : {}),
     embed: tags => observe('gemini_embedding', tags.length, () => provider.embed(tags)),
     channel: (id, title) => observe('channel_processing', 1, () => provider.channel(id, title)),
+    ...(provider.prefetchChannels ? { prefetchChannels: (ids: string[]) => provider.prefetchChannels!(ids) } : {}),
   };
 }

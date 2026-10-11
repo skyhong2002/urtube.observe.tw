@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type { Repository } from '../data/database.js';
-import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, nextYoutubeQuotaReset, type YoutubeApiKeyPool } from './api-keys.js';
+import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, recordYoutubeApiRequest, type YoutubeApiKeyPool } from './api-keys.js';
+
+export { youtubeApiUsage, type YoutubeApiUsage } from './api-keys.js';
 import { createAsyncLimiter } from './concurrency.js';
 import { retryYoutubeTimeouts, youtubeRequestJson } from './request-json.js';
 import type { YoutubeChannelMetadata, YoutubeChannelStatistics, YoutubeVideoMetadata } from './types.js';
@@ -28,26 +30,6 @@ function keyPool(source: YoutubeApiKeySource): YoutubeApiKeyPool {
   return createYoutubeApiKeyPool(typeof source === 'string' ? [source] : source);
 }
 
-// Requests made by this process since the last YouTube quota reset. Every
-// list call costs one quota unit, so this approximates units spent. It is
-// per process (worker and app count separately) and restarts from zero when
-// the process does.
-export interface YoutubeApiUsage {
-  requestsSinceReset: number;
-  quotaResetAt: string;
-}
-
-let usage = { requests: 0, resetAt: nextYoutubeQuotaReset() };
-
-function countYoutubeApiRequest(now = Date.now()): void {
-  if (now >= usage.resetAt) usage = { requests: 0, resetAt: nextYoutubeQuotaReset(now) };
-  usage.requests++;
-}
-
-export function youtubeApiUsage(): YoutubeApiUsage {
-  return { requestsSinceReset: usage.requests, quotaResetAt: new Date(usage.resetAt).toISOString() };
-}
-
 function keyLabel(key: string): string {
   return `…${key.slice(-4)}`;
 }
@@ -61,7 +43,7 @@ async function youtubeApiGet<T>(label: string, url: URL, pool: YoutubeApiKeyPool
     url.searchParams.set('key', key);
     try {
       return await retryYoutubeTimeouts(() => youtubeApiRequest(async () => {
-        countYoutubeApiRequest();
+        recordYoutubeApiRequest();
         return youtubeRequestJson(url, fetchImpl, async (response) => {
           if (response.ok) return response.json() as Promise<T>;
           const detail = `${label}: HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`;

@@ -29,6 +29,27 @@ export function nextYoutubeQuotaReset(now = Date.now()): number {
   return Date.UTC(parts.year, parts.month - 1, parts.day + 1) - offset;
 }
 
+// Requests made by this process since the last YouTube quota reset. Every
+// list call costs one quota unit, so this approximates units spent. It is
+// per process (worker, matching worker and app count separately) and
+// restarts from zero when the process does.
+export interface YoutubeApiUsage {
+  requestsSinceReset: number;
+  quotaResetAt: string;
+}
+
+let usage = { requests: 0, resetAt: nextYoutubeQuotaReset() };
+
+export function recordYoutubeApiRequest(now = Date.now()): void {
+  if (now >= usage.resetAt) usage = { requests: 0, resetAt: nextYoutubeQuotaReset(now) };
+  usage.requests++;
+}
+
+export function youtubeApiUsage(now = Date.now()): YoutubeApiUsage {
+  if (now >= usage.resetAt) usage = { requests: 0, resetAt: nextYoutubeQuotaReset(now) };
+  return { requestsSinceReset: usage.requests, quotaResetAt: new Date(usage.resetAt).toISOString() };
+}
+
 export function parseYoutubeApiKeys(...values: Array<string | undefined>): string[] {
   const keys = values.flatMap((value) => (value ?? '').split(',')).map((key) => key.trim()).filter(Boolean);
   return [...new Set(keys)];
