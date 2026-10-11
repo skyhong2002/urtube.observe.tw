@@ -25,6 +25,7 @@ import {
   registryCrystalEligible,
   type RegistryMatchingCrystal,
 } from './youtube/registry-crystal.js';
+import { YoutubeMetadataCache } from './youtube/metadata-cache.js';
 
 // Multi-tenant MVP: one small registry database maps hashed per-user tokens
 // to a user, and each user owns a separate SQLite data file that reuses the
@@ -218,6 +219,10 @@ function rowToUser(row: Record<string, unknown>): User {
 export class UserRegistry {
   private v3Store?: MatchingStore;
   private v3Monitoring?: AdminMonitoring;
+  private metadataCache?: YoutubeMetadataCache;
+  youtubeMetadataCache(): YoutubeMetadataCache {
+    return this.metadataCache ??= new YoutubeMetadataCache(this.db);
+  }
   matchingV3Store(): MatchingStore {
     return this.v3Store ??= new MatchingStore(this.db);
   }

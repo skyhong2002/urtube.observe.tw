@@ -42,6 +42,16 @@ export interface YoutubeWorkerUserResult {
   error?: string;
 }
 
+// Metadata is shared through the registry-wide cache, so accounts that
+// watched the same videos and channels spend YouTube quota only once.
+export function youtubeWorkerSteps(registry: UserRegistry): YoutubeWorkerSteps {
+  return { ...defaultSteps,
+    metadata: (repository) => enrichYoutubeMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE, registry.youtubeMetadataCache()),
+    channelMetadata: (repository) =>
+      enrichYoutubeChannelMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE, registry.youtubeMetadataCache()),
+  };
+}
+
 const defaultSteps: YoutubeWorkerSteps = {
   portability: (repository) => runYoutubePortabilityStep(repository),
   // A fresh history import can contain tens of thousands of videos. The
@@ -195,6 +205,7 @@ export function youtubeWorkPending(
 if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
+  const steps = youtubeWorkerSteps(registry);
   let running = false;
   const activeUsers = new Set<number>();
 
@@ -226,7 +237,7 @@ if (process.env.NODE_ENV !== 'test') {
       recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
     }, WORKER_HEARTBEAT_INTERVAL_MS);
     try {
-      const users = await runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { activeUsers, onUserSettled });
+      const users = await runYoutubeWorkerCycle(registry, steps, () => new Date(), { activeUsers, onUserSettled });
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
       const failedUsers = youtubeWorkerFailedUsers(registry);
       for (const result of users) {
@@ -288,7 +299,7 @@ if (process.env.NODE_ENV !== 'test') {
     }).map(user => user.id);
     if (userIds.length) {
       recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
-      void runYoutubeWorkerCycle(registry, defaultSteps, () => new Date(), { userIds, activeUsers, onUserSettled })
+      void runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds, activeUsers, onUserSettled })
       .then(() => {
         if (!running && !activeUsers.size) recordStatus({ running: false, lastCompletedAt: new Date().toISOString(),
           failedUsers: youtubeWorkerFailedUsers(registry) });

@@ -72,6 +72,12 @@ supplies safe empty, unconfirmed defaults for older registries.
 Identity is joined by `user_id`; it is not copied into crystal JSON. Foreign
 keys cascade these shared rows on account deletion. These registry tables are
 included automatically in full backup bundles.
+`youtube_video_metadata_cache` and `youtube_channel_metadata_cache` let
+accounts that watched the same video or channel share one YouTube Data API
+lookup. They hold only public YouTube metadata keyed by video/channel ID, with
+no user id, watch time or other link to who asked, and rows are purged after
+30 days (videos) or 7 days (channels), so nothing outlives a deleted account
+by more than one cache lifetime.
 The registry also stores `match_requests` and short-lived
 `match_action_tokens`. Action tokens bind one signed-in sender to one eligible
 recipient without putting either user's internal id or handle in HTML.

@@ -6,6 +6,7 @@ import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, recordYoutubeApiRequest, 
 export { youtubeApiUsage, type YoutubeApiUsage } from './api-keys.js';
 import { createAsyncLimiter } from './concurrency.js';
 import { retryYoutubeTimeouts, youtubeRequestJson } from './request-json.js';
+import type { YoutubeMetadataCache } from './metadata-cache.js';
 import type { YoutubeChannelMetadata, YoutubeChannelStatistics, YoutubeVideoMetadata } from './types.js';
 
 // Shared by every account in this worker process. Four concurrent requests
@@ -190,11 +191,23 @@ export async function fetchYoutubeMetadata(
   return output;
 }
 
-export async function enrichYoutubeMetadata(repository: Repository, limit = 500): Promise<number> {
+// Videos another account already looked up come from the shared cache; only
+// the rest cost YouTube API requests.
+export async function enrichYoutubeMetadata(
+  repository: Repository,
+  limit = 500,
+  cache?: YoutubeMetadataCache,
+  fetchMetadata: ((videoIds: string[]) => Promise<YoutubeVideoMetadata[]>) | null = config.youtube.apiKey ? fetchYoutubeMetadata : null,
+): Promise<number> {
   const ids = repository.youtubeVideosNeedingMetadata(limit);
-  if (!ids.length || !config.youtube.apiKey) return 0;
-  const metadata = await fetchYoutubeMetadata(ids);
-  repository.upsertYoutubeVideoMetadata(metadata);
+  if (!ids.length) return 0;
+  const cached = cache?.videos(ids) ?? new Map();
+  const hits = [...cached.values()].map((entry) => entry.value);
+  const missing = ids.filter((id) => !cached.has(id));
+  const fetched = missing.length && fetchMetadata ? await fetchMetadata(missing) : [];
+  if (fetched.length) cache?.putVideos(fetched);
+  const metadata = [...hits, ...fetched];
+  if (metadata.length) repository.upsertYoutubeVideoMetadata(metadata);
   return metadata.length;
 }
 
@@ -230,10 +243,28 @@ export async function fetchYoutubeChannelMetadata(
   return output;
 }
 
-export async function enrichYoutubeChannelMetadata(repository: Repository, limit = 500): Promise<number> {
+export async function enrichYoutubeChannelMetadata(
+  repository: Repository,
+  limit = 500,
+  cache?: YoutubeMetadataCache,
+  fetchMetadata: ((channelIds: string[]) => Promise<YoutubeChannelMetadata[]>) | null = config.youtube.apiKey ? fetchYoutubeChannelMetadata : null,
+): Promise<number> {
   const ids = repository.youtubeChannelsNeedingMetadata(limit);
-  if (!ids.length || !config.youtube.apiKey) return 0;
-  const metadata = await fetchYoutubeChannelMetadata(ids);
-  repository.upsertYoutubeChannelMetadata(metadata);
-  return metadata.length;
+  if (!ids.length) return 0;
+  const cached = cache?.channels(ids) ?? new Map();
+  // Keep the original fetch time so cached statistics age on this account's
+  // refresh schedule exactly as if it had fetched them itself.
+  const hitsByFetchedAt = new Map<string, YoutubeChannelMetadata[]>();
+  for (const { value, fetchedAt } of cached.values()) {
+    hitsByFetchedAt.set(fetchedAt, [...hitsByFetchedAt.get(fetchedAt) ?? [], value]);
+  }
+  for (const [fetchedAt, channels] of hitsByFetchedAt) repository.upsertYoutubeChannelMetadata(channels, fetchedAt);
+  const missing = ids.filter((id) => !cached.has(id));
+  const fetched = missing.length && fetchMetadata ? await fetchMetadata(missing) : [];
+  if (fetched.length) {
+    const fetchedAt = new Date().toISOString();
+    cache?.putChannels(fetched, fetchedAt);
+    repository.upsertYoutubeChannelMetadata(fetched, fetchedAt);
+  }
+  return cached.size + fetched.length;
 }
