@@ -16,7 +16,7 @@ import {
   PERSONAL_TOPICS,
   type PersonalTaxonomyRun,
 } from '../src/youtube/personal-taxonomy.js';
-import { runYoutubeWorkerCycle, youtubeWorkPending, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
+import { runYoutubeWorkerCycle, youtubePendingUserIds, youtubeWorkPending, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 import { UserRegistry } from '../src/users.js';
 import type { YoutubeVideoMetadata } from '../src/youtube/types.js';
 
@@ -255,6 +255,12 @@ test('worker stamps each archive and reports pending work only for configured st
     assert.equal(youtubeWorkPending(registry, { metadata: false, topics: false }), false);
     assert.equal(youtubeWorkPending(registry, { metadata: false, topics: true }), false);
     assert.equal(youtubeWorkPending(registry, { metadata: true, topics: false }), true);
+    // Catch-up runs visit only archives with pending work, not the idle default archive.
+    assert.deepEqual(youtubePendingUserIds(registry, { metadata: true, topics: false }), [alice.id]);
+    // Cached counts follow new imports into the same archive.
+    assert.equal(repository.youtubeProcessingCounts().videosPendingMetadata, 1);
+    repository.ingestYoutubeArchive(parseYoutubeArchive(archiveJson(['video-one', 'video-two']), SECRET, 'takeout'));
+    assert.equal(repository.youtubeProcessingCounts().videosPendingMetadata, 2);
 
     const steps: YoutubeWorkerSteps = {
       portability: async () => 'idle',

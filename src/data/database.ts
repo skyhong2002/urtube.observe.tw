@@ -392,6 +392,7 @@ export class Repository {
   private estimatedEventsBuiltAt = 0;
   private estimatedEventsRevision = '';
   private matchingSourceCache: { key: string; snapshot: MatchingSourceSnapshot } | null = null;
+  private processingCountsCache: { key: string; row: Record<string, unknown> } | null = null;
 
   // data_version observes other connections (ingest/worker); total_changes
   // observes writes through this connection, including updates with no new rows.
@@ -1463,7 +1464,12 @@ export class Repository {
   // predicates the enrichment steps use, so "pending" here is exactly what
   // the next cycles will pick up.
   youtubeProcessingCounts(now = new Date()): YoutubeProcessingCounts {
-    const row = this.db.prepare(`
+    // The worker checks every archive for pending work each catch-up tick, and
+    // these scans cost seconds on large archives. Reuse them until the archive
+    // changes; `now` only moves channel refresh deadlines measured in days, so
+    // re-evaluating it hourly is enough.
+    const key = `${this.readRevision()}:${Math.floor(now.getTime() / 3600_000)}`;
+    const row = this.processingCountsCache?.key === key ? this.processingCountsCache.row : this.db.prepare(`
       WITH work_run AS (
         SELECT * FROM youtube_taxonomy_runs
         WHERE definition_version='${PERSONAL_TAXONOMY_DEFINITION_VERSION}'
@@ -1498,6 +1504,7 @@ export class Repository {
              )) videos_pending_topics,
         (SELECT MAX(imported_at) FROM youtube_watch_events) last_import_at
     `).get(...channelMetadataCutoffs(now)) as Record<string, unknown>;
+    this.processingCountsCache = { key, row };
     return {
       videos: Number(row.videos),
       videosPendingMetadata: Number(row.videos_pending_metadata),

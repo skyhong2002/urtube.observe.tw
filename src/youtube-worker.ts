@@ -186,6 +186,20 @@ export function youtubeInitialTopicsPending(repository: Repository, autoActivate
   return runs.length === 0 || (runs.length === 1 && runs[0].status === 'ready');
 }
 
+// Archives with enrichment the configured stages can still do. Catch-up runs
+// between hourly sweeps visit only these, so one archive that keeps gaining
+// new channels does not make every idle archive rescan every few minutes.
+export function youtubePendingUserIds(
+  registry: UserRegistry,
+  capabilities: YoutubeProcessingCapabilities = youtubeProcessingCapabilities(),
+): number[] {
+  return registry.listUsers().filter((user) => {
+    const repository = registry.repositoryFor(user);
+    return (capabilities.topics && youtubeInitialTopicsPending(repository, user.autoActivateInitialTopics))
+      || youtubeMatchingWorkPending(repository)
+      || describeYoutubeProcessing(repository.youtubeProcessingCounts(), capabilities).pending > 0;
+  }).map((user) => user.id);
+}
 // Whether any archive has enrichment the configured stages can still do.
 // Drives the catch-up cadence: a fresh Takeout should not wait an hour for
 // its first metadata pass.
@@ -223,21 +237,32 @@ if (process.env.NODE_ENV !== 'test') {
   const CATCHUP_MS = YOUTUBE_WORKER_CATCHUP_MINUTES * 60_000;
   const FULL_CYCLE_MS = YOUTUBE_WORKER_FULL_CYCLE_MINUTES * 60_000;
   let lastCycleStartedAt = 0;
+  // Who a catch-up run should visit: every archive while a crystal refresh is
+  // queued (undefined), only the pending ones otherwise, or nobody (null).
+  const catchUpTarget = (): number[] | undefined | null => {
+    if (registry.crystalRefreshPending()) return undefined;
+    const ids = youtubePendingUserIds(registry);
+    return ids.length ? ids : null;
+  };
   let lastCycleFailed = false;
   let stopping = false;
 
-  const run = async (): Promise<void> => {
+  // `userIds` limits a catch-up run to archives with pending work; only full
+  // sweeps (no userIds) move the hourly schedule, so idle archives still get
+  // their hourly visit while one busy archive keeps catching up.
+  const run = async (userIds?: number[]): Promise<void> => {
     if (running) return;
     running = true;
-    let continueImmediately = false;
-    lastCycleStartedAt = Date.now();
-    const lastStartedAt = new Date(lastCycleStartedAt).toISOString();
+    let continueWith: number[] | undefined | null = null;
+    const startedAt = Date.now();
+    if (!userIds) lastCycleStartedAt = startedAt;
+    const lastStartedAt = new Date(startedAt).toISOString();
     recordStatus(youtubeWorkerCycleStartedStatus(lastStartedAt));
     const heartbeat = setInterval(() => {
       recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
     }, WORKER_HEARTBEAT_INTERVAL_MS);
     try {
-      const users = await runYoutubeWorkerCycle(registry, steps, () => new Date(), { activeUsers, onUserSettled });
+      const users = await runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds, activeUsers, onUserSettled });
       console.log(JSON.stringify({ at: new Date().toISOString(), users }));
       const failedUsers = youtubeWorkerFailedUsers(registry);
       for (const result of users) {
@@ -259,7 +284,8 @@ if (process.env.NODE_ENV !== 'test') {
       // impose an additional five-minute sleep. Continue immediately while a
       // successful cycle actually moved the backlog forward. The timer below
       // remains the idle/no-progress safety poll.
-      continueImmediately = youtubeWorkerShouldContinue(users, youtubeWorkPending(registry));
+      const target = catchUpTarget();
+      continueWith = youtubeWorkerShouldContinue(users, target !== null) ? target : null;
     } catch (error) {
       const lastError = errorMessage(error);
       lastCycleFailed = true;
@@ -273,7 +299,8 @@ if (process.env.NODE_ENV !== 'test') {
     } finally {
       clearInterval(heartbeat);
       running = false;
-      if (continueImmediately && !stopping) setImmediate(() => { void run(); });
+      const next = continueWith;
+      if (next !== null && !stopping) setImmediate(() => { void run(next); });
     }
   };
 
@@ -282,9 +309,10 @@ if (process.env.NODE_ENV !== 'test') {
   // broken API key does not retry every five minutes.
   const tick = async (): Promise<void> => {
     if (running) return;
-    const due = Date.now() - lastCycleStartedAt >= FULL_CYCLE_MS;
-    if (!due && (lastCycleFailed || !youtubeWorkPending(registry))) return;
-    await run();
+    if (Date.now() - lastCycleStartedAt >= FULL_CYCLE_MS) return run();
+    if (lastCycleFailed) return;
+    const target = catchUpTarget();
+    if (target !== null) await run(target);
   };
 
   // Check failed accounts independently of a slow account's full-cycle work.
