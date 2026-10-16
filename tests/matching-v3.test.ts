@@ -310,6 +310,9 @@ test('v3 source and worker apply the same recent unique-video limit without repl
     assert.deepEqual(first.videos.map(v => v.id), ['LIMITTEST02', 'LIMITTEST03']);
     capture('LIMITTEST02', 13);
     assert.equal(repo.matchingV3Source(2).fingerprint, first.fingerprint);
+    // An unchanged archive reuses its snapshot; the limit is part of the cache key.
+    assert.equal(repo.matchingV3Source(2), repo.matchingV3Source(2));
+    assert.equal(repo.matchingV3Source(3).videos.length, 3);
     const classified: string[] = [];
     const provider: Provider = {
       classify: async v => { classified.push(v.id); return classification; },

@@ -391,6 +391,7 @@ export class Repository {
   private estimatedEventsKey = '';
   private estimatedEventsBuiltAt = 0;
   private estimatedEventsRevision = '';
+  private matchingSourceCache: { key: string; snapshot: MatchingSourceSnapshot } | null = null;
 
   // data_version observes other connections (ingest/worker); total_changes
   // observes writes through this connection, including updates with no new rows.
@@ -1651,6 +1652,10 @@ export class Repository {
   // Watch times remain private; stable ID ordering avoids churn for unchanged membership.
   matchingV3Source(backfillLimit = 2000): MatchingSourceSnapshot {
     if (!Number.isSafeInteger(backfillLimit) || backfillLimit < 1) throw new Error('Invalid matching backfill limit');
+    // The matching worker rebuilds every user's source on each idle poll; reuse the snapshot
+    // until this archive changes (readRevision sees ingest/worker writes from other connections).
+    const key = `${backfillLimit}:${this.readRevision()}`;
+    if (this.matchingSourceCache?.key === key) return this.matchingSourceCache.snapshot;
     const rows = this.db.prepare(`SELECT v.video_id, v.title, v.tags_json,
       v.description, v.channel_id, v.channel_title
       FROM youtube_videos v JOIN youtube_watch_events w ON w.video_id=v.video_id
@@ -1669,7 +1674,9 @@ export class Repository {
     const latest = this.youtubeProgressImports(1)[0];
     const complete = Boolean(this.youtubeHistoryCoverage()) && (!latest || Boolean(latest.completedAt)
       && !latest.error && latest.endReason !== null && YOUTUBE_SCAN_COVERING_REASONS.has(latest.endReason));
-    return { videos, complete, fingerprint: digest([videos, complete]) };
+    const snapshot = { videos, complete, fingerprint: digest([videos, complete]) };
+    this.matchingSourceCache = { key, snapshot };
+    return snapshot;
   }
 
   // Private, chronological event rows for the owner's History page. Unlike
