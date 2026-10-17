@@ -2,6 +2,7 @@
 // controls and card layout. Data here is limited to public archives, not the
 // signed-in matching pool used by the full directory.
 import { html } from './pages.js';
+import { channelImageSources } from './channel-image.js';
 import type { Lang } from './i18n.js';
 import type { CommunityChannel } from '../youtube/community.js';
 export function landingChannelShelf(channels: CommunityChannel[], mode: 'duration' | 'watches', lang: Lang): string {
@@ -11,8 +12,9 @@ export function landingChannelShelf(channels: CommunityChannel[], mode: 'duratio
  const fmt = new Intl.NumberFormat(zh ? 'zh-TW' : 'en-US');
  const rows = channels.map((channel, index) => {
    const href = `/channel/${encodeURIComponent(channel.id)}?range=90d&sort=${mode}&lang=${lang}`;
+   const image = channelImageSources(channel.thumbnailUrl ?? '');
    const avatar = channel.thumbnailUrl && /^https:\/\//.test(channel.thumbnailUrl)
-     ? `<img src="${html(channel.thumbnailUrl)}" alt="" loading="lazy" width="128" height="128" referrerpolicy="no-referrer">`
+     ? `<img src="${html(image.src)}"${image.srcset ? ` srcset="${html(image.srcset)}" sizes="(max-width: 560px) 80px, 104px"` : ''} alt="" loading="lazy" decoding="async" width="128" height="128" referrerpolicy="no-referrer">`
      : `<span class="ch-initial" aria-hidden="true">${html([...channel.name][0] ?? '?')}</span>`;
    const hours = `${Math.round((channel.estimatedWatchSeconds ?? 0) / 360) / 10}h`;
    const watches = `${fmt.format(channel.watches)} ${zh ? '次' : 'views'}`;
