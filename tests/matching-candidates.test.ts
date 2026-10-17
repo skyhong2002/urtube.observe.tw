@@ -263,6 +263,33 @@ test('/matches renders twenty bounded people, a finite next page, and no private
   }
 });
 
+test('/matches deduplicates ranked public members and retains current visibility checks', async () => {
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry, { loadTagLists: noTaggedChannels });
+  try {
+    const viewer = registry.createUser('dedup-viewer', 'Viewer');
+    const overlap = registry.createUser('dedup-public-ranked', 'Ranked Public');
+    const rankedOnly = registry.createUser('dedup-private-ranked', 'Ranked Private');
+    const publicOnly = registry.createUser('dedup-public-only', 'Public Only');
+    const hidden = registry.createUser('dedup-hidden', 'Hidden');
+    for (const member of [viewer, overlap, rankedOnly]) publish(registry, member);
+    registry.setDashboardPublic(overlap.handle, true);
+    registry.setDashboardPublic(publicOnly.handle, true);
+    const headers = { cookie: `urtube_session=${registry.createSession(viewer)}` };
+    const first = await (await app.request('/matches', { headers })).text();
+    const handles = [...first.matchAll(/class="mt-person-link" href="\/([a-z0-9.-]+)"/g)].map(match => match[1]);
+    assert.equal(handles.length, 3);
+    assert.deepEqual(new Set(handles), new Set([overlap.handle, rankedOnly.handle, publicOnly.handle]));
+    assert.ok(!handles.includes(hidden.handle));
+    registry.setDashboardPublic(overlap.handle, false);
+    registry.setMatchingPreferences(overlap.handle, false, 'topics_only');
+    const after = await (await app.request('/matches', { headers })).text();
+    assert.doesNotMatch(after, /href="\/dedup-public-ranked"/);
+    assert.match(after, /href="\/dedup-private-ranked"/);
+    assert.match(after, /href="\/dedup-public-only"/);
+  } finally { registry.close(); }
+});
+
 test('/matches keeps quality thresholds and shows a clear no-candidate state', async () => {
   const registry = new UserRegistry(':memory:');
   const app = createApp(registry);

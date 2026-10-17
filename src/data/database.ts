@@ -171,10 +171,11 @@ const YOUTUBE_ESTIMATED_EVENTS_CTE = `
           CASE
             WHEN w.actual_watched_seconds IS NOT NULL THEN w.actual_watched_seconds
             WHEN EXISTS (
-              SELECT 1 FROM youtube_watch_events measured
+              SELECT 1 FROM temp.youtube_measured_events measured
               WHERE measured.video_id=w.video_id
-                AND measured.actual_watched_seconds IS NOT NULL
-                AND ABS((julianday(measured.watched_at)-julianday(w.watched_at))*86400)<=300
+                AND measured.watched_jd BETWEEN julianday(w.watched_at)-301.0/86400
+                  AND julianday(w.watched_at)+301.0/86400
+                AND ABS((measured.watched_jd-julianday(w.watched_at))*86400)<=300
             ) THEN 0
             WHEN a.occurred_precision='day' THEN MIN(
               COALESCE(vp.progress_seconds, v.duration_seconds, 0),
@@ -1291,9 +1292,9 @@ export class Repository {
         watch.eventId, activity.id, watch.videoId, watch.watchedAt, watch.title,
         watch.url, null, watch.channelTitle, null, watch.actualWatchedSeconds, importedAt
       );
-      // A Takeout row may carry the channel id that earlier capture rows for the
-      // same video lacked; reconcile before the import becomes visible.
-      this.backfillYoutubeChannelIds();
+      // Reconcile this video's earlier Takeout/capture rows as well as the new
+      // capture, without scanning unrelated history on every playback update.
+      this.backfillYoutubeChannelIds([watch.videoId]);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -1789,13 +1790,31 @@ export class Repository {
       this.estimatedEventsRevision = revision;
       return;
     }
-    this.db.exec(`
-      DROP TABLE IF EXISTS temp.youtube_estimated_events;
-      CREATE TEMP TABLE youtube_estimated_events AS ${YOUTUBE_ESTIMATED_EVENTS_CTE}
-      SELECT * FROM estimated_events;
-      CREATE INDEX temp.youtube_estimated_time_idx ON youtube_estimated_events(watched_at);
-      CREATE INDEX temp.youtube_estimated_video_idx ON youtube_estimated_events(video_id);
-    `);
+    // Numeric Julian dates preserve SQLite's parsing of offsets and fractional
+    // timestamps. A covering lookup bounds each same-video probe; the extra
+    // second only widens the seek, while the original ABS predicate retains
+    // its exact floating-point boundary behavior. Keep both reads in one
+    // snapshot so another connection cannot add a capture between them.
+    this.db.exec('SAVEPOINT youtube_estimated_refresh');
+    try {
+      this.db.exec(`
+        CREATE TEMP TABLE youtube_measured_events AS
+          SELECT video_id, julianday(watched_at) watched_jd
+          FROM youtube_watch_events WHERE actual_watched_seconds IS NOT NULL;
+        CREATE INDEX temp.youtube_measured_video_time_idx
+          ON youtube_measured_events(video_id, watched_jd);
+        DROP TABLE IF EXISTS temp.youtube_estimated_events;
+        CREATE TEMP TABLE youtube_estimated_events AS ${YOUTUBE_ESTIMATED_EVENTS_CTE}
+        SELECT * FROM estimated_events;
+        DROP TABLE temp.youtube_measured_events;
+        CREATE INDEX temp.youtube_estimated_time_idx ON youtube_estimated_events(watched_at);
+        CREATE INDEX temp.youtube_estimated_video_idx ON youtube_estimated_events(video_id);
+      `);
+      this.db.exec('RELEASE youtube_estimated_refresh');
+    } catch (error) {
+      this.db.exec('ROLLBACK TO youtube_estimated_refresh; RELEASE youtube_estimated_refresh');
+      throw error;
+    }
     this.estimatedEventsKey = key;
     this.estimatedEventsBuiltAt = now;
     this.estimatedEventsRevision = this.readRevision();
