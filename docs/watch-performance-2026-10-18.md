@@ -7,6 +7,7 @@
 - `ensureEstimatedEvents()` 重建既有 connection-local cache 時，先將量測事件的 `video_id` 與 `julianday(watched_at)` 寫入暫存 lookup，以兩欄 covering index 搜尋同影片的近鄰。SQLite 仍解析原始日期，不用字串時間範圍假設所有既有 timestamp 都是同一格式。
 - 索引先尋找 ±301 秒候選，最後仍用原本 `ABS((measured_jd-julianday(watched_at))*86400)<=300` 判斷。額外一秒僅用於索引候選範圍，避免將浮點算式改寫後改變五分鐘端點。並未把去重視窗改為 301 秒。
 - lookup 與推估 materialization 共用 savepoint/read snapshot，避免其他 ingest connection 在兩次讀之間新增量測事件。成功後移除 lookup；失敗會 rollback，保留先前完成的暫存 cache，再將錯誤交還呼叫者。沒有永久 schema migration，schema version 仍是 13。
+- 獨立 review 另重現既有 freshness 競態：materialization 若在舊 snapshot 中完成，release 後才讀 revision 可能把其他 writer 的新 commit 誤標為已包含。cache 現在保留 refresh 前的 revision，讓下一次讀立即偵測這些 commit；必要時保守多 refresh 一次。
 - 單筆 capture 僅針對本次 `videoId` 執行既有 channel reconcile，仍補齊該影片所有舊 Takeout/capture 事件。constructor、archive 批次，以及 metadata 的 reconcile 路徑保留。
 - `/matches` 預建 ranked 成員 ID 的 `Set`，補齊公開/v3 成員時查集合，移除逐候選的陣列掃描。現行可見性檢查、非同步計分後的 session/consent 重查、計分與排序流程保留。
 
@@ -41,6 +42,7 @@ SEARCH measured USING COVERING INDEX youtube_measured_video_time_idx
 - `npm run typecheck`。
 - 全套 Node tests：427 tests，426 pass、0 fail、1 existing skip（未提供 Python HTTP integration endpoint），使用單序列與記憶體/臨時 DB。
 - 新 oracle fixtures 涵蓋五分鐘兩端與 ±1 ms、正負時區、無毫秒、空白分隔、submillisecond、無效日期與 null video ID。另驗證空資料、無量測資料、新量測/播放更新刷新 cache、故障注入後 rollback 與重試、lookup 無殘留。
+- 追加 WAL 雙 connection regression：在 lookup 建立後由 writer 將量測秒數 42 改為 84，第一次讀一致使用舊 snapshot 的 42，下一次讀立即更新為 84。此測試先在 review 前版本重現失敗，再於 freshness 修復後通過；追加修復只重跑定向測試與 typecheck，未重跑整套。
 - channel fixture 驗證同片舊事件與新 capture 都補齊，其他影片留給批次 reconcile；候選 fixture 驗證 ranked/public 重疊只出現一次，以及撤回公開/匹配後立即不可見。既有非同步撤回與持久化分數 cache 測試亦通過。
 
 回復可 revert 本次 commit，再由原有 CD 發布；沒有永久 schema、cache namespace 或真人回填需要回復。本輪未部署或重啟，正式效益仍需 CD 後的運行驗證。

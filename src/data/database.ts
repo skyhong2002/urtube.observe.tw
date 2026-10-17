@@ -1817,7 +1817,10 @@ export class Repository {
     }
     this.estimatedEventsKey = key;
     this.estimatedEventsBuiltAt = now;
-    this.estimatedEventsRevision = this.readRevision();
+    // A writer may commit while our read snapshot is active. Retain the
+    // pre-refresh revision so the next call observes that commit instead of
+    // incorrectly marking it as already included in this materialization.
+    this.estimatedEventsRevision = revision;
   }
 
   // Every channel with at least one watch in range, no top-N cut: the

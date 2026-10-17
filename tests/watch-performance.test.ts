@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Repository } from '../src/data/database.js';
 import type { YoutubeCapturedWatch, YoutubeWatchInput } from '../src/youtube/types.js';
@@ -120,6 +123,40 @@ test('empty materialization succeeds and failed rebuilds restore the previous ca
     assert.equal(database.prepare("SELECT COUNT(*) n FROM sqlite_temp_master WHERE name='youtube_measured_events'").get()!.n, 0,
       'successful materialization also releases its temporary lookup');
   } finally { repository.close(); }
+});
+
+test('a WAL writer during materialization remains visible to the next cache refresh', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'urtube-neighbor-wal-'));
+  const path = join(directory, 'synthetic.sqlite');
+  const repository = new Repository(path);
+  const writer = new DatabaseSync(path);
+  try {
+    repository.upsertYoutubeCapture({ ...watch('concurrent-capture', 'SYNTHETIC01', '2026-10-17T12:00:00.000Z', 42),
+      durationSeconds: 600 } as YoutubeCapturedWatch, NOW);
+    const database = fixtureDatabase(repository);
+    const exec = database.exec.bind(database);
+    let wroteDuringSnapshot = false;
+    t.mock.method(database, 'exec', (sql: string) => {
+      const split = sql.indexOf('DROP TABLE IF EXISTS temp.youtube_estimated_events;');
+      if (split < 0 || wroteDuringSnapshot) return exec(sql);
+      // The lookup has read the main DB and established the refresh snapshot.
+      exec(sql.slice(0, split));
+      writer.prepare('UPDATE youtube_watch_events SET actual_watched_seconds=84 WHERE event_id=?').run('concurrent-capture');
+      wroteDuringSnapshot = true;
+      exec(sql.slice(split));
+    });
+    assert.equal(repository.youtubeWatchIntervals()[0].estimatedWatchSeconds, 42,
+      'the lookup and materialization consistently use the original snapshot');
+    assert.equal(wroteDuringSnapshot, true);
+    assert.equal(writer.prepare('SELECT actual_watched_seconds n FROM youtube_watch_events').get()!.n, 84);
+    assert.equal(repository.youtubeWatchIntervals()[0].estimatedWatchSeconds, 84,
+      'a commit during the prior snapshot must invalidate the next read immediately');
+    assert.equal(repository.youtubeWatchIntervals()[0].estimatedWatchSeconds, 84);
+  } finally {
+    writer.close();
+    repository.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('capture reconciles every event for its own video and leaves unrelated history to batch reconciliation', () => {
