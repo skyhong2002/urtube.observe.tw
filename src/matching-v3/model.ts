@@ -9,6 +9,11 @@ export const genreSchema = z.enum(GENRES);
 export const selectionSchema = z.array(genreSchema).min(1).max(9).refine(v => new Set(v).size === v.length);
 export const normalizeTag = (text: string): string => text.normalize('NFKC').trim().replace(/^#+/, '').replace(/\s+/g, ' ').toLowerCase();
 export const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// The exact classification request input. The cache key digests this same
+// value, so every tag the provider sees is part of the cache identity.
+export function classificationInput(video: VideoInput): { title: string; tags: string[] } {
+  return { title: video.title.slice(0, 1000), tags: [...new Set(video.tags.map(normalizeTag).filter(Boolean))].sort() };
+}
 export type Settings = ReturnType<typeof settings>;
 export function settings(env = process.env) {
   const baseUrl = (env.MATCHING_V3_BASE_URL || env.AI_BASE_URL || env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');

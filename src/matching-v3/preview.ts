@@ -1,14 +1,14 @@
 import type { UserRegistry } from '../users.js';
 import type { Compute } from './compute.js';
 import { CONTENT_GENRES, version, type Classification, type Profile, type Settings, type SourceSnapshot, type TagPoint } from './model.js';
-import { aggregateTags, classificationKey, embeddingKey } from './pipeline.js';
+import { aggregateTags, cachedClassification, embeddingKey } from './pipeline.js';
 import type { MatchingStore } from './store.js';
 
 // No provider calls: preview uses only committed cache from the bounded source.
 export async function cachedPreview(source: SourceSnapshot, store: MatchingStore, s: Settings, compute: Compute): Promise<Profile> {
   const classifications = new Map<string, Classification>();
   for (const video of source.videos) {
-    const value = store.cache<Classification>(classificationKey(s, video));
+    const value = cachedClassification(store, s, video);
     if (value) classifications.set(video.id, value);
   }
   const genres: Profile['genres'] = {};

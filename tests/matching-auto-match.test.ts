@@ -45,9 +45,11 @@ test('ranked cards label only the top three scored people and preserve Blend wit
     document: { createElement: () => ({ innerHTML: '', get content(): any { const id = this.innerHTML; return { querySelector: () => cards.get(id) }; } }) },
   };
   runInNewContext(source.slice(source.indexOf('function renderMatches'), source.indexOf('async function save')) + '\nglobalThis.render = renderMatches;', context);
+  // Server order is authoritative (see compareMatchRank); the client keeps it.
   context.render({ candidates: [
-    { memberHtml: 'a', score: .2 }, { memberHtml: 'missing', score: null },
-    { memberHtml: 'b', score: .4 }, { memberHtml: 'c', score: .3 }, { memberHtml: 'd', score: .1 },
+    { memberHtml: 'b', score: .4, provisional: false }, { memberHtml: 'c', score: .3, provisional: false },
+    { memberHtml: 'a', score: .2, provisional: false }, { memberHtml: 'd', score: .1, provisional: false },
+    { memberHtml: 'missing', score: null, provisional: true },
   ] }, result);
   assert.deepEqual(Array.from(result.children[0].children, (card: any) => card.id), ['b', 'c', 'a', 'd', 'missing']);
   for (const id of ['a', 'b', 'c']) assert.equal(cards.get(id).badges[0].text, '最佳拍檔');

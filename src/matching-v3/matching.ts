@@ -12,6 +12,13 @@ export interface MatchReason {
   contribution: number;
   hasGeneratedTags: boolean;
 }
+// The single ranking contract for /matches and /api/matching-v3/match:
+// complete comparisons before provisional ones, then higher score, with a
+// missing score last. Ties keep input order (Array.prototype.sort is stable).
+export function compareMatchRank(a: { provisional: boolean; score: number | null }, b: { provisional: boolean; score: number | null }): number {
+  const score = (value: number | null) => typeof value === 'number' && Number.isFinite(value) ? value : -1;
+  return Number(a.provisional) - Number(b.provisional) || score(b.score) - score(a.score);
+}
 export async function compareProfiles(left: Profile, right: Profile, genres: Genre[], compute: Compute) {
   left = assessProfileAvailability(left);
   right = assessProfileAvailability(right);

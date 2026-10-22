@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { User, UserRegistry } from '../users.js';
 import { GENRES, genreSchema, selectionSchema, version, type Settings } from './model.js';
 import { computeClient, type Compute } from './compute.js';
-import { compareProfiles } from './matching.js';
+import { compareMatchRank, compareProfiles } from './matching.js';
 import { sourceKey } from './store.js';
 import type { Lang } from '../output/i18n.js';
 import { pickLang } from '../output/i18n.js';
@@ -155,7 +155,7 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
         return [{ id: target.handle, handle: target.handle, displayName: target.displayName,
           ...safe, ...(renderMember ? { memberHtml: renderMember(current, target, safe, pickLang(c.req.query('lang'), getCookie(c, 'urtube_lang'), c.req.header('Accept-Language'))) } : {}) }];
       });
-      candidates.sort((a, b) => Number(a.provisional) - Number(b.provisional) || (b.score ?? -1) - (a.score ?? -1));
+      candidates.sort(compareMatchRank);
       // Shared identity and friendship controls; raw watch rows and vectors remain private.
       return c.json({ candidates, selected, scoreMeaning: 'available_selected_genres_equal_weight_distribution_similarity' });
     } catch { return c.json({ error: 'matching_unavailable' }, 503); }

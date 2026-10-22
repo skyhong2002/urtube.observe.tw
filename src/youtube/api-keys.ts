@@ -13,6 +13,8 @@ export interface YoutubeApiKeyPool {
   next(): string | null;
   /** Park a key until the next quota reset. */
   exhausted(key: string): void;
+  /** When the earliest parked key becomes usable, or null if one is usable now. */
+  resetAt(): number | null;
 }
 
 const PACIFIC = new Intl.DateTimeFormat('en-US', {
@@ -74,6 +76,12 @@ export function createYoutubeApiKeyPool(keys: readonly string[], clock: () => nu
     },
     exhausted(key) {
       if (ordered.includes(key)) parkedUntil.set(key, nextYoutubeQuotaReset(clock()));
+    },
+    resetAt() {
+      const now = clock();
+      const parked = ordered.map(key => parkedUntil.get(key));
+      if (!ordered.length || parked.some(until => until === undefined || until <= now)) return null;
+      return Math.min(...(parked as number[]));
     },
   };
 }

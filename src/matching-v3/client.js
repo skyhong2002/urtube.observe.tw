@@ -108,22 +108,21 @@ function renderMatches(data, result) {
     result.append(element('p', t('這個主題目前還沒有配對結果，試試其他興趣組合。', 'No results for this topic yet. Try a different combination of interests.'), 'empty')); return;
   }
   const cards = element('div', undefined, 'mt-grid');
-  const ranked = data.candidates.flatMap(candidate => {
+  // Server order is the ranking contract (complete before provisional, then
+  // score); never re-sort here. Only complete, positive scores are top matches.
+  let position = 0;
+  for (const candidate of data.candidates) {
     // HTML comes from the same escaped server renderer as the member directory.
     const template = document.createElement('template');
     template.innerHTML = candidate.memberHtml || '';
     const card = template.content.querySelector('.mt-card');
-    if (!card) return [];
-    const score = typeof candidate.score === 'number' && Number.isFinite(candidate.score) ? candidate.score : -1;
-    return [{ card, score }];
-  }).sort((a, b) => b.score - a.score);
-  ranked.forEach(({ card, score }, index) => {
-    if (index < 3 && score >= 0) {
+    if (!card) continue;
+    if (position++ < 3 && candidate.provisional === false && typeof candidate.score === 'number' && candidate.score > 0) {
       const name = card.querySelector('.mt-person-link > div');
       if (name) name.append(element('span', lang === 'zh' ? '最佳拍檔' : 'Top match', 'mt-partner'));
     }
     cards.append(card);
-  });
+  }
   result.append(cards);
 }
 
@@ -191,7 +190,9 @@ document.addEventListener('submit', async event => {
   const originallyDisabled = controls.map(button => button.disabled);
   const body = new URLSearchParams();
   for (const [key, value] of new FormData(form)) if (typeof value === 'string') body.append(key, value);
-  body.set('returnTo', '/matches');
+  // Ask for the directory page being viewed so cards beyond page 1 update too.
+  const page = new URL(location.href).searchParams.get('page');
+  body.set('returnTo', page && /^[1-9]\d{0,3}$/.test(page) ? '/matches?page=' + page : '/matches');
   if (submitter?.name) body.set(submitter.name, submitter.value);
   let feedback = document.querySelector('.mt-friend-feedback');
   if (!feedback) {

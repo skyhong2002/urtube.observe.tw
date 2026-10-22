@@ -4,7 +4,7 @@ import { reportTokens } from './telemetry.js';
 import { z } from 'zod';
 import { chatJson, AiHttpError } from '../youtube/ai.js';
 import { createYoutubeApiKeyPool, isYoutubeApiKeyPool, recordYoutubeApiRequest, type YoutubeApiKeyPool } from '../youtube/api-keys.js';
-import { CHANNEL_TYPES, CONTENT_GENRES, normalizeTag, digest, type Classification, type Settings, type VideoInput } from './model.js';
+import { CHANNEL_TYPES, CONTENT_GENRES, classificationInput, digest, type Classification, type Settings, type VideoInput } from './model.js';
 
 // Shared across provider instances/cycles. Legacy classifiers keep their own limit.
 const geminiPools = new Map<string, GeminiKeyPool>();
@@ -17,14 +17,14 @@ function matchingLimiter(concurrency: number) {
 const genreResultSchema = z.object({ genres: z.array(z.enum(CONTENT_GENRES as [typeof CONTENT_GENRES[number], ...typeof CONTENT_GENRES[number][]])).max(8) }).strict();
 const genreJsonSchema = { type: 'object', properties: { genres: { type: 'array', items: { type: 'string', enum: CONTENT_GENRES }, uniqueItems: true } }, required: ['genres'], additionalProperties: false };
 const classificationPrompt = `Classify videos into zero or more content genres: ${CONTENT_GENRES.join(', ')}. Politic: politics/public policy; Music: music; Sport: sports; Education: instruction/learning; Video gaming: games; Streaming: livestream format; News: reporting; Podcast: podcast format. Genres may overlap. Use the title and existing tags as evidence. Return only genres. Never generate tags, tag indexes, explanations or channel types. Missing tags are allowed: classify from the title alone. Return an empty genres array when unsupported.`;
-function originalTags(video: VideoInput) { return [...new Set(video.tags.map(normalizeTag).filter(Boolean))]; }
 function classificationFromGenres(video: VideoInput, value: unknown): Classification {
-  const { genres } = genreResultSchema.parse(value), tags = originalTags(video);
+  const { genres } = genreResultSchema.parse(value), { tags } = classificationInput(video);
   return { tagSource: 'original', tags, assignments: CONTENT_GENRES.filter(g => genres.includes(g)).map(genre => ({ genre, tags })) };
 }
 const channelSchema = z.object({ types: z.array(z.enum(CHANNEL_TYPES)).max(5) });
 export class ProviderError extends Error {
-  constructor(public readonly retryable: boolean, public readonly status: number) { super(`Model provider HTTP ${status}`); }
+  // `retryAt` marks a known provider reset (YouTube daily quota), not a backoff.
+  constructor(public readonly retryable: boolean, public readonly status: number, public readonly retryAt?: number) { super(`Model provider HTTP ${status}`); }
 }
 export class PartialClassificationError extends Error {
   constructor(public readonly results: (Classification | null)[]) { super('Some classification rows failed validation'); }
@@ -63,7 +63,12 @@ function channelSnippetLoader(apiKeys: YoutubeApiKeySource, request: typeof fetc
           let result: { items?: { id: string; snippet?: { title?: string; description?: string } }[] } | undefined;
           for (;;) {
             const key = pool.next();
-            if (!key) throw new ProviderError(false, 403);
+            // Every key spent its daily quota: retry at the pool's Pacific-midnight
+            // reset. Credential/permission 403s below stay non-retryable.
+            if (!key) {
+              const resetAt = pool.resetAt();
+              throw resetAt === null ? new ProviderError(false, 403) : new ProviderError(true, 403, resetAt);
+            }
             const url = new URL('https://www.googleapis.com/youtube/v3/channels');
             url.search = new URLSearchParams({ part: 'snippet', id: batch.map(([id]) => id).join(','), key }).toString();
             recordYoutubeApiRequest();
@@ -130,7 +135,7 @@ export function matchingProvider(s: Settings, youtubeApiKeys: YoutubeApiKeySourc
     async classifyBatch(videos) {
       if (!videos.length) return [];
       const raw = await generate(`${classificationPrompt} Return {"videos":[{"genres":["News"]}]} with one result per input in EXACTLY the same order; never drop a video.`,
-        { videos: videos.map(v => ({ title: v.title.slice(0, 1000), tags: originalTags(v) })) },
+        { videos: videos.map(classificationInput) },
         { type: 'object', properties: { videos: { type: 'array', items: genreJsonSchema, minItems: videos.length, maxItems: videos.length } }, required: ['videos'], additionalProperties: false },
         Math.max(2048, videos.length * 100 + 512));
       const rows = z.object({ videos: z.array(z.unknown()).length(videos.length) }).strict().parse(raw).videos;
@@ -142,7 +147,7 @@ export function matchingProvider(s: Settings, youtubeApiKeys: YoutubeApiKeySourc
     },
     async classify(video) {
       const raw = await generate(classificationPrompt,
-        { title: video.title.slice(0, 1000), tags: originalTags(video) }, genreJsonSchema);
+        classificationInput(video), genreJsonSchema);
       return classificationFromGenres(video, raw);
     },
     async embed(tags) {

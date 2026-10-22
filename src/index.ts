@@ -16,6 +16,7 @@ import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
 import { settings as matchingV3Settings, version as matchingV3Version, GENRES } from './matching-v3/model.js';
 import { matchingRoutes } from './matching-v3/routes.js';
+import { compareMatchRank } from './matching-v3/matching.js';
 import { computeClient, type Compute } from './matching-v3/compute.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
@@ -959,7 +960,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       }
       return true;
     });
-    if (v3.enabled) cards.sort((a,b) => (b.topicMatch?.score ?? -1) - (a.topicMatch?.score ?? -1));
+    if (v3.enabled) cards.sort((a, b) => compareMatchRank(a.topicMatch ?? { provisional: true, score: null }, b.topicMatch ?? { provisional: true, score: null }));
     if (!cards.length) return respond({ kind: 'empty' }, 200, recommendations);
     const batch = matchingCandidateBatch(cards, Number(c.req.query('page') ?? 1));
     return respond({ kind: 'ready', batch: {
@@ -1207,7 +1208,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   const comparisonAfterAction = (c: Context, me: User, actionToken: unknown, returnTo?: unknown) => {
     const candidate = registry.friendshipCandidateForAction(me, String(actionToken ?? ''));
-    if (returnTo === '/matches' || (candidate && returnTo === `/${candidate.handle}`)) return c.redirect(String(returnTo));
+    // A numbered directory page keeps actions on page 2+ showing that page.
+    if (returnTo === '/matches' || /^\/matches\?page=[1-9]\d{0,3}$/.test(String(returnTo ?? ''))
+      || (candidate && returnTo === `/${candidate.handle}`)) return c.redirect(String(returnTo));
     return candidate ? c.redirect(comparisonPath(me, candidate.handle)) : c.redirect('/matches');
   };
 

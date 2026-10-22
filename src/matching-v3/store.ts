@@ -173,7 +173,7 @@ export class MatchingStore {
     const delay = error ? Math.min(3600_000, 30_000 * 2 ** Math.min(job.attempts, 7)) : 0;
     this.db.prepare(`UPDATE matching_v3_jobs SET state=?, token=NULL, retry_at=?, attempts=attempts+?, error=?
       WHERE user_id=? AND token=?`).run(permanent ? 'failed' : 'queued', retryAt ?? Date.now() + delay,
-        error && error !== 'daily_budget_reached' ? 1 : 0, error, job.userId, job.token);
+        error && error !== 'daily_budget_reached' && error !== 'youtube_quota_exhausted' ? 1 : 0, error, job.userId, job.token);
   }
   queuedWorkDelay(now = Date.now(), idlePollMs = 5000): number | null {
     const row = this.db.prepare("SELECT min(retry_at) ready_at FROM matching_v3_jobs WHERE state='queued'").get();

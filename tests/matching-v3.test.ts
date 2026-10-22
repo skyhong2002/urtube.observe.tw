@@ -156,7 +156,8 @@ test('v3 genre-only classification never generates tags and retains all existing
   assert.deepEqual(missing.assignments, [{ genre: 'Education', tags: [] }, { genre: 'Sport', tags: [] }].sort((a,b)=> ['Sport','Education'].indexOf(a.genre)-['Sport','Education'].indexOf(b.genre)));
   const tags = Array.from({length: 40}, (_,i) => `tag${i}`);
   const result = await provider.classify({ ...video, tags });
-  assert.deepEqual(result.tags, tags);
+  // Canonical input order: the same tag set always classifies (and caches) once.
+  assert.deepEqual(result.tags, [...tags].sort());
   assert.ok(result.assignments.every(a => a.tags.length === 40));
 });
 
@@ -523,9 +524,9 @@ test('v3 tagless genre classification produces no embeddings and is not treated 
 });
 
 test('v3 all existing tags are embedded even for an unassigned video; legacy cache keys stay reusable', async () => {
-  const { classificationKey } = await import('../src/matching-v3/pipeline.js');
+  const { legacyClassificationKey } = await import('../src/matching-v3/pipeline.js');
   const { digest } = await import('../src/matching-v3/model.js');
-  assert.equal(classificationKey(s, video), digest(['video-classification-3', s.baseUrl, s.classificationModel, video.id, video.title, video.tags]));
+  assert.equal(legacyClassificationKey(s, video), digest(['video-classification-3', s.baseUrl, s.classificationModel, video.id, video.title, video.tags]));
   const { db, store } = storeFixture(); let embedded: string[] = [];
   const tags = Array.from({length: 40}, (_,i) => `tag${i}`);
   const provider: Provider = { classify: async () => ({ tagSource: 'original', tags, assignments: [] }),

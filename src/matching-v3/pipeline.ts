@@ -1,6 +1,6 @@
 import { createDispatchLimiter } from './dispatch.js';
 import { type AsyncLimiter } from '../youtube/concurrency.js';
-import { assessProfileAvailability, GENRES, CHANNEL_TYPES, CONTENT_GENRES, digest, version, type Classification, type Genre, type GenreProfile, type Profile, type Settings, type SourceSnapshot, type TagPoint, type VideoInput } from './model.js';
+import { assessProfileAvailability, classificationInput, GENRES, CHANNEL_TYPES, CONTENT_GENRES, digest, version, type Classification, type Genre, type GenreProfile, type Profile, type Settings, type SourceSnapshot, type TagPoint, type VideoInput } from './model.js';
 import type { Compute } from './compute.js';
 import { PartialClassificationError, ProviderError, type Provider } from './provider.js';
 import { MatchingStore, sourceKey, type JobProgress } from './store.js';
@@ -20,7 +20,29 @@ const CHANNEL_LOOKUP_CHUNK = 200;
 
 export class CycleBudgetReached extends Error {}
 export class DailyBudgetReached extends Error {}
-export const classificationKey = (s: Settings, video: VideoInput) => digest(['video-classification-3', s.classificationCacheNamespace, s.classificationCacheModel, video.id, video.title, video.tags.filter(t => t.length <= 100).slice(0, 30)]);
+export const classificationKey = (s: Settings, video: VideoInput) => {
+  const input = classificationInput(video);
+  return digest(['video-classification-4', s.classificationCacheNamespace, s.classificationCacheModel, video.id, input.title, input.tags]);
+};
+// The previous key hashed only the first 30 tags of at most 100 characters
+// while the provider saw every tag. Its entries stay in place and are read only
+// when they provably answer the current input; nothing is cleared or migrated.
+export const legacyClassificationKey = (s: Settings, video: VideoInput) => digest(['video-classification-3', s.classificationCacheNamespace, s.classificationCacheModel, video.id, video.title, video.tags.filter(t => t.length <= 100).slice(0, 30)]);
+export function cachedClassification(store: MatchingStore, s: Settings, video: VideoInput): Classification | null {
+  const current = store.cache<Classification>(classificationKey(s, video));
+  if (current) return current;
+  const legacy = store.cache<Classification>(legacyClassificationKey(s, video));
+  if (!legacy) return null;
+  // The title is in both keys. An original result records every tag the
+  // provider saw, so it is valid exactly when that set equals today's input.
+  // Generated results (retired tag generation) only exist for tagless videos.
+  const { tags } = classificationInput(video);
+  const seen = [...new Set(legacy.tags)].sort();
+  const valid = legacy.tagSource === 'original'
+    ? seen.length === tags.length && seen.every((tag, i) => tag === tags[i])
+    : !tags.length;
+  return valid ? legacy : null;
+}
 export const embeddingKey = (s: Settings, text: string) => digest(['tag-embedding-2', s.embeddingBaseUrl, s.embeddingModel, s.task, s.dimensions, text]);
 
 export function aggregateTags(videos: VideoInput[], classifications: Map<string, Classification>, genre: Genre) {
@@ -79,16 +101,16 @@ export async function buildProfile(
     progress({ phase: 'embedding', processed: unique.length, total: unique.length });
   }
   if (contentRequested && provider.classifyBatch) {
-    const missing = source.videos.filter(v => !store.cache(classificationKey(s, v)));
+    const missing = source.videos.filter(v => !cachedClassification(store, s, v));
     let processed = source.videos.length - missing.length;
     progress({ phase: 'classification', processed, total: source.videos.length });
     const tasks: Promise<unknown>[] = [];
     // Cached vectors and every classification batch are eligible immediately.
-    tasks.push(warmEmbeddings(source.videos.flatMap(v => store.cache<Classification>(classificationKey(s, v))?.tags ?? [])));
+    tasks.push(warmEmbeddings(source.videos.flatMap(v => cachedClassification(store, s, v)?.tags ?? [])));
     for (let offset = 0; offset < missing.length; offset += s.classificationBatchSize) {
       const batch = missing.slice(offset, offset + s.classificationBatchSize);
       tasks.push(cachedWork(batch.map(v => classificationKey(s, v)), async () => {
-        const remaining = batch.filter(v => !store.cache(classificationKey(s, v)));
+        const remaining = batch.filter(v => !cachedClassification(store, s, v));
         if (!remaining.length) return;
         let partial: PartialClassificationError | null = null;
         let results: (Classification | null)[];
@@ -106,12 +128,11 @@ export async function buildProfile(
     await settleWork(tasks);
   }
   if (contentRequested) for (const video of source.videos) {
-    const key = classificationKey(s, video);
-    let classification = store.cache<Classification>(key);
+    let classification = cachedClassification(store, s, video);
     const uncached = !classification;
     if (!classification) {
       classification = await call(() => provider.classify(video));
-      store.putCache(key, classification);
+      store.putCache(classificationKey(s, video), classification);
     }
     classifications.set(video.id, classification);
     if (uncached || classifications.size % 25 === 0 || classifications.size === source.videos.length) {
@@ -194,16 +215,36 @@ export async function buildProfile(
     genres: profiles });
 }
 
-export async function runCycle(registry: UserRegistry, s: Settings, provider: Provider, compute: Compute, shouldStop: () => boolean = () => false): Promise<void> {
+// Discovery SLA: while a cycle drains provider retries, new accounts and new
+// videos are still queued within this interval (plus at most one idle poll).
+export const DISCOVERY_INTERVAL_MS = 60_000;
+
+export async function runCycle(registry: UserRegistry, s: Settings, provider: Provider, compute: Compute, shouldStop: () => boolean = () => false,
+  { discoveryIntervalMs = DISCOVERY_INTERVAL_MS }: { discoveryIntervalMs?: number } = {}): Promise<void> {
   if (!s.enabled) return;
   const store = registry.matchingV3Store();
-  const users = registry.listUsers();
-  store.resumeRecoverableFailures();
   const allGenres = { genres: [...GENRES], topics: [] };
-  for (const user of users) {
-    const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
-    store.schedule(user.id, sourceKey(source.fingerprint, allGenres), version(s));
+  // Discovery is separate from the drain: a job waiting on provider retries
+  // must not hide accounts or videos that arrived after the cycle started.
+  let userCount = 0;
+  function discover() {
+    store.resumeRecoverableFailures();
+    const users = registry.listUsers();
+    userCount = users.length;
+    for (const user of users) {
+      const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
+      store.schedule(user.id, sourceKey(source.fingerprint, allGenres), version(s));
+    }
   }
+  discover();
+  // Idle consumers wake on each discovery tick instead of sleeping out a poll.
+  const sleepers = new Set<() => void>();
+  const nap = (ms: number) => new Promise<void>(resolve => {
+    const done = () => { clearTimeout(timer); sleepers.delete(done); resolve(); };
+    const timer = setTimeout(done, ms);
+    sleepers.add(done);
+  });
+  const wake = () => { for (const done of [...sleepers]) done(); };
   let calls = 0;
   // Each user gets at most one attempt per cycle. Persistent cache resumes a
   // large import next cycle without rerunning successful API work.
@@ -211,12 +252,12 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
   let attempts = 0;
   const drain = s.callsPerCycle === 0;
   async function consume() {
-  while (!shouldStop() && (drain || attempts++ < users.length)) {
+  while (!shouldStop() && (drain || attempts++ < userCount)) {
     const job = store.claim(Date.now(), drain ? [] : visited);
     if (!job) {
       const wait = drain ? store.queuedWorkDelay() : null;
       if (wait === null) break;
-      await new Promise(resolve => setTimeout(resolve, wait));
+      await nap(wait);
       continue;
     }
     visited.push(job.userId);
@@ -224,7 +265,9 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
       try { store.heartbeat(job); } catch { /* final activation also checks the lease token */ }
     }, 30_000);
     try {
-      const user = users.find(u => u.id === job.userId);
+      // Read current users at claim time: rebuilds may queue accounts created
+      // after this cycle started.
+      const user = registry.listUsers().find(u => u.id === job.userId);
       if (!user) { store.defer(job, 'User no longer opted in', true); continue; }
       const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
       if (sourceKey(source.fingerprint, allGenres) !== job.fingerprint) {
@@ -239,10 +282,10 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
         calls++;
       }, value => store.progress(job, value));
       const currentUser = registry.listUsers().find(u => u.id === user.id);
-      const current = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
-      if (!currentUser || sourceKey(current.fingerprint, allGenres) !== job.fingerprint) {
-        if (currentUser) store.schedule(user.id, sourceKey(current.fingerprint, allGenres), version(s));
-        else store.defer(job, 'user_deleted', true);
+      if (!currentUser) { store.defer(job, 'user_deleted', true); continue; }
+      const current = registry.repositoryFor(currentUser).matchingV3Source(s.backfillVideoLimit);
+      if (sourceKey(current.fingerprint, allGenres) !== job.fingerprint) {
+        store.schedule(user.id, sourceKey(current.fingerprint, allGenres), version(s));
         continue;
       }
       store.heartbeat(job);
@@ -253,6 +296,11 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
         break;
       }
       if (error instanceof CycleBudgetReached) { store.defer(job, null); break; }
+      if (error instanceof ProviderError && error.retryAt !== undefined) {
+        // Completed caches stay; the job resumes once the provider quota resets.
+        store.defer(job, 'youtube_quota_exhausted', false, error.retryAt);
+        continue;
+      }
       const transient = error instanceof ProviderError && error.retryable
         || error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
       const permanent = !transient && error instanceof ProviderError;
@@ -267,5 +315,21 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
     } finally { clearInterval(leaseTimer); }
   }
   }
-  await Promise.all(Array.from({ length: Math.min(s.concurrency, users.length) }, () => consume()));
+  // Consumers grow with discovered accounts, up to the configured ceiling.
+  const consumers: Promise<void>[] = [];
+  const spawn = () => { while (consumers.length < Math.min(s.concurrency, userCount)) consumers.push(consume()); };
+  const discovery = setInterval(() => {
+    if (!shouldStop()) {
+      try { discover(); spawn(); } catch { console.error('Matching v3 discovery failed; will retry.'); }
+    }
+    wake();
+  }, discoveryIntervalMs);
+  try {
+    spawn();
+    for (let settled = 0; settled < consumers.length;) {
+      const spawned = consumers.length;
+      await Promise.all(consumers.slice(settled));
+      settled = spawned;
+    }
+  } finally { clearInterval(discovery); wake(); }
 }
