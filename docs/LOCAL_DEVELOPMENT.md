@@ -1,43 +1,77 @@
 # 本機部署與前端修改指南
 
+## 先選環境
+
+三種環境的資料影響完全不同。開始前先確認自己在哪一種：
+
+| 環境 | 用途 | 讀寫的資料 |
+| --- | --- | --- |
+| A. 全新 clone，合成資料 | 開發、測試、示範 | 只有記憶體或本機 `urtube-local_*` volumes |
+| B. 共用正式資料的開發站 | 經使用者授權的前端開發 | **會寫入正式資料** |
+| C. 正式站 | 由 CD 部署，只做唯讀診斷 | 正式資料，不手動改動 |
+
+新貢獻者一律從 A 開始；B 只用於已取得授權的情況。
+
+### A. 全新 clone（不碰正式資料）
+
+需要 Node.js 22（與正式 runtime 相同）。Python 3.12 只有在跑數值服務測試時才需要。
+
+```sh
+npm ci
+npm run check                 # 型別檢查與全部測試，只用 :memory: 資料庫
+npm run demo:matching         # 兩個合成帳號的配對示範，預設 http://127.0.0.1:4317
+```
+
+要以容器方式跑完整網站（空資料庫、預覽帳號 `preview`），只用 `compose.local.yml`，
+不要加任何 `*production-data*` overlay：
+
+```sh
+docker compose -f compose.local.yml up -d --build
+docker compose -f compose.local.yml logs --tail=80 -f app
+docker compose -f compose.local.yml stop
+```
+
+需要 v3 主題配對服務時，加上 `compose.matching-v3.yml`（不含 production-data）。
+環境檔設定見下方「日常指令」。
+
+### B. 共用正式資料的開發站（會寫入正式資料）
+
+依使用者授權，這台主機的開發站掛載正式資料卷 `urtube_urtube-data`，使用正式站的
+帳號、觀看歷史、分類與配對資料。**在這裡的任何帳戶操作（旋轉 token、刪除、配對設定）
+都會影響正式站。**必須依序使用以下四個 overlays，少了 v3 的兩個會漏掉配對服務：
+
+```sh
+OVERLAYS="-f compose.local.yml -f compose.production-data.yml -f compose.matching-v3.yml -f compose.matching-v3-production-data.yml"
+docker compose $OVERLAYS up -d app ingest proxy
+docker compose $OVERLAYS logs --tail=80 -f app
+docker compose $OVERLAYS stop app ingest proxy
+```
+
+金鑰、owner 與處理能力設定放在被 Git 忽略的 `.env.production-data` 與
+`.env.matching-v3`。正式站的 worker 與 backup 負責背景工作；不要在 B 啟動另一份
+worker 或 backup。只修改前端；後端行為變更需先取得使用者決定，詳見根目錄 `AGENTS.md`。
+
+### C. 正式站（只透過 CD 部署）
+
+正式部署一律是：測試通過 → commit 並 push 到 `main` → CI 建置映像 → Komodo 部署。
+不要手動 build、restart 或部署正式服務，也不要執行舊的 `urtube-deploy`；流程與
+回滾見 [deploy/komodo/README.md](../deploy/komodo/README.md)。
+
+在正式主機上只做唯讀診斷，例如：
+
+```sh
+curl -s http://127.0.0.1:18080/readyz            # 本機 loopback，與公開網址比較延遲
+docker logs --since 10m urtube-worker            # 例如 "worker event loop blocked for N ms"
+docker stats --no-stream | grep urtube
+```
+
 ## 配對主題前端原型
 
 http://localhost:19080/match-preview/ 提供獨立的配對主題互動原型。
 使用固定九種分類與虛構人物，主題只儲存於瀏覽器，不讀寫正式資料。
 原本 `/matches` 仍保留。前端檔案與說明位於 `frontend/match-preview/`。
 
-## 目前啟用：直接共用正式資料庫
-
-依使用者授權，本機網站與 ingest 現在掛載正式資料卷 `urtube_urtube-data`，
-使用正式站的全站帳號、觀看歷史、分類與配對資料。本機操作會寫入正式資料。
-前端程式仍來自這份 checkout，網址仍是 http://localhost:19080。
-正式站既有 worker 與 backup 負責背景工作；本機 worker、backup 已停止。
-
-目前啟停請使用：
-
-```sh
-docker compose -f compose.local.yml -f compose.production-data.yml up -d app ingest proxy
-docker compose -f compose.local.yml -f compose.production-data.yml logs --tail=80 -f app
-docker compose -f compose.local.yml -f compose.production-data.yml stop app ingest proxy
-```
-
-共用模式所需的金鑰、owner 與處理能力設定放在被 Git 忽略的
-`.env.production-data`；本機 OAuth 回呼網址保持不變。原本本機 session
-與擴充套件 token 屬於獨立資料庫，切換後請重新登入；若使用本機擴充套件，
-請重新連接帳號。所有帳戶操作（包括旋轉 token、刪除與配對設定）會影響正式站。
-
-切換前已完成正式全站備份：
-`urtube-backup:/backups/before-shared-dev-20260905`。
-原本開發資料卷仍保留，另有本機備份：
-`urtube-local_local-backups` 內的 `before-production-link-20260905`。
-
-之後僅修改前端；任何後端邏輯變更需先說明理由並取得使用者決定，
-詳見根目錄 `AGENTS.md`。
-
-以下為原本的獨立開發模式說明；只使用 `compose.local.yml` 啟動會切回原本本機資料。
-
-此 checkout 的開發環境使用 `compose.local.yml`，專案名稱為 `urtube-local`。
-既有 `urtube` 容器使用另一份 checkout；修改本目錄只會影響本機開發環境。
+以下說明適用於環境 A 的 `compose.local.yml`（專案名稱 `urtube-local`）。
 
 ## 開啟網站
 
