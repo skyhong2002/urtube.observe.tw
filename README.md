@@ -240,6 +240,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 - 目前配對著重最近 90 天的興趣。資料不足或合適成員較少時，需要更多紀錄與參與者才能提供有用的推薦。
 - Google 登入、影片資訊與 AI 分類需要外部服務設定。大量歷史資料的處理時間、成本與使用體驗仍待進一步實測。
 - 後續將加強共同興趣的理解與呈現，探索長期喜好的穩定性，並透過使用者回饋改善配對品質。
+- 配對效果與使用價值目前只有合成資料的可重跑評估（`npm run eval -- matching`、`npm run eval -- funnel`）；合成 relevance 不代表真實有用，人工標註與長期效果仍待驗證，見[評估說明](docs/evaluation.md)。
 - 頻道規模與影片熱門度分布尚未加入洞察（[#50](https://github.com/skyhong2002/urtube.observe.tw/issues/50)）。
 - 第三方來源與授權聲明尚有 gateway shim 原始碼與映像層級 SBOM 待補，詳見聲明文件。
 

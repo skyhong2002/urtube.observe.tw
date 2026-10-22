@@ -1,0 +1,17 @@
+{
+  "schema": "urtube-eval-manifest",
+  "manifestVersion": 1,
+  "corpora": [
+    {
+      "id": "synthetic-communities-v1",
+      "source": "generator",
+      "corpusVersion": "synthetic-v1+seed.20261022",
+      "generator": "urtube-synthetic-communities@1.0.0",
+      "seed": 20261022,
+      "params": {},
+      "expectedSha256": "985006e64aad7160f4bb15c05a1072fbde0a60828afe7a10469123a70b3722c8",
+      "relevanceSource": "planted",
+      "note": "Fully synthetic: invented communities, channels, tags and vectors with generator-planted relevance. Verifies the runner only; not evidence of real-world usefulness. No real user data."
+    }
+  ]
+}

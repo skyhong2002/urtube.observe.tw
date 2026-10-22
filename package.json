@@ -14,6 +14,7 @@
     "youtube:import": "tsx src/import-youtube.ts",
     "youtube:topics:rebuild": "tsx src/youtube-topics.ts",
     "demo:matching": "NODE_ENV=test tsx scripts/matching-demo.ts",
+    "eval": "tsx scripts/eval/cli.ts",
     "extension:release": "tsx scripts/build-extension-release.ts",
     "user:create": "tsx scripts/create-user.ts",
     "db:backup": "tsx scripts/backup.ts",
