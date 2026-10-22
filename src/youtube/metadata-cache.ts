@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { CHANNEL_STATISTICS_ACTIVE_REFRESH_DAYS } from '../data/database.js';
+import type { YoutubeVideoStatistics } from './metadata.js';
+import { VIDEO_STATISTICS_ACTIVE_REFRESH_DAYS } from './popularity.js';
 import type { YoutubeChannelMetadata, YoutubeVideoMetadata } from './types.js';
 
 // Every account keeps its own archive, so two users who watched the same
@@ -11,6 +13,8 @@ export const VIDEO_METADATA_CACHE_DAYS = 30;
 // Within the strictest per-account channel refresh window, so a cache hit
 // always satisfies the account that asked for it.
 export const CHANNEL_METADATA_CACHE_DAYS = CHANNEL_STATISTICS_ACTIVE_REFRESH_DAYS;
+// View counts move daily; a hit must be no older than the fastest refresh.
+export const VIDEO_STATISTICS_CACHE_DAYS = VIDEO_STATISTICS_ACTIVE_REFRESH_DAYS;
 
 const DAY_MS = 86400_000;
 // Keep each IN (...) list well under SQLite's bound-parameter limit.
@@ -32,6 +36,10 @@ export class YoutubeMetadataCache {
         channel_id TEXT PRIMARY KEY, metadata_json TEXT NOT NULL, fetched_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS youtube_channel_metadata_cache_fetched ON youtube_channel_metadata_cache(fetched_at);
+      CREATE TABLE IF NOT EXISTS youtube_video_statistics_cache (
+        video_id TEXT PRIMARY KEY, metadata_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS youtube_video_statistics_cache_fetched ON youtube_video_statistics_cache(fetched_at);
     `);
   }
 
@@ -43,8 +51,19 @@ export class YoutubeMetadataCache {
     return this.read('youtube_channel_metadata_cache', 'channel_id', ids, cutoff(now, CHANNEL_METADATA_CACHE_DAYS));
   }
 
+  videoStatistics(ids: readonly string[], now = new Date()): Map<string, CachedYoutubeMetadata<YoutubeVideoStatistics>> {
+    return this.read('youtube_video_statistics_cache', 'video_id', ids, cutoff(now, VIDEO_STATISTICS_CACHE_DAYS));
+  }
+
+  putVideoStatistics(videos: readonly YoutubeVideoStatistics[], fetchedAt = new Date().toISOString()): void {
+    this.write('youtube_video_statistics_cache',
+      videos.map(({ videoId, viewCount }) => [videoId, { videoId, viewCount }]), fetchedAt,
+      cutoff(new Date(fetchedAt), VIDEO_STATISTICS_CACHE_DAYS));
+  }
+
   putVideos(videos: readonly YoutubeVideoMetadata[], fetchedAt = new Date().toISOString()): void {
-    this.write('youtube_video_metadata_cache', videos.map((video) => [video.videoId, video]), fetchedAt,
+    this.write('youtube_video_metadata_cache',
+      videos.map(({ statisticsFetchedAt: _fetched, ...video }) => [video.videoId, video]), fetchedAt,
       cutoff(new Date(fetchedAt), VIDEO_METADATA_CACHE_DAYS));
   }
 

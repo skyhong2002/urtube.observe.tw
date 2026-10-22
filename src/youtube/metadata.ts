@@ -77,6 +77,7 @@ interface YoutubeApiItem {
   };
   contentDetails?: { duration?: string };
   liveStreamingDetails?: { actualStartTime?: string; actualEndTime?: string; scheduledStartTime?: string };
+  statistics?: { viewCount?: string };
 }
 
 interface YoutubeChannelApiItem {
@@ -95,18 +96,21 @@ interface YoutubeChannelApiItem {
   topicDetails?: { topicCategories?: string[] };
 }
 
+// YouTube serialises counters as decimal strings. Anything else (absent,
+// hidden, malformed) is unknown, never zero; a literal "0" stays 0.
+function publicCount(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
 function channelStatistics(item: YoutubeChannelApiItem): YoutubeChannelStatistics {
-  const integer = (value: unknown): number | null => {
-    if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
-    const number = Number(value);
-    return Number.isSafeInteger(number) ? number : null;
-  };
   const hidden = item.statistics?.hiddenSubscriberCount === true;
   return {
-    subscriberCount: hidden ? null : integer(item.statistics?.subscriberCount),
+    subscriberCount: hidden ? null : publicCount(item.statistics?.subscriberCount),
     hiddenSubscriberCount: hidden,
-    videoCount: integer(item.statistics?.videoCount),
-    viewCount: integer(item.statistics?.viewCount),
+    videoCount: publicCount(item.statistics?.videoCount),
+    viewCount: publicCount(item.statistics?.viewCount),
     publishedAt: item.snippet?.publishedAt && Number.isFinite(Date.parse(item.snippet.publishedAt)) ? item.snippet.publishedAt : null,
     topicCategories: (item.topicDetails?.topicCategories ?? []).filter((value) => typeof value === 'string'),
   };
@@ -136,8 +140,10 @@ function channelThumbnail(item: YoutubeChannelApiItem): string {
 }
 
 function metadataHash(value: Omit<YoutubeVideoMetadata, 'metadataHash'>): string {
-  // Broadcast identification changes the chart, not the topic-classification input.
-  const { isLivestream: _broadcast, ...classificationMetadata } = value;
+  // Broadcast identification and public counters change charts, not the
+  // topic-classification input; refreshing them must keep this hash stable.
+  const { isLivestream: _broadcast, viewCount: _views, statisticsFetchedAt: _statisticsAt,
+    ...classificationMetadata } = value;
   return createHash('sha256').update(JSON.stringify(classificationMetadata)).digest('hex');
 }
 
@@ -158,7 +164,7 @@ function normalize(item: YoutubeApiItem): YoutubeVideoMetadata | null {
     isLivestream: Boolean(item.liveStreamingDetails || item.snippet.liveBroadcastContent === 'live'
       || item.snippet.liveBroadcastContent === 'upcoming'),
   };
-  return { ...base, metadataHash: metadataHash(base) };
+  return { ...base, metadataHash: metadataHash(base), viewCount: publicCount(item.statistics?.viewCount) };
 }
 
 function unavailable(videoId: string): YoutubeVideoMetadata {
@@ -167,7 +173,7 @@ function unavailable(videoId: string): YoutubeVideoMetadata {
     tags: [], thumbnailUrl: '', durationSeconds: null, publishedAt: null,
     categoryId: null, availability: 'unavailable',
   };
-  return { ...base, metadataHash: metadataHash(base) };
+  return { ...base, metadataHash: metadataHash(base), viewCount: null };
 }
 
 export async function fetchYoutubeMetadata(
@@ -181,7 +187,9 @@ export async function fetchYoutubeMetadata(
   for (let index = 0; index < videoIds.length; index += 50) {
     const batch = videoIds.slice(index, index + 50);
     const url = new URL('https://www.googleapis.com/youtube/v3/videos');
-    url.searchParams.set('part', 'snippet,contentDetails,status,liveStreamingDetails');
+    // statistics rides on the same request: videos.list costs one quota unit
+    // per call regardless of how many parts it returns.
+    url.searchParams.set('part', 'snippet,contentDetails,status,liveStreamingDetails,statistics');
     url.searchParams.set('id', batch.join(','));
     const body = await youtubeApiGet<{ items?: YoutubeApiItem[] }>('YouTube Data API', url, pool, fetchImpl);
     const normalized = (body.items ?? []).map(normalize).filter((item): item is YoutubeVideoMetadata => item !== null);
@@ -202,13 +210,73 @@ export async function enrichYoutubeMetadata(
   const ids = repository.youtubeVideosNeedingMetadata(limit);
   if (!ids.length) return 0;
   const cached = cache?.videos(ids) ?? new Map();
-  const hits = [...cached.values()].map((entry) => entry.value);
+  // A cached view count is as old as the cache entry, not this lookup.
+  const hits = [...cached.values()].map(({ value, fetchedAt }) =>
+    value.viewCount === undefined ? value : { ...value, statisticsFetchedAt: fetchedAt });
   const missing = ids.filter((id) => !cached.has(id));
   const fetched = missing.length && fetchMetadata ? await fetchMetadata(missing) : [];
-  if (fetched.length) cache?.putVideos(fetched);
+  if (fetched.length) {
+    const fetchedAt = new Date().toISOString();
+    cache?.putVideos(fetched, fetchedAt);
+    cache?.putVideoStatistics(fetched.filter((video) => video.availability === 'available' && video.viewCount !== undefined)
+      .map((video) => ({ videoId: video.videoId, viewCount: video.viewCount ?? null })), fetchedAt);
+  }
   const metadata = [...hits, ...fetched];
   if (metadata.length) repository.upsertYoutubeVideoMetadata(metadata);
   return metadata.length;
+}
+
+export interface YoutubeVideoStatistics {
+  videoId: string;
+  viewCount: number | null;
+}
+
+// Counter-only refresh: 50 videos per request, and only the statistics part,
+// so it never touches the metadata that feeds classification.
+export async function fetchYoutubeVideoStatistics(
+  videoIds: string[],
+  apiKeys: YoutubeApiKeySource = defaultKeyPool,
+  fetchImpl: typeof fetch = fetch,
+): Promise<YoutubeVideoStatistics[]> {
+  const pool = keyPool(apiKeys);
+  if (!pool.size) throw new Error('YOUTUBE_API_KEY is required for YouTube video statistics');
+  const output: YoutubeVideoStatistics[] = [];
+  for (let index = 0; index < videoIds.length; index += 50) {
+    const batch = videoIds.slice(index, index + 50);
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'statistics');
+    url.searchParams.set('id', batch.join(','));
+    const body = await youtubeApiGet<{ items?: YoutubeApiItem[] }>('YouTube video statistics', url, pool, fetchImpl);
+    const found = new Map((body.items ?? []).map((item) => [item.id, publicCount(item.statistics?.viewCount)]));
+    // A video YouTube no longer returns has no current count: unknown, not 0.
+    output.push(...batch.map((videoId) => ({ videoId, viewCount: found.get(videoId) ?? null })));
+  }
+  return output;
+}
+
+// Refreshes view counts that are due under the policy in popularity.ts.
+// Another account's same-day lookup comes from the shared cache for free.
+export async function enrichYoutubeVideoStatistics(
+  repository: Repository,
+  limit = 500,
+  cache?: YoutubeMetadataCache,
+  fetchStatistics: ((videoIds: string[]) => Promise<YoutubeVideoStatistics[]>) | null = config.youtube.apiKey ? fetchYoutubeVideoStatistics : null,
+  now = new Date(),
+): Promise<number> {
+  const ids = repository.youtubeVideosNeedingStatistics(limit, now);
+  if (!ids.length) return 0;
+  const cached = cache?.videoStatistics(ids, now) ?? new Map();
+  if (cached.size) {
+    repository.saveYoutubeVideoStatistics([...cached.values()].map(({ value, fetchedAt }) => ({ ...value, fetchedAt })));
+  }
+  const missing = ids.filter((id) => !cached.has(id));
+  const fetched = missing.length && fetchStatistics ? await fetchStatistics(missing) : [];
+  if (fetched.length) {
+    const fetchedAt = new Date().toISOString();
+    cache?.putVideoStatistics(fetched, fetchedAt);
+    repository.saveYoutubeVideoStatistics(fetched.map((value) => ({ ...value, fetchedAt })));
+  }
+  return cached.size + fetched.length;
 }
 
 export async function fetchYoutubeChannelMetadata(

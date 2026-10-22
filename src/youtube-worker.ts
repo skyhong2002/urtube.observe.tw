@@ -11,7 +11,12 @@ import {
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
 import { youtubeMatchingCrystalSection } from './youtube/crystal.js';
-import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata, youtubeApiUsage } from './youtube/metadata.js';
+import {
+  enrichYoutubeChannelMetadata,
+  enrichYoutubeMetadata,
+  enrichYoutubeVideoStatistics,
+  youtubeApiUsage,
+} from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
@@ -31,6 +36,9 @@ export interface YoutubeWorkerSteps {
   portability(repository: Repository, user: User): Promise<YoutubePortabilityResult>;
   metadata(repository: Repository, user: User): Promise<number>;
   channelMetadata(repository: Repository, user: User): Promise<number>;
+  // Optional so callers that only drive the classification pipeline need
+  // not stub it; the default steps always refresh view counts.
+  statistics?(repository: Repository, user: User): Promise<number>;
   matchingClassification(repository: Repository, user: User): Promise<number>;
   classification(repository: Repository, user: User): Promise<number>;
 }
@@ -40,6 +48,7 @@ export interface YoutubeWorkerUserResult {
   portability?: YoutubePortabilityResult | 'not_applicable';
   metadata?: number;
   channelMetadata?: number;
+  statistics?: number;
   matchingClassified?: number;
   classified?: number;
   error?: string;
@@ -52,6 +61,8 @@ export function youtubeWorkerSteps(registry: UserRegistry): YoutubeWorkerSteps {
     metadata: (repository) => enrichYoutubeMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE, registry.youtubeMetadataCache()),
     channelMetadata: (repository) =>
       enrichYoutubeChannelMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE, registry.youtubeMetadataCache()),
+    statistics: (repository) =>
+      enrichYoutubeVideoStatistics(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE, registry.youtubeMetadataCache()),
   };
 }
 
@@ -62,6 +73,8 @@ const defaultSteps: YoutubeWorkerSteps = {
   // API requests and prevents a new account from waiting days for enrichment.
   metadata: (repository) => enrichYoutubeMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   channelMetadata: (repository) => enrichYoutubeChannelMetadata(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
+  // Public view counts for Insights only; never a matching input.
+  statistics: (repository) => enrichYoutubeVideoStatistics(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   matchingClassification: async (repository) =>
     classifyYoutubeVideosForMatching(repository, YOUTUBE_WORKER_METADATA_PER_CYCLE),
   // A deep extension backfill can also contain tens of thousands of videos.
@@ -128,6 +141,20 @@ export async function runYoutubeWorkerCycle(
       await yieldToEventLoop();
       repository.setYoutubeSyncState('worker_stage', 'topics');
       const classified = await steps.classification(repository, user);
+      // Last and isolated: an optional counter refresh that fails (e.g. the
+      // shared YouTube quota ran out) must neither put the archive into retry
+      // backoff nor show a processing error after metadata and topics
+      // succeeded. The cycle log records it; the next cycle retries the same
+      // videos.
+      await yieldToEventLoop();
+      repository.setYoutubeSyncState('worker_stage', 'statistics');
+      let statistics = 0;
+      let statisticsError = '';
+      try {
+        statistics = await steps.statistics?.(repository, user) ?? 0;
+      } catch (error) {
+        statisticsError = errorMessage(error);
+      }
       repository.setYoutubeSyncState('worker_retry_at', '0');
       repository.setYoutubeSyncState('worker_retry_attempts', '0');
       repository.setYoutubeSyncState('last_error', '');
@@ -137,8 +164,10 @@ export async function runYoutubeWorkerCycle(
         portability,
         metadata,
         channelMetadata,
+        statistics,
         matchingClassified,
         classified,
+        ...(statisticsError ? { error: statisticsError } : {}),
       };
     } catch (error) {
       const attempts = Number(repository.youtubeSyncState('worker_retry_attempts') ?? 0) + 1;
@@ -172,7 +201,7 @@ export function youtubeWorkerFailedUsers(registry: UserRegistry): number {
 
 export function youtubeWorkerMadeProgress(results: YoutubeWorkerUserResult[]): boolean {
   return results.some((result) =>
-    (result.metadata ?? 0) + (result.channelMetadata ?? 0)
+    (result.metadata ?? 0) + (result.channelMetadata ?? 0) + (result.statistics ?? 0)
       + (result.matchingClassified ?? 0) + (result.classified ?? 0) > 0);
 }
 

@@ -1,12 +1,14 @@
 import { timelineWindow, timelineBounds } from '../youtube/timeline.js';
 import { dashboardFlatStyles } from './dashboard-flat.js';
 import { popularShelfControls, popularShelfStyles, popularShelfScript } from './popular-shelves.js';
+import { popularitySection, popularityStyles } from './popularity.js';
 import { rankRaceSection } from './rank-race.js';
 import {
   YOUTUBE_RANGES,
   type YoutubeDailySummary,
   type YoutubeDashboardData,
   type YoutubeHourlySummary,
+  type YoutubePopularity,
   type YoutubeRecentVideo,
 } from '../youtube/types.js';
 import {
@@ -792,6 +794,8 @@ export interface YoutubeDashboardOptions {
   statsProvisional?: boolean;
   // Insight-only content computed outside the dashboard aggregate cache.
   insightsHtml?: string;
+  // Watched-video channel size / view-count distributions for this range.
+  popularity?: YoutubePopularity;
   // Current v3 interests coexist with range-based channel and topic analysis.
   v3Html?: string;
   // Public examples must not imply that their current dashboard is private.
@@ -928,7 +932,7 @@ export function youtubeDashboardPage(
     },
   }).replace(/</g, '\\u003c');
   const sortScript = `<script>(()=>{const states=${sortState};const links=[...document.querySelectorAll('[data-youtube-sort]')];const lists=[...document.querySelectorAll('[data-youtube-sort-list]')];const scope=document.querySelector('[data-youtube-sort-scope]');const apply=(sort,write)=>{if(!states[sort])return;for(const list of lists){const items=[...list.children].sort((a,b)=>Number(b.dataset[sort])-Number(a.dataset[sort])||Number(b.dataset[sort==='watches'?'duration':'watches'])-Number(a.dataset[sort==='watches'?'duration':'watches']));items.forEach((item,index)=>{list.append(item);item.hidden=false;const rank=item.querySelector('.yt-channel-rank');if(rank)rank.textContent=String(index+1)});if(list.dataset.youtubeSortList==='channels'){const shown=items.slice(0,12);const max=Math.max(1,...shown.map(item=>Number(item.dataset[sort])));shown.forEach(item=>{const bar=item.querySelector('.yt-channel-track i');if(bar)bar.style.width=Math.max(1,Math.round(Number(item.dataset[sort])/max*100))+'%'})}}for(const link of links){if(link.dataset.youtubeSort===sort)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}if(scope)scope.textContent=states[sort].scope;document.title=states[sort].title;if(write){const url=new URL(location.href);url.searchParams.set('sort',sort);history.pushState({youtubeSort:sort},'',url);dispatchEvent(new Event('urtube:query-updated'))}};for(const link of links)link.addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();apply(link.dataset.youtubeSort,true)});addEventListener('urtube:sort',event=>apply(event.detail,false),{signal:window.urtubePageController.signal});})();</script>`;
-  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}${popularShelfStyles}${dashboardFlatStyles}
+  const intro = `<style>${dashboardStyles}${topicTrendStyles}${processingStyles}${v3ProcessingStyles}${popularShelfStyles}${popularityStyles}${dashboardFlatStyles}
     .yt-friendship,.yt-friendship form{align-items:center;display:flex;flex-wrap:wrap;gap:10px}.yt-friendship{margin:0}.yt-profile-copy{flex:1}.yt-profile-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px 20px}.yt-profile-title-row h1{margin:0}.yt-profile-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.yt-profile-actions .yt-profile-meta a{margin:0}.yt-profile-scope{margin:6px 0;color:var(--muted);font-size:14px}.yt-friendship form{margin:0}.yt-friendship button{border:1px solid var(--line-strong);border-radius:999px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:10px 20px}.yt-friendship .mt-want{background:var(--accent);border-color:var(--accent);color:#fff}.yt-friendship .mt-secondary{background:var(--raised);color:var(--ink-2)}.yt-friendship .mt-state{color:var(--muted);font-size:13px}
   </style><section class="yt-profile">
     <img class="yt-avatar" src="${html(`/avatar${options.profilePath}`)}" alt="" width="70" height="70">
@@ -945,7 +949,7 @@ export function youtubeDashboardPage(
   const insights = page === 'insights' ? rhythmSection(data, t) + shortFormSection(data, t, options.shortFormVariant)
     + (options.v3Html ?? '') + (options.insightsHtml ?? '') + topicDynamics(data, t)
     + `<details class="yt-topic-details"><summary>${t.topicDynamicsDetails}</summary>${topicTrendSection(data, t)}</details>`
-    + distribution + keywords : '';
+    + distribution + (options.popularity ? popularitySection(options.popularity, lang) : '') + keywords : '';
   const history = historySection(options.history, data, t, lang, showRecent);
   const recap = recapSection(data, t);
   // A private page is not a private default, and friends may still have access.

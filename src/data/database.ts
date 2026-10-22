@@ -23,6 +23,8 @@ import type {
   YoutubeImportResult,
   YoutubeOAuthCredential,
   YoutubeParsedArchive,
+  YoutubePopularity,
+  YoutubePopularitySeries,
   YoutubeProgressBatchInput,
   YoutubeProgressImportResult,
   YoutubeProgressImportRow,
@@ -34,6 +36,14 @@ import type {
   YoutubeWatchInterval,
 } from '../youtube/types.js';
 import { YOUTUBE_SCAN_COVERING_REASONS } from '../youtube/types.js';
+import {
+  VIDEO_STATISTICS_ACTIVE_REFRESH_DAYS,
+  VIDEO_STATISTICS_ACTIVE_WATCH_DAYS,
+  VIDEO_STATISTICS_DORMANT_REFRESH_DAYS,
+  YOUTUBE_POPULARITY_BOUNDS,
+  YOUTUBE_POPULARITY_VERSION,
+  popularityBucketSql,
+} from '../youtube/popularity.js';
 import type { YoutubeProcessingCounts } from '../youtube/processing.js';
 import type { YoutubeMetadataProcessingCounts } from '../youtube/v3-processing.js';
 import {
@@ -377,6 +387,12 @@ const CHANNEL_NEEDS_METADATA_SQL = `(
   ))
 )`;
 
+// A metadata upsert (fresh fetch or shared-cache hit) only replaces the
+// stored view count with a snapshot at least as new as the current one.
+const NEWER_VIDEO_STATISTICS_SQL = `excluded.statistics_fetched_at IS NOT NULL AND (
+  youtube_videos.statistics_fetched_at IS NULL
+  OR excluded.statistics_fetched_at >= youtube_videos.statistics_fetched_at)`;
+
 function channelMetadataCutoffs(now: Date): [string, string, string] {
   const daysAgo = (days: number) => new Date(now.getTime() - days * 86400_000).toISOString();
   return [
@@ -585,6 +601,25 @@ export class Repository {
           this.db.exec('ALTER TABLE youtube_videos ADD COLUMN is_livestream INTEGER CHECK (is_livestream IN (0, 1))');
         }
         this.db.exec('PRAGMA user_version = 13; COMMIT;');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
+    const afterLivestream = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (afterLivestream.user_version < 14) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        // Public view-count snapshot with its own timestamp, separate from
+        // metadata_fetched_at/metadata_hash. Existing rows start unknown (NULL).
+        const columns = this.db.prepare('PRAGMA table_info(youtube_videos)').all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'view_count')) {
+          this.db.exec('ALTER TABLE youtube_videos ADD COLUMN view_count INTEGER CHECK (view_count >= 0)');
+        }
+        if (!columns.some((column) => column.name === 'statistics_fetched_at')) {
+          this.db.exec('ALTER TABLE youtube_videos ADD COLUMN statistics_fetched_at TEXT');
+        }
+        this.db.exec('PRAGMA user_version = 14; COMMIT;');
       } catch (error) {
         this.db.exec('ROLLBACK');
         throw error;
@@ -2463,8 +2498,9 @@ export class Repository {
       INSERT INTO youtube_videos (
         video_id, title, channel_id, channel_title, description, tags_json,
         thumbnail_url, duration_seconds, published_at, category_id,
-        availability, metadata_hash, metadata_fetched_at, is_livestream
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        availability, metadata_hash, metadata_fetched_at, is_livestream,
+        view_count, statistics_fetched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(video_id) DO UPDATE SET
         title=CASE WHEN excluded.title='' THEN youtube_videos.title ELSE excluded.title END,
         channel_id=COALESCE(excluded.channel_id, youtube_videos.channel_id),
@@ -2474,7 +2510,10 @@ export class Repository {
         duration_seconds=excluded.duration_seconds, published_at=excluded.published_at,
         category_id=excluded.category_id, availability=excluded.availability,
         metadata_hash=excluded.metadata_hash, metadata_fetched_at=excluded.metadata_fetched_at,
-        is_livestream=COALESCE(excluded.is_livestream, youtube_videos.is_livestream)
+        is_livestream=COALESCE(excluded.is_livestream, youtube_videos.is_livestream),
+        view_count=CASE WHEN ${NEWER_VIDEO_STATISTICS_SQL} THEN excluded.view_count ELSE youtube_videos.view_count END,
+        statistics_fetched_at=CASE WHEN ${NEWER_VIDEO_STATISTICS_SQL}
+          THEN excluded.statistics_fetched_at ELSE youtube_videos.statistics_fetched_at END
     `);
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -2484,7 +2523,9 @@ export class Repository {
           video.description, JSON.stringify(video.tags), video.thumbnailUrl,
           video.durationSeconds, video.publishedAt, video.categoryId,
           video.availability, video.metadataHash, fetchedAt,
-          video.isLivestream == null ? null : Number(video.isLivestream)
+          video.isLivestream == null ? null : Number(video.isLivestream),
+          video.viewCount ?? null,
+          video.viewCount === undefined ? null : video.statisticsFetchedAt ?? fetchedAt,
         );
       }
       this.backfillYoutubeChannelIds(videos.filter((video) => video.channelId).map((video) => video.videoId));
@@ -2506,6 +2547,118 @@ export class Repository {
       LIMIT ?
     `).all(...channelMetadataCutoffs(now), safeLimit) as Array<{ channel_id: string }>;
     return rows.map((row) => row.channel_id);
+  }
+
+  // Watched, available videos whose view count is due under the policy in
+  // src/youtube/popularity.ts. Never-fetched first, then most recently watched.
+  youtubeVideosNeedingStatistics(limit = 500, now = new Date()): string[] {
+    const safeLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
+    const daysAgo = (days: number) => new Date(now.getTime() - days * 86400_000).toISOString();
+    const rows = this.db.prepare(`
+      SELECT v.video_id FROM youtube_videos v
+      JOIN (
+        SELECT video_id, MAX(watched_at) last_watched_at FROM youtube_watch_events
+        WHERE activity_type='video' AND video_id IS NOT NULL GROUP BY video_id
+      ) w ON w.video_id=v.video_id
+      WHERE v.metadata_fetched_at IS NOT NULL AND v.availability='available' AND (
+        v.statistics_fetched_at IS NULL OR v.statistics_fetched_at < ?
+        OR (v.statistics_fetched_at < ? AND w.last_watched_at >= ?)
+      )
+      ORDER BY v.statistics_fetched_at IS NOT NULL, w.last_watched_at DESC, v.video_id
+      LIMIT ?
+    `).all(
+      daysAgo(VIDEO_STATISTICS_DORMANT_REFRESH_DAYS),
+      daysAgo(VIDEO_STATISTICS_ACTIVE_REFRESH_DAYS),
+      daysAgo(VIDEO_STATISTICS_ACTIVE_WATCH_DAYS),
+      safeLimit,
+    ) as Array<{ video_id: string }>;
+    return rows.map((row) => row.video_id);
+  }
+
+  // Writes only the counter columns: metadata_hash and topic caches stay valid.
+  saveYoutubeVideoStatistics(videos: Array<{ videoId: string; viewCount: number | null; fetchedAt: string }>): void {
+    const statement = this.db.prepare(`
+      UPDATE youtube_videos SET view_count=?, statistics_fetched_at=?
+      WHERE video_id=? AND (statistics_fetched_at IS NULL OR statistics_fetched_at<=?)
+    `);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const video of videos) statement.run(video.viewCount, video.fetchedAt, video.videoId, video.fetchedAt);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  // Distinct watched videos in the range, each counted once. Channel size is
+  // the watched video's channel subscriber count. Unknown values stay in the
+  // denominator under one reason each and never fall into the < 1K bucket.
+  youtubePopularity(range: YoutubeRange, now = new Date()): YoutubePopularity {
+    const cutoff = youtubeCutoff(range, now);
+    const rows = this.db.prepare(`
+      WITH selected AS (
+        SELECT DISTINCT video_id FROM youtube_watch_events
+        WHERE activity_type='video' AND video_id IS NOT NULL ${cutoff ? 'AND watched_at>=?' : ''}
+      ), sample AS (
+        SELECT
+          CASE WHEN v.video_id IS NULL OR v.metadata_fetched_at IS NULL THEN 'pending'
+            WHEN v.availability='unavailable' THEN 'unavailable'
+            WHEN v.channel_id IS NULL THEN 'missing'
+            WHEN c.statistics_fetched_at IS NULL OR c.statistics_json IS NULL THEN 'pending'
+            WHEN json_extract(c.statistics_json, '$.hiddenSubscriberCount') THEN 'hidden'
+            WHEN json_type(c.statistics_json, '$.subscriberCount')='integer'
+              AND json_extract(c.statistics_json, '$.subscriberCount')>=0 THEN 'known'
+            ELSE 'missing' END channel_state,
+          json_extract(c.statistics_json, '$.subscriberCount') subscribers,
+          c.statistics_fetched_at channel_at,
+          CASE WHEN v.video_id IS NULL OR v.metadata_fetched_at IS NULL THEN 'pending'
+            WHEN v.availability='unavailable' THEN 'unavailable'
+            WHEN v.statistics_fetched_at IS NULL THEN 'pending'
+            WHEN v.view_count IS NULL OR v.view_count<0 THEN 'missing'
+            ELSE 'known' END video_state,
+          v.view_count views, v.statistics_fetched_at video_at
+        FROM selected s
+        LEFT JOIN youtube_videos v ON v.video_id=s.video_id
+        LEFT JOIN youtube_channels c ON c.channel_id=v.channel_id
+      )
+      SELECT 'channels' kind, channel_state state,
+        CASE WHEN channel_state='known' THEN ${popularityBucketSql('subscribers')} END bucket,
+        COUNT(*) count, MIN(channel_at) oldest, MAX(channel_at) newest
+      FROM sample GROUP BY state, bucket
+      UNION ALL
+      SELECT 'videos' kind, video_state state,
+        CASE WHEN video_state='known' THEN ${popularityBucketSql('views')} END bucket,
+        COUNT(*) count, MIN(video_at) oldest, MAX(video_at) newest
+      FROM sample GROUP BY state, bucket
+    `).all(...(cutoff ? [cutoff] : [])) as Array<{
+      kind: 'channels' | 'videos'; state: 'known' | keyof YoutubePopularitySeries['unknown'];
+      bucket: number | null; count: number; oldest: string | null; newest: string | null;
+    }>;
+    const series = (): YoutubePopularitySeries => ({
+      buckets: YOUTUBE_POPULARITY_BOUNDS.map(() => 0), known: 0,
+      unknown: { pending: 0, hidden: 0, unavailable: 0, missing: 0 },
+      oldestFetchedAt: null, newestFetchedAt: null,
+    });
+    const output: YoutubePopularity = {
+      version: YOUTUBE_POPULARITY_VERSION, totalVideos: 0, channels: series(), videos: series(),
+    };
+    for (const row of rows) {
+      const target = output[row.kind];
+      const count = Number(row.count);
+      if (row.state !== 'known' || row.bucket === null) {
+        target.unknown[row.state === 'known' ? 'missing' : row.state] += count;
+        continue;
+      }
+      target.buckets[Number(row.bucket)] += count;
+      target.known += count;
+      // Snapshot times describe the counts actually charted.
+      if (row.oldest && (!target.oldestFetchedAt || row.oldest < target.oldestFetchedAt)) target.oldestFetchedAt = row.oldest;
+      if (row.newest && (!target.newestFetchedAt || row.newest > target.newestFetchedAt)) target.newestFetchedAt = row.newest;
+    }
+    const unknown = output.videos.unknown;
+    output.totalVideos = output.videos.known + unknown.pending + unknown.hidden + unknown.unavailable + unknown.missing;
+    return output;
   }
 
   youtubeChannelMetadata(channelId: string): YoutubeChannelMetadata | null {

@@ -173,7 +173,31 @@ export interface YoutubeVideoMetadata {
   categoryId: string | null;
   availability: 'available' | 'unavailable';
   isLivestream?: boolean | null;
+  // Public view-count snapshot. Undefined means statistics were not
+  // requested; null means YouTube returned no usable count. Neither field is
+  // part of metadataHash, so refreshing counters never invalidates topics.
+  viewCount?: number | null;
+  statisticsFetchedAt?: string | null;
   metadataHash: string;
+}
+
+// One watched-video distribution (channel subscribers or video views).
+// `buckets` follows YOUTUBE_POPULARITY_BOUNDS; every unknown video is in
+// exactly one unknown reason and never in a bucket.
+export interface YoutubePopularitySeries {
+  buckets: number[];
+  known: number;
+  unknown: { pending: number; hidden: number; unavailable: number; missing: number };
+  oldestFetchedAt: string | null;
+  newestFetchedAt: string | null;
+}
+
+export interface YoutubePopularity {
+  version: string;
+  // Distinct watched video IDs in the range; the denominator of both series.
+  totalVideos: number;
+  channels: YoutubePopularitySeries;
+  videos: YoutubePopularitySeries;
 }
 
 export interface YoutubeChannelStatistics {

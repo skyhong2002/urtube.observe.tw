@@ -566,6 +566,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       processingHtml: hasData || viewerOwns ? v3ProcessingNotice(visibleProcessing, lang, { ownerDetails: viewerOwns }) : '',
       statsProvisional: v3Data.processing.metadata.enabled && v3Data.processing.metadata.videosPendingMetadata > 0,
       insightsHtml: crystalHtml + leaningsHtml,
+      popularity: page === 'insights' && hasData
+        ? cachedRead(repository, `popularity:${range}`, () => repository.youtubePopularity(range)) : undefined,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
         genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done', ownerDetails: viewerOwns,
