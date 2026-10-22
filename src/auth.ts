@@ -51,6 +51,8 @@ export async function completeGoogleLogin(
       redirect_uri: config.login.googleRedirectUri,
       grant_type: 'authorization_code',
     }).toString(),
+    // A hung token endpoint must not hold the login request open indefinitely.
+    signal: AbortSignal.timeout(10_000),
   });
   const body = await response.json().catch(() => ({})) as Record<string, unknown>;
   if (!response.ok || typeof body.id_token !== 'string') {
@@ -75,14 +77,25 @@ export async function completeGoogleLogin(
       }
     } catch { /* A missing profile image must not prevent sign-in. */ }
   }
-  // Only same-site absolute paths may be continued to after login.
-  const next = consumed.next.startsWith('/') && !consumed.next.startsWith('//') ? consumed.next : '';
   return {
     sub,
     email: claims.email ? String(claims.email) : '',
     avatarUrl,
-    next,
+    next: sameSitePath(consumed.next),
   };
+}
+
+// Only same-site absolute paths may be continued to after login. Browsers
+// treat a backslash like a slash, so `/\evil.example` is protocol-relative too.
+export function sameSitePath(next: string): string {
+  const base = new URL(config.publicBaseUrl);
+  try {
+    const target = new URL(next, base);
+    return next.startsWith('/') && target.origin === base.origin
+      ? `${target.pathname}${target.search}${target.hash}` : '';
+  } catch {
+    return '';
+  }
 }
 
 // Suggest a handle from the Gmail local part, squeezed into the handle rules.

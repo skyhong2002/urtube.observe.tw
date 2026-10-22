@@ -15,7 +15,7 @@ import {
 } from '../youtube/personal-taxonomy.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { isVisibleKeyword } from './keyword-display.js';
-import { duration, hours, html, shell, timeAgo, type ShellNavItem } from './pages.js';
+import { duration, hours, hrefAttribute, html, shell, timeAgo, type ShellNavItem } from './pages.js';
 import { processingStyles } from './processing.js';
 import { v3ProcessingStyles } from './v3-processing.js';
 import { buildTopicTrendModel, topicTrendSection, topicTrendStyles } from './topic-trend.js';
@@ -644,7 +644,7 @@ function recentSection(
   historyHref?: string,
 ): string {
   if (!showRecent || !data.recent.length) return '';
-  const rows = data.recent.map((video) => `<a class="yt-video" href="${html(video.url)}" title="${html(video.title)}">
+  const rows = data.recent.map((video) => `<a class="yt-video"${hrefAttribute(video.url)} title="${html(video.title)}">
     <span class="yt-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy" width="32" height="18">` : '<span class="yt-video-placeholder"></span>'}</span>
     <span class="yt-video-copy"><h3>${html(video.title)}</h3><p>${html(video.channelTitle)}${video.watchCount > 1 ? ` · ${t.plays(video.watchCount)}` : ''}${video.durationSeconds === null ? '' : ` · ${duration(video.durationSeconds, lang)}`}</p></span>
     <time class="yt-video-when" datetime="${html(video.watchedAt)}">${timeAgo(video.watchedAt, lang)}</time></a>`).join('');
@@ -714,7 +714,7 @@ function historySection(
   }
   const channelOptions = [...channels].sort((a, b) => b[1].watches - a[1].watches || a[1].name.localeCompare(b[1].name, t.htmlLang))
     .map(([key, channel]) => `<option value="${html(key)}">${html(channel.name)} (${channel.watches})</option>`).join('');
-  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day" data-history-day><h2>${html(day)}</h2><div class="yt-history-day-rows">${entries.map((video) => `<a class="yt-history-row" data-history-row data-history-channel="${html(historyChannelKey(video))}" href="${html(video.url)}" title="${html(video.title)}">
+  const days = [...groups].map(([day, entries]) => `<div class="yt-history-day" data-history-day><h2>${html(day)}</h2><div class="yt-history-day-rows">${entries.map((video) => `<a class="yt-history-row" data-history-row data-history-channel="${html(historyChannelKey(video))}"${hrefAttribute(video.url)} title="${html(video.title)}">
     ${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-history-placeholder"></span>'}
     <span class="yt-history-copy"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>
     <time class="yt-history-when" datetime="${html(video.watchedAt)}">${html(taipeiTimeLabel(video.watchedAt, lang))}</time>
@@ -860,7 +860,7 @@ export function youtubeDashboardPage(
       : b.watches - a.watches || b.estimatedWatchSeconds - a.estimatedWatchSeconds
   );
   const topVideos = videos.length ? `<section class="section yt-popular-shelf ch-shelf"><div class="section-head"><h2>${t.topVideos}</h2>${sortLinks}${popularShelfControls(lang)}</div>
-    <div class="yt-top-videos ch-rows" role="region" aria-label="${t.topVideos}" tabindex="0" data-youtube-sort-list="videos">${videos.map((video, index) => `<a class="yt-top-video" href="${html(video.url)}" data-watches="${video.watches}" data-duration="${video.estimatedWatchSeconds}">
+    <div class="yt-top-videos ch-rows" role="region" aria-label="${t.topVideos}" tabindex="0" data-youtube-sort-list="videos">${videos.map((video, index) => `<a class="yt-top-video"${hrefAttribute(video.url)} data-watches="${video.watches}" data-duration="${video.estimatedWatchSeconds}">
       <span class="yt-channel-rank">${index + 1}</span>
       <span class="yt-top-video-media">${video.thumbnailUrl ? `<img src="${html(video.thumbnailUrl)}" alt="" loading="lazy">` : '<span class="yt-top-video-placeholder"></span>'}${video.durationSeconds === null ? '' : `<span class="yt-video-length">${duration(video.durationSeconds, lang)}</span>`}</span>
       <span class="yt-top-video-main"><strong>${html(video.title)}</strong><span>${html(video.channelTitle)}</span></span>

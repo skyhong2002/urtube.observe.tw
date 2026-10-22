@@ -71,7 +71,7 @@ import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
-import { DEFAULT_HANDLE, UserRegistry, type MatchableCrystal, type User } from './users.js';
+import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
   MATCHING_CANDIDATE_POOL_LIMIT,
   matchingCandidateBatch,
@@ -320,6 +320,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   }
 
   const secureCookies = config.publicBaseUrl.startsWith('https://');
+  const LOGIN_STATE_COOKIE = 'urtube_login_state';
 
   function sessionUser(c: Context): User | null {
     const token = getCookie(c, 'urtube_session') ?? '';
@@ -640,7 +641,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // there after the round trip (same-site paths only).
   app.get('/auth/google', (c) => {
     try {
-      return c.redirect(googleLoginUrl(registry, c.req.query('next') ?? ''));
+      const url = googleLoginUrl(registry, c.req.query('next') ?? '');
+      // The server-side state proves the round trip started here, not that
+      // it started in this browser. Binding it to a cookie stops someone from
+      // handing a victim their own callback link and logging them into the
+      // attacker's account (login CSRF).
+      setCookie(c, LOGIN_STATE_COOKIE, new URL(url).searchParams.get('state') ?? '', {
+        httpOnly: true, sameSite: 'Lax', path: '/auth/google', secure: secureCookies, maxAge: 600,
+      });
+      return c.redirect(url);
     } catch (error) {
       return c.text(presentationError(error, langOf(c), 'login'), 503);
     }
@@ -652,6 +661,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const code = c.req.query('code');
     const state = c.req.query('state');
     if (!code || !state) return c.text(presentationError(null, langOf(c), 'login'), 400);
+    const browserState = getCookie(c, LOGIN_STATE_COOKIE) ?? '';
+    deleteCookie(c, LOGIN_STATE_COOKIE, { path: '/auth/google' });
+    if (!browserState || !timingSafeEquals(browserState, state)) {
+      return c.text(presentationError(null, langOf(c), 'login'), 400);
+    }
     try {
       const identity = await completeGoogleLogin(registry, code, state);
       const existing = registry.userByGoogleSub(identity.sub);

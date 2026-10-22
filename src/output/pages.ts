@@ -8,6 +8,18 @@ export function html(value: unknown): string {
   return String(value ?? '').replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' }[char]!));
 }
 
+// Imported history keeps whatever URL the archive contained. Only web URLs
+// may become links; anything else (javascript:, data:, relative tricks)
+// renders as an inert row instead of an executable href.
+export function hrefAttribute(url: unknown): string {
+  try {
+    const parsed = new URL(String(url ?? ''));
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? ` href="${html(parsed.href)}"` : '';
+  } catch {
+    return '';
+  }
+}
+
 export function hours(seconds: number | null): string {
   if (seconds === null) return '—';
   return `${Math.round(seconds / 360) / 10}h`;
