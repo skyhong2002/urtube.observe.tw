@@ -19,11 +19,20 @@ process.env.PUBLIC_BASE_URL = `http://${host}:${requestedPort}`;
 const { createApp } = await import('../src/index.js');
 const { UserRegistry } = await import('../src/users.js');
 const { seedMatchingDemo } = await import('./matching-demo-seed.js');
+const { demoMatchingV3Settings } = await import('./matching-demo-seed.js');
+const { startDemoCompute } = await import('./demo-compute.js');
+const { computeClient } = await import('../src/matching-v3/compute.js');
 
+const numeric = await startDemoCompute();
 const root = mkdtempSync(join(tmpdir(), 'urtube-matching-demo-'));
 const registry = new UserRegistry(join(root, 'users.sqlite'), join(root, 'users'));
 
-const { alice, bob, carol, newcomer, matchingV3 } = await seedMatchingDemo(registry);
+const settings = { ...demoMatchingV3Settings(), computeUrl: numeric.url, compareUrl: numeric.url, computeToken: numeric.token };
+const fixture = await seedMatchingDemo(registry, { settings, compute: computeClient(settings),
+  directoryMembers: Number(process.env.DEMO_DIRECTORY_MEMBERS ?? 0) }).catch(async error => {
+  registry.close(); rmSync(root, { recursive: true, force: true }); await numeric.close(); throw error;
+});
+const { alice, bob, carol, newcomer, pending, failed, matchingV3 } = fixture;
 assert.equal(registry.matchingCrystalFor(newcomer.handle), null, 'newcomer must not receive an invented matching signal');
 
 const sessions = new Map([
@@ -31,8 +40,13 @@ const sessions = new Map([
   [randomBytes(24).toString('base64url'), registry.createSession(bob)],
   [randomBytes(24).toString('base64url'), registry.createSession(carol)],
   [randomBytes(24).toString('base64url'), registry.createSession(newcomer)],
+  [randomBytes(24).toString('base64url'), registry.createSession(pending)],
+  [randomBytes(24).toString('base64url'), registry.createSession(failed)],
 ]);
-const [aliceAccess, bobAccess, carolAccess, newcomerAccess] = sessions.keys();
+const [aliceAccess, bobAccess, carolAccess, newcomerAccess, pendingAccess, failedAccess] = sessions.keys();
+const directoryMember = fixture.directory.at(-1);
+const directoryAccess = directoryMember ? randomBytes(24).toString('base64url') : null;
+if (directoryAccess && directoryMember) sessions.set(directoryAccess, registry.createSession(directoryMember));
 
 const noTaggedChannels = async (): Promise<TagListSnapshot> => ({
   lists: {
@@ -41,7 +55,7 @@ const noTaggedChannels = async (): Promise<TagListSnapshot> => ({
   },
   provenance: {
     sourceUrl: 'synthetic-local-demo',
-    sourceUpdatedAt: '2026-09-05 00:00:00',
+    sourceUpdatedAt: new Date().toISOString(),
     fetchedAt: new Date().toISOString(),
     membershipVersion: 'synthetic-local-demo',
     policyVersion: 'synthetic-local-demo',
@@ -70,16 +84,25 @@ const server = serve({ fetch: demo.fetch, hostname: host, port: requestedPort },
   console.log(`Bob:   ${base}/__demo/session/${bobAccess}`);
   console.log(`Carol (incomplete history, provisional topics): ${base}/__demo/session/${carolAccess}`);
   console.log(`New member (no history): ${base}/__demo/session/${newcomerAccess}`);
+  console.log(`Pending processing: ${base}/__demo/session/${pendingAccess}`);
+  console.log(`Failed processing: ${base}/__demo/session/${failedAccess}`);
+  if (directoryAccess) console.log(`Directory last member: ${base}/__demo/session/${directoryAccess}`);
   console.log(`Topic matching (v3, synthetic profiles, no API keys): ${base}/matches?view=topics`);
+  console.log('Numeric engine: real Python compact-medoid + exact transport; classifier and embeddings: synthetic.');
   console.log('Restart this command to reset every request and connection. Press Ctrl-C to stop.');
 });
 
+let closing = false;
 function close(): void {
-  server.close(() => {
+  if (closing) return;
+  closing = true;
+  server.close(async () => {
     registry.close();
     rmSync(root, { recursive: true, force: true });
+    await numeric.close();
     process.exit(0);
   });
+  if ('closeIdleConnections' in server) server.closeIdleConnections();
 }
 
 process.once('SIGINT', close);

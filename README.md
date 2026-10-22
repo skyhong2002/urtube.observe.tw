@@ -12,7 +12,7 @@ urtube 是以 **behavioral matching** 為核心的 **data-driven 交友網站**�
 
 urtube 希望以真實行為資料提升同好探索的準確度，找出長期具有共同興趣與喜好的族群，讓使用者更容易遇見有共同話題、值得持續認識的人。這是應用程式與網站的核心方向：從實際行為理解偏好，從共同偏好建立連結，再透過交流發展友誼。
 
-日常累積的觀看紀錄，也保存了不同時間點的關注與探索。透過跨時間的興趣洞察，使用者可以回顧自己在不同年齡與人生階段接觸過的內容，重溫當時的經歷，理解喜好如何延續與改變。目前配對使用最近 90 天的共通主題與頻道資料；私人興趣地圖協助使用者理解配對依據，長期興趣的穩定性則是後續配對方法的發展重點。
+日常累積的觀看紀錄，也保存了不同時間點的關注與探索。透過跨時間的興趣洞察，使用者可以回顧自己在不同年齡與人生階段接觸過的內容，重溫當時的經歷，理解喜好如何延續與改變。Legacy 配對投影使用最近 90 天的共通主題與頻道資料；v3 主題配對依已授權的最新 5,000 部不同影片建立語意輪廓，不跟隨儀表板日期範圍；私人興趣地圖協助使用者理解配對依據，長期興趣的穩定性則是後續配對方法的發展重點。
 
 在 AI 與 Agent 日益融入生活的時代，urtube 希望讓這些真實行為資料成為認識彼此的起點：從回顧自己的經歷，到找到志同道合的夥伴，拓展原有生活圈之外的社交機會，建立能持續交流的友誼。後續將透過使用者對共同興趣推薦的回饋、好友邀請接受率，以及經同意回報的持續交流情形，評估配對品質與長期連結的價值。
 
@@ -51,7 +51,7 @@ flowchart LR
     Worker --> Registry[(共用 registry：帳號、好友、90 天配對投影)]
     Personal --> V3[matching-worker：GPT genre 分類 + Gemini tag 向量]
     V3 --> Cache[(共用分類 / 向量快取與九類輪廓)]
-    Cache --> Compute[matching-compute：DBSCAN + optimal transport]
+    Cache --> Compute[matching-compute：compact medoid + optimal transport]
     App[app 網站] --> Personal
     App --> Registry
     App --> Compute
@@ -106,10 +106,12 @@ npm run check
 ### 2. 先體驗不需憑證的合成示範
 
 ```bash
-npm run demo:matching
+python3 -m venv /tmp/urtube-demo-venv
+/tmp/urtube-demo-venv/bin/pip install --require-hashes -r services/matching-compute/requirements.txt
+DEMO_PYTHON=/tmp/urtube-demo-venv/bin/python npm run demo:matching
 ```
 
-終端會輸出 Alice、Bob、Carol 與新成員的本機登入連結，預設 `http://127.0.0.1:4317`。用不同瀏覽器 profile 分別開啟，可操作候選、好友邀請、Blend 與撤回，以及 v3 主題配對（選擇主題 → 分數 → Blend）。v3 profile 由實際 worker 流程以確定性的替身分類器、替身 embedding 與程序內 compute 替身產生，不需任何 API key；Carol 的觀看紀錄未完整同步，用來展示暫定分數與資料狀態說明。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用合成資料體驗配對流程；使用自己的帳號與觀看紀錄，請依下方指南設定。
+終端會輸出 Alice、Bob、Carol、新成員、等待處理與失敗帳號的本機登入連結，預設 `http://127.0.0.1:4317`。用不同瀏覽器 profile 分別開啟，可操作候選、好友邀請、Blend 與撤回，以及 v3 主題配對（選擇主題 → 分數 → Blend）。v3 profile 由實際 worker 流程以確定性的替身分類器、替身 embedding，以及本機真正的 Python compact-medoid／精確 transport 服務產生，Python 3.11 以上（CI／容器使用 3.12）需先安裝上述鎖定依賴，不需任何 API key；Carol 的觀看紀錄未完整同步，用來展示暫定分數與資料狀態說明。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用合成資料體驗配對流程；使用自己的帳號與觀看紀錄，請依下方指南設定。
 
 <details>
 <summary>完整自架指南：帳號設定、資料匯入、服務啟動與部署</summary>

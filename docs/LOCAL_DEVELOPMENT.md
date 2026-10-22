@@ -14,12 +14,14 @@
 
 ### A. 全新 clone（不碰正式資料）
 
-需要 Node.js 22（與正式 runtime 相同）。Python 3.12 只有在跑數值服務測試時才需要。
+需要 Node.js 22（與正式 runtime 相同）。合成 demo 與數值測試需要 Python 3.11 以上，CI／容器使用 3.12。
 
 ```sh
 npm ci
 npm run check                 # 型別檢查與全部測試，只用 :memory: 資料庫
-npm run demo:matching         # 合成帳號的配對與 v3 主題配對示範（免 API key），預設 http://127.0.0.1:4317
+python3 -m venv /tmp/urtube-demo-venv
+/tmp/urtube-demo-venv/bin/pip install --require-hashes -r services/matching-compute/requirements.txt
+DEMO_PYTHON=/tmp/urtube-demo-venv/bin/python npm run demo:matching  # 真實數值服務，合成分類／向量；免 API key
 ```
 
 要以容器方式跑完整網站（空資料庫、預覽帳號 `preview`），只用 `compose.local.yml`，

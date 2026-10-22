@@ -1,20 +1,17 @@
 import { createHash } from 'node:crypto';
 import type { UserRegistry, User } from '../src/users.js';
-import { MATCHING_TAXONOMY } from '../src/youtube/matching.js';
-import {
-  REGISTRY_CRYSTAL_VERSION,
-  type RegistryMatchingCrystal,
-} from '../src/youtube/registry-crystal.js';
+import { registryMatchingCrystal } from '../src/youtube/registry-crystal.js';
+import { youtubeMatchingCrystalSection } from '../src/youtube/crystal.js';
 import type { YoutubeParsedArchive } from '../src/youtube/types.js';
 import type { Compute } from '../src/matching-v3/compute.js';
-import { CHANNEL_TYPES, CONTENT_GENRES, classificationInput, settings, type Classification, type Cluster, type Settings, type TagPoint, type VideoInput } from '../src/matching-v3/model.js';
+import { CHANNEL_TYPES, CONTENT_GENRES, classificationInput, settings, version, type Classification, type Cluster, type Settings, type TagPoint, type VideoInput } from '../src/matching-v3/model.js';
 import { runCycle } from '../src/matching-v3/pipeline.js';
 import type { Provider } from '../src/matching-v3/provider.js';
 
 // Credential-free synthetic data for `npm run demo:matching`. No real account,
 // video history or API key is used: v3 profiles are built by the real worker
-// pipeline with a deterministic stand-in provider and an in-process stand-in
-// for the Python compute service.
+// pipeline with a deterministic stand-in provider. The interactive demo injects
+// real Python compute; the fast unit fixture defaults to the stand-in below.
 
 export const demoMatchingV3Settings = (): Settings => settings({
   MATCHING_V3_ENABLED: 'true',
@@ -27,63 +24,38 @@ export const demoMatchingV3Settings = (): Settings => settings({
   MATCHING_V3_COMPUTE_URL: 'http://synthetic-demo.invalid',
 });
 
-const topic = (key: string, share: number) => ({
-  key,
-  name: MATCHING_TAXONOMY.topics.find((item) => item.key === key)?.name ?? key,
-  share,
-});
-
-function crystal(topics: RegistryMatchingCrystal['topics']): RegistryMatchingCrystal {
-  return {
-    kind: 'matching',
-    version: REGISTRY_CRYSTAL_VERSION,
-    taxonomyVersion: MATCHING_TAXONOMY.version,
-    generatedAt: new Date().toISOString(),
-    windowDays: 90,
-    data: {
-      watchEvents: 240,
-      uniqueVideos: 90,
-      estimatedWatchSeconds: 140_000,
-      activeDays: 20,
-      topicCoverage: 1,
-    },
-    topics,
-    channels: [{ key: 'shared-studio', name: 'Shared Studio', share: 1 }],
-  };
-}
-
-interface DemoVideo { id: string; title: string; tags: string[]; channelId: string; channelTitle: string; watchedAt: string; seconds: number }
-const video = (id: string, title: string, tags: string[], channelId: string, channelTitle: string, watchedAt: string, seconds = 900): DemoVideo =>
-  ({ id, title, tags, channelId, channelTitle, watchedAt, seconds });
+interface DemoVideo { id: string; title: string; tags: string[]; channelId: string; channelTitle: string; seconds: number }
+const video = (id: string, title: string, tags: string[], channelId: string, channelTitle: string, seconds = 900): DemoVideo =>
+  ({ id, title, tags, channelId, channelTitle, seconds });
 
 // Shared fixtures keep the legacy video IDs so the legacy crystal and Blend
 // views still refer to the same synthetic watches.
 const library: Record<'alice' | 'bob' | 'carol', DemoVideo[]> = {
   alice: [
-    video('DEMOALICE01', 'Songwriting basics', ['songwriting', 'chords'], 'shared-studio', 'Shared Studio', '2026-09-01T01:00:00Z', 1_800),
-    video('DEMOSHARED1', 'Build a tiny synthesizer', ['synthesizer', 'diy electronics'], 'shared-studio', 'Shared Studio', '2026-09-03T13:00:00Z', 1_200),
-    video('DEMOALICE02', 'TypeScript patterns lesson', ['typescript', 'programming'], 'alice-lab', 'Alice Lab', '2026-09-04T01:00:00Z'),
-    video('DEMOALICE03', 'Modular synth patching basics', ['modular synth', 'synth'], 'shared-studio', 'Shared Studio', '2026-08-28T12:00:00Z'),
-    video('DEMOALICE04', 'Lyrics workshop', ['lyrics', 'songwriting'], 'alice-lab', 'Alice Lab', '2026-08-27T12:00:00Z'),
-    video('DEMOALICE05', 'JavaScript tutorial for beginners', ['javascript', 'programming'], 'alice-lab', 'Alice Lab', '2026-08-26T12:00:00Z'),
-    video('DEMOALICE06', 'Note taking for learning', ['note taking', 'study tips'], 'alice-lab', 'Alice Lab', '2026-08-25T12:00:00Z'),
+    video('DEMOALICE01', 'Songwriting basics', ['songwriting', 'chords'], 'shared-studio', 'Shared Studio', 1_800),
+    video('DEMOSHARED1', 'Build a tiny synthesizer', ['synthesizer', 'diy electronics'], 'shared-studio', 'Shared Studio', 1_200),
+    video('DEMOALICE02', 'TypeScript patterns lesson', ['typescript', 'programming'], 'alice-lab', 'Alice Lab'),
+    video('DEMOALICE03', 'Modular synth patching basics', ['modular synth', 'synth'], 'shared-studio', 'Shared Studio'),
+    video('DEMOALICE04', 'Lyrics workshop', ['lyrics', 'songwriting'], 'alice-lab', 'Alice Lab'),
+    video('DEMOALICE05', 'JavaScript tutorial for beginners', ['javascript', 'programming'], 'alice-lab', 'Alice Lab'),
+    video('DEMOALICE06', 'Note taking for learning', ['note taking', 'study tips'], 'alice-lab', 'Alice Lab'),
     // Genre known, no original tags: the intended "missing tags" state.
-    video('DEMOALICE07', 'Evening news bulletin', [], 'demo-news', 'Demo News Desk', '2026-08-24T12:00:00Z'),
+    video('DEMOALICE07', 'Evening news bulletin', [], 'demo-news', 'Demo News Desk'),
   ],
   bob: [
-    video('DEMOSHARED1', 'Build a tiny synthesizer', ['synthesizer', 'diy electronics'], 'shared-studio', 'Shared Studio', '2026-09-01T13:00:00Z', 1_500),
-    video('DEMOBOB0001', 'Live looping techniques', ['live looping', 'looper'], 'shared-studio', 'Shared Studio', '2026-09-02T13:00:00Z', 1_800),
-    video('DEMOBOB0002', 'Learning in public', ['learning in public', 'study tips'], 'bob-lab', 'Bob Lab', '2026-09-04T13:00:00Z', 600),
-    video('DEMOBOB0003', 'Synth sound design lesson', ['synth', 'synthesizer'], 'shared-studio', 'Shared Studio', '2026-08-29T12:00:00Z'),
-    video('DEMOBOB0004', 'Chord progressions lesson', ['chords', 'songwriting'], 'bob-lab', 'Bob Lab', '2026-08-28T12:00:00Z'),
-    video('DEMOBOB0005', 'Programming tutorial: TypeScript', ['typescript', 'programming'], 'bob-lab', 'Bob Lab', '2026-08-27T12:00:00Z'),
-    video('DEMOBOB0006', 'Speedrun commentary', ['speedrun'], 'bob-lab', 'Bob Lab', '2026-08-26T12:00:00Z'),
+    video('DEMOSHARED1', 'Build a tiny synthesizer', ['synthesizer', 'diy electronics'], 'shared-studio', 'Shared Studio', 1_500),
+    video('DEMOBOB0001', 'Live looping techniques', ['live looping', 'looper'], 'shared-studio', 'Shared Studio', 1_800),
+    video('DEMOBOB0002', 'Learning in public', ['learning in public', 'study tips'], 'bob-lab', 'Bob Lab', 600),
+    video('DEMOBOB0003', 'Synth sound design lesson', ['synth', 'synthesizer'], 'shared-studio', 'Shared Studio'),
+    video('DEMOBOB0004', 'Chord progressions lesson', ['chords', 'songwriting'], 'bob-lab', 'Bob Lab'),
+    video('DEMOBOB0005', 'Programming tutorial: TypeScript', ['typescript', 'programming'], 'bob-lab', 'Bob Lab'),
+    video('DEMOBOB0006', 'Speedrun commentary', ['speedrun'], 'bob-lab', 'Bob Lab'),
   ],
   // History sync never completed: a provisional profile with sparse evidence.
   carol: [
-    video('DEMOCAROL01', 'Piano lesson for beginners', [], 'carol-keys', 'Carol Keys', '2026-09-02T12:00:00Z'),
-    video('DEMOCAROL02', 'Synth jam session', ['synth'], 'carol-keys', 'Carol Keys', '2026-09-01T12:00:00Z'),
-    video('DEMOCAROL03', 'Lyrics study', ['lyrics', 'songwriting'], 'carol-keys', 'Carol Keys', '2026-08-31T12:00:00Z'),
+    video('DEMOCAROL01', 'Piano lesson for beginners', [], 'carol-keys', 'Carol Keys'),
+    video('DEMOCAROL02', 'Synth jam session', ['synth'], 'carol-keys', 'Carol Keys'),
+    video('DEMOCAROL03', 'Lyrics study', ['lyrics', 'songwriting'], 'carol-keys', 'Carol Keys'),
   ],
 };
 
@@ -190,53 +162,65 @@ export function demoCompute(s: Settings): Compute {
   };
 }
 
-function watches(user: User, videos: DemoVideo[]): YoutubeParsedArchive['watches'] {
-  return videos.map(v => ({
-    eventId: `${user.handle}-${v.id}`, videoId: v.id, title: v.title, url: `https://www.youtube.com/watch?v=${v.id}`,
+function watches(user: User, videos: DemoVideo[], now: Date, days: number): YoutubeParsedArchive['watches'] {
+  return Array.from({ length: days }, (_, day) => videos.map((v, index) => ({
+    eventId: `${user.handle}-${v.id}-${day}`, videoId: v.id, title: v.title, url: `https://www.youtube.com/watch?v=${v.id}`,
     channelId: v.channelId, channelTitle: v.channelTitle, channelUrl: `https://www.youtube.com/channel/${v.channelId}`,
-    watchedAt: v.watchedAt, actualWatchedSeconds: v.seconds, activityType: 'video',
-  }));
+    watchedAt: new Date(now.getTime() - (day + 1) * 86400_000 + index * 3600_000).toISOString(),
+    actualWatchedSeconds: v.seconds, activityType: 'video' as const,
+  }))).flat();
 }
 
-function seedHistory(registry: UserRegistry, user: User, videos: DemoVideo[], historyComplete: boolean): void {
+function seedHistory(registry: UserRegistry, user: User, videos: DemoVideo[], historyComplete: boolean, now: Date): void {
   const repository = registry.repositoryFor(user);
-  repository.ingestYoutubeArchive({ archiveHash: `synthetic-demo-${user.handle}`, source: 'takeout', watches: watches(user, videos), searches: [] });
+  const at = now.toISOString();
+  repository.ingestYoutubeArchive({ archiveHash: `synthetic-demo-${user.handle}`, source: 'takeout', watches: watches(user, videos, now, historyComplete ? 32 : 1), searches: [] });
+  const ids = [...new Set(Object.values(library).flat().map(v => v.id))];
   repository.upsertYoutubeVideoMetadata(videos.map(v => ({
     videoId: v.id, title: v.title, channelId: v.channelId, channelTitle: v.channelTitle, description: '', tags: v.tags,
-    thumbnailUrl: '', durationSeconds: 1_800, publishedAt: '2026-08-01T00:00:00Z', categoryId: null,
+    thumbnailUrl: '', durationSeconds: 1_800, publishedAt: new Date(now.getTime() - 90 * 86400_000).toISOString(), categoryId: null,
     availability: 'available' as const, isLivestream: false, metadataHash: `synthetic-${v.id}`,
-  })), '2026-09-05T00:00:00Z');
+    viewCount: [0, 999, 1000, 9999, 10000, 100000, 1000000, null][ids.indexOf(v.id) % 8], statisticsFetchedAt: at,
+  })), at);
+  repository.upsertYoutubeChannelMetadata([...new Map(videos.map(v => [v.channelId, v])).values()].map((v, index) => ({
+    channelId: v.channelId, name: v.channelTitle, thumbnailUrl: '',
+    statistics: { subscriberCount: index === 1 ? null : 10000, hiddenSubscriberCount: index === 1,
+      videoCount: null, viewCount: null, publishedAt: null, topicCategories: [] },
+  })), at);
   // A completed full-history scan marks the bounded source complete.
   if (historyComplete) repository.ingestYoutubeProgress({
-    scanId: `synthetic-demo-scan-${user.handle}`, observedAt: '2026-09-05T00:00:00Z', complete: true, items: [],
+    scanId: `synthetic-demo-scan-${user.handle}`, observedAt: at, complete: true, items: [],
     summary: { mode: 'full', videos: videos.length, passes: 1, endReason: 'history-start', oldestWatchedAt: null, newestWatchedAt: null, error: null, landedUrl: null },
-  }, '2026-09-05T00:00:00Z');
+  }, at);
+  registry.upsertMatchingCrystal(user, registryMatchingCrystal({ generatedAt: at,
+    matching: youtubeMatchingCrystalSection(repository, now) }));
 }
 
 export interface MatchingDemo {
   alice: User; bob: User; carol: User; newcomer: User;
+  pending: User; failed: User;
+  directory: User[];
   matchingV3: { settings: Settings; compute: Compute };
 }
 
 // Seeds legacy crystals, synthetic watch libraries, v3 interests/topics and
 // v3 profiles. Profiles come from the real runCycle/buildProfile path.
-export async function seedMatchingDemo(registry: UserRegistry): Promise<MatchingDemo> {
-  const s = demoMatchingV3Settings(), compute = demoCompute(s);
+export async function seedMatchingDemo(registry: UserRegistry, options: { now?: Date; settings?: Settings; compute?: Compute; directoryMembers?: number } = {}): Promise<MatchingDemo> {
+  const now = options.now ?? new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error('Invalid demo clock');
+  const directoryMembers = options.directoryMembers ?? 0;
+  if (!Number.isInteger(directoryMembers) || directoryMembers < 0 || directoryMembers > 30) throw new Error('Demo directory members must be 0..30');
+  const s = options.settings ?? demoMatchingV3Settings(), compute = options.compute ?? demoCompute(s);
   const alice = registry.createUser('alice-demo', 'Alice');
   const bob = registry.createUser('bob-demo', 'Bob');
   const carol = registry.createUser('carol-demo', 'Carol');
   const newcomer = registry.createUser('new-demo', 'New member');
   registry.setMatchingOptIn(newcomer.handle, true);
-  for (const [user, topics] of [
-    [alice, [topic('music', 0.65), topic('learning', 0.35)]],
-    [bob, [topic('music', 0.55), topic('learning', 0.45)]],
-  ] as const) {
-    registry.upsertMatchingCrystal(user, crystal([...topics]));
-  }
   for (const user of [alice, bob, carol]) registry.setMatchingPreferences(user.handle, true, 'topics_and_channel');
-  seedHistory(registry, alice, library.alice, true);
-  seedHistory(registry, bob, library.bob, true);
-  seedHistory(registry, carol, library.carol, false);
+  seedHistory(registry, alice, library.alice, true, now);
+  seedHistory(registry, bob, library.bob, true, now);
+  seedHistory(registry, carol, library.carol, false, now);
+  registry.setDashboardPublic(carol.handle, true);
   const store = registry.matchingV3Store();
   const topicId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
   store.savePreferences(alice.id, { genres: ['Music', 'Education', 'News'], topics: [
@@ -251,5 +235,21 @@ export async function seedMatchingDemo(registry: UserRegistry): Promise<Matching
     { id: topicId(5), name: 'Music', genres: ['Music'] },
   ] });
   await runCycle(registry, s, demoProvider(s), compute);
-  return { alice, bob, carol, newcomer, matchingV3: { settings: s, compute } };
+  // Deliberate lifecycle fixtures, created after the bounded synthetic cycle.
+  // They never start workers or retry real providers.
+  const failed = registry.createUser('failed-demo', 'Failed processing');
+  seedHistory(registry, failed, library.carol, false, now);
+  store.schedule(failed.id, 'synthetic-failure', version(s));
+  const job = store.claim();
+  if (!job || job.userId !== failed.id) throw new Error('Unexpected demo job');
+  store.defer(job, 'Synthetic provider unavailable', true);
+  const pending = registry.createUser('pending-demo', 'Pending processing');
+  seedHistory(registry, pending, library.carol, false, now);
+  store.schedule(pending.id, 'synthetic-pending', version(s));
+  const directory = Array.from({ length: directoryMembers }, (_, i) => {
+    const member = registry.createUser(`directory-${String(i + 1).padStart(2, '0')}`, `Directory ${String(i + 1).padStart(2, '0')}`);
+    registry.setMatchingOptIn(member.handle, true);
+    return member;
+  });
+  return { alice, bob, carol: registry.userByHandle(carol.handle)!, newcomer, pending, failed, directory, matchingV3: { settings: s, compute } };
 }

@@ -3,7 +3,10 @@ import test from 'node:test';
 import { createApp } from '../src/index.js';
 import { UserRegistry } from '../src/users.js';
 import { version } from '../src/matching-v3/model.js';
-import { demoEmbedding, seedMatchingDemo } from '../scripts/matching-demo-seed.js';
+import { demoEmbedding, demoMatchingV3Settings, seedMatchingDemo } from '../scripts/matching-demo-seed.js';
+import { computeClient } from '../src/matching-v3/compute.js';
+import { youtubeMatchingCrystalSection } from '../src/youtube/crystal.js';
+import { startDemoCompute } from '../scripts/demo-compute.js';
 
 test('the credential-free demo seeds v3 profiles and real topic scores without API keys', async () => {
   const registry = new UserRegistry(':memory:');
@@ -63,4 +66,86 @@ test('demo embeddings relate synthetic tags deterministically', () => {
   assert.deepEqual(demoEmbedding('synth', 128), demoEmbedding('synth', 128));
   assert.ok(cos(demoEmbedding('synth', 128), demoEmbedding('synthesizer', 128)) > .9);
   assert.ok(cos(demoEmbedding('synth', 128), demoEmbedding('typescript', 128)) < .1);
+});
+
+test('warm matching lets pending consent changes run before disclosing cached results', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const demo = await seedMatchingDemo(registry);
+    const app = createApp(registry, { matchingV3: demo.matchingV3 });
+    const request = () => app.request('/api/matching-v3/match', { method: 'POST',
+      headers: { cookie: `urtube_session=${registry.createSession(demo.alice)}`, origin: 'http://localhost:3000', 'content-type': 'application/json' },
+      body: JSON.stringify({ genres: ['Music', 'Education'] }) });
+    assert.equal((await request()).status, 200);
+    let consentChanged = false;
+    setImmediate(() => { registry.setMatchingOptIn(demo.bob.handle, false); consentChanged = true; });
+    const response = await request();
+    assert.equal(response.status, 200);
+    assert.ok(consentChanged, 'warm results must yield to other event-loop work');
+    const body = await response.json() as any;
+    assert.ok(body.candidates.every((candidate: any) => candidate.handle !== demo.bob.handle));
+  } finally { registry.close(); }
+});
+
+test('demo dates and aggregate eligibility come from the same synthetic history in future years', async () => {
+  for (const at of ['2026-10-22T04:00:00Z', '2032-03-01T04:00:00Z']) {
+    const registry = new UserRegistry(':memory:');
+    try {
+      const now = new Date(at);
+      const demo = await seedMatchingDemo(registry, { now });
+      const repo = registry.repositoryFor(demo.alice);
+      const actual = youtubeMatchingCrystalSection(repo, now);
+      assert.ok(actual.watchEvents >= 200);
+      assert.ok(actual.activeDays >= 14);
+      assert.equal(actual.uniqueVideos, 8);
+      assert.deepEqual(registry.matchingCrystalFor(demo.alice.handle)!.data, {
+        watchEvents: actual.watchEvents, uniqueVideos: actual.uniqueVideos,
+        activeDays: actual.activeDays, estimatedWatchSeconds: actual.estimatedWatchSeconds, topicCoverage: actual.topicCoverage,
+      });
+      const popularity = repo.youtubePopularity('7d', now);
+      assert.equal(popularity.totalVideos, 8);
+      assert.equal(popularity.videos.known, 7);
+      assert.ok(popularity.channels.unknown.hidden > 0);
+      const store = registry.matchingV3Store();
+      assert.equal(store.status(demo.pending.id)?.state, 'queued');
+      assert.equal(store.status(demo.failed.id)?.state, 'failed');
+      assert.equal(store.profile(demo.pending.id), null);
+      assert.equal(store.profile(demo.failed.id), null);
+    } finally { registry.close(); }
+  }
+});
+
+test('a missing demo Python executable fails promptly instead of hanging cleanup', { timeout: 5000 }, async () => {
+  await assert.rejects(startDemoCompute('/nonexistent/urtube-demo-python'), /ENOENT/);
+});
+
+test('synthetic v3 demo uses real Python clustering and exact transport', {
+  skip: !process.env.MATCHING_V3_TEST_COMPUTE_URL,
+}, async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    const settings = { ...demoMatchingV3Settings(), computeUrl: process.env.MATCHING_V3_TEST_COMPUTE_URL!,
+      compareUrl: process.env.MATCHING_V3_TEST_COMPUTE_URL!, computeToken: process.env.MATCHING_V3_COMPUTE_TOKEN! };
+    const compute = computeClient(settings);
+    // The shared single-threaded test service can be occupied by another
+    // test's clustering. Verify its wire contract without imposing the live
+    // readiness SLA on a concurrently loaded integration-test process.
+    const health = await fetch(`${settings.computeUrl}/healthz`, {
+      headers: { Authorization: `Bearer ${settings.computeToken}` }, signal: AbortSignal.timeout(30_000),
+    });
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { status: 'ready', algorithm: 'compact-medoid-v1' });
+    const unauthorized = await fetch(`${settings.computeUrl}/healthz`, { signal: AbortSignal.timeout(30_000) });
+    assert.equal(unauthorized.status, 401);
+    await unauthorized.body?.cancel();
+    const demo = await seedMatchingDemo(registry, { settings, compute });
+    const app = createApp(registry, { matchingV3: demo.matchingV3 });
+    const response = await app.request('/api/matching-v3/match', { method: 'POST',
+      headers: { cookie: `urtube_session=${registry.createSession(demo.alice)}`, origin: 'http://localhost:3000', 'content-type': 'application/json' },
+      body: JSON.stringify({ genres: ['Music', 'Education'] }) });
+    assert.equal(response.status, 200);
+    const body = await response.json() as any;
+    assert.deepEqual(body.candidates.map((candidate: any) => [candidate.handle, candidate.provisional]), [['bob-demo', false], ['carol-demo', true]]);
+    assert.ok(body.candidates[0].score > 0 && body.candidates[0].score <= 1);
+  } finally { registry.close(); }
 });

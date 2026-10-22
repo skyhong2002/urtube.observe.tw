@@ -1,107 +1,69 @@
-# Matching demo runbook
+# 合成 v3 展示與重設
 
-This runbook creates a disposable Alice/Bob environment for recording the
-complete comparison and mutual-consent flow. Every title, channel, event, and
-identity is synthetic. It binds to localhost only, writes databases under the
-operating system's temporary directory, and deletes them on a clean shutdown.
-It is not a production login mechanism.
+資料、帳號、公開統計、分類與向量全部是固定合成輸入；不使用真實觀看紀錄或 API key。
+實際 `runCycle` 建立 v3 profiles，真正的 Python `compact-medoid-v1` 與精確 transport
+服務負責數值計算。此環境能驗證流程，不能證明模型品質、真人推薦效果或線上容量。
 
-## Start and reset
+## 啟動
+
+Node.js 22.13+、Python 3.11+；CI／正式數值映像使用 Python 3.12。
 
 ```sh
 npm ci
-npm run demo:matching
+python3 -m venv /tmp/urtube-demo-venv
+/tmp/urtube-demo-venv/bin/pip install --require-hashes -r services/matching-compute/requirements.txt
+DEMO_PYTHON=/tmp/urtube-demo-venv/bin/python npm run demo:matching
 ```
 
-The command prints separate Alice, Bob, Carol and newcomer login URLs. Open each URL in a
-different browser profile or private context so their `HttpOnly` session
-cookies remain independent. Restarting the command creates new access URLs and
-resets every request and connection. Set `DEMO_PORT` if port 4317 is occupied.
+準備 Python 環境後只需最後一個命令。網站綁定 `127.0.0.1:4317`，可設 `DEMO_PORT`；
+其自有數值子程序使用隨機 loopback port 與暫時 token，不連設定中的正式 compute。
+未安裝 Python 依賴會明確失敗，不悄悄改用近似分數。資料庫放在 OS temporary directory；
+Ctrl-C 同時停止網站／子程序並清理資料。重啟建立新登入連結並重設所有資料與關係。
+測第二頁好友操作時加入 `DEMO_DIRECTORY_MEMBERS=22`；會增加無歷史的合成目錄帳號，
+並輸出最後一位成員的登入連結，以便從另一個 context 接受第二頁的邀請。
 
-## Show v3 topic matching without API keys
+終端登入連結是暫時存取能力，請勿錄影或公開。每個帳號使用獨立瀏覽器 profile／private
+context；單一 context 內開不同分頁仍會共用 cookie。日期相對啟動時間產生；可由測試注入
+時鐘。Legacy aggregate 由這些觀看紀錄計算，不預填不存在的筆數或覆蓋率。
 
-The demo builds v3 genre profiles through the real worker pipeline with a
-deterministic stand-in classifier, stand-in embeddings and an in-process
-stand-in for the compute service (compact-medoid groups; comparison uses a
-greedy transport approximation, not the production LP solver). No API key is
-read or needed. Scores demonstrate the flow, not a model run.
+## 帳號與狀態
 
-1. As Alice, open **Matches → My topics → Music & learning**. Bob ranks first
-   with a complete score; Carol follows with a provisional score because her
-   history sync never completed.
-2. Open **News**. The status box explains that the news video was recognized
-   but has no original tags, so the genre is not scored (genres only; tags
-   are never generated).
-3. Send Bob a friend request, accept it from Bob's context and open **Blend**
-   to show per-genre scores and shared keywords.
+| 帳號 | 示範用途 |
+| --- | --- |
+| Alice | 私人洞察、完整 Music／Education、News 有 genre 但沒有原始 tags；已選擇加入探索 |
+| Bob | 私人帳號、完整分數；送出／接受好友後才能查看其私人分析 |
+| Carol | 公開頁、未完整同步的 provisional profile；已登入可直接 Blend |
+| New member | 沒有歷史；不捏造匹配信號 |
+| Pending processing | 合成 queued job，沒有 profile；不啟動真正 provider |
+| Failed processing | 合成 failed job，沒有 profile；顯示失敗而非虛假完成 |
 
-## Show first value and empty states
+合成 Alice／Bob 已有探索同意，不能用它們聲稱新註冊預設開啟；新註冊行為由 onboarding
+測試核對。Google OAuth 與 Chrome 實際擷取不由這組預種資料模擬成「已端到端驗證」。
 
-1. Open Alice's **Dashboard** before **Matches**. Show the private channel and
-   viewing-time summary and switch time ranges. These are useful without
-   another person; this synthetic fixture demonstrates the interaction, not
-   a measured real-user outcome or a completed model run.
-2. Open the **New member (no history)** login URL in a separate browser
-   context. **Matches** shows the existing insufficient-data/processing
-   message and a path back to the dashboard. This account has no fabricated
-   history or matching projection, so no match percentage is shown.
-3. Keep Alice's **Matches** open. In Bob's context, open **Account**, turn
-   matching off and save. Reload Alice: the existing no-candidate state
-   appears. Alice still has her own insights; an empty pool is not a failed
-   import and the newcomer is not promoted into a fake candidate.
-4. Open Alice's **Dashboard** again. Explain the return use: revisit after a
-   new week of learning and compare recent ranges/topic trends. The fixture
-   does not claim a populated AI trend or measured retention.
-5. Restart the process to restore the Alice/Bob matching demonstration.
+## 展示流程
 
-The [product pitch](pitch.md#first-users-first-value-and-return-use) names the
-initial audience and cold-start proposal. Keep synthetic demonstration,
-proposed recruitment and observed user outcomes separate when presenting.
+1. Alice → Dashboard → Insights：查看 32 天合成歷史與時間範圍。熱門度是每部不同
+   已觀看影片一次、公開快照的分布；包含真實零、未知與隱藏訂閱量。切換 7 天／全部。
+2. Matches → My topics → Music & learning：Bob 完整且排在 Carol 前；Carol 顯示暫定。
+   新增命名 topic，選擇 Music，儲存、編輯再儲存；鍵盤可操作 dialog 並以 Escape 取消。
+3. News：說明有內容類別但無原始 tags，沒有向量就不生成假的興趣分數。
+4. 在 All members 向 Bob 發送好友邀請。Bob 的獨立 context 接受後，Alice 可查看
+   Bob 的 Overview／Insights 及 Blend；History／Recap 仍受限。
+5. 撤回 Bob 關係，再試先前的私人頁及 Blend URL，應重新受限制。Carol 公開頁可直接
+   Blend，這是獨立公開設定，不是越過私人好友邊界。
+6. Bob → Account 關閉探索。重新載入 Alice 目錄確認 **Bob** 消失；Carol 仍在，
+   不可宣稱整份目錄變空。停用不修改公開頁設定。
+7. 分別登入 New member、Pending、Failed，展示空資料／等待／失敗。重啟恢復初始狀態。
 
-## Recording sequence
+刪除也只能在此暫存環境演練；依目前 Account 頁要求輸入影片筆數確認，勿沿用舊版
+「輸入 handle」說明。測試對應 `tests/privacy-lifecycle.test.ts`、
+`tests/matching-demo.test.ts`、`tests/matching-pagination-actions.test.ts`。
 
-1. Open Alice's URL and show the candidate directory.
-2. Open Bob's VS page from Alice's candidate card. Before consent, show the
-   rounded match/topic/channel percentages and broad topic ranks; do not show
-   any single video, absolute count, or exact timestamp.
-3. Select **Want to meet** as Alice. Reload the page and show that it says
-   Alice wants to meet without unlocking the deeper comparison.
-4. Open Bob's URL in the other browser context, open Alice's comparison, and
-   select **Want to meet too**.
-5. Reload both sides. Show the mutually unlocked comparison, then disconnect
-   from either side and confirm it returns to the bounded state.
+## 錄影與外部驗收
 
-## Record the privacy proof
+兩分鐘交接稿在 [submission-qa.md](submission-qa.md)，三分鐘與七題問答在
+[pitch.md](pitch.md)。錄影應顯示合成資料標示、應用程式實際操作及片尾正式連結。
+不錄下終端、session URLs、cookie、真實使用者或無關通知。
 
-Restart the demo first so no earlier relationship affects the clip. Keep
-Alice's candidate directory open, then use Bob's **Account** page to turn
-matching off. Reload Alice: Bob disappears immediately. A bookmarked Bob VS
-address also returns to the safe not-found page, and any earlier action token
-is invalidated server-side. This is the recommended 8–10 second trust clip.
-
-Account deletion can be rehearsed in the same disposable environment: delete
-Bob by retyping `bob-demo`, then confirm the Bob session no longer opens the
-account page. Restart `npm run demo:matching` to recreate both users.
-
-The automated counterpart is the test named `candidate directory keeps every
-relationship in one comparison-first flow` in
-[`tests/match-requests.test.ts`](../tests/match-requests.test.ts). It asserts
-the two independent cookies, locked one-sided state, mutual unlock, disclosure
-allowlist, unforgeable actions, and replayable withdrawal flow.
-
-The lifecycle regression in
-[`tests/privacy-lifecycle.test.ts`](../tests/privacy-lifecycle.test.ts) drives
-the account UI and then verifies the registry and isolated archive. It proves
-that opt-out removes the candidate, withdraws relationships, invalidates old
-tokens, and blocks the comparison immediately; deletion removes Google
-identity, session, matching projections, relationships, tokens, and the
-per-user database file.
-
-## Privacy check before using a recording
-
-- Browser chrome must show `127.0.0.1`, never a real account or production
-  session.
-- The recording must not include the terminal lines containing the temporary
-  access URLs.
-- Inspect every frame for email addresses, cookies, tokens, real viewing
-  history, or unrelated notifications before uploading.
+本機可啟動不等於現場備援已備妥。Jacob／展示者仍需交付最終成片、字幕、可離線播放檔，
+檢查每幀與音訊並實際計時；影片連結可開啟也不等於上述品質項目通過。
