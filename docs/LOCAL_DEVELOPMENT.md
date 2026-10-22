@@ -36,7 +36,7 @@ docker compose -f compose.local.yml stop
 
 ### B. 共用正式資料的開發站（會寫入正式資料）
 
-依使用者授權，這台主機的開發站掛載正式資料卷 `urtube_urtube-data`，使用正式站的
+經使用者授權設定的開發站會掛載正式資料卷 `urtube_urtube-data`，使用正式站的
 帳號、觀看歷史、分類與配對資料。**在這裡的任何帳戶操作（旋轉 token、刪除、配對設定）
 都會影響正式站。**必須依序使用以下四個 overlays，少了 v3 的兩個會漏掉配對服務：
 
@@ -48,7 +48,7 @@ docker compose $OVERLAYS stop app ingest proxy
 ```
 
 金鑰、owner 與處理能力設定放在被 Git 忽略的 `.env.production-data` 與
-`.env.matching-v3`。正式站的 worker 與 backup 負責背景工作；不要在 B 啟動另一份
+`.env.matching-v3`；checkout 裡沒有這兩個檔案，就表示這份 checkout 沒有設定 B。正式站的 worker 與 backup 負責背景工作；不要在 B 啟動另一份
 worker 或 backup。只修改前端；後端行為變更需先取得使用者決定，詳見根目錄 `AGENTS.md`。
 
 ### C. 正式站（只透過 CD 部署）
