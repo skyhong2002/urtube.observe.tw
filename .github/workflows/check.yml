@@ -108,6 +108,8 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=urtube-app
           cache-to: type=gha,mode=max,scope=urtube-app
+          provenance: mode=max
+          sbom: true
       - name: Publish matching compute image
         id: compute
         uses: docker/build-push-action@v7
@@ -121,6 +123,8 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=urtube-compute
           cache-to: type=gha,mode=max,scope=urtube-compute
+          provenance: mode=max
+          sbom: true
       - name: Publish deployment manifest
         env:
           APP_DIGEST: ${{ steps.app.outputs.digest }}
