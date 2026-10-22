@@ -125,6 +125,23 @@ test('public JSON APIs expose aggregates but no timestamps, searches, or progres
     assert.ok(!summaryText.includes('resumeSeconds'));
     assert.ok(!summaryText.includes('query_ciphertext'));
 
+    const lean = await app.request('/api/youtube/summary.json?detail=summary');
+    assert.equal(lean.status, 200);
+    const leanBody = await lean.json() as Record<string, unknown>;
+    for (const key of ['stats', 'daily', 'topChannels', 'topVideos', 'topics', 'keywords']) {
+      assert.deepEqual(leanBody[key], summaryBody[key], `summary detail preserves ${key}`);
+    }
+    assert.equal(leanBody.recent, undefined);
+    assert.ok(!JSON.stringify(leanBody).includes(PLAINTEXT_QUERY));
+    const handleSummary = await app.request(`/u/${user.handle}/summary.json?detail=summary`);
+    assert.equal(handleSummary.status, 200);
+    assert.deepEqual((await handleSummary.json() as Record<string, unknown>).stats, leanBody.stats);
+    registry.setDashboardPublic(user.handle, false);
+    assert.equal((await app.request('/api/youtube/summary.json?detail=summary')).status, 404,
+      'cached summary must not retain a revoked public grant');
+    assert.equal((await app.request(`/u/${user.handle}/summary.json?detail=summary`)).status, 404);
+    registry.setDashboardPublic(user.handle, true);
+
     const status = await app.request('/status');
     assert.ok(!(await status.text()).includes(PLAINTEXT_QUERY));
   } finally {

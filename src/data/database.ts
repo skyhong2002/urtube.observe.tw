@@ -2036,7 +2036,7 @@ export class Repository {
 
   // Overview loads both animations without semantic keywords; history and recap
   // can keep the lightweight projection. Full projections remain the API default.
-  youtubeDashboard(range: YoutubeRange = '28d', now = new Date(), includeInsights: boolean | 'overview' = true): YoutubeDashboardData {
+  youtubeDashboard(range: YoutubeRange = '28d', now = new Date(), includeInsights: boolean | 'overview' | 'summary' = true): YoutubeDashboardData {
     this.ensureEstimatedEvents();
     const cutoff = youtubeCutoff(range, now);
     const where = cutoff
@@ -2219,7 +2219,10 @@ export class Repository {
     `).all(...params) as Array<Record<string, string | number | null>>;
     // Feed daily history into the decay, then sample only the selected window.
     // Daily aggregation keeps short ranges and partial weeks accurate.
-    const raceRows = !includeInsights ? [] : this.db.prepare(`
+    // Public summary consumers need keywords and aggregates, but not the
+    // all-time timeline work used by the interactive dashboard.
+    const includeTimeline = Boolean(includeInsights) && includeInsights !== 'summary';
+    const raceRows = !includeTimeline ? [] : this.db.prepare(`
       ${estimatedEvents}
       SELECT date(e.watched_at, '+8 hours') week,
         ${channelId} channel_id, ${channelName} name,
@@ -2233,7 +2236,7 @@ export class Repository {
       GROUP BY week, ${channelKey}
       ORDER BY week
     `).all(now.toISOString()) as Array<Record<string, string | number | null>>;
-    const topicTrend = includeInsights ? this.youtubeTopicTrend(range, now) : [];
+    const topicTrend = includeTimeline ? this.youtubeTopicTrend(range, now) : [];
     const firstRaceWatch = topicTrend[0]?.periodStart ? `${topicTrend[0].periodStart}T00:00:00+08:00` : null;
     const raceWindow = timelineWindow(range, now, firstRaceWatch);
     const channelRace = buildChannelRace(raceRows.map((row) => ({
@@ -2242,7 +2245,7 @@ export class Repository {
       name: String(row.name),
       thumbnailUrl: String(row.thumbnail_url),
       estimatedWatchSeconds: Number(row.estimated_watch_seconds),
-    })), CHANNEL_RACE_HALF_LIFE_DAYS, includeInsights ? raceWindow : undefined);
+    })), CHANNEL_RACE_HALF_LIFE_DAYS, includeTimeline ? raceWindow : undefined);
     const topics = this.db.prepare(`
       ${estimatedEvents}
       SELECT t.slug, t.name, COUNT(*) watches,

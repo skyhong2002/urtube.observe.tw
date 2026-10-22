@@ -43,6 +43,12 @@ test('cached aggregates reuse unchanged data and detect measured-time updates fr
     assert.deepEqual(overview.channelRace, full.channelRace);
     assert.deepEqual(overview.topicTrend, full.topicTrend);
     assert.deepEqual(overview.topics, full.topics);
+    const publicSummary = repository.youtubeDashboard('all', now, 'summary');
+    for (const key of ['stats', 'daily', 'hourly', 'shortFormDaily', 'topChannels', 'topVideos', 'topics', 'keywords', 'keywordCoverage', 'recent'] as const) {
+      assert.deepEqual(publicSummary[key], full[key], `public summary preserves ${key}`);
+    }
+    assert.deepEqual(publicSummary.topicTrend, []);
+    assert.deepEqual(publicSummary.channelRace.frames, []);
     assert.equal(read(), first);
     assert.equal(reads, 1, 'TEMP materialization must not invalidate its own cache');
     repository.upsertYoutubeCapture({ ...capture, actualWatchedSeconds: 24 }, now.toISOString());

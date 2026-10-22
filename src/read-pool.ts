@@ -20,7 +20,7 @@ export const POOLED_METHODS = [
 export type PooledMethod = typeof POOLED_METHODS[number];
 
 export interface ReadRequests {
-  dashboard: { range: YoutubeRange; now: string; includeInsights: boolean | 'overview' };
+  dashboard: { range: YoutubeRange; now: string; includeInsights: boolean | 'overview' | 'summary' };
   crystalShifts: { now: string };
   matchingCrystal: { now: string };
   popularity: { range: YoutubeRange; now: string };

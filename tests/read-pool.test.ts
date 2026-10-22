@@ -34,6 +34,7 @@ test('reads on the pool equal the same reads on this thread', async () => {
     const cases = [
       ['dashboard', { range: 'all', now, includeInsights: true }],
       ['dashboard', { range: '30d', now, includeInsights: 'overview' }],
+      ['dashboard', { range: 'all', now, includeInsights: 'summary' }],
       ['crystalShifts', { now }],
       ['popularity', { range: 'all', now }],
     ] as const;

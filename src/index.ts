@@ -157,7 +157,7 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
 }
 // Dashboard aggregates run on the read pool so a slow archive never blocks
 // other requests or the health checks (src/read-pool.ts).
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' = false): Promise<YoutubeDashboardData> {
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' | 'summary' = false): Promise<YoutubeDashboardData> {
   return cachedReadAsync(repository, `dashboard:${range}:${includeInsights}`, () => readOffThread(repository, registry.databasePathFor(user), 'dashboard',
     { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>);
 }
@@ -1610,10 +1610,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.html(comparePage(comparison, `/${a.handle}`, lang, siteNav(c, lang)));
   });
 
-  app.get('/u/:handle/summary.json', (c) => {
+  app.get('/u/:handle/summary.json', async (c) => {
     const user = registry.userByHandle(c.req.param('handle'));
     if (!user || !dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    const data = registry.repositoryFor(user).youtubeDashboard(requestedRange(c.req.query('range')));
+    const data = await cachedDashboardFor(registry, user, requestedRange(c.req.query('range')),
+      registry.repositoryFor(user), c.req.query('detail') === 'summary' ? 'summary' : true);
     return c.json({ ...data, recent: undefined });
   });
 
@@ -1645,17 +1646,18 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     });
   });
 
-  app.get('/api/youtube/summary.json', (c) => {
+  app.get('/api/youtube/summary.json', async (c) => {
     const user = registry.ensureDefaultUser();
     if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    const data = registry.repositoryFor(user).youtubeDashboard(requestedRange(c.req.query('range')));
+    const data = await cachedDashboardFor(registry, user, requestedRange(c.req.query('range')),
+      registry.repositoryFor(user), c.req.query('detail') === 'summary' ? 'summary' : true);
     return c.json({ ...data, recent: undefined });
   });
 
-  app.get('/api/youtube/recent.json', (c) => {
+  app.get('/api/youtube/recent.json', async (c) => {
     const user = registry.ensureDefaultUser();
     if (!dashboardAccess(c, user)) return c.json({ error: 'not found' }, 404);
-    const data = registry.repositoryFor(user).youtubeDashboard(DEFAULT_YOUTUBE_RANGE);
+    const data = await cachedDashboardFor(registry, user, DEFAULT_YOUTUBE_RANGE);
     return c.json({
       range: data.range,
       generatedAt: data.generatedAt,
