@@ -419,8 +419,16 @@ export class Repository {
     return `${version}:${changes}`;
   }
 
-  constructor(path: string) {
+  // readOnly connections serve aggregate reads off the request thread. They
+  // skip migrations and backfills, which the owning app or worker already
+  // ran, and can still build per-connection TEMP caches.
+  constructor(path: string, { readOnly = false }: { readOnly?: boolean } = {}) {
     this.path = path;
+    if (readOnly) {
+      this.db = new DatabaseSync(path, { readOnly: true });
+      this.db.exec('PRAGMA busy_timeout = 5000;');
+      return;
+    }
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');

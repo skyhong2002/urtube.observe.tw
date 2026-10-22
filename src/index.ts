@@ -20,7 +20,7 @@ import { compareMatchRank } from './matching-v3/matching.js';
 import { computeClient, type Compute } from './matching-v3/compute.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
-import { cachedRead, clearReadCaches } from './data/read-cache.js';
+import { cachedRead, cachedReadAsync, clearReadCaches } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
@@ -51,7 +51,6 @@ import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-
 import {
   buildYoutubeCrystal,
   compareCrystals,
-  youtubeCrystalShiftSection,
   youtubeMatchingCrystalSection,
   type MatchingCrystal,
   type YoutubeCrystal,
@@ -77,6 +76,7 @@ import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { importArchive } from './archive-import.js';
+import { readOffThread } from './read-pool.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
@@ -154,8 +154,11 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
   return cachedRead(repository, 'processing', () =>
     describeYoutubeProcessing(repository.youtubeProcessingCounts(), youtubeProcessingCapabilities()), 5000);
 }
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' = false): YoutubeDashboardData {
-  return cachedRead(repository, `dashboard:${range}:${includeInsights}`, () => repository.youtubeDashboard(range, new Date(), includeInsights));
+// Dashboard aggregates run on the read pool so a slow archive never blocks
+// other requests or the health checks (src/read-pool.ts).
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' = false): Promise<YoutubeDashboardData> {
+  return cachedReadAsync(repository, `dashboard:${range}:${includeInsights}`, () => readOffThread(repository, registry.databasePathFor(user), 'dashboard',
+    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>);
 }
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): YoutubeComparisonProfile {
   return cachedRead(repository, `comparison:${range}`, () => repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, range));
@@ -177,8 +180,9 @@ function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repository
   const matching = cachedRead(repository, 'crystal-matching', () => youtubeMatchingCrystalSection(repository));
   return { handle: user.handle, displayName: user.displayName, matching };
 }
-function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystalShiftSection {
-  return cachedRead(repository, 'crystal-shifts', () => youtubeCrystalShiftSection(repository));
+function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<YoutubeCrystalShiftSection> {
+  return cachedReadAsync(repository, 'crystal-shifts', () => readOffThread(repository, registry.databasePathFor(user), 'crystalShifts',
+    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>);
 }
 
 interface AppServices {
@@ -475,10 +479,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'absolute'
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
-    const data = cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
+    const data = await cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
     const hasData = counts.watches > 0;
     const crystalHtml = page === 'insights' && hasData
-      ? shiftsSection({ handle: user.handle, ...cachedCrystalShiftsFor(registry, user, repository) }, lang) : '';
+      ? shiftsSection({ handle: user.handle, ...await cachedCrystalShiftsFor(registry, user, repository) }, lang) : '';
     let leaningsHtml = '';
     if (page === 'insights' && hasData) {
       try {
@@ -567,7 +571,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       statsProvisional: v3Data.processing.metadata.enabled && v3Data.processing.metadata.videosPendingMetadata > 0,
       insightsHtml: crystalHtml + leaningsHtml,
       popularity: page === 'insights' && hasData
-        ? cachedRead(repository, `popularity:${range}`, () => repository.youtubePopularity(range)) : undefined,
+        ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
+          { range }) as Promise<ReturnType<Repository['youtubePopularity']>>) : undefined,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
         genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done', ownerDetails: viewerOwns,
