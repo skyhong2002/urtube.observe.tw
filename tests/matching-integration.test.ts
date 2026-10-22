@@ -2,7 +2,7 @@ import { compatibilityPercentage } from '../src/output/compatibility-score.js';
 import assert from 'node:assert/strict';
 import { load } from 'cheerio';
 import test from 'node:test';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import { UserRegistry, type User } from '../src/users.js';
 import { settings, version, type Profile } from '../src/matching-v3/model.js';
 import type { Compute } from '../src/matching-v3/compute.js';

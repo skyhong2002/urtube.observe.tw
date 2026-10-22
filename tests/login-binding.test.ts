@@ -37,8 +37,12 @@ test('post-login destinations stay on this site', () => {
   for (const next of ['/account', '/matches?page=2#top', '/extension-setup']) {
     assert.equal(sameSitePath(next), next);
   }
-  for (const next of ['//evil.example', '/\\evil.example', '/\\/evil.example', 'https://evil.example/', 'javascript:alert(1)', '']) {
+  for (const next of ['//evil.example', '/\\evil.example', '/\\/evil.example', 'https://evil.example/', 'javascript:alert(1)', '',
+    '/a/..//evil.example', '/a/%2e%2e//evil.example', '/\t/evil.example', '/\n/evil.example', '/account\u0000']) {
     assert.equal(sameSitePath(next), '', next);
+  }
+  for (const next of ['/a/../account', '/%2Fexample.invalid', '/matches?range=all#details']) {
+    assert.equal(new URL(sameSitePath(next), config.publicBaseUrl).origin, new URL(config.publicBaseUrl).origin);
   }
 });
 
@@ -50,7 +54,7 @@ test('Google identity claims are bound to issuer, client, lifetime and login non
     const valid = (state: string) => ({ sub: 'synthetic-sub', iss: 'https://accounts.google.com',
       aud: 'claims-fixture', nonce: loginNonce(state), iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 });
     const invalid = [
-      { iss: 'https://wrong.invalid' }, { aud: 'another-client' }, { aud: ['claims-fixture', 'other'] },
+      { iss: 'https://wrong.invalid' }, { iss: ['https://accounts.google.com'] }, { aud: 'another-client' }, { aud: ['claims-fixture', 'other'] },
       { azp: 'other' }, { exp: 0 }, { exp: '9999999999' }, { iat: Date.now() / 1000 + 3600 },
       { nonce: 'another-login' }, { nonce: undefined }, { sub: {} }, { sub: '' },
     ];
@@ -70,6 +74,25 @@ test('Google identity claims are bound to issuer, client, lifetime and login non
     assert.equal((await completeGoogleLogin(registry, 'code', state, fetcher)).sub, 'synthetic-sub');
     await assert.rejects(completeGoogleLogin(registry, 'code', state, fetcher), /state is invalid/);
   } finally { Object.assign(config.login, previous); registry.close(); }
+});
+
+test('malformed Google responses fail without exposing upstream data and cannot replay state', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    for (const body of [null, {}, { error: 'synthetic-private-upstream-detail' }]) {
+      const state = registry.createLoginState();
+      await assert.rejects(completeGoogleLogin(registry, 'synthetic-code', state,
+        (async () => Response.json(body)) as typeof fetch), error => error instanceof Error && error.message === 'Google token exchange failed');
+      assert.equal(registry.consumeLoginState(state).valid, false);
+    }
+    for (const claims of [null, [], 'invalid', 123]) {
+      const state = registry.createLoginState();
+      const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+      await assert.rejects(completeGoogleLogin(registry, 'synthetic-code', state,
+        (async () => Response.json({ id_token: `header.${payload}.signature` })) as typeof fetch), /identity claims/);
+      assert.equal(registry.consumeLoginState(state).valid, false);
+    }
+  } finally { registry.close(); }
 });
 
 test('parallel login tabs survive cancellation and success clears only its own cookie', async () => {

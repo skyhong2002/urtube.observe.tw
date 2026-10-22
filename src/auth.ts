@@ -64,7 +64,7 @@ export async function completeGoogleLogin(
     redirect: 'error',
   });
   const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok || typeof body.id_token !== 'string') {
+  if (!response.ok || !body || typeof body.id_token !== 'string') {
     throw new Error('Google token exchange failed');
   }
   // This token is obtained exclusively from Google's authenticated TLS token
@@ -75,7 +75,8 @@ export async function completeGoogleLogin(
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
   const audience = Array.isArray(claims?.aud) ? claims.aud : [claims?.aud];
   const now = Date.now() / 1000;
-  if (!claims || !['https://accounts.google.com', 'accounts.google.com'].includes(String(claims.iss))
+  if (!claims || typeof claims !== 'object' || Array.isArray(claims)
+    || typeof claims.iss !== 'string' || !['https://accounts.google.com', 'accounts.google.com'].includes(claims.iss)
     || !config.login.googleClientId || !audience.every(aud => typeof aud === 'string') || !audience.includes(config.login.googleClientId)
     || ((audience.length > 1 || claims.azp !== undefined) && claims.azp !== config.login.googleClientId)
     || typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now
@@ -109,10 +110,13 @@ export async function completeGoogleLogin(
 // Only same-site absolute paths may be continued to after login. Browsers
 // treat a backslash like a slash, so `/\evil.example` is protocol-relative too.
 export function sameSitePath(next: string): string {
+  if (!next.startsWith('/') || next.startsWith('//') || /[\\\u0000-\u0020\u007f]/.test(next)) return '';
   const base = new URL(config.publicBaseUrl);
   try {
     const target = new URL(next, base);
-    return next.startsWith('/') && target.origin === base.origin
+    // Dot-segment normalization can turn /a/..//host into //host, which a
+    // Location header would interpret as an external destination.
+    return target.origin === base.origin && !target.pathname.startsWith('//')
       ? `${target.pathname}${target.search}${target.hash}` : '';
   } catch {
     return '';

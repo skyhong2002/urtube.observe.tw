@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { createApp } from '../src/index.js';
+import { createApp } from './browser-app.js';
 import type { User } from '../src/users.js';
 import { UserRegistry } from '../src/users.js';
 import { matchingCardDisclosure } from '../src/youtube/disclosure.js';

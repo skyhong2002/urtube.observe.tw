@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
+import { PayloadTooLarge, readLimitedBody } from './request-security.js';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './users.js';
@@ -63,16 +63,8 @@ export function createIngestApp(registry: UserRegistry): Hono {
   const app = new Hono();
   app.use('*', securityHeaders());
   app.use('*', forceHttps());
-  // Enforced while the body streams in, before any route buffers it: a
-  // missing or understated Content-Length cannot make the service read an
-  // oversized payload into memory first.
-  const limit = (maxSize: number, error: string) =>
-    bodyLimit({ maxSize, onError: (c) => c.json({ error }, 413) });
-  app.use('/api/ingest/youtube/takeout', limit(MAX_YOUTUBE_ARCHIVE_BYTES, 'YouTube archive exceeds compressed size limit'));
-  app.use('/api/ingest/youtube/capture', limit(16 * 1024, 'Capture payload exceeds 16 KiB'));
-  app.use('/api/ingest/youtube/progress', limit(96 * 1024, 'Progress payload exceeds 96 KiB'));
-  app.use('/api/ingest/youtube/backfill', limit(256 * 1024, 'Backfill payload exceeds 256 KiB'));
-  app.use('/api/ingest/youtube/history', limit(256 * 1024, 'History payload exceeds 256 KiB'));
+  // Each route authenticates before reading a byte-limited body. Neither a
+  // missing nor an understated Content-Length can bypass the stream limit.
   app.get('/healthz', (c) => {
     const configured = Boolean(config.ingestToken || config.youtube.captureToken || registry.listUsers().length);
     return c.json(
@@ -84,7 +76,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!config.ingestToken && !config.youtube.captureToken) {
       return c.json({ error: 'YouTube ingestion is not configured' }, 503);
     }
-    const context = adminContext(c.req.header('authorization'));
+    let context = adminContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
@@ -94,13 +86,18 @@ export function createIngestApp(registry: UserRegistry): Hono {
       return c.json({ error: 'Upload the Takeout ZIP as application/zip' }, 415);
     }
     try {
-      const archive = new Uint8Array(await c.req.arrayBuffer());
+      const archive = await readLimitedBody(c.req.raw, MAX_YOUTUBE_ARCHIVE_BYTES);
+      // A slow sender must not retain credentials revoked during upload.
+      const current = adminContext(c.req.header('authorization'));
+      if (!current || current.user.id !== context.user.id) return c.json({ error: 'Unauthorized' }, 401);
+      context = current;
       const result = await importArchive(context.repository, {
         databasePath: registry.databasePathFor(context.user), archive, dataKey: context.dataKey, source: 'takeout',
       });
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result, totals: context.repository.youtubeCounts() }, 201);
     } catch (error) {
+      if (error instanceof PayloadTooLarge) return c.json({ error: 'YouTube archive exceeds compressed size limit' }, 413);
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
   });
@@ -118,20 +115,22 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!config.youtube.captureToken && !registry.listUsers().length) {
       return c.json({ error: 'YouTube capture is not configured' }, 503);
     }
-    const context = captureContext(c.req.header('authorization'));
+    let context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 16 * 1024) {
-        return c.json({ error: 'Capture payload exceeds 16 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 16 * 1024));
+      // A slow sender must not retain credentials revoked during upload.
+      const current = captureContext(c.req.header('authorization'));
+      if (!current || current.user.id !== context.user.id) return c.json({ error: 'Unauthorized' }, 401);
+      context = current;
       const input = normalizeYoutubeCapture(JSON.parse(body));
       const result = context.repository.upsertYoutubeCapture(input);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, ...result }, result.inserted ? 201 : 200);
     } catch (error) {
+      if (error instanceof PayloadTooLarge) return c.json({ error: 'Capture payload exceeds 16 KiB' }, 413);
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
   });
@@ -139,20 +138,22 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!config.youtube.captureToken && !registry.listUsers().length) {
       return c.json({ error: 'YouTube capture is not configured' }, 503);
     }
-    const context = captureContext(c.req.header('authorization'));
+    let context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 96 * 1024) {
-        return c.json({ error: 'Progress payload exceeds 96 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 96 * 1024));
+      // A slow sender must not retain credentials revoked during upload.
+      const current = captureContext(c.req.header('authorization'));
+      if (!current || current.user.id !== context.user.id) return c.json({ error: 'Unauthorized' }, 401);
+      context = current;
       const input = normalizeYoutubeProgressBatch(JSON.parse(body));
       const result = context.repository.ingestYoutubeProgress(input);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, ...result }, result.completed ? 200 : 202);
     } catch (error) {
+      if (error instanceof PayloadTooLarge) return c.json({ error: 'Progress payload exceeds 96 KiB' }, 413);
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
   });
@@ -172,20 +173,22 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!config.youtube.captureToken && !registry.listUsers().length) {
       return c.json({ error: 'YouTube capture is not configured' }, 503);
     }
-    const context = captureContext(c.req.header('authorization'));
+    let context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 256 * 1024) {
-        return c.json({ error: 'Backfill payload exceeds 256 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 256 * 1024));
+      // A slow sender must not retain credentials revoked during upload.
+      const current = captureContext(c.req.header('authorization'));
+      if (!current || current.user.id !== context.user.id) return c.json({ error: 'Unauthorized' }, 401);
+      context = current;
       const input = normalizeYoutubeBackfillBatch(JSON.parse(body));
       const result = context.repository.ingestYoutubeArchive(input);
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result }, 201);
     } catch (error) {
+      if (error instanceof PayloadTooLarge) return c.json({ error: 'Backfill payload exceeds 256 KiB' }, 413);
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
   });
@@ -194,7 +197,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!config.youtube.captureToken && !registry.listUsers().length) {
       return c.json({ error: 'YouTube capture is not configured' }, 503);
     }
-    const context = captureContext(c.req.header('authorization'));
+    let context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
     const quota = writeQuotaError(context);
     if (quota) return c.json({ error: quota.error }, quota.status);
@@ -202,10 +205,11 @@ export function createIngestApp(registry: UserRegistry): Hono {
       return c.json({ error: 'YOUTUBE_PRIVATE_DATA_KEY is not configured' }, 503);
     }
     try {
-      const body = await c.req.text();
-      if (Buffer.byteLength(body) > 256 * 1024) {
-        return c.json({ error: 'History payload exceeds 256 KiB' }, 413);
-      }
+      const body = new TextDecoder().decode(await readLimitedBody(c.req.raw, 256 * 1024));
+      // A slow sender must not retain credentials revoked during upload.
+      const current = captureContext(c.req.header('authorization'));
+      if (!current || current.user.id !== context.user.id) return c.json({ error: 'Unauthorized' }, 401);
+      context = current;
       const input = normalizeYoutubeHistoryBatch(
         JSON.parse(body),
         context.dataKey,
@@ -218,6 +222,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
         history: context.repository.youtubeHistoryStatus(),
       }, 200);
     } catch (error) {
+      if (error instanceof PayloadTooLarge) return c.json({ error: 'History payload exceeds 256 KiB' }, 413);
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
   });

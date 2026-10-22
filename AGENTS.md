@@ -68,6 +68,13 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 
 # Main branch workflow
 
+- On 2026-10-22, after the remaining backend changes in PRs #93–#96 were
+  explained, the user delegated deciding, integrating, testing, pushing and
+  closing all four PRs, plus pruning their branches. Port useful remaining
+  changes onto current main; preserve newer fixes. PR #95's permanent index
+  migration is superseded by main's TEMP lookup and must not be reintroduced.
+  Keep existing processing, consent, caches and provider budgets unchanged.
+
 - On 2026-09-28 the user approved the first privacy trial: new accounts start
   private with discovery off; onboarding previews prospective sharing before
   saving. Preserve existing accounts' choices, friendships and processing.

@@ -6,7 +6,7 @@ import test from 'node:test';
 import { strToU8, zipSync } from 'fflate';
 import { Repository } from '../src/data/database.js';
 import { cachedReadAsync, clearReadCaches } from '../src/data/read-cache.js';
-import { readOffThread, runRead } from '../src/read-pool.js';
+import { readMethodOffThread, readOffThread, runRead } from '../src/read-pool.js';
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 
 const SECRET = 'test-private-data-key-with-at-least-32-characters';
@@ -43,6 +43,13 @@ test('reads on the pool equal the same reads on this thread', async () => {
       const there = await readOffThread(repository, path, kind, args as never);
       assert.deepEqual(there, JSON.parse(JSON.stringify(here)), `${kind} ${JSON.stringify(args)}`);
     }
+    const historyQuery = { range: 'all' as const, q: 'Synthetic', limit: 50 };
+    const history = await readMethodOffThread(repository, path, 'youtubeHistoryPage', historyQuery, new Date(now));
+    assert.deepEqual(history, repository.youtubeHistoryPage(historyQuery, new Date(now)), 'private history works on a read-only connection');
+    assert.ok(history.olderCursor);
+    const olderQuery = { ...historyQuery, cursor: history.olderCursor };
+    assert.deepEqual(await readMethodOffThread(repository, path, 'youtubeHistoryPage', olderQuery, new Date(now)),
+      repository.youtubeHistoryPage(olderQuery, new Date(now)), 'history cursors survive worker serialization');
     await assert.rejects(readOffThread(repository, join(root, 'missing.sqlite'), 'popularity', { range: 'all', now: new Date().toISOString() }), /./);
   } finally {
     repository.close();

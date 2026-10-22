@@ -11,6 +11,7 @@
 import { load } from 'cheerio';
 import { performance } from 'node:perf_hooks';
 import { createApp } from '../../src/index.js';
+import { config } from '../../src/config.js';
 import { createIngestApp } from '../../src/ingest.js';
 import { UserRegistry, type User } from '../../src/users.js';
 import { classifyYoutubeVideosForMatching, MATCHING_TOPIC_MIN_COVERAGE } from '../../src/youtube/matching.js';
@@ -91,7 +92,7 @@ const nextAddress = () => {
 };
 
 function form(values: Record<string, string>, cookie: string, extra: Record<string, string> = {}): RequestInit {
-  return { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, ...extra },
+  return { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: new URL(config.publicBaseUrl).origin, cookie, ...extra },
     body: new URLSearchParams(values).toString() };
 }
 
@@ -159,7 +160,7 @@ export async function runSyntheticFunnel(options: FunnelOptions = {}): Promise<F
       users.set(handle, user);
 
       // 2. Import via the extension provisioning flow and the history endpoint.
-      const provision = await app.request('/extension-setup/token', { method: 'POST', headers: { cookie: sessionCookie } });
+      const provision = await app.request('/extension-setup/token', { method: 'POST', headers: { cookie: sessionCookie, origin: new URL(config.publicBaseUrl).origin } });
       actions++;
       const token = provision.ok ? (await provision.json() as { token?: string }).token : undefined;
       if (!token) { fail('import', `token HTTP ${provision.status}`); continue; }

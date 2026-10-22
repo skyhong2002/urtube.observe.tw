@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
+import { bodyLimit, privateResponses, sameOriginWrites } from './request-security.js';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, loginStateCookie, suggestedHandle } from './auth.js';
 import { AvatarService, type AvatarImage } from './avatars.js';
@@ -63,6 +63,8 @@ import {
   type PrimaryNavActive, type ShellNavItem,
 } from './output/pages.js';
 import { youtubeDashboardPage, type YoutubeDashboardPageKind } from './output/youtube.js';
+import { historyPage } from './output/history.js';
+import { HistoryQueryError, normalizeHistoryQuery, type YoutubeHistoryPage } from './youtube/history.js';
 import { v3ProcessingNotice } from './output/v3-processing.js';
 import { describeV3Processing } from './youtube/v3-processing.js';
 import { describePipeline, estimatePipeline, processingComplete } from './youtube/pipeline-progress.js';
@@ -231,7 +233,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   };
   const smallBodyLimit = bodyLimit({ maxSize: 1024 * 1024 });
   app.use('*', securityHeaders(true));
+  app.use('*', privateResponses());
   app.use('*', forceHttps());
+  app.use('*', sameOriginWrites(config.publicBaseUrl));
   app.use('/account/profile', bodyLimit({ maxSize: 100_000 }));
   // Multipart framing adds a little overhead around the ZIP itself. The
   // limit applies while streaming, so a missing Content-Length no longer
@@ -247,11 +251,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     },
   }));
   // Every other form on the site is small; cap them all.
-  app.use('*', async (c, next) => c.req.path === '/account/takeout' ? next() : smallBodyLimit(c, next));
+  app.use('*', async (c, next) => c.req.path === '/account/takeout' || /^\/(?:api\/)?matching-v3(?:\/|$)/.test(c.req.path) ? next() : smallBodyLimit(c, next));
   app.use('*', async (c, next) => {
     if (c.req.method === 'GET' || c.req.method === 'HEAD') {
       const url = new URL(c.req.url);
       const match = url.pathname.match(/^\/(?:u\/)?([^/]+)(\/(?:insights|history|recap|tags|summary\.json|crystal\.json))?$/);
+      if (match?.[2] === '/history') {
+        c.header('Cache-Control', 'private, no-store');
+        c.header('X-Robots-Tag', 'noindex');
+      }
       const user = match && validHandle(match[1]) ? registry.userByAlias(match[1]) : null;
       if (user && match) {
         // Carry a previously issued handle cookie into the stable ID cookie.
@@ -263,7 +271,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         const page = match[2] === '/history' ? 'history' : match[2] === '/recap' ? 'recap' : match[2] === '/insights' ? 'insights' : 'overview';
         if (!profileAccess(c, user, page) && !keyed && !(oldKey && registry.userByDashboardToken(user.handle, oldKey))) return notFoundPage(c);
         url.searchParams.delete('key');
-        c.header('Cache-Control', 'no-store');
+        c.header('Cache-Control', page === 'history' ? 'private, no-store' : 'no-store');
         return c.redirect(`${url.pathname.startsWith('/u/') ? '/u' : ''}/${user.handle}${match[2] ?? ''}${url.search}`, 302);
       }
     }
@@ -896,7 +904,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect('/signup');
     c.header('Cache-Control', 'no-store');
-    return c.html(accountPage(me, accountStateFor(me), langOf(c)));
+    const updated = c.req.query('updated');
+    return c.html(accountPage(me, accountStateFor(me, {
+      updated: updated === 'visibility' || updated === 'matching' || updated === 'reference' ? updated : undefined,
+    }), langOf(c)));
   });
 
   // Retire the review UI without deleting stored legacy classifications or
@@ -1356,7 +1367,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
     registry.setDashboardPublic(me.handle, form.dashboardPublic === '1');
-    return c.redirect('/account');
+    return c.redirect(`/account?updated=visibility&lang=${langOf(c)}#settings-privacy`);
   });
 
   // One switch: joining matching shares everything the comparison page can
@@ -1368,7 +1379,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const form = await c.req.parseBody();
     try {
       registry.setMatchingPreferences(me.handle, form.matchingOptIn === '1', 'topics_and_channel', true);
-      return c.redirect('/account');
+      return c.redirect(`/account?updated=matching&lang=${langOf(c)}#settings-privacy`);
     } catch (error) {
       const current = registry.userByHandle(me.handle) ?? me;
       return c.html(accountPage(current, accountStateFor(current, {
@@ -1382,7 +1393,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     if (!me) return c.redirect('/signup');
     const form = await c.req.parseBody();
     registry.setReferenceOptIn(me.handle, form.referenceOptIn === '1');
-    return c.redirect('/account');
+    return c.redirect(`/account?updated=reference&lang=${langOf(c)}#settings-privacy`);
   });
 
   // Browser-friendly Takeout import: same parser and idempotent ingest as
@@ -1670,6 +1681,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   });
 
   app.get('/status', (c) => {
+    const viewer = sessionUser(c);
+    if (!viewer) return c.json({ error: 'login_required' }, 401);
+    if (!v3.adminHandles.includes(viewer.storageName)) return c.json({ error: 'admin_required' }, 403);
     const user = registry.ensureDefaultUser();
     const repository = registry.repositoryFor(user);
     return c.json({
@@ -1716,13 +1730,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       return c.json({
         status: 'healthy',
         service: 'urtube',
-        lastError: repository.youtubeSyncState('last_error') || null,
       });
-    } catch (error) {
+    } catch {
       return c.json({
         status: 'unhealthy',
         service: 'urtube',
-        error: error instanceof Error ? error.message : String(error),
       }, 503);
     }
   });
@@ -1760,17 +1772,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.json({
       status: ready ? 'ready' : 'not_ready',
       checks,
-      users: { total: users.length, databaseFailures },
-      worker: {
-        running: worker?.running ?? false,
-        heartbeatAt: worker?.heartbeatAt ?? null,
-        lastCompletedAt: worker?.lastCompletedAt ?? null,
-        failedUsers: worker?.failedUsers ?? null,
-        eventLoopMaxDelayMs: worker?.eventLoopMaxDelayMs ?? null,
-        eventLoopMaxDelayAt: worker?.eventLoopMaxDelayAt ?? null,
-      },
-      backup: { lastCompletedAt: backup?.lastCompletedAt ?? null },
-      ...(matching ? { matching: { ...matching, compute: computeReady } } : {}),
     }, ready ? 200 : 503);
   });
 
@@ -1785,12 +1786,60 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return c.html(shell(t.notFoundTitle, body, siteNav(c, lang), '', lang), 404);
   }
 
-  const profilePage = (page: YoutubeDashboardPageKind) => (c: Context) => {
+  const profilePage = (page: YoutubeDashboardPageKind) => async (c: Context) => {
     c.header('Cache-Control', 'private, no-store');
     const user = registry.userByHandle(c.req.param('handle') ?? '');
     if (!user || !profileAccess(c, user, page)) {
       c.header('X-Robots-Tag', 'noindex');
       return notFoundPage(c);
+    }
+    if (page === 'history') {
+      c.header('X-Robots-Tag', 'noindex');
+      // profileAccess has already persisted a valid dashboard key. Always
+      // remove it before rendering links, forms or a language toggle.
+      if (c.req.query('key') !== undefined) {
+        const clean = new URLSearchParams();
+        for (const name of ['q', 'from', 'to', 'range', 'cursor', 'direction', 'lang']) {
+          const value = c.req.query(name);
+          if (value !== undefined) clean.set(name, value);
+        }
+        const query = clean.toString();
+        return c.redirect(`/${user.handle}/history${query ? `?${query}` : ''}`, 302);
+      }
+      const lang = langOf(c);
+      const input = {
+        range: c.req.query('range'), q: c.req.query('q'), from: c.req.query('from'), to: c.req.query('to'),
+        cursor: c.req.query('cursor'), direction: c.req.query('direction'),
+      };
+      let result: YoutubeHistoryPage;
+      let error: 'q' | 'dates' | 'cursor' | undefined;
+      try {
+        const query = { ...input, range: requestedRange(input.range) };
+        // Validate cheaply on this thread so field errors survive the worker
+        // boundary. Archive scans run on the existing read-only pool.
+        normalizeHistoryQuery(query);
+        result = await readMethodOffThread(registry.repositoryFor(user), registry.databasePathFor(user),
+          'youtubeHistoryPage', query, new Date());
+      } catch (cause) {
+        if (!(cause instanceof HistoryQueryError)) throw cause;
+        error = cause.field;
+        // Preserve bounded form input so the person can correct it; do not
+        // run a fallback query or display unrelated results for invalid input.
+        result = { entries: [], olderCursor: null, newerCursor: null, filters: {
+          range: input.from || input.to ? 'all' : requestedRange(input.range),
+          q: [...(input.q ?? '')].slice(0, 240).join(''),
+          from: (input.from ?? '').slice(0, 10), to: (input.to ?? '').slice(0, 10),
+        } };
+      }
+      // The session or private dashboard key may be revoked during a read.
+      if (!profileAccess(c, user, 'history')) return notFoundPage(c);
+      const currentUser = registry.userByHandle(user.handle)!;
+      const viewerOwns = sessionUser(c)?.id === currentUser.id;
+      return c.html(historyPage({
+        ownerName: currentUser.displayName, profilePath: `/${currentUser.handle}`,
+        profileHtml: profileDetails(currentUser, viewerOwns, lang), viewerOwns,
+        nav: siteNav(c, lang, viewerOwns ? 'dashboard' : undefined), lang, result, error, hasCursor: Boolean(input.cursor),
+      }), error ? 400 : 200);
     }
     return dashboardResponse(c, user, `/${user.handle}`, page);
   };

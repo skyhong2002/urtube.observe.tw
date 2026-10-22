@@ -2,7 +2,7 @@ import { cachedScore } from './score-cache.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { bodyLimit } from 'hono/body-limit';
+import { bodyLimit } from '../request-security.js';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { User, UserRegistry } from '../users.js';
@@ -38,7 +38,9 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
     await next();
   };
   for (const path of ['/matching-v3', '/matching-v3/*', '/api/matching-v3', '/api/matching-v3/*']) {
-    app.use(path, bodyLimit({ maxSize: 32 * 1024 }), authorize);
+    // Reject unauthenticated uploads before reading, then refresh the session
+    // and consent snapshot in case they changed while the body arrived.
+    app.use(path, authorize, bodyLimit({ maxSize: 32 * 1024 }), authorize);
   }
   const isAdmin = (user: User) => s.adminHandles.includes(user.storageName);
   const adminOnly: MiddlewareHandler<{ Variables: { user: User } }> = async (c, next) => {
