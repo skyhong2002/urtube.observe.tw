@@ -137,7 +137,7 @@
 | --- | --- | --- |
 | gateway shim 原始碼 | 舊版私密 taxonomy 分類使用的 codex-exec shim 原始碼不在 repository；模型 ID 已於上表揭露，shim 本身的來源與授權仍待部署者補充。 | 部署維護者 |
 | analysis.tw 資料授權 | 取得維護者正式使用條款或許可證據，確認展示、快取與再散布的使用範圍。 | 資料來源聯絡者／維護者 |
-| 映像層級 SBOM | 執行中的映像 digest 已記錄於上表；容器作業系統層（Alpine／Debian）元件 SBOM 尚未產生。 | 發布維護者 |
+| 映像層級 SBOM | 執行中的映像 digest 已記錄於上表；目前 CI 已設定 build SBOM／provenance；仍需對實際部署 digest 取得並驗證 attestation，不能用 workflow 設定代替發布物證據。 | 發布維護者 |
 | OG 圖片重現環境 | 現有紀錄可追溯 HTML；原渲染環境的字型、瀏覽器版本與字型授權待補。 | 素材維護者 |
 
 這些項目以 [#54](https://github.com/skyhong2002/urtube.observe.tw/issues/54) 追蹤。版本定版或新增模型／資料／素材後應再查核一次。

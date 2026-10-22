@@ -1,201 +1,101 @@
-# Canonical product pitch
+# 展示與評審問答（目前程式碼）
 
-Use these claims consistently in the submission summary, video narration,
-README, live demo, and judge Q&A. They describe the deployed product; do not
-substitute an earlier formula or retired per-topic matching controls.
+更新：2026-10-22。以下描述 repository 的實作；正式部署須另外核對 CD。
+2026-09-06 的活動已結束，本文件不是重新送件紀錄，也不證明當時的排練或投稿成功。
 
-## One sentence
+## 一句話與首批使用者
 
-urtube turns the YouTube history a person authorizes into a reviewable private
-interest map, then uses a separate, governed 90-day projection to help them
-meet people with genuinely similar recent interests without publishing their
-history.
+urtube 在本人授權下，將 YouTube 觀看紀錄整理成私人洞察，讓人先理解自己的興趣，
+再自主選擇分享面向、探索同好與建立好友關係。
 
-## First users, first value, and return use
+首批使用情境是透過 YouTube 自學的校園創作社群：找一起寫程式、學音樂或做作品的夥伴。
+第一次價值是看懂自己的觀看頻道、時間、主題與熱門度分布，不依賴其他使用者加入。
+冷啟動可從一個自願參與的社團開始；這是招募提案，不是已取得的使用者或成效。
+回訪用途是比較不同日期範圍與興趣變化。邀請接受率、推薦相關性與長期交流仍待實際研究。
 
-The initial scenario is a university maker-club member who learns coding,
-music production or another hobby from YouTube and wants to find a peer for
-a small project. A self-written profile can miss the niche they have actually
-been exploring lately. This is a focused starting audience, not a claim that
-every YouTube viewer needs another social service.
+## AI 與分數的實際契約
 
-The first useful outcome does not require another member: after importing
-their own history, the person can inspect watched channels, estimated time
-and recent topic trends in their private dashboard, and review AI categories
-when processing is ready. They can answer “what have I been spending time
-learning?” even while matching says there is insufficient recent data or no
-eligible candidates. Missing metadata and classification remain visible gaps;
-the product does not fill them with a confident preference.
+模型只接收公開影片中繼資料（public video metadata）：標題、頻道、描述與原始 tags。
+不傳送搜尋文字、觀看時間點、次數或播放進度。資訊不足可保留 Unknown／無法判斷；
+私人 taxonomy 的舊審核、啟用及 rollback UI 已退休，不在展示中承諾這些操作。
 
-Cold start is a small, voluntary cohort proposal: invite one existing club
-to try private self-insight, let each person decide whether to keep matching
-enabled, then compare only when eligible peers exist. No participant counts,
-successful introductions or network effects have been measured for this
-proposal. Synthetic demo members demonstrate behavior and must never be
-presented as acquired users or inserted into the production candidate pool.
-There is no forced invitation, token reward or public-history sharing step.
+現行分類經中央 ai-gateway 的 `sky-fast` alias，私人 taxonomy 使用 `sky-quality`；
+公開 tags 使用 Gemini embeddings。新影片只取得 genres，不生成 tags；全部原始 tags
+套用到每個 assigned genre。成功的舊分類與向量快取保留，不為展示重新分類。
 
-A natural reason to return is a change in the person's activity: after a
-week of a new tutorial series or hobby, compare recent ranges and the monthly
-topic trend with the previous period. This remains useful alone. Finding a
-peer is an additional outcome when the pool supports it, not a promise that
-every import will produce a match. Retention and introduction outcomes still
-need actual participant feedback; they are not established product metrics.
+- v3 的來源是依最後觀看時間排序的不同影片；程式預設上限 2,000，已授權部署上限為
+  **5,000**（`deploy/komodo/matching-rollout.json`）。它不跟隨 Dashboard 的日期範圍。
+- 現行分群為 `compact-medoid-v1`，以 tag 權重和 pairwise cosine distance 建立最多十群。
+  比較實際代表 tag 的向量，保留覆蓋率外的未知質量不當作相似；精確 optimal transport
+  使用 `clamp((cosine − similarityFloor)/(1 − similarityFloor), 0, 1)` kernel。
+- 所選類別中**有比較值的類別等權平均**；全缺資料時沒有分數，缺失／低覆蓋／未完成
+  會保留 provisional 訊號。頁面以 `round(100 × sqrt(rawSimilarity))` 顯示百分比；
+  排序仍用 raw score，完整候選優先。90% 不是建立友誼的機率。
+- Legacy `calibrated-v2` 的 90 天 canonical 主題／頻道投影仍服務既有流程；它與 v3
+  的來源和公式不同，不能用它解釋 v3 分數。詳細證據見 `src/youtube/candidates.ts`、
+  `src/matching-v3/matching.ts`、`src/output/compatibility-score.ts` 及 Python compute tests。
 
-Demo evidence: the [runbook](demo-runbook.md#show-first-value-and-empty-states)
-uses the real private dashboard, a newcomer with no imported history, and an
-eligible member whose sole peer leaves. The two empty states stay distinct.
+無 tags、不可用影片、低 retained coverage、來源上限與未完成掃描是不同狀態。
+範例分數只能證明合成輸入的數值與流程；AI 準確率、模型增益或真人偏好需要另外驗證。
+[評估工具與限制](evaluation.md)提供固定 corpus、非 AI 基線與合成漏斗。
 
-繁中口述：第一批先聚焦用 YouTube 自學的校園創作社群成員。匯入後先看懂
-自己最近投入哪些內容，就算還沒有同好也有價值。冷啟動從一個自願參加的
-社團試用開始，不宣稱已有網路效應；示範人物不是真實使用者。開始新興趣
-後，回來比較近期觀看與主題趨勢，配對則等資料與同意加入的同好都足夠。
+## 隱私與撤回
 
-## Why AI? (under one minute)
+新帳號預設私人且探索關閉。匯入、處理或預覽不會自動開啟分享。
 
-YouTube titles, channel names, descriptions, and tags are noisy and
-inconsistent, so hand-written keyword rules cannot reliably turn thousands of
-videos into a useful personal map. AI handles that semantic interpretation,
-but it sees public video metadata only—not searches, timestamps, watch counts,
-or playback progress. Each result carries evidence and confidence; weak input
-becomes `Unknown`, and a versioned candidate must pass quality gates and owner
-review before activation. The owner can later roll back.
-
-AI never decides who should meet. Two scores exist and neither is written by
-a model. The overall compatibility percentage uses a source-controlled
-canonical taxonomy, bounded aggregate vectors from the latest 90 days, and the
-reproducible `calibrated-v2` formula. The topic compatibility (matching v3)
-uses AI only to interpret public video metadata: GPT-6 Luna assigns each
-video to fixed content genres, Gemini embeds each public tag once, weighted
-DBSCAN groups a person's tags per genre, and an exact optimal-transport step
-compares the two distributions. The percentage, the ordering and the shared
-tags shown are deterministic computations on those cached results; no LLM
-writes reasons or ranks people. Sensitive categories fail closed instead of
-becoming inferred identity labels. This puts AI where semantic judgment is
-useful and deterministic code where another person's privacy is at stake.
-
-## Model input contract
-
-| Sent to the configured model | Never sent to the model |
+| 訪問者與條件 | 可看內容 |
 | --- | --- |
-| Public video title | Search query |
-| Public channel title | Watch timestamp or routine |
-| Public description | Watch count or time |
-| Public YouTube tags | Playback progress |
+| 本人 | 自己的總覽、洞察、History、Recap 與處理狀態 |
+| 非好友，對方私人但選擇加入探索並同意所選面向 | 身分、合拍度與好友操作；不提供私人細節 |
+| 已接受的好友 | 對方總覽、洞察及 Blend；History／Recap 仍受限制 |
+| 已登入，對方公開 | 可直接 Blend，不需先成為好友；公開頁仍不等於公開原始歷史 |
 
-Low-confidence, ambiguous, or unsupported assignments do not become personal
-conclusions. They are recorded as `Unknown` or blocked by the run-level quality
-gates. The taxonomy audit page shows bounded evidence to the owner and requires
-explicit review before activation; activation is atomic and reversible.
+關閉探索會撤回配對關係與邀請，既有 action token 失效；公開儀表板是獨立設定，
+不能宣稱關閉探索便使所有公開頁消失。刪除移除帳號、session、關係及個人資料庫；
+既有備份依保留政策處理，不承諾瞬間刪除所有備份。每次非同步比較後都重新檢查權限。
+證據：`tests/visibility.test.ts`、`tests/privacy-lifecycle.test.ts`、`tests/matching-v3.test.ts`。
 
-## Matching formula
+## 三分鐘逐秒腳本
 
-Two versioned scores are shown side by side on `/matches` and never mixed.
+以下為時間配額，尚非實測排練紀錄。使用 [合成 demo](demo-runbook.md)，勿錄下登入連結。
 
-**Overall compatibility (`calibrated-v2`)** computes cosine similarity independently for the canonical
-topic vector and aggregate channel vector. Because broad topic cosine and
-sparse channel cosine naturally occupy different scales, fixed calibration
-curves map each to 0–1: topics use `(cos − 0.4) / 0.55`; channels use
-`1 − e^(−25·cos)`. Available dimensions receive equal weight, or the sole
-available dimension is used as fallback. The output is clamped and rounded to
-a whole 0–100 percentage.
+| 時間 | 畫面 | 建議台詞／操作 |
+| --- | --- | --- |
+| 0:00–0:25 | 首頁 | 「自填興趣往往太籠統，但完整觀看紀錄也不該交給陌生人。urtube 讓你先看懂自己，再選擇如何認識同好。」 |
+| 0:25–1:10 | Account → 私人總覽／洞察 | 展示預設私人與探索關閉；說明本人授權匯入。展示合成資料的頻道、觀看時間與熱門度快照，指出未知資料。說明資料已預先匯入，不冒充即時 Google 授權。 |
+| 1:10–2:15 | Matches → My topics → Music & learning | 選擇面向並展示 Bob 的完整分數、Carol 的暫定狀態。說明百分比是資料相似度，分類與向量為合成固定輸入，分群與 transport 是真實數值服務。 |
+| 2:15–2:40 | 邀請 → Bob 接受 → Blend → 撤回 | 展示私人 Bob 的好友授權，再撤回並核對存取消失。補充公開帳號可直接 Blend；不把兩種權限混為一談。 |
+| 2:40–3:00 | 洞察與片尾 | 「沒有候選人時，仍能回顧自己的興趣；交友成效還需要使用者驗證。」顯示 urtube、repo 與 demo URL。 |
 
-The constants are versioned in source and do not depend on the current pool,
-so a pair's score does not move merely because another person joins. Profiles
-need at least 200 recent events across 14 active days. Topic comparison also
-needs 80% coverage for the current taxonomy; otherwise only the channel
-fallback is shown.
+## 七題問答（每題目標 45 秒內）
 
-**Topic compatibility (matching v3)** is computed per selected genre from the
-most recent 2,000 distinct videos. Each public tag is embedded once
-(`gemini-embedding-001`, 768 dimensions); weighted DBSCAN (cosine distance,
-eps 0.2, min support 5, one unit per distinct video) keeps at most ten
-clusters per genre with their mass share. For two people, every cluster pair
-in the same genre gets `K = clamp((cosine − 0.7) / 0.3, 0, 1)` and an exact
-optimal-transport solver maximises `Σ T·K` subject to both mass distributions,
-so one tiny shared niche cannot inflate the score to 100%. Selected genres are
-averaged with equal weight and rounded to 0–100. Incomplete scans, low
-retained coverage, missing genre profiles or a version mismatch are labelled
-provisional or unavailable; the old formula is never substituted. Details are
-in [`docs/matching-v3.md`](matching-v3.md).
+1. **為何需要 AI？** 公開影片標題與 tags 多語且零散，分類與向量可整理語意。
+   分群、分數與權限由確定性程式計算。合成基線已能重跑，但尚不能宣稱 AI 優於
+   非 AI 方法或改善友誼。證據：`docs/evaluation.md`、provider input tests。
+2. **百分比如何重現？** 固定來源影片、分類快取、向量及演算法版本，執行 compact
+   分群與精確 transport，將可比較類別等權平均，再作平方根顯示校準。
+   缺資料不填零；同一輸入可重跑。證據：matching／numeric tests 與上述公式。
+3. **如何避免敏感推論與越權？** 不把搜尋或觀看時間送入模型。私人預設、探索同意、
+   面向選擇及好友／公開頁權限共同約束輸出，不推論個人的政治、健康或性傾向身分。
+   News 是內容類別，不能把它說成政治立場判定。證據：visibility、disclosure tests。
+4. **撤回／刪除後呢？** 撤回關係立即重新限制私人成員內容；關閉探索取消邀請與關係。
+   刪除移除 session、registry 關係與個人資料庫；公開設定與備份保留另外處理。
+   證據：privacy-lifecycle tests。不可承諾已公開內容從他人畫面或備份瞬間消失。
+5. **首批使用者與冷啟動？** 自學型校園創作社群先從私人洞察取得價值，讓有意願者
+   自主探索；沒有候選人時維持空狀態，不加入假使用者。尚無可公布的招募或留存成果。
+6. **資料量、成本、延遲與恢復？** 部署核准來源上限為每人 5,000 部不同影片。
+   分類／embedding 成功快取沿用；重試保留已完成工作，provider 429 有退避。
+   本機 demo 不呼叫付費模型。既有容量報告只代表其合成情境，不能當線上 SLA；
+   cache miss、來源更新與失敗重試可能仍有成本，不能宣稱所有重跑免費。
+7. **賽前與本次新增如何區分？** 匯入和私人 dashboard 有既有基礎；配對、好友與 v3
+   的功能變化可依 Git history 與當時固定 revision 檢查。沒有核准賽前基準 SHA 時，
+   不把 10 月的修復或熱門度分布追認為 9 月投稿成果；隊伍須確認官方時間界線。
 
-## Disclosure boundary
+## 排練與備援紀錄
 
-Before mutual consent, the VS page shows rounded percentages, broad topic
-ranks, and each person's own rhythm as shares. After both people choose
-**Want to meet**, the page may show absolute aggregate statistics, shared
-channels/videos with each person's rank, and first/last watch at calendar-day
-precision. Search history, exact timestamps, raw vectors/shares, introductions,
-contacts, email, and private dashboards are never exchanged. Turning matching
-off immediately removes the account from new discovery and withdraws active
-requests and connections.
+實際操作者須填入：日期、revision、主講者、總時間、七題各自秒數及失敗重試結果。
+時間目標為主講 ≤180 秒、每題 ≤45 秒；未計時不可勾選完成。
 
-## Three-minute final pitch and judge Q&A
-
-Timed script for the second round (five minutes total: three to present, one
-for questions, one to answer). Rehearse against a stopwatch; the timings below
-are targets, not measured deliveries.
-
-| Time | Beat | Screen | Line |
-| --- | --- | --- | --- |
-| 0:00–0:25 | Problem | Landing page | "The interests you type into a profile are not the ones you actually spend hours on. But nobody should hand a stranger their full watch history. urtube sits between those two." |
-| 0:25–1:10 | Consent, import, insight | Account → processing → private dashboard | Show Google sign-in scopes, the Takeout/extension import, the processing state, then the private interest map: channels, watch clock, topic trends and the AI genre clusters with their tag clouds. "Only public video metadata reaches a model; searches, timestamps and counts never leave this database." |
-| 1:10–2:15 | Matching | `/matches` → topic view → VS compare | Pick a topic (e.g. Music + Video gaming), show real members with overall and topic percentages, open one comparison. Point at the shared tags and explain that both numbers are deterministic on cached results. |
-| 2:15–2:40 | Control | Friend request → accept → withdraw; Account → matching off | Show that a private account exposes nothing beyond the percentage until both agree, and that turning matching off removes the person immediately. |
-| 2:40–3:00 | Everyday value | Dashboard again | "First value is understanding your own week. Finding a peer is the bonus when the pool supports it. Open source, MIT, running at urtube.observe.tw." |
-
-Backup if the live service fails: play the recorded clip from the demo
-runbook and keep the synthetic Alice/Bob environment (`npm run demo:matching`)
-running locally. Do not improvise unrelated integrations (blockchain, tokens,
-sponsor APIs) to please a question.
-
-Answers are meant to fit in 45 seconds each and point at verifiable evidence.
-
-1. **Why is AI needed at all?** Titles, tags and descriptions are noisy and
-   multilingual; keyword rules could not sort thousands of videos into
-   genres or recognise that two differently worded tags mean the same
-   hobby. AI does exactly that interpretation and nothing else: genre
-   assignment and tag embeddings on public metadata. Ranking, percentages
-   and disclosure are deterministic code (see "Matching formula"). Evidence:
-   `docs/matching-v3.md`, `tests/matching-v3.test.ts`.
-2. **How is the percentage computed and can it be reproduced?** Two
-   versioned formulas, both documented above. `calibrated-v2` uses fixed
-   calibration constants; v3 uses cached genre labels, cached tag vectors,
-   weighted DBSCAN and exact optimal transport. Same inputs and same version
-   give the same number; a version bump invalidates old profiles instead of
-   mixing them. Evidence: `src/youtube/candidates.ts`,
-   `services/matching-compute/compute.py` and its unit tests.
-3. **How do you avoid sensitive inference and strangers over-reaching?**
-   Political, religious, health and sexuality inferences are never matching
-   features; news/politics channel labels stay owner-only insights. Before
-   mutual consent a stranger sees a rounded percentage and broad genre names
-   only. Vectors, masses, raw history, searches and timestamps never reach
-   the browser. Evidence: `src/youtube/disclosure.ts`,
-   `tests/privacy-lifecycle.test.ts`, `docs/channel-tag-policy.md`.
-4. **What happens when a user withdraws or deletes?** Matching off removes
-   the account from discovery immediately and withdraws pending requests
-   and connections; old action tokens stop working. Deletion removes the
-   Google identity, sessions, registry projections, relationships and the
-   per-user SQLite file. Evidence: `tests/privacy-lifecycle.test.ts`, the
-   demo runbook privacy clip.
-5. **Who are the first users and how do you cold-start?** A university maker
-   club learning through YouTube (see "First users, first value, and return
-   use"). Self-insight is useful with zero other members; matching switches
-   on when eligible peers exist. No adoption numbers are claimed; synthetic
-   demo members are never in the production pool.
-6. **Data volume, cost, latency and failure recovery?** Production holds
-   real archives up to ~51k watch events per account; v3 profiles use the
-   latest 2,000 distinct videos per person, classification runs in batches
-   of up to 20 videos, and every model result is cached by content hash so
-   re-runs are free. Provider 429/5xx use exponential backoff with leases and
-   heartbeats; a failed account never blocks others. Measured figures live in
-   `docs/backend-complexity-analysis.md` and `docs/demo-load-analysis.md`;
-   anything not measured there is an estimate.
-7. **What existed before the hackathon and what is new?** The YouTube
-   archive import, private dashboards and the Infovore-derived ingestion
-   boundary predate the event (`MIGRATION_PLAN.md`, `YOUTUBE_BOUNDARY.md`).
-   Built during the hackathon: consent and matching lifecycle, `calibrated-v2`
-   candidates and VS comparison, friendships and profiles, matching v3
-   (genre classification, tag embeddings, clustering, optimal transport,
-   topic view), governed channel labels with coverage, Komodo-based CD,
-   and this documentation. The Git history on `main` is the record.
+現場服務失敗時改用本機合成 demo 或已驗證可離線播放的錄影；目前 repo 有影片連結，
+不代表已取得本機備援檔或完成音訊／字幕檢查。影片由 Jacob 負責，交接見
+[投稿 QA](submission-qa.md)。不臨時加入 blockchain、代幣或無關 API。
