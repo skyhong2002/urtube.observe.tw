@@ -94,7 +94,8 @@ test('a worker cycle with no pending work still lets heartbeat timers run', asyn
     } finally {
       clearInterval(heartbeat);
     }
-    assert.ok(heartbeats - busyUntil >= 5, `heartbeat ran ${heartbeats - busyUntil} times during the cycle`);
+    // 5 archives x 4 synchronous stages: a timer turn between (almost) each.
+    assert.ok(heartbeats - busyUntil >= 15, `heartbeat ran ${heartbeats - busyUntil} times during the cycle`);
   } finally {
     registry.close();
   }
