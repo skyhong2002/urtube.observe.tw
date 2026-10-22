@@ -7,8 +7,9 @@ import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './use
 import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
+import { importArchive } from './archive-import.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
-import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
+import { MAX_YOUTUBE_ARCHIVE_BYTES } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
 import { normalizeYoutubeBackfillBatch, normalizeYoutubeHistoryBatch } from './youtube/history-sync.js';
 import { normalizeYoutubeProgressBatch } from './youtube/progress.js';
@@ -94,8 +95,9 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     try {
       const archive = new Uint8Array(await c.req.arrayBuffer());
-      const parsed = parseYoutubeArchive(archive, context.dataKey, 'takeout');
-      const result = context.repository.ingestYoutubeArchive(parsed);
+      const result = await importArchive(context.repository, {
+        databasePath: registry.databasePathFor(context.user), archive, dataKey: context.dataKey, source: 'takeout',
+      });
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result, totals: context.repository.youtubeCounts() }, 201);
     } catch (error) {

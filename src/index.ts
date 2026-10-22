@@ -76,10 +76,11 @@ import { readOpsStatus, workerOpsReady, type MatchingOpsStatus, type WorkerOpsSt
 import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
+import { importArchive } from './archive-import.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
-import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
+import { MAX_YOUTUBE_ARCHIVE_BYTES } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
   MATCHING_CANDIDATE_POOL_LIMIT,
@@ -1377,9 +1378,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       const dataKey = registry.dataKeyFor(me);
       if (!dataKey) return renderError(t.accountTakeoutUnavailable);
       const archive = new Uint8Array(await upload.arrayBuffer());
-      const parsed = parseYoutubeArchive(archive, dataKey, 'takeout');
-      const repository = registry.repositoryFor(me);
-      const result = repository.ingestYoutubeArchive(parsed);
+      const result = await importArchive(registry.repositoryFor(me), {
+        databasePath: registry.databasePathFor(me), archive, dataKey, source: 'takeout',
+      });
       registry.markCrystalDirty(me);
       clearReadCaches();
       c.header('Cache-Control', 'no-store');
