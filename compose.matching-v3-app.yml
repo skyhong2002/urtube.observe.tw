@@ -15,7 +15,9 @@ services:
         condition: service_started
   matching-compute:
     # deploy.sh/up.sh cd to the selected checkout; project-directory may differ.
-    build: ${PWD}/services/matching-compute
+    build:
+      context: ${PWD}
+      dockerfile: services/matching-compute/Dockerfile
     image: urtube-matching-compute:production
     restart: unless-stopped
     env_file:
@@ -24,7 +26,9 @@ services:
     cpus: 2
   matching-compare:
     # deploy.sh/up.sh cd to the selected checkout; project-directory may differ.
-    build: ${PWD}/services/matching-compute
+    build:
+      context: ${PWD}
+      dockerfile: services/matching-compute/Dockerfile
     image: urtube-matching-compute:production
     restart: unless-stopped
     env_file:

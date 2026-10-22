@@ -59,8 +59,23 @@ jobs:
           PYTHON
           MATCHING_V3_TEST_COMPUTE_URL=http://127.0.0.1:8090 npm test
 
+      - name: Audit secrets and production dependencies
+        run: npm run security:audit
+
       - name: Build production image
         run: docker build -t urtube:${{ github.sha }} .
+
+      - name: Build matching compute image
+        run: docker build -f services/matching-compute/Dockerfile -t urtube-matching-compute:${{ github.sha }} .
+
+      - name: Verify released images carry the licence
+        run: |
+          for file in /app/LICENSE /app/THIRD_PARTY_NOTICES.md; do
+            docker run --rm --entrypoint test urtube:${{ github.sha }} -s "$file"
+          done
+          for file in /usr/share/doc/urtube/LICENSE /usr/share/doc/urtube/THIRD_PARTY_NOTICES.md; do
+            docker run --rm --entrypoint test urtube-matching-compute:${{ github.sha }} -s "$file"
+          done
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -97,7 +112,8 @@ jobs:
         id: compute
         uses: docker/build-push-action@v7
         with:
-          context: services/matching-compute
+          context: .
+          file: services/matching-compute/Dockerfile
           push: true
           tags: ghcr.io/skyhong2002/urtube-matching-compute:${{ github.sha }}
           labels: |

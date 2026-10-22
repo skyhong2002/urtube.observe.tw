@@ -17,6 +17,8 @@ COPY public/landing ./public/landing
 COPY scripts ./scripts
 COPY chrome-extension ./chrome-extension
 COPY favicon.svg og.png ./
+# Released images carry the project licence and third-party notices.
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 
 EXPOSE 3000
 

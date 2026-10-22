@@ -16,7 +16,9 @@ services:
       matching-compare:
         condition: service_started
   matching-compare:
-    build: ./services/matching-compute
+    build:
+      context: .
+      dockerfile: services/matching-compute/Dockerfile
     image: urtube-matching-compute:dev
     restart: unless-stopped
     env_file: .env.matching-v3
@@ -24,7 +26,9 @@ services:
     cpus: 1
     # Dedicated comparison process; no background cluster jobs are routed here.
   matching-compute:
-    build: ./services/matching-compute
+    build:
+      context: .
+      dockerfile: services/matching-compute/Dockerfile
     image: urtube-matching-compute:dev
     restart: unless-stopped
     env_file: .env.matching-v3
