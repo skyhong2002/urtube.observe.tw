@@ -68,6 +68,33 @@ export function patchOpsStatus<T extends object>(
 
 export const EVENT_LOOP_DELAY_WINDOW_MS = 15 * 60_000;
 
+// Measures how late a fixed-interval timer fires. perf_hooks'
+// monitorEventLoopDelay did not reflect long synchronous blocks in
+// production (it reported 0), so the worker uses this explicit drift probe.
+export class EventLoopLagProbe {
+  private last: number;
+  private maxLagMs = 0;
+
+  constructor(readonly intervalMs = 1_000, private readonly now = Date.now) {
+    this.last = now();
+  }
+
+  tick(): void {
+    const at = this.now();
+    this.maxLagMs = Math.max(this.maxLagMs, at - this.last - this.intervalMs);
+    this.last = at;
+  }
+
+  // Worst lag since the previous take, including a block still in progress
+  // when a status write runs before the next tick.
+  take(): number {
+    const pending = this.now() - this.last - this.intervalMs;
+    const worst = Math.max(0, this.maxLagMs, pending);
+    this.maxLagMs = 0;
+    return Math.round(worst);
+  }
+}
+
 // Keeps the worst stall for a while so a heartbeat written right after an
 // unblock does not immediately overwrite the evidence with a small value.
 export function nextEventLoopDelay(

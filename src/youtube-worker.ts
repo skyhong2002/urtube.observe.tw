@@ -1,7 +1,7 @@
-import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import {
+  EventLoopLagProbe,
   nextEventLoopDelay,
   patchOpsStatus,
   WORKER_HEARTBEAT_INTERVAL_MS,
@@ -227,12 +227,11 @@ if (process.env.NODE_ENV !== 'test') {
 
   // Heartbeat timers run on the same loop as synchronous SQLite work, so a
   // missed heartbeat alone cannot tell a blocked loop from a dead process.
-  const loopDelay = monitorEventLoopDelay({ resolution: 50 });
-  loopDelay.enable();
+  const lag = new EventLoopLagProbe();
+  setInterval(() => lag.tick(), lag.intervalMs).unref();
   let worstDelay: { ms: number; at: number } | null = null;
   const recordStatus = (value: Partial<WorkerOpsStatus>) => {
-    const observedMs = Math.round(loopDelay.max / 1e6);
-    loopDelay.reset();
+    const observedMs = lag.take();
     if (observedMs >= WORKER_HEARTBEAT_INTERVAL_MS) {
       console.error(`worker event loop blocked for ${observedMs} ms`);
     }
