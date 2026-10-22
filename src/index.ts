@@ -211,9 +211,25 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     channelMetadataLookups.set(channelId, entry);
     return entry.result;
   };
+  const smallBodyLimit = bodyLimit({ maxSize: 1024 * 1024 });
   app.use('*', securityHeaders(true));
   app.use('*', forceHttps());
   app.use('/account/profile', bodyLimit({ maxSize: 100_000 }));
+  // Multipart framing adds a little overhead around the ZIP itself. The
+  // limit applies while streaming, so a missing Content-Length no longer
+  // lets the runtime buffer an oversized upload before it is rejected.
+  app.use('/account/takeout', bodyLimit({
+    maxSize: MAX_YOUTUBE_ARCHIVE_BYTES + 1024 * 1024,
+    onError: (c) => {
+      const me = sessionUser(c);
+      c.header('Cache-Control', 'no-store');
+      if (!me) return c.text('Payload Too Large', 413);
+      const lang = langOf(c);
+      return c.html(accountPage(me, accountStateFor(me, { takeoutError: messages(lang).accountTakeoutTooLarge }), lang), 413);
+    },
+  }));
+  // Every other form on the site is small; cap them all.
+  app.use('*', async (c, next) => c.req.path === '/account/takeout' ? next() : smallBodyLimit(c, next));
   app.use('*', async (c, next) => {
     if (c.req.method === 'GET' || c.req.method === 'HEAD') {
       const url = new URL(c.req.url);

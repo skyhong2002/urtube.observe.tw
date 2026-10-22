@@ -339,6 +339,11 @@ export function parseYoutubeArchive(
       return true;
     },
   });
+  // Declared sizes come from the archive itself; count what was actually
+  // inflated as well, so a forged header cannot exceed the limit.
+  let inflatedBytes = 0;
+  for (const bytes of Object.values(files)) inflatedBytes += bytes.byteLength;
+  if (inflatedBytes > maxUncompressedBytes) throw new Error('YouTube archive exceeds uncompressed size limit');
   let watches: YoutubeWatchInput[] = [];
   let searches: YoutubeSearchInput[] = [];
   for (const [name, bytes] of Object.entries(files)) {

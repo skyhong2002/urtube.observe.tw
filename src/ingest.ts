@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './users.js';
@@ -7,7 +8,7 @@ import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
-import { parseYoutubeArchive } from './youtube/takeout.js';
+import { MAX_YOUTUBE_ARCHIVE_BYTES, parseYoutubeArchive } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
 import { normalizeYoutubeBackfillBatch, normalizeYoutubeHistoryBatch } from './youtube/history-sync.js';
 import { normalizeYoutubeProgressBatch } from './youtube/progress.js';
@@ -61,6 +62,16 @@ export function createIngestApp(registry: UserRegistry): Hono {
   const app = new Hono();
   app.use('*', securityHeaders());
   app.use('*', forceHttps());
+  // Enforced while the body streams in, before any route buffers it: a
+  // missing or understated Content-Length cannot make the service read an
+  // oversized payload into memory first.
+  const limit = (maxSize: number, error: string) =>
+    bodyLimit({ maxSize, onError: (c) => c.json({ error }, 413) });
+  app.use('/api/ingest/youtube/takeout', limit(MAX_YOUTUBE_ARCHIVE_BYTES, 'YouTube archive exceeds compressed size limit'));
+  app.use('/api/ingest/youtube/capture', limit(16 * 1024, 'Capture payload exceeds 16 KiB'));
+  app.use('/api/ingest/youtube/progress', limit(96 * 1024, 'Progress payload exceeds 96 KiB'));
+  app.use('/api/ingest/youtube/backfill', limit(256 * 1024, 'Backfill payload exceeds 256 KiB'));
+  app.use('/api/ingest/youtube/history', limit(256 * 1024, 'History payload exceeds 256 KiB'));
   app.get('/healthz', (c) => {
     const configured = Boolean(config.ingestToken || config.youtube.captureToken || registry.listUsers().length);
     return c.json(
