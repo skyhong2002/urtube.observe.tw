@@ -35,14 +35,14 @@ test('reads on the pool equal the same reads on this thread', async () => {
       ['dashboard', { range: 'all', now, includeInsights: true }],
       ['dashboard', { range: '30d', now, includeInsights: 'overview' }],
       ['crystalShifts', { now }],
-      ['popularity', { range: 'all' }],
+      ['popularity', { range: 'all', now }],
     ] as const;
     for (const [kind, args] of cases) {
       const here = runRead(repository, kind, args as never);
       const there = await readOffThread(repository, path, kind, args as never);
       assert.deepEqual(there, JSON.parse(JSON.stringify(here)), `${kind} ${JSON.stringify(args)}`);
     }
-    await assert.rejects(readOffThread(repository, join(root, 'missing.sqlite'), 'popularity', { range: 'all' }), /./);
+    await assert.rejects(readOffThread(repository, join(root, 'missing.sqlite'), 'popularity', { range: 'all', now: new Date().toISOString() }), /./);
   } finally {
     repository.close();
     rmSync(root, { recursive: true, force: true });

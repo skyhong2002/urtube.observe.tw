@@ -76,7 +76,7 @@ import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { importArchive } from './archive-import.js';
-import { readOffThread } from './read-pool.js';
+import { readMethodOffThread, readOffThread } from './read-pool.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
@@ -160,15 +160,21 @@ function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRa
   return cachedReadAsync(repository, `dashboard:${range}:${includeInsights}`, () => readOffThread(repository, registry.databasePathFor(user), 'dashboard',
     { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>);
 }
-function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): YoutubeComparisonProfile {
-  return cachedRead(repository, `comparison:${range}`, () => repository.youtubeComparisonProfile(MATCHING_TAXONOMY.version, range));
+function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): Promise<YoutubeComparisonProfile> {
+  return cachedReadAsync(repository, `comparison:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
+    'youtubeComparisonProfile', MATCHING_TAXONOMY.version, range, new Date()));
 }
-function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: string, range: ChannelPageRange, repository = registry.repositoryFor(user)): YoutubeChannelDetail {
-  return cachedRead(repository, `channel:${channelId}:${range}`, () => repository.youtubeChannelDetail(channelId, range));
+function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: string, range: ChannelPageRange, repository = registry.repositoryFor(user)): Promise<YoutubeChannelDetail> {
+  return cachedReadAsync(repository, `channel:${channelId}:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
+    'youtubeChannelDetail', channelId, range, new Date()));
 }
-function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange): YoutubeChannelSummary[] {
+function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange): Promise<YoutubeChannelSummary[]> {
   const repository = registry.repositoryFor(user);
-  return cachedRead(repository, `channels:${range}`, () => repository.youtubeChannelTotals(range));
+  return cachedReadAsync(repository, `channels:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
+    'youtubeChannelTotals', range, new Date()));
+}
+function pooledCountsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<ReturnType<Repository['youtubeCounts']>> {
+  return cachedReadAsync(repository, 'counts', () => readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeCounts'));
 }
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystal {
   return cachedRead(repository, `crystal:${user.handle}:${user.displayName}`, () => buildYoutubeCrystal(repository, user));
@@ -176,8 +182,13 @@ function cachedCrystalFor(registry: UserRegistry, user: User, repository = regis
 // Pages that need only one part of the crystal must not pay for the
 // all-time window: a full build took up to 83 s on a production archive
 // under memory pressure, blocking every request in this process.
-function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): MatchingCrystal {
+function cachedMatchingSectionFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): MatchingCrystal {
   const matching = cachedRead(repository, 'crystal-matching', () => youtubeMatchingCrystalSection(repository));
+  return { handle: user.handle, displayName: user.displayName, matching };
+}
+async function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<MatchingCrystal> {
+  const matching = await cachedReadAsync(repository, 'crystal-matching', () => readOffThread(repository, registry.databasePathFor(user),
+    'matchingCrystal', { now: new Date().toISOString() }) as Promise<MatchingCrystal['matching']>);
   return { handle: user.handle, displayName: user.displayName, matching };
 }
 function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<YoutubeCrystalShiftSection> {
@@ -264,16 +275,25 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     card.topicMatch = { score: result.score, provisional: result.provisional, reasons: result.reasons.map(reason => reason.text), detailsVisible: result.detailsVisible, selected: result.details.map(detail => detail.genre) };
     return candidateCard(card, viewer.handle, lang);
   }));
-  const v3DataFor = (user: User) => {
-    const repository = registry.repositoryFor(user);
+  const v3DataWith = (user: User, metadata: ReturnType<Repository['youtubeMetadataProcessingCounts']>) => {
     const store = v3.enabled ? registry.matchingV3Store() : null;
     const profile = store?.profile(user.id) ?? null;
     return { profile, processing: describeV3Processing({
-      metadata: cachedRead(repository, 'metadata-processing', () => repository.youtubeMetadataProcessingCounts(), 5000),
+      metadata,
       metadataEnabled: Boolean(config.youtube.apiKey), enabled: v3.enabled,
       profileVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
       profile, job: store?.processingStatus(user.id) ?? null,
     }) };
+  };
+  const v3DataFor = (user: User) => {
+    const repository = registry.repositoryFor(user);
+    return v3DataWith(user, cachedRead(repository, 'metadata-processing', () => repository.youtubeMetadataProcessingCounts(), 5000));
+  };
+  // Same data with the metadata counts computed on the read pool.
+  const pooledV3DataFor = async (user: User) => {
+    const repository = registry.repositoryFor(user);
+    return v3DataWith(user, await cachedReadAsync(repository, 'metadata-processing', () =>
+      readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeMetadataProcessingCounts', new Date()), 5000));
   };
   // Session-only progress, independent of matching consent or whether v3 is enabled.
   app.get('/api/processing', (c) => {
@@ -416,7 +436,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   function blendIdentity(user: User): MatchableCrystal {
     const crystal = registry.matchingCrystalFor(user.handle)
-      ?? registryMatchingCrystal({ generatedAt: new Date().toISOString(), ...cachedMatchingCrystalFor(registry, user) });
+      ?? registryMatchingCrystal({ generatedAt: new Date().toISOString(), ...cachedMatchingSectionFor(registry, user) });
     return { userId: user.id, handle: user.handle, displayName: user.displayName,
       disclosureLevel: 'topics_and_channel', crystal, dimensions: resolveMatchingDimensions(crystal, null) };
   }
@@ -470,7 +490,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   ) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
-    const counts = countsFor(repository);
+    const counts = await pooledCountsFor(registry, user, repository);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
     const shortFormVariant = requestedShortForm === 'stacked'
@@ -489,10 +509,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         const snapshot = await loadTagLists();
         const tagLean = computeTagLean(
           range,
-          cachedChannelTotalsFor(registry, user, range),
+          await cachedChannelTotalsFor(registry, user, range),
           snapshot,
         );
-        const contributions = registry.listReferencePopulationUsers().flatMap((contributor) => {
+        // Every contributor's totals load in parallel on the read pool.
+        const contributions = (await Promise.all(registry.listReferencePopulationUsers().map(async (contributor) => {
           const contributorRepository = registry.repositoryFor(contributor);
           const dataUpdatedAt = contributorRepository.youtubeReferenceDataUpdatedAt();
           if (!dataUpdatedAt) return [];
@@ -503,11 +524,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
               ? tagLean
               : computeTagLean(
                 range,
-                cachedChannelTotalsFor(registry, contributor, range),
+                await cachedChannelTotalsFor(registry, contributor, range),
                 snapshot,
               ),
           }];
-        });
+        }))).flat();
         leaningsHtml = tagLeanSection(
           tagLean,
           lang,
@@ -526,7 +547,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     user = registry.userByHandle(user.handle)!;
     const me = sessionUser(c);
     const viewerOwns = me?.id === user.id;
-    const v3Data = v3DataFor(user);
+    const v3Data = await pooledV3DataFor(user);
     const selectedGenres = viewerOwns ? [...GENRES] : user.matchingOptIn && v3.enabled
       ? registry.matchingV3Store().preferences(user.id).genres : [];
     const visibleProcessing = viewerOwns || selectedGenres.length ? v3Data.processing
@@ -572,7 +593,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       insightsHtml: crystalHtml + leaningsHtml,
       popularity: page === 'insights' && hasData
         ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
-          { range }) as Promise<ReturnType<Repository['youtubePopularity']>>) : undefined,
+          { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>) : undefined,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
         genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done', ownerDetails: viewerOwns,
@@ -890,7 +911,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const me = sessionUser(c);
     if (!me) return c.redirect('/auth/google?next=%2Fmatches');
     const lang = langOf(c);
-    const processing = v3DataFor(me).processing;
+    const processing = (await pooledV3DataFor(me)).processing;
     const provisional = !['done', 'disabled'].includes(processing.state);
     const respond = (
       state: Parameters<typeof matchesPage>[2],
@@ -1022,7 +1043,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   };
 
   app.get('/channel', (c) => c.redirect(`/channel/${querySuffix(c)}`, 308));
-  app.get('/channel/', (c) => {
+  app.get('/channel/', async (c) => {
     c.header('Cache-Control', 'private, no-store');
     c.header('X-Robots-Tag', 'noindex');
     const me = sessionUser(c);
@@ -1030,13 +1051,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const range = channelPageRange(c.req.query('range'));
     const sort = channelPageSort(c.req.query('sort'));
     const query = (c.req.query('q') ?? '').trim().slice(0, 100);
-    const mine = cachedChannelTotalsFor(registry, me, range);
+    const mine = await cachedChannelTotalsFor(registry, me, range);
     let community: Array<YoutubeChannelSummary & { viewers: number }> | null = null;
     if (me.matchingOptIn) {
       const channels = new Map<string, YoutubeChannelSummary & { viewers: number }>();
       // Re-read membership on every request, even when per-user totals are cached.
-      for (const member of registry.listMatchingMembers()) {
-        const totals = member.id === me.id ? mine : cachedChannelTotalsFor(registry, member, range);
+      const members = registry.listMatchingMembers();
+      const memberTotals = await Promise.all(members.map((member) =>
+        member.id === me.id ? mine : cachedChannelTotalsFor(registry, member, range)));
+      for (const totals of memberTotals) {
         for (const channel of totals) {
           if (!channel.channelId || !YOUTUBE_CHANNEL_ID_PATTERN.test(channel.channelId)) continue;
           const total = channels.get(channel.channelId) ?? { ...channel, watches: 0, estimatedWatchSeconds: 0, viewers: 0 };
@@ -1070,7 +1093,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const sort = channelPageSort(c.req.query('sort'));
     const repository = registry.repositoryFor(me);
     let metadata = repository.youtubeChannelMetadata(channelId)
-      ?? cachedChannelDetailFor(registry, me, channelId, range).channel;
+      ?? (await cachedChannelDetailFor(registry, me, channelId, range)).channel;
     if (!metadata && me.matchingOptIn) {
       for (const member of registry.listMatchingMembers()) {
         metadata = registry.repositoryFor(member).youtubeChannelMetadata(channelId);
@@ -1089,15 +1112,18 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         registry.repositoryFor(me).upsertYoutubeChannelMetadata([metadata], metadata.statisticsFetchedAt!);
       }
     }
-    const mine = cachedChannelDetailFor(registry, me, channelId, range);
+    const mine = await cachedChannelDetailFor(registry, me, channelId, range);
     let community: Parameters<typeof channelPage>[1]['community'] = null;
     let channel = metadata ?? mine.channel;
     if (me.matchingOptIn) {
       const comparable = new Set(registry.listMatchingCandidatesFor(me, 499).map((member) => member.handle));
       const members: ChannelMemberRow[] = [];
       const videos = new Map<string, ChannelCommunityVideo>();
-      for (const member of registry.listMatchingMembers()) {
-        const detail = member.id === me.id ? mine : cachedChannelDetailFor(registry, member, channelId, range);
+      const matchingMembers = registry.listMatchingMembers();
+      const details = await Promise.all(matchingMembers.map((member) =>
+        member.id === me.id ? mine : cachedChannelDetailFor(registry, member, channelId, range)));
+      for (const [index, member] of matchingMembers.entries()) {
+        const detail = details[index];
         channel ??= detail.channel;
         if (!detail.stats.watches) continue;
         members.push({
@@ -1189,9 +1215,13 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const range = comparisonRange(c.req.query('range'));
     // Consent is re-read on every request: a withdrawal takes effect on the
     // next page load.
-    const comparison = compareWatchProfiles(
+    const [mine, theirs] = await Promise.all([
       cachedComparisonProfileFor(registry, me, range),
       cachedComparisonProfileFor(registry, other, range),
+    ]);
+    const comparison = compareWatchProfiles(
+      mine,
+      theirs,
       range,
       { connected: other.dashboardPublic || mutualFriends(me, other) },
     );
@@ -1542,7 +1572,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   // Cross-person difference view. The requester must be allowed to see BOTH
   // dashboards (public, ?key= / keyA/keyB, or cookies set by earlier visits).
-  app.get('/compare', (c) => {
+  app.get('/compare', async (c) => {
     const lang = langOf(c);
     const aHandle = c.req.query('a') ?? '';
     const bHandle = c.req.query('b') ?? '';
@@ -1566,7 +1596,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || keyed(user, param)
       || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_id_${user.id}`) ?? getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
     if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return notFoundPage(c);
-    const comparison = compareCrystals(cachedMatchingCrystalFor(registry, a), cachedMatchingCrystalFor(registry, b));
+    const comparison = compareCrystals(...await Promise.all([cachedMatchingCrystalFor(registry, a), cachedMatchingCrystalFor(registry, b)]));
     c.header('Cache-Control', 'no-cache');
     // Keyed compare links must not get indexed if they leak to a crawler.
     if (!a.dashboardPublic || !b.dashboardPublic) c.header('X-Robots-Tag', 'noindex');

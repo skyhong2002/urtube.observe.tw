@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import type { Repository } from './data/database.js';
-import { youtubeCrystalShiftSection, type YoutubeCrystalShiftSection } from './youtube/crystal.js';
+import { youtubeCrystalShiftSection, youtubeMatchingCrystalSection, type YoutubeCrystalShiftSection } from './youtube/crystal.js';
 import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
 
 // Aggregate dashboard reads are synchronous SQLite and, on a cold or freshly
@@ -8,10 +8,23 @@ import type { YoutubeDashboardData, YoutubeRange } from './youtube/types.js';
 // (2026-10-22). On the request thread that stalled every visitor and the
 // health checks. They run on a small pool of threads instead, each holding
 // read-only connections (and their TEMP caches) per archive.
+// Read-only Repository methods that are safe to call on another connection.
+export const POOLED_METHODS = [
+  'youtubeCounts',
+  'youtubeProcessingCounts',
+  'youtubeMetadataProcessingCounts',
+  'youtubeChannelTotals',
+  'youtubeChannelDetail',
+  'youtubeComparisonProfile',
+] as const;
+export type PooledMethod = typeof POOLED_METHODS[number];
+
 export interface ReadRequests {
   dashboard: { range: YoutubeRange; now: string; includeInsights: boolean | 'overview' };
   crystalShifts: { now: string };
-  popularity: { range: YoutubeRange };
+  matchingCrystal: { now: string };
+  popularity: { range: YoutubeRange; now: string };
+  method: { name: PooledMethod; args: unknown[] };
 }
 type ReadKind = keyof ReadRequests;
 
@@ -23,8 +36,16 @@ export function runRead(repository: Repository, kind: ReadKind, args: ReadReques
     }
     case 'crystalShifts':
       return youtubeCrystalShiftSection(repository, new Date((args as ReadRequests['crystalShifts']).now));
+    case 'matchingCrystal':
+      return youtubeMatchingCrystalSection(repository, new Date((args as ReadRequests['matchingCrystal']).now));
     case 'popularity':
-      return repository.youtubePopularity((args as ReadRequests['popularity']).range);
+      return repository.youtubePopularity((args as ReadRequests['popularity']).range,
+        new Date((args as ReadRequests['popularity']).now));
+    case 'method': {
+      const { name, args: methodArgs } = args as ReadRequests['method'];
+      if (!POOLED_METHODS.includes(name)) throw new Error(`${name} is not a pooled read`);
+      return (repository[name] as (...values: unknown[]) => unknown)(...methodArgs);
+    }
   }
 }
 
@@ -83,3 +104,15 @@ export function readOffThread<K extends ReadKind>(
 }
 
 export type { YoutubeCrystalShiftSection, YoutubeDashboardData };
+
+// Pooled call of one read-only Repository method, typed like the method.
+// Pass clock-dependent arguments (now) explicitly: the read thread has its
+// own clock, which callers' tests cannot mock.
+export function readMethodOffThread<M extends PooledMethod>(
+  repository: Repository,
+  databasePath: string,
+  name: M,
+  ...args: Parameters<Repository[M]>
+): Promise<ReturnType<Repository[M]>> {
+  return readOffThread(repository, databasePath, 'method', { name, args }) as Promise<ReturnType<Repository[M]>>;
+}
