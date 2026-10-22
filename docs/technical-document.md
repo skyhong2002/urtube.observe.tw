@@ -304,7 +304,7 @@ Python 數值測試使用隔離環境與 requirements.txt 的固定版本，結�
 | 授權變更 | 發出／接受好友邀請，再撤回關係或類別 | server-side 授權與非同步重驗 |
 | 恢復與維運 | 以合成測試重現部分成功、重試與過期租約 | 成功快取、token、原子發布 |
 
-npm run demo:matching 提供可重設的 Alice／Bob 合成社交流程。v3 語意計算範例另需已完成的合成 profile 或測試 provider。雙帳號範例用於重現功能操作；兩百萬筆資料的容量分析見第 10 節。
+npm run demo:matching 提供可重設的 Alice／Bob 合成社交流程，並以確定性的替身 provider、替身 embedding 與程序內 compute 替身（compact-medoid 分群、貪婪 transport 近似，非正式 LP solver）經實際 worker 流程建立 v3 profile，可在無 API key 下展示主題選擇、分數與 Blend。雙帳號範例用於重現功能操作；兩百萬筆資料的容量分析見第 10 節。
 
 ### 12.2 執行環境與開源授權
 

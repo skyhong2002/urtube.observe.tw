@@ -384,9 +384,9 @@ test('v3 batch classification accepts genres only and rejects unknown genres', a
   const request = (async (_url: unknown, options: RequestInit) => {
     const body = JSON.parse(String(options.body));
     assert.ok(body.messages.every((m: { content: unknown }) => typeof m.content === 'string'));
-    assert.deepEqual(JSON.parse(body.messages[1].content), { videos: [{ title: video.title, tags: ['羽球'] }] });
+    assert.deepEqual(JSON.parse(body.messages[1].content), { videos: [{ key: 'v0', title: video.title, tags: ['羽球'] }] });
     return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ videos: [
-      { genres: [invalid ? 'Custom genre' : 'Sport'] },
+      { key: 'v0', genres: [invalid ? 'Custom genre' : 'Sport'] },
     ] }) } }] }));
   }) as typeof fetch;
   const provider = matchingProvider({ ...s, apiKey: 'fake' }, '', request);

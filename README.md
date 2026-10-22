@@ -109,7 +109,7 @@ npm run check
 npm run demo:matching
 ```
 
-終端會輸出 Alice 與 Bob 的本機登入連結，預設 `http://127.0.0.1:4317`。用兩個不同瀏覽器 profile 分別開啟，可操作候選、好友邀請、Blend 與撤回。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用合成資料體驗配對流程；使用自己的帳號與觀看紀錄，請依下方指南設定。
+終端會輸出 Alice、Bob、Carol 與新成員的本機登入連結，預設 `http://127.0.0.1:4317`。用不同瀏覽器 profile 分別開啟，可操作候選、好友邀請、Blend 與撤回，以及 v3 主題配對（選擇主題 → 分數 → Blend）。v3 profile 由實際 worker 流程以確定性的替身分類器、替身 embedding 與程序內 compute 替身產生，不需任何 API key；Carol 的觀看紀錄未完整同步，用來展示暫定分數與資料狀態說明。連結只供本機示範，請勿公開；Ctrl-C 關閉，重啟會重設示範資料。此模式使用合成資料體驗配對流程；使用自己的帳號與觀看紀錄，請依下方指南設定。
 
 <details>
 <summary>完整自架指南：帳號設定、資料匯入、服務啟動與部署</summary>
@@ -231,7 +231,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 
 - **正式作品：[https://urtube.observe.tw](https://urtube.observe.tw)**。
 - **評選影片：[觀看 Demo](https://youtu.be/DwJpR0RI4Vg)**。
-- 不登入可由首頁導覽開啟 Example dashboard；可重設的兩帳號合成示範使用 `npm run demo:matching`。
+- 不登入可由首頁導覽開啟 Example dashboard；可重設的合成示範（含 v3 主題配對）使用 `npm run demo:matching`。
 - 展示操作與證據整理見 [Demo runbook](docs/demo-runbook.md)。
 
 ## 限制與未來工作

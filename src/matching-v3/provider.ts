@@ -29,6 +29,12 @@ export class ProviderError extends Error {
 export class PartialClassificationError extends Error {
   constructor(public readonly results: (Classification | null)[]) { super('Some classification rows failed validation'); }
 }
+// The batch response did not echo every request key exactly once in request
+// order (swapped, duplicated, missing or unknown keys). No row can be trusted,
+// so nothing is cached and the job retries with the usual backoff.
+export class BatchKeyMismatchError extends Error {
+  constructor() { super('Classification batch keys do not match the request'); this.name = 'BatchKeyMismatchError'; }
+}
 export interface Provider {
   classify(video: VideoInput): Promise<Classification>;
   classifyBatch?(videos: VideoInput[]): Promise<Classification[]>;
@@ -134,13 +140,21 @@ export function matchingProvider(s: Settings, youtubeApiKeys: YoutubeApiKeySourc
   return {
     async classifyBatch(videos) {
       if (!videos.length) return [];
-      const raw = await generate(`${classificationPrompt} Return {"videos":[{"genres":["News"]}]} with one result per input in EXACTLY the same order; never drop a video.`,
-        { videos: videos.map(classificationInput) },
-        { type: 'object', properties: { videos: { type: 'array', items: genreJsonSchema, minItems: videos.length, maxItems: videos.length } }, required: ['videos'], additionalProperties: false },
+      // Short keys exist only in this request/response. The cache key still
+      // digests classificationInput(video) alone, so completed caches stay valid.
+      const keys = videos.map((_, i) => `v${i}`);
+      const raw = await generate(`${classificationPrompt} Each input has a key. Return {"videos":[{"key":"v0","genres":["News"]}]} with one result per input, echoing its key, in EXACTLY the same order; never drop, repeat or invent a key.`,
+        { videos: videos.map((video, i) => ({ key: keys[i], ...classificationInput(video) })) },
+        { type: 'object', properties: { videos: { type: 'array', items: { ...genreJsonSchema, properties: { key: { type: 'string', enum: keys }, ...genreJsonSchema.properties }, required: ['key', 'genres'] }, minItems: videos.length, maxItems: videos.length } }, required: ['videos'], additionalProperties: false },
         Math.max(2048, videos.length * 100 + 512));
-      const rows = z.object({ videos: z.array(z.unknown()).length(videos.length) }).strict().parse(raw).videos;
+      const rows = z.object({ videos: z.array(z.unknown()) }).strict().parse(raw).videos;
+      // Require a complete one-to-one mapping where position and key agree;
+      // when they disagree neither signal can say which video a row describes.
+      const echoed = rows.map(row => row && typeof row === 'object' && 'key' in row ? (row as { key: unknown }).key : undefined);
+      if (echoed.length !== keys.length || echoed.some((key, i) => key !== keys[i])) throw new BatchKeyMismatchError();
       const results = rows.map((row, i) => {
-        try { return classificationFromGenres(videos[i], row); } catch { return null; }
+        const { key: _key, ...genres } = row as Record<string, unknown>;
+        try { return classificationFromGenres(videos[i], genres); } catch { return null; }
       });
       if (results.some(result => !result)) throw new PartialClassificationError(results);
       return results as Classification[];

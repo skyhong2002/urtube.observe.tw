@@ -19,7 +19,7 @@
 ```sh
 npm ci
 npm run check                 # 型別檢查與全部測試，只用 :memory: 資料庫
-npm run demo:matching         # 兩個合成帳號的配對示範，預設 http://127.0.0.1:4317
+npm run demo:matching         # 合成帳號的配對與 v3 主題配對示範（免 API key），預設 http://127.0.0.1:4317
 ```
 
 要以容器方式跑完整網站（空資料庫、預覽帳號 `preview`），只用 `compose.local.yml`，

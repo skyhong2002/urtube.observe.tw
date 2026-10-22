@@ -68,9 +68,47 @@ function renderDetail() {
   actions.append(edit, remove); top.append(actions); $('detail').append(top);
   const chips = element('div', undefined, 'chips'); topic.genres.forEach(g => chips.append(element('span', genreName(g), 'chip'))); $('detail').append(chips);
   $('detail').append(element('p', t('依共同興趣的合拍程度排序', 'Sorted by compatibility across your chosen interests'), 'muted'));
+  const notes = availabilityNotes(state, topic.genres);
+  if (notes.length) {
+    const box = element('div', undefined, 'notice mv-availability'); box.setAttribute('role', 'status');
+    box.append(element('strong', t('你的資料狀態', 'Your data status')));
+    const list = element('ul'); notes.forEach(note => list.append(element('li', note))); box.append(list);
+    $('detail').append(box);
+  }
   const result = element('div'); result.setAttribute('aria-live', 'polite');
   $('detail').append(result);
   queueMatch(topic, result);
+}
+// Explain uncertainty from the viewer's OWN profile and source counts only;
+// other members' coverage is never shown here. Each note states the effect and
+// the next step. Genres without a full result are left out of the score, not zeroed.
+function availabilityNotes(data, genres) {
+  const notes = [], profile = data.profile, job = data.job, source = data.source;
+  const number = value => new Intl.NumberFormat(lang === 'zh' ? 'zh-TW' : 'en').format(value);
+  if (!profile) {
+    notes.push(job?.state === 'failed'
+      ? t('興趣分析暫時遇到問題，尚未產生結果。系統會自動重試，不需要重新匯入。', 'Interest analysis hit a problem and has no result yet. It retries automatically; there is no need to re-import.')
+      : t('興趣分析尚未完成，完成後才會出現這個主題的分數。分析會自動進行，請稍後再回來看看。', 'Interest analysis is not finished yet; scores for this topic appear once it is. It runs automatically, so check back later.'));
+    return notes;
+  }
+  if (!profile.currentVersion) notes.push(t('分析方式已更新，正在重新整理你的資料；完成前配對可能暫時無法使用。', 'The analysis method was updated and your data is being refreshed; matching may be unavailable until it finishes.'));
+  if (['queued', 'running'].includes(job?.state) && profile.currentVersion) notes.push(t('你的新資料正在處理中，目前顯示上次完成的結果，處理完會自動更新。', 'New data is being processed. You are seeing the last completed result; it updates automatically.'));
+  if (!profile.complete) notes.push(t('觀看紀錄尚未完整同步，分數為暫定。完成 YouTube 紀錄同步後會自動更新。', 'Your watch history is not fully synced, so scores are provisional. They update automatically after the YouTube history sync completes.'));
+  if (profile.processedVideos < profile.totalVideos) notes.push(t(`已分類 ${number(profile.processedVideos)} / ${number(profile.totalVideos)} 部影片，其餘仍在處理，分數為暫定。`, `${number(profile.processedVideos)} of ${number(profile.totalVideos)} videos are classified; the rest are still processing, so scores are provisional.`));
+  if (source?.limitReached) notes.push(t(`只分析最近觀看的 ${number(source.videoLimit)} 部不同影片，更早的紀錄不列入配對。這是目前的處理上限，不需要操作。`, `Only your ${number(source.videoLimit)} most recently watched distinct videos are analyzed; older history is not used for matching. This is the current processing limit; no action is needed.`));
+  if (source?.unavailableVideos) notes.push(t(`${number(source.unavailableVideos)} 部影片已刪除或無法取得資訊，只能依標題判斷類別，沒有 tag 可比較。`, `${number(source.unavailableVideos)} videos were deleted or their details are unavailable; they are classified from the title only and have no tags to compare.`));
+  if (source?.pendingMetadataVideos) notes.push(t(`${number(source.pendingMetadataVideos)} 部影片的資訊仍在查詢，完成後會自動重新分析。`, `Details for ${number(source.pendingMetadataVideos)} videos are still being fetched; analysis reruns automatically once they arrive.`));
+  for (const genre of genres) {
+    const value = profile.genres?.[genre], name = genreName(genre) || genre;
+    const reason = value?.reason || 'unclassified';
+    if (reason === 'missing_tags') notes.push(t(`${name}：已辨識出 ${number(value.videoCount)} 部相關影片，但它們沒有原始 tag，無法比較細部主題，此類別暫不計分。系統只判斷類別、不自動產生 tag；觀看含 tag 的這類影片後會自動納入。`, `${name}: ${number(value.videoCount)} related videos were recognized, but they have no original tags, so detailed topics cannot be compared and this interest is not scored yet. Only interests are detected; tags are never generated. Watching tagged videos of this kind adds it automatically.`));
+    else if (reason === 'sparse_tags') notes.push(t(`${name}：相關 tag 太少或太分散，尚未形成可比較的主題群，此類別暫不計分。累積更多這類觀看後會自動更新。`, `${name}: too few or too scattered tags to form a comparable group, so this interest is not scored yet. It updates as you watch more of it.`));
+    else if (reason === 'low_coverage') notes.push(t(`${name}：只有 ${Math.round(100 * value.retainedCoverage)}% 的 tag 權重形成穩定主題群，分數為暫定；未被代表的部分不會算成共同興趣。`, `${name}: only ${Math.round(100 * value.retainedCoverage)}% of tag weight forms stable groups, so the score is provisional; the rest is never counted as a shared interest.`));
+    else if (reason === 'unclassified' && genre === 'channel type') notes.push(t(`${name}：你看過的頻道大多沒有可用的公開說明，暫時無法判斷頻道類型，此類別暫不計分。`, `${name}: most channels you watched have no usable public description, so channel types cannot be assessed and this is not scored yet.`));
+    else if (reason === 'unclassified') notes.push(t(`${name}：仍有影片尚未分類，暫時無法判斷這類興趣，分類完成後會自動更新。`, `${name}: some videos are not classified yet, so this interest cannot be assessed until they are. It updates automatically.`));
+    else if (reason === 'empty') notes.push(t(`${name}：你的觀看紀錄中沒有這類影片，此類別不計分。`, `${name}: your history has no videos of this kind, so it is not scored.`));
+  }
+  return notes;
 }
 // Keep one request in flight: the server also serializes matching per account.
 // Rapid switches replace the pending selection, never the currently displayed result.

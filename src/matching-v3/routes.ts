@@ -6,7 +6,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { User, UserRegistry } from '../users.js';
-import { GENRES, genreSchema, selectionSchema, version, type Settings } from './model.js';
+import { availabilityReason, GENRES, genreSchema, selectionSchema, version, type Settings } from './model.js';
 import { computeClient, type Compute } from './compute.js';
 import { compareMatchRank, compareProfiles } from './matching.js';
 import { sourceKey } from './store.js';
@@ -93,11 +93,15 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
   });
   app.get('/api/matching-v3', c => {
     const user = c.get('user'), profile = store.profile(user.id);
+    // The viewer's own aggregate counts only; never another member's profile.
+    const current = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
     return c.json({ genres: GENRES, optedIn: user.matchingOptIn, preferences: store.preferences(user.id),
       job: store.status(user.id),
+      source: { videoLimit: s.backfillVideoLimit, limitReached: current.limitReached ?? false,
+        unavailableVideos: current.unavailableVideos ?? 0, pendingMetadataVideos: current.pendingMetadataVideos ?? 0 },
       profile: profile ? { builtAt: profile.builtAt, complete: profile.complete, totalVideos: profile.totalVideos,
         processedVideos: profile.processedVideos, currentVersion: profile.version === version(s),
-        genres: Object.fromEntries(Object.entries(profile.genres).map(([g, p]) => [g, { status: p.status, videoCount: p.videoCount, retainedCoverage: p.retainedCoverage }])) } : null });
+        genres: Object.fromEntries(Object.entries(profile.genres).map(([g, p]) => [g, { status: p.status, reason: availabilityReason(p), videoCount: p.videoCount, retainedCoverage: p.retainedCoverage }])) } : null });
   });
   app.put('/api/matching-v3/preferences', async c => {
     const parsed = preferencesSchema.safeParse(await c.req.json().catch(() => null));

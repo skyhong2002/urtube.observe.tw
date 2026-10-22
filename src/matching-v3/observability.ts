@@ -1,5 +1,5 @@
 import { tokenObserver } from './telemetry.js';
-import { PartialClassificationError, ProviderError, type Provider } from './provider.js';
+import { BatchKeyMismatchError, PartialClassificationError, ProviderError, type Provider } from './provider.js';
 import type { MatchingStore } from './store.js';
 
 // Record operation metadata only. Never persist prompts, responses, keys or tags.
@@ -9,6 +9,7 @@ export function observedProvider(provider: Provider, store: MatchingStore): Prov
     try { const result = await tokenObserver.run(value => store.operationUsage(id, value), call); store.operationEnd(id); return result; }
     catch (error) {
       store.operationEnd(id, error instanceof PartialClassificationError ? 'partial_classification_retry'
+        : error instanceof BatchKeyMismatchError ? 'invalid_batch_keys'
         : error instanceof Error && error.name === 'ZodError' ? 'invalid_schema'
         : error instanceof ProviderError ? `http_${error.status}`
         : error instanceof SyntaxError ? 'invalid_json'

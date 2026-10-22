@@ -1679,11 +1679,14 @@ export class Repository {
     // until this archive changes (readRevision sees ingest/worker writes from other connections).
     const key = `${backfillLimit}:${this.readRevision()}`;
     if (this.matchingSourceCache?.key === key) return this.matchingSourceCache.snapshot;
+    // One extra row only reports whether the limit cut off older videos.
     const rows = this.db.prepare(`SELECT v.video_id, v.title, v.tags_json,
-      v.description, v.channel_id, v.channel_title
+      v.description, v.channel_id, v.channel_title, v.availability, v.metadata_fetched_at
       FROM youtube_videos v JOIN youtube_watch_events w ON w.video_id=v.video_id
       WHERE w.activity_type='video' GROUP BY v.video_id
-      ORDER BY MAX(w.watched_at) DESC, v.video_id ASC LIMIT ?`).all(backfillLimit);
+      ORDER BY MAX(w.watched_at) DESC, v.video_id ASC LIMIT ?`).all(backfillLimit + 1);
+    const limitReached = rows.length > backfillLimit;
+    rows.length = Math.min(rows.length, backfillLimit);
     rows.sort((a, b) => String(a.video_id).localeCompare(String(b.video_id)));
     const videos = rows.map(row => {
       const parsed: unknown = JSON.parse(String(row.tags_json));
@@ -1697,7 +1700,9 @@ export class Repository {
     const latest = this.youtubeProgressImports(1)[0];
     const complete = Boolean(this.youtubeHistoryCoverage()) && (!latest || Boolean(latest.completedAt)
       && !latest.error && latest.endReason !== null && YOUTUBE_SCAN_COVERING_REASONS.has(latest.endReason));
-    const snapshot = { videos, complete, fingerprint: digest([videos, complete]) };
+    const snapshot = { videos, complete, fingerprint: digest([videos, complete]), limitReached,
+      unavailableVideos: rows.filter(row => row.metadata_fetched_at !== null && row.availability === 'unavailable').length,
+      pendingMetadataVideos: rows.filter(row => row.metadata_fetched_at === null).length };
     this.matchingSourceCache = { key, snapshot };
     return snapshot;
   }

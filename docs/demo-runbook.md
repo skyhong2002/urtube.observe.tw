@@ -13,10 +13,27 @@ npm ci
 npm run demo:matching
 ```
 
-The command prints separate Alice, Bob and newcomer login URLs. Open each URL in a
+The command prints separate Alice, Bob, Carol and newcomer login URLs. Open each URL in a
 different browser profile or private context so their `HttpOnly` session
 cookies remain independent. Restarting the command creates new access URLs and
 resets every request and connection. Set `DEMO_PORT` if port 4317 is occupied.
+
+## Show v3 topic matching without API keys
+
+The demo builds v3 genre profiles through the real worker pipeline with a
+deterministic stand-in classifier, stand-in embeddings and an in-process
+stand-in for the compute service (compact-medoid groups; comparison uses a
+greedy transport approximation, not the production LP solver). No API key is
+read or needed. Scores demonstrate the flow, not a model run.
+
+1. As Alice, open **Matches → My topics → Music & learning**. Bob ranks first
+   with a complete score; Carol follows with a provisional score because her
+   history sync never completed.
+2. Open **News**. The status box explains that the news video was recognized
+   but has no original tags, so the genre is not scored (genres only; tags
+   are never generated).
+3. Send Bob a friend request, accept it from Bob's context and open **Blend**
+   to show per-genre scores and shared keywords.
 
 ## Show first value and empty states
 

@@ -3,7 +3,7 @@ import { yieldToEventLoop } from '../event-loop-turns.js';
 import { type AsyncLimiter } from '../youtube/concurrency.js';
 import { assessProfileAvailability, classificationInput, GENRES, CHANNEL_TYPES, CONTENT_GENRES, digest, version, type Classification, type Genre, type GenreProfile, type Profile, type Settings, type SourceSnapshot, type TagPoint, type VideoInput } from './model.js';
 import type { Compute } from './compute.js';
-import { PartialClassificationError, ProviderError, type Provider } from './provider.js';
+import { BatchKeyMismatchError, PartialClassificationError, ProviderError, type Provider } from './provider.js';
 import { MatchingStore, sourceKey, type JobProgress } from './store.js';
 import type { UserRegistry } from '../users.js';
 
@@ -313,6 +313,7 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
       // Provider bodies may contain inputs or credentials: persist only safe codes.
       store.defer(job, error instanceof ProviderError ? `provider_http_${error.status}`
         : error instanceof PartialClassificationError ? 'partial_classification_retry'
+        : error instanceof BatchKeyMismatchError ? 'invalid_provider_batch_keys'
         : error instanceof SyntaxError ? 'invalid_provider_json'
         : error instanceof Error && error.name === 'ZodError' ? 'invalid_provider_schema'
         : error instanceof Error && error.message === 'Invalid batch tag index' ? 'invalid_provider_tag_index'

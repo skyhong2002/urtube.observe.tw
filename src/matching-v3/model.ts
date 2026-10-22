@@ -61,7 +61,12 @@ export function version(s: Settings) {
     s.backfillVideoLimit, s.embeddingBaseUrl, s.embeddingModel, s.dimensions, s.task, s.compactDistance, s.eps, s.minSamples, s.minShare, s.similarityFloor]);
 }
 export interface VideoInput { id: string; title: string; tags: string[]; channelId: string | null; channelTitle: string | null }
-export interface SourceSnapshot { videos: VideoInput[]; complete: boolean; fingerprint: string }
+// The optional counts describe the bounded source for the owner's status view.
+// They are not part of the fingerprint, so reading them never schedules work.
+export interface SourceSnapshot {
+  videos: VideoInput[]; complete: boolean; fingerprint: string;
+  limitReached?: boolean; unavailableVideos?: number; pendingMetadataVideos?: number;
+}
 export interface Classification {
   tagSource: 'original' | 'generated';
   tags: string[];
@@ -104,4 +109,15 @@ export function assessProfileAvailability(profile: Profile): Profile {
       : value.status === 'empty' ? 'empty' : 'insufficient';
     return [genre, { ...value, status }];
   })) };
+}
+
+// Why a genre does or does not contribute a full score, for the owner's view.
+// New videos get genres only (no generated tags), so a genre can be known while
+// none of its videos carries a tag vector: that is `missing_tags`, not an error.
+export type AvailabilityReason = 'ready' | 'low_coverage' | 'missing_tags' | 'sparse_tags' | 'unclassified' | 'empty';
+export function availabilityReason(value: GenreProfile): AvailabilityReason {
+  if (value.clusters.length) return Number.isFinite(value.retainedCoverage) && value.retainedCoverage >= 0.5 ? 'ready' : 'low_coverage';
+  if (value.status === 'empty') return 'empty';
+  if (value.videoCount > 0) return value.totalMass > 0 ? 'sparse_tags' : 'missing_tags';
+  return 'unclassified';
 }

@@ -190,7 +190,8 @@ export class MatchingStore {
     return Number(this.db.prepare(`UPDATE matching_v3_jobs SET state='queued', token=NULL, lease_until=0
       WHERE state='failed' AND retry_at<=? AND error IN (
         'processing_failed','partial_classification_retry','invalid_provider_json',
-        'invalid_provider_schema','invalid_provider_tag_index','provider_replaced_tags','provider_timeout'
+        'invalid_provider_schema','invalid_provider_tag_index','provider_replaced_tags','provider_timeout',
+        'invalid_provider_batch_keys'
       ) AND EXISTS (SELECT 1 FROM users WHERE users.id=matching_v3_jobs.user_id)`)
       .run(now).changes);
   }
