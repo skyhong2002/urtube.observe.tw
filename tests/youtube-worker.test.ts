@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { Repository } from '../src/data/database.js';
 import { UserRegistry, type User } from '../src/users.js';
 import {
-  runYoutubeWorkerCycle, youtubeWorkerFailedUsers, youtubeRetryDelay, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
+  runYoutubeWorkerCycle, WORKER_THREAD_STALL_MAX_MS, workerThreadHeartbeatDue, youtubeWorkerFailedUsers, youtubeRetryDelay, youtubeWorkerMadeProgress, youtubeWorkerShouldContinue, youtubeWorkPending,
   type YoutubeWorkerSteps,
 } from '../src/youtube-worker.js';
 import { workerOpsReady } from '../src/ops-status.js';
@@ -203,4 +203,14 @@ test('readiness retains failures for accounts outside a retry sweep until each r
       assert.equal(ready(), index === 1);
     }
   } finally { registry.close(); }
+});
+
+test('the worker supervisor vouches for a slow thread but not a hung or idle one', () => {
+  const now = 1_000_000_000;
+  // A 207 s synchronous stage (seen in production) keeps the heartbeat alive.
+  assert.equal(workerThreadHeartbeatDue(true, now - 207_000, now), true);
+  assert.equal(workerThreadHeartbeatDue(true, now - WORKER_THREAD_STALL_MAX_MS, now), true);
+  assert.equal(workerThreadHeartbeatDue(true, now - WORKER_THREAD_STALL_MAX_MS - 1, now), false);
+  // Between cycles readiness rests on lastCompletedAt, not on heartbeats.
+  assert.equal(workerThreadHeartbeatDue(false, now, now), false);
 });

@@ -12,9 +12,9 @@ export interface WorkerOpsStatus {
   users?: number;
   failedUsers?: number;
   lastError?: string;
-  // Longest event-loop stall observed in the recent window, and when it was
-  // seen. Heartbeats share that loop, so a stale heartbeat with a large value
-  // here means the process was blocked rather than dead or slow to persist.
+  // Longest stall of the YouTube worker thread's event loop in the recent
+  // window, and when it was seen. The supervisor publishes heartbeats from
+  // its own loop, so a large value here no longer implies a stale heartbeat.
   eventLoopMaxDelayMs?: number;
   eventLoopMaxDelayAt?: string;
   // YouTube Data API requests this worker process made since the last quota

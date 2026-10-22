@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { isMainThread, Worker } from 'node:worker_threads';
 import { yieldToEventLoop } from './event-loop-turns.js';
 import type { Repository } from './data/database.js';
 import {
@@ -15,14 +15,11 @@ import {
   enrichYoutubeChannelMetadata,
   enrichYoutubeMetadata,
   enrichYoutubeVideoStatistics,
-  youtubeApiUsage,
 } from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
 import { registryMatchingCrystal } from './youtube/registry-crystal.js';
 import {
-  YOUTUBE_WORKER_CATCHUP_MINUTES,
-  YOUTUBE_WORKER_FULL_CYCLE_MINUTES,
   YOUTUBE_WORKER_METADATA_PER_CYCLE,
   YOUTUBE_WORKER_TOPICS_PER_CYCLE,
   describeYoutubeProcessing,
@@ -83,7 +80,7 @@ const defaultSteps: YoutubeWorkerSteps = {
   classification: (repository, user) => classifyYoutubeVideos(repository, YOUTUBE_WORKER_TOPICS_PER_CYCLE, user.autoActivateInitialTopics),
 };
 
-function errorMessage(error: unknown): string {
+export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
 }
 
@@ -279,22 +276,37 @@ export function youtubeWorkPending(
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
-  const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
-  if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
-  const steps = youtubeWorkerSteps(registry);
-  let running = false;
-  const activeUsers = new Set<number>();
+// The supervisor below owns the heartbeat and the status file; all archive
+// work runs on youtube-worker-thread.ts. Its synchronous SQLite stages took
+// 31-207 s per stage under host memory pressure (2026-10-22), long enough to
+// stall a heartbeat sharing their loop and fail /readyz although the worker
+// was still making progress.
+export const WORKER_THREAD_TICK_MS = 1_000;
+// A thread that has not ticked for this long is treated as hung: the
+// supervisor stops vouching for it, so /readyz fails after
+// WORKER_HEARTBEAT_MAX_AGE_MS more. Well above the worst observed stage.
+export const WORKER_THREAD_STALL_MAX_MS = 10 * 60_000;
 
-  // Heartbeat timers run on the same loop as synchronous SQLite work, so a
-  // missed heartbeat alone cannot tell a blocked loop from a dead process.
-  const lag = new EventLoopLagProbe();
-  setInterval(() => lag.tick(), lag.intervalMs).unref();
+export type WorkerThreadMessage =
+  | { type: 'tick' }
+  | { type: 'status'; value: Partial<WorkerOpsStatus> }
+  | { type: 'stopped'; active: boolean };
+
+// Whether the supervisor should publish a heartbeat on the thread's behalf.
+export function workerThreadHeartbeatDue(running: boolean, lastTickAt: number, now: number): boolean {
+  return running && now - lastTickAt <= WORKER_THREAD_STALL_MAX_MS;
+}
+
+if (process.env.NODE_ENV !== 'test' && isMainThread) {
+  const lag = new EventLoopLagProbe(WORKER_THREAD_TICK_MS);
+  let lastTickAt = Date.now();
+  let threadRunning = false;
   let worstDelay: { ms: number; at: number } | null = null;
   const recordStatus = (value: Partial<WorkerOpsStatus>) => {
+    if (value.running !== undefined) threadRunning = value.running;
     const observedMs = lag.take();
     if (observedMs >= WORKER_HEARTBEAT_INTERVAL_MS) {
-      console.error(`worker event loop blocked for ${observedMs} ms`);
+      console.error(`worker thread event loop blocked for ${observedMs} ms`);
     }
     worstDelay = nextEventLoopDelay(worstDelay, observedMs, Date.now());
     try {
@@ -307,124 +319,48 @@ if (process.env.NODE_ENV !== 'test') {
       console.error(`worker status write failed: ${errorMessage(error)}`);
     }
   };
-  // Publish each account's outcome even while unrelated retries are still
-  // running. Waiting for the entire sweep leaves recovered failures visible.
-  const onUserSettled = () => recordStatus({ failedUsers: youtubeWorkerFailedUsers(registry) });
 
-  const CATCHUP_MS = YOUTUBE_WORKER_CATCHUP_MINUTES * 60_000;
-  const FULL_CYCLE_MS = YOUTUBE_WORKER_FULL_CYCLE_MINUTES * 60_000;
-  let lastCycleStartedAt = 0;
-  // Who a catch-up run should visit: every archive while a crystal refresh is
-  // queued (undefined), only the pending ones otherwise, or nobody (null).
-  const catchUpTarget = (): number[] | undefined | null => {
-    if (registry.crystalRefreshPending()) return undefined;
-    const ids = youtubePendingUserIds(registry);
-    return ids.length ? ids : null;
-  };
-  let lastCycleFailed = false;
-  let stopping = false;
+  const thread = new Worker(new URL('./youtube-worker-thread.ts', import.meta.url));
+  thread.on('message', (message: WorkerThreadMessage) => {
+    if (message.type === 'tick') {
+      lag.tick();
+      lastTickAt = Date.now();
+    } else if (message.type === 'status') {
+      recordStatus(message.value);
+    } else {
+      stop(message.active);
+    }
+  });
+  // Let the container restart a crashed worker instead of reporting a
+  // heartbeat for work that no longer runs.
+  thread.on('error', (error) => {
+    console.error(errorMessage(error));
+    recordStatus({ heartbeatAt: new Date().toISOString(), running: false, lastError: errorMessage(error) });
+    process.exit(1);
+  });
+  thread.on('exit', (code) => {
+    console.error(`worker thread exited with code ${code}`);
+    process.exit(1);
+  });
 
-  // `userIds` limits a catch-up run to archives with pending work; only full
-  // sweeps (no userIds) move the hourly schedule, so idle archives still get
-  // their hourly visit while one busy archive keeps catching up.
-  const run = async (userIds?: number[]): Promise<void> => {
-    if (running) return;
-    running = true;
-    let continueWith: number[] | undefined | null = null;
-    const startedAt = Date.now();
-    if (!userIds) lastCycleStartedAt = startedAt;
-    const lastStartedAt = new Date(startedAt).toISOString();
-    recordStatus(youtubeWorkerCycleStartedStatus(lastStartedAt));
-    const heartbeat = setInterval(() => {
+  setInterval(() => {
+    if (workerThreadHeartbeatDue(threadRunning, lastTickAt, Date.now())) {
       recordStatus({ heartbeatAt: new Date().toISOString(), running: true });
-    }, WORKER_HEARTBEAT_INTERVAL_MS);
-    try {
-      const users = await runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds, activeUsers, onUserSettled });
-      console.log(JSON.stringify({ at: new Date().toISOString(), users }));
-      const failedUsers = youtubeWorkerFailedUsers(registry);
-      for (const result of users) {
-        if (result.error) console.error(`[${result.user}] ${result.error}`);
-      }
-      lastCycleFailed = failedUsers > 0;
-      recordStatus({
-        lastStartedAt,
-        lastCompletedAt: new Date().toISOString(),
-        heartbeatAt: new Date().toISOString(),
-        running: activeUsers.size > 0,
-        users: users.length,
-        failedUsers,
-        lastError: '',
-        youtubeApiRequestsSinceReset: youtubeApiUsage().requestsSinceReset,
-        youtubeApiQuotaResetAt: youtubeApiUsage().quotaResetAt,
-      });
-      // A batch limit protects memory and external services; it should not
-      // impose an additional five-minute sleep. Continue immediately while a
-      // successful cycle actually moved the backlog forward. The timer below
-      // remains the idle/no-progress safety poll.
-      const target = catchUpTarget();
-      continueWith = youtubeWorkerShouldContinue(users, target !== null) ? target : null;
-    } catch (error) {
-      const lastError = errorMessage(error);
-      lastCycleFailed = true;
-      console.error(lastError);
-      recordStatus({
-        lastStartedAt,
-        heartbeatAt: new Date().toISOString(),
-        running: false,
-        lastError,
-      });
-    } finally {
-      clearInterval(heartbeat);
-      running = false;
-      const next = continueWith;
-      if (next !== null && !stopping) setImmediate(() => { void run(next); });
     }
-  };
+  }, WORKER_HEARTBEAT_INTERVAL_MS);
 
-  // Hourly full cycle, plus catch-up runs every few minutes while an archive
-  // still has actionable work. A failed cycle waits for the hourly slot so a
-  // broken API key does not retry every five minutes.
-  const tick = async (): Promise<void> => {
-    if (running) return;
-    if (Date.now() - lastCycleStartedAt >= FULL_CYCLE_MS) return run();
-    if (lastCycleFailed) return;
-    const target = catchUpTarget();
-    if (target !== null) await run(target);
-  };
-
-  // Check failed accounts independently of a slow account's full-cycle work.
-  // The shared in-flight set prevents overlapping writes for the same account.
-  const retryInterval = setInterval(() => {
-    if (stopping) return;
-    if (activeUsers.size) recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
-    const userIds = registry.listUsers().filter(user => {
-      const repository = registry.repositoryFor(user);
-      return !activeUsers.has(user.id) && repository.youtubeSyncState('worker_stage') === 'failed'
-        && youtubeRetryDue(repository);
-    }).map(user => user.id);
-    if (userIds.length) {
-      recordStatus({ running: true, heartbeatAt: new Date().toISOString() });
-      void runYoutubeWorkerCycle(registry, steps, () => new Date(), { userIds, activeUsers, onUserSettled })
-      .then(() => {
-        if (!running && !activeUsers.size) recordStatus({ running: false, lastCompletedAt: new Date().toISOString(),
-          failedUsers: youtubeWorkerFailedUsers(registry) });
-      })
-      .catch(() => console.error('Account retry sweep failed; will check again.'));
-    }
-  }, 30_000);
-
-  void run();
-  const interval = setInterval(() => { void tick(); }, CATCHUP_MS);
-  process.once('SIGTERM', () => {
-    stopping = true;
-    clearInterval(interval);
-    clearInterval(retryInterval);
+  function stop(active: boolean): never {
     recordStatus({
       heartbeatAt: new Date().toISOString(),
       running: false,
-      lastError: running ? 'Worker stopped before its active cycle completed' : '',
+      lastError: active ? 'Worker stopped before its active cycle completed' : '',
     });
-    registry.close();
     process.exit(0);
+  }
+  process.once('SIGTERM', () => {
+    thread.postMessage({ type: 'stop' });
+    // A thread inside a synchronous stage cannot answer. SQLite's WAL keeps
+    // the archives consistent when the process ends without closing them.
+    setTimeout(() => stop(threadRunning), 5_000).unref();
   });
 }
