@@ -106,15 +106,28 @@ export async function runYoutubeWorkerCycle(
   // never fired, so the heartbeat went stale for ~129 s and /readyz failed
   // (#97). Yield before each synchronous stage so heartbeats keep landing.
   return Promise.all(registry.listUsers().filter(user => !options.userIds || options.userIds.includes(user.id)).map(async (user): Promise<YoutubeWorkerUserResult> => {
-    const repository = registry.repositoryFor(user);
-    if (options.activeUsers?.has(user.id) || !youtubeRetryDue(repository, now().getTime())) return { user: user.handle };
+    if (options.activeUsers?.has(user.id)) return { user: user.handle };
+    // Claim synchronously so a concurrent sweep skips this account, then
+    // yield before opening it: the first open in a new process runs
+    // migrations and a channel-id backfill, and opening all 38 archives in
+    // one turn blocked the loop for 32 s after a deploy on 2026-10-22.
     options.activeUsers?.add(user.id);
+    let repository: Repository;
+    try {
+      await yieldToEventLoop();
+      repository = registry.repositoryFor(user);
+    } catch (error) {
+      options.activeUsers?.delete(user.id);
+      throw error;
+    }
+    if (!youtubeRetryDue(repository, now().getTime())) {
+      options.activeUsers?.delete(user.id);
+      return { user: user.handle };
+    }
     // Stamped before the steps run so the processing notice can say when
     // this archive was last looked at, even when a step fails midway.
     repository.setYoutubeSyncState('worker_cycle_at', now().toISOString());
     try {
-      // Only after the account is claimed: a concurrent sweep must still see
-      // it in activeUsers and skip it.
       await yieldToEventLoop();
       const portability = user.storageName === DEFAULT_HANDLE
         ? await steps.portability(repository, user)

@@ -100,3 +100,39 @@ test('a worker cycle with no pending work still lets heartbeat timers run', asyn
     registry.close();
   }
 });
+
+test('opening archives for a cycle lets heartbeat timers run between them', async () => {
+  const registry = new UserRegistry(':memory:');
+  let ticks = 0;
+  try {
+    for (let index = 0; index < 5; index++) registry.createUser(`cold-${index}`, `Cold ${index}`);
+    const opened = new Set<number>();
+    const ticksAtOpen: number[] = [];
+    const repositoryFor = registry.repositoryFor.bind(registry);
+    // A first open runs migrations and a backfill synchronously.
+    registry.repositoryFor = (user) => {
+      if (!opened.has(user.id)) {
+        opened.add(user.id);
+        ticksAtOpen.push(ticks);
+        const until = Date.now() + 20;
+        while (Date.now() < until) { /* cold open stand-in */ }
+      }
+      return repositoryFor(user);
+    };
+    const idle = async () => 0;
+    const steps: YoutubeWorkerSteps = {
+      portability: async () => 'idle', metadata: idle, channelMetadata: idle,
+      matchingClassification: idle, classification: idle,
+    };
+    const heartbeat = setInterval(() => { ticks++; }, 1);
+    try {
+      await runYoutubeWorkerCycle(registry, steps);
+    } finally {
+      clearInterval(heartbeat);
+    }
+    const between = ticksAtOpen.slice(1).filter((value, index) => value > ticksAtOpen[index]).length;
+    assert.ok(between >= 3, `a timer ran between ${between} of 4 consecutive archive opens`);
+  } finally {
+    registry.close();
+  }
+});
