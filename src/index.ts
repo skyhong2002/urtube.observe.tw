@@ -837,6 +837,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       endpoint: `${config.publicBaseUrl}/api/ingest/youtube/capture`,
       token: registry.rotateCaptureToken(me.handle),
       googleAccount: me.googleEmail ?? '',
+      // The extension partitions its offline queue and sync checkpoints by
+      // this immutable id (handles can be renamed); the handle only lets it
+      // recognise a connection made before ids were delivered.
+      accountId: String(me.id),
+      handle: me.handle,
     });
   });
 

@@ -44,12 +44,18 @@ function values() {
   };
 }
 
+// The background worker applies settings so that a new connection code
+// switches accounts atomically, and pausing takes effect in open tabs.
+async function save(settings) {
+  const response = await chrome.runtime.sendMessage({ type: 'settings-save', settings });
+  if (!response?.ok) throw new Error(response?.error || 'connection-settings');
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    await chrome.storage.local.set({ [SETTINGS_KEY]: values() });
+    await save(values());
     result.textContent = urtubeT.saved;
-    await chrome.runtime.sendMessage({ type: 'settings-updated' });
   } catch (error) {
     result.textContent = urtubeErrorMessage(error);
   }
@@ -69,7 +75,7 @@ document.querySelector('#test').addEventListener('click', async () => {
     // its first sync immediately, same as one-click provisioning.
     const status = await chrome.storage.local.get('lifelogSyncStatus');
     if (!status.lifelogSyncStatus?.lastSuccessAt) {
-      await chrome.storage.local.set({ captureSettings: values() });
+      await save(values());
       try {
         await chrome.runtime.sendMessage({ type: 'lifelog-sync-start' });
       } catch { /* already running */ }

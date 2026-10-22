@@ -108,7 +108,9 @@ export function createIngestApp(registry: UserRegistry): Hono {
     }
     const context = captureContext(c.req.header('authorization'));
     if (!context) return c.json({ error: 'Unauthorized' }, 401);
-    return c.json({ status: 'ready', service: 'urtube-youtube-capture', user: context.user.handle });
+    // accountId lets an extension connected before ids were delivered
+    // partition its queue by the immutable account, not a renameable handle.
+    return c.json({ status: 'ready', service: 'urtube-youtube-capture', user: context.user.handle, accountId: String(context.user.id) });
   });
   app.post('/api/ingest/youtube/capture', async (c) => {
     if (!config.youtube.captureToken && !registry.listUsers().length) {

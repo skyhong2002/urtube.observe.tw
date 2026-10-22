@@ -1,10 +1,14 @@
 export const DEFAULT_ENDPOINT = 'https://urtube.observe.tw/api/ingest/youtube/capture';
 
-export function mergeQueue(queue, payload, now = Date.now()) {
+// Each item is bound to the account partition it was captured for; an update
+// for the same session replaces the item only within that account.
+export function mergeQueue(queue, payload, now = Date.now(), account = undefined) {
   const current = Array.isArray(queue) ? queue : [];
-  const existing = current.find((item) => item.payload?.sessionId === payload.sessionId);
+  const existing = current.find((item) =>
+    item.payload?.sessionId === payload.sessionId && item.account === account);
   const replacement = {
     payload,
+    account,
     attempts: 0,
     nextAttemptAt: now,
   };

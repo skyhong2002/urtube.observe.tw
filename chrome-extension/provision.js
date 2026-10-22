@@ -1,8 +1,9 @@
 // One-click provisioning bridge for /extension-setup: the page puts the
-// payload (endpoint + capture token + Google account) into a dataset
-// attribute and fires an event; we persist it, kick off the first sync, and
-// report back through the same dataset — the token never crosses via
-// postMessage and never leaves this tab.
+// payload (endpoint + capture token + Google account + account id) into a
+// dataset attribute and fires an event; we hand it to the background worker,
+// which switches accounts atomically, kick off the first sync, and report
+// back through the same dataset — the token never crosses via postMessage
+// and never leaves this tab.
 (() => {
   const root = document.querySelector('[data-urtube-provision]');
   if (!root) return;
@@ -14,18 +15,17 @@
       const payload = JSON.parse(root.dataset.provisionPayload || '{}');
       root.dataset.provisionPayload = '';
       if (!payload.token || !payload.endpoint) throw new Error('empty provision payload');
-      const stored = await chrome.storage.local.get('captureSettings');
-      await chrome.storage.local.set({
-        captureSettings: {
-          ...(stored.captureSettings ?? {}),
+      const response = await chrome.runtime.sendMessage({
+        type: 'provision',
+        payload: {
           endpoint: String(payload.endpoint),
           token: String(payload.token),
           googleAccount: String(payload.googleAccount ?? ''),
-          enabled: true,
-          autoSync: true,
+          accountId: payload.accountId == null ? '' : String(payload.accountId),
+          handle: String(payload.handle ?? ''),
         },
       });
-      await chrome.runtime.sendMessage({ type: 'settings-updated' });
+      if (!response?.ok) throw new Error(response?.error || 'provisioning was rejected');
       // First taste of data right away: start the account-history sync.
       try {
         await chrome.runtime.sendMessage({ type: 'lifelog-sync-start' });

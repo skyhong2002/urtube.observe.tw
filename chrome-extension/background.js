@@ -18,8 +18,22 @@ const DAILY_SYNC_OVERLAP_MS = 2 * 60 * 60_000;
 const DAILY_SYNC_RETRY_MS = 4 * 60 * 60_000;
 const TAB_MESSAGE_RETRY_MS = 10_000;
 const TAB_MESSAGE_POLL_MS = 500;
+const IDENTITY_REQUEST_TIMEOUT_MS = 10_000;
+// Account partitions. The connected account's queue and sync checkpoints
+// live under the well-known keys above (the popup and site bridge read
+// them); every other account's are parked under ACCOUNTS_KEY by account key
+// (server origin + immutable account id) until that account is connected
+// again. RECORDING_KEY is the token-free view content scripts read.
+const ACCOUNTS_KEY = 'captureAccounts';
+const RECORDING_KEY = 'captureRecording';
+const ACCOUNT_STATE_KEYS = [QUEUE_KEY, STATUS_KEY, HISTORY_STATUS_KEY, LIFELOG_STATUS_KEY];
 let queueMutation = Promise.resolve();
+let statusMutation = Promise.resolve();
 let flushPromise = null;
+// Bumped on every account switch. Work started for one account carries the
+// epoch it started in and stops (or aborts its request) once it is stale.
+let accountEpoch = 0;
+let accountAbort = new AbortController();
 
 // When Chrome is signed into several Google accounts, Google pages open as
 // the default account unless the URL pins one; authuser accepts an email.
@@ -30,17 +44,159 @@ function withAuthuser(url, googleAccount) {
   return pinned.toString();
 }
 
-async function settings() {
-  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+function withDefaults(stored) {
   return {
     endpoint: DEFAULT_ENDPOINT,
     token: '',
     enabled: true,
     autoSync: true,
     googleAccount: '',
-    ...(stored[SETTINGS_KEY] ?? {}),
+    accountId: '',
+    handle: '',
+    accountKey: '',
+    recordingSince: null,
+    ...(stored ?? {}),
   };
 }
+
+async function settings() {
+  await storageReady;
+  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+  return withDefaults(stored[SETTINGS_KEY]);
+}
+
+function withQueueLock(work) {
+  const operation = queueMutation.then(work);
+  queueMutation = operation.catch(() => {});
+  return operation;
+}
+
+function withStatusLock(work) {
+  const operation = statusMutation.then(work);
+  statusMutation = operation.catch(() => {});
+  return operation;
+}
+
+async function currentAccount() {
+  const epoch = accountEpoch;
+  const signal = accountAbort.signal;
+  return { epoch, signal, config: await settings() };
+}
+
+function isCurrent(account) {
+  return account.epoch === accountEpoch;
+}
+
+function assertCurrent(account) {
+  if (!isCurrent(account)) throw new Error('The connected account changed; this work was cancelled');
+}
+
+function endpointOrigin(endpoint) {
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return '';
+  }
+}
+
+async function tokenFingerprint(token) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].slice(0, 12)
+    .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Provisioning delivers the server's immutable account id. Connections made
+// without one (manual entry, pre-2.1 installs) are keyed by a token
+// fingerprint until an id arrives.
+async function accountKeyFor(config) {
+  if (!config.token) return '';
+  const origin = endpointOrigin(config.endpoint);
+  return config.accountId
+    ? `${origin}#id:${config.accountId}`
+    : `${origin}#token:${await tokenFingerprint(config.token)}`;
+}
+
+// The id decides when both sides have one. The handle (which can be renamed)
+// is only a fallback for connections that predate ids; a mismatch keeps the
+// accounts apart, never merges them.
+function sameAccount(current, next) {
+  if (!current?.endpoint || endpointOrigin(current.endpoint) !== endpointOrigin(next.endpoint)) return false;
+  if (current.accountId && next.accountId) return current.accountId === next.accountId;
+  if (current.token && current.token === next.token) return true;
+  if (current.handle && next.handle) return current.handle === next.handle;
+  return false;
+}
+
+function recordingView(config) {
+  return {
+    enabled: Boolean(config.enabled && config.token && config.accountKey),
+    accountKey: config.accountKey || '',
+    since: config.recordingSince ?? null,
+  };
+}
+
+// Asks the server who a token belongs to; null when it cannot say.
+async function resolveIdentity(endpoint, token) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IDENTITY_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint.replace(/\/capture$/, '/capture/status'), {
+      headers: { authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const accountId = body?.accountId == null ? '' : String(body.accountId);
+    const handle = typeof body?.user === 'string' ? body.user : '';
+    return accountId || handle ? { accountId, handle } : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// A pre-2.1 connection does not know which account it is. Learn its handle
+// while its token still works, so re-provisioning that same account later
+// can adopt its queue instead of parking it.
+// Callers already holding the queue lock (the flush) pass locked = true.
+async function identifyLegacyAccount({ locked = false } = {}) {
+  const config = await settings();
+  if (!config.token || config.accountId || config.handle) return;
+  const identity = await resolveIdentity(config.endpoint, config.token);
+  if (!identity) return;
+  const store = async () => {
+    const stored = await chrome.storage.local.get(SETTINGS_KEY);
+    const latest = withDefaults(stored[SETTINGS_KEY]);
+    if (latest.token !== config.token || latest.accountId || latest.handle) return;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...stored[SETTINGS_KEY], handle: identity.handle } });
+  };
+  await (locked ? store() : withQueueLock(store));
+}
+
+// Single-account storage from before partitioning becomes the partition of
+// the account it is configured for: its queue is stamped with that account
+// and its sync checkpoints stay where they are.
+async function migrateStorage() {
+  const stored = await chrome.storage.local.get([SETTINGS_KEY, QUEUE_KEY, RECORDING_KEY]);
+  if (!stored[SETTINGS_KEY]) {
+    if (!stored[RECORDING_KEY]) await chrome.storage.local.set({ [RECORDING_KEY]: recordingView(withDefaults()) });
+    return;
+  }
+  const config = withDefaults(stored[SETTINGS_KEY]);
+  if (stored[SETTINGS_KEY].accountKey !== undefined && stored[RECORDING_KEY]) return;
+  const accountKey = await accountKeyFor(config);
+  const queue = (Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [])
+    .map((item) => item.account === undefined ? { ...item, account: accountKey } : item);
+  const migrated = { ...stored[SETTINGS_KEY], accountKey };
+  await chrome.storage.local.set({
+    [SETTINGS_KEY]: migrated,
+    [QUEUE_KEY]: queue,
+    [RECORDING_KEY]: recordingView(withDefaults(migrated)),
+  });
+}
+
+const storageReady = migrateStorage().catch(() => {});
 
 async function updateStatus(patch) {
   const stored = await chrome.storage.local.get([STATUS_KEY, QUEUE_KEY]);
@@ -58,19 +214,36 @@ async function updateBadge(pending) {
   await chrome.action.setBadgeText({ text: pending ? String(Math.min(99, pending)) : '' });
 }
 
-async function enqueue(payload) {
-  const operation = queueMutation.then(async () => {
-    const stored = await chrome.storage.local.get(QUEUE_KEY);
-    const queue = mergeQueue(stored[QUEUE_KEY], payload);
-    await chrome.storage.local.set({ [QUEUE_KEY]: queue });
-    await updateBadge(queue.length);
-  });
-  queueMutation = operation.catch(() => {});
-  await operation;
-  void flushQueue();
+// Recording state is enforced on receipt, not only in the tab: a paused or
+// unconnected extension stores nothing, and after a resume or account switch
+// a session that began earlier (a tab that missed the change) is refused, so
+// only the new interval counts.
+function captureRefusal(config, payload) {
+  if (!config.enabled) return 'paused';
+  if (!config.token || !config.accountKey) return 'not-configured';
+  const since = Date.parse(config.recordingSince ?? '');
+  const watchedAt = Date.parse(payload?.watchedAt ?? '');
+  if (Number.isFinite(since) && !(watchedAt >= since)) return 'started-before-recording';
+  return '';
 }
 
-async function send(item, config) {
+async function enqueue(payload) {
+  await storageReady;
+  const result = await withQueueLock(async () => {
+    const config = await settings();
+    const refusal = captureRefusal(config, payload);
+    if (refusal) return { queued: false, reason: refusal };
+    const stored = await chrome.storage.local.get(QUEUE_KEY);
+    const queue = mergeQueue(stored[QUEUE_KEY], payload, Date.now(), config.accountKey);
+    await chrome.storage.local.set({ [QUEUE_KEY]: queue });
+    await updateBadge(queue.length);
+    return { queued: true };
+  });
+  if (result.queued) void flushQueue();
+  return result;
+}
+
+async function send(item, config, signal) {
   const response = await fetch(config.endpoint, {
     method: 'POST',
     headers: {
@@ -78,6 +251,7 @@ async function send(item, config) {
       'content-type': 'application/json',
     },
     body: JSON.stringify(item.payload),
+    signal,
   });
   if (response.ok) return { ok: true };
   let detail = `HTTP ${response.status}`;
@@ -95,8 +269,12 @@ async function send(item, config) {
   };
 }
 
+// Runs under the queue lock, so an account switch waits for it; the switch
+// aborts the request in flight and the loop stops at the stale epoch, leaving
+// the rest of the queue with the account it was captured for.
 async function runFlush() {
-  const config = await settings();
+  const account = await currentAccount();
+  const { config } = account;
   const stored = await chrome.storage.local.get(QUEUE_KEY);
   const queue = Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [];
   if (!config.enabled || !config.token) {
@@ -107,17 +285,22 @@ async function runFlush() {
     await updateBadge(queue.length);
     return;
   }
+  if (queue.length) await identifyLegacyAccount({ locked: true }).catch(() => {});
 
   const remaining = [];
   let lastSuccessAt = null;
   let lastError = '';
   for (const item of queue) {
-    if (item.nextAttemptAt > Date.now()) {
+    if (
+      item.nextAttemptAt > Date.now()
+      || item.account !== config.accountKey
+      || !isCurrent(account)
+    ) {
       remaining.push(item);
       continue;
     }
     try {
-      const result = await send(item, config);
+      const result = await send(item, config, account.signal);
       if (result.ok) {
         lastSuccessAt = new Date().toISOString();
         continue;
@@ -160,9 +343,7 @@ async function runFlush() {
 
 function flushQueue() {
   if (!flushPromise) {
-    const operation = queueMutation.then(runFlush);
-    queueMutation = operation.catch(() => {});
-    flushPromise = operation.finally(() => {
+    flushPromise = withQueueLock(runFlush).finally(() => {
       flushPromise = null;
     });
   }
@@ -177,49 +358,24 @@ function historyEndpoint(endpoint, suffix = '') {
   return endpoint.replace(/\/capture$/, `/history${suffix}`);
 }
 
-async function sendProgressBatch(payload) {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
-  let lastError = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PROGRESS_REQUEST_TIMEOUT_MS);
-    try {
-      const response = await fetch(progressEndpoint(config.endpoint), {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${config.token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      if (response.ok) return await response.json();
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body?.error || `Progress import failed: HTTP ${response.status}`);
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  throw lastError;
-}
-
 function backfillEndpoint(endpoint) {
   return endpoint.replace(/\/capture$/, '/backfill');
 }
 
-async function sendBackfillBatch(payload) {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+// Sync uploads use the credentials of the account the scan started for and
+// stop, mid-request included, once that account is no longer connected.
+async function postSyncBatch(account, endpoint, payload, failure) {
+  const { config } = account;
+  if (!config.token) throw new Error('Capture token is not configured');
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
+    assertCurrent(account);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROGRESS_REQUEST_TIMEOUT_MS);
+    const cancel = () => controller.abort();
+    account.signal.addEventListener('abort', cancel);
     try {
-      const response = await fetch(backfillEndpoint(config.endpoint), {
+      const response = await fetch(endpoint(config.endpoint), {
         method: 'POST',
         headers: {
           authorization: `Bearer ${config.token}`,
@@ -230,67 +386,70 @@ async function sendBackfillBatch(payload) {
       });
       if (response.ok) return await response.json();
       const body = await response.json().catch(() => ({}));
-      throw new Error(body?.error || `Backfill import failed: HTTP ${response.status}`);
+      throw new Error(body?.error || `${failure}: HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
+      assertCurrent(account);
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
     } finally {
       clearTimeout(timeout);
+      account.signal.removeEventListener('abort', cancel);
     }
   }
   throw lastError;
 }
 
-async function sendHistoryBatch(payload) {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
-  let lastError = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PROGRESS_REQUEST_TIMEOUT_MS);
-    try {
-      const response = await fetch(historyEndpoint(config.endpoint), {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${config.token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      if (response.ok) return await response.json();
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body?.error || `History sync failed: HTTP ${response.status}`);
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  throw lastError;
+async function sendProgressBatch(payload, account) {
+  return postSyncBatch(account ?? await currentAccount(), progressEndpoint, payload, 'Progress import failed');
 }
 
-async function serverHistoryStatus() {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+// Batches arrive from sync tabs. Only a scan that is running for the
+// connected account may upload; a tab left over from another account (or a
+// cancelled scan) is refused instead of being sent with the new credentials.
+async function ownedScanAccount(scanId) {
+  const account = await currentAccount();
+  const stored = await chrome.storage.local.get([HISTORY_STATUS_KEY, LIFELOG_STATUS_KEY]);
+  const history = stored[HISTORY_STATUS_KEY] ?? {};
+  const lifelog = stored[LIFELOG_STATUS_KEY] ?? {};
+  const owned = Boolean(scanId) && (
+    (history.state === 'running' && history.scanId === scanId)
+    || (lifelog.state === 'running' && lifelog.syncId === scanId)
+  );
+  if (!owned) throw new Error('This sync is no longer running for the connected account');
+  return account;
+}
+
+async function serverHistoryStatus(account) {
+  const { config } = account;
+  if (!config.token) throw new Error('Capture token is not configured');
   const response = await fetch(historyEndpoint(config.endpoint, '/status'), {
     headers: { authorization: `Bearer ${config.token}` },
+    signal: account.signal,
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body?.error || `History status failed: HTTP ${response.status}`);
   return body;
 }
 
-async function historyStatus(patch) {
-  const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
-  await chrome.storage.local.set({
-    [HISTORY_STATUS_KEY]: {
-      ...(stored[HISTORY_STATUS_KEY] ?? {}),
-      ...patch,
-    },
+// Status writes share a lock with the account switch. A guard, when given,
+// sees the stored status and decides whether the patch still applies (the
+// same scan is still the current one); the result says whether it was written.
+function patchStatus(key, patch, guard) {
+  return withStatusLock(async () => {
+    const stored = await chrome.storage.local.get(key);
+    const current = stored[key] ?? {};
+    if (guard && !guard(current)) return false;
+    await chrome.storage.local.set({ [key]: { ...current, ...patch } });
+    return true;
   });
 }
+
+function historyStatus(patch, guard = null) {
+  return patchStatus(HISTORY_STATUS_KEY, patch, guard);
+}
+
+const runningScan = (scanId, account = null) => (status) =>
+  status.state === 'running' && status.scanId === scanId && (!account || isCurrent(account));
 
 async function waitForTab(tabId) {
   const current = await chrome.tabs.get(tabId);
@@ -378,7 +537,7 @@ function historyScanFailureMessage(endReason) {
 // Tells the server how a scan ended when the content script could not (it
 // never ran, or it was cancelled from here). Best effort; the diagnosis lives
 // in the archive so a failing account can be read without its popup.
-async function reportScanEnd(status, endReason, {
+async function reportScanEnd(account, status, endReason, {
   error = null,
   landedUrl = null,
   oldestWatchedAt = null,
@@ -400,7 +559,7 @@ async function reportScanEnd(status, endReason, {
       error: error ? String(error).slice(0, 500) : null,
       landedUrl: landedUrl ? String(landedUrl).slice(0, 500) : null,
     },
-  }).catch(() => {});
+  }, account).catch(() => {});
 }
 
 async function landedUrlOf(tabId) {
@@ -423,9 +582,12 @@ async function startHistoryImport({
   mode = 'full',
   parentSyncId = null,
   coveredSince = null,
+  account: startedFor = null,
 } = {}) {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+  const account = startedFor ?? await currentAccount();
+  const { config } = account;
+  if (!config.token) throw new Error('Capture token is not configured');
+  assertCurrent(account);
   const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
   if (stored[HISTORY_STATUS_KEY]?.state === 'running') {
     throw new Error('A history import is already running');
@@ -451,7 +613,12 @@ async function startHistoryImport({
     endReason: null,
     lastError: '',
   };
-  await historyStatus(status);
+  const written = await historyStatus(status, (current) => current.state !== 'running' && isCurrent(account));
+  if (!written) {
+    await closeHistoryImportTab(tab.id);
+    assertCurrent(account);
+    throw new Error('A history import is already running');
+  }
   void (async () => {
     try {
       await waitForTab(tab.id);
@@ -464,16 +631,17 @@ async function startHistoryImport({
       }, 'YouTube History');
       if (!result?.ok) throw new Error(result?.error || 'YouTube History import failed');
     } catch (error) {
-      const storedStatus = await chrome.storage.local.get(HISTORY_STATUS_KEY);
-      if (storedStatus[HISTORY_STATUS_KEY]?.state === 'cancelled') return;
+      // Cancelled, or the account switched (which cancels it): nothing to
+      // report, and nothing of this scan may land on the new account.
       const landedUrl = await landedUrlOf(tab.id);
-      await historyStatus({
+      const failed = await historyStatus({
         state: 'error',
         endReason: 'no-receiver',
         completedAt: new Date().toISOString(),
         lastError: error instanceof Error ? error.message : String(error),
-      });
-      await reportScanEnd(status, 'no-receiver', { error, landedUrl });
+      }, runningScan(scanId, account));
+      if (!failed) return;
+      await reportScanEnd(account, status, 'no-receiver', { error, landedUrl });
       await closeHistoryImportTab(tab.id);
       if (parentSyncId) await failLifelogSync(parentSyncId, error);
     }
@@ -490,7 +658,9 @@ async function cancelHistoryImport() {
     }).catch(() => {});
   }
   await closeHistoryImportTab(status.tabId);
-  if (status.state === 'running' && status.mode !== 'deep') await reportScanEnd(status, 'cancelled');
+  if (status.state === 'running' && status.mode !== 'deep') {
+    await reportScanEnd(await currentAccount(), status, 'cancelled');
+  }
   await historyStatus({
     state: 'cancelled',
     endReason: 'cancelled',
@@ -503,13 +673,12 @@ async function cancelHistoryImport() {
 async function finishHistoryImport(scanId, patch) {
   const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
   const status = stored[HISTORY_STATUS_KEY] ?? {};
-  if (status.scanId !== scanId || status.state !== 'running') {
-    return { updated: false, tabId: null, parentSyncId: null, active: false };
-  }
-  await historyStatus({
+  if (status.scanId !== scanId || status.state !== 'running' || !await historyStatus({
     ...patch,
     completedAt: new Date().toISOString(),
-  });
+  }, runningScan(scanId))) {
+    return { updated: false, tabId: null, parentSyncId: null, active: false };
+  }
   return {
     updated: true,
     tabId: status.tabId ?? null,
@@ -518,15 +687,12 @@ async function finishHistoryImport(scanId, patch) {
   };
 }
 
-async function lifelogStatus(patch) {
-  const stored = await chrome.storage.local.get(LIFELOG_STATUS_KEY);
-  await chrome.storage.local.set({
-    [LIFELOG_STATUS_KEY]: {
-      ...(stored[LIFELOG_STATUS_KEY] ?? {}),
-      ...patch,
-    },
-  });
+function lifelogStatus(patch, guard = null) {
+  return patchStatus(LIFELOG_STATUS_KEY, patch, guard);
 }
+
+const runningSync = (syncId, account = null) => (status) =>
+  status.state === 'running' && status.syncId === syncId && (!account || isCurrent(account));
 
 async function closeActivitySyncTab(tabId) {
   if (!Number.isInteger(tabId)) return;
@@ -546,7 +712,7 @@ async function failLifelogSync(syncId, error) {
     activityTabId: null,
     historyTabId: null,
     lastError: error instanceof Error ? error.message : String(error),
-  });
+  }, runningSync(syncId));
 }
 
 async function finishLifelogSync(syncId, videos) {
@@ -564,18 +730,19 @@ async function finishLifelogSync(syncId, videos) {
     activityTabId: null,
     historyTabId: null,
     lastError: '',
-  });
+  }, runningSync(syncId));
 }
 
-async function startActivitySync(syncId, observedAt, since) {
-  const config = await settings();
+async function startActivitySync(account, syncId, observedAt, since) {
   const tab = await chrome.tabs.create({
     active: false,
-    url: withAuthuser('https://myactivity.google.com/product/youtube', config.googleAccount),
+    url: withAuthuser('https://myactivity.google.com/product/youtube', account.config.googleAccount),
   });
   if (!tab.id) throw new Error('Could not open Google My Activity');
-  await lifelogStatus({ activityTabId: tab.id });
   try {
+    if (!await lifelogStatus({ activityTabId: tab.id }, runningSync(syncId, account))) {
+      throw new Error('This sync is no longer running for the connected account');
+    }
     await waitForTab(tab.id);
     const result = await sendToTab(tab.id, {
       type: 'start-activity-sync',
@@ -597,15 +764,21 @@ async function startDeepHistoryRange(scanId) {
   const range = status.activeRange ?? status.ranges?.[0];
   if (!range) return;
   const ranges = status.activeRange ? (status.ranges ?? []) : (status.ranges ?? []).slice(1);
-  const config = await settings();
-  await historyStatus({ activeRange: range, ranges, tabId: null, currentEvents: 0 });
+  const account = await currentAccount();
+  if (!await historyStatus(
+    { activeRange: range, ranges, tabId: null, currentEvents: 0 },
+    runningScan(scanId, account),
+  )) return;
   await closeActivitySyncTab(status.tabId);
   const tab = await chrome.tabs.create({
     active: true,
-    url: myActivityRangeUrl(range, config.googleAccount),
+    url: myActivityRangeUrl(range, account.config.googleAccount),
   });
   if (!tab.id) throw new Error('Could not open Google My Activity history segment');
-  await historyStatus({ tabId: tab.id });
+  if (!await historyStatus({ tabId: tab.id }, runningScan(scanId, account))) {
+    await closeActivitySyncTab(tab.id);
+    return;
+  }
   try {
     await waitForTab(tab.id);
     const result = await sendToTab(tab.id, {
@@ -622,14 +795,14 @@ async function startDeepHistoryRange(scanId) {
       state: 'error',
       completedAt: new Date().toISOString(),
       lastError: error instanceof Error ? error.message : String(error),
-    });
+    }, runningScan(scanId));
     await closeActivitySyncTab(tab.id);
   }
 }
 
 async function startDeepHistoryImport() {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+  const account = await currentAccount();
+  if (!account.config.token) throw new Error('Capture token is not configured');
   const stored = await chrome.storage.local.get([HISTORY_STATUS_KEY, LIFELOG_STATUS_KEY]);
   const previous = stored[HISTORY_STATUS_KEY] ?? {};
   if (previous.state === 'running') throw new Error('A history import is already running');
@@ -646,7 +819,7 @@ async function startDeepHistoryImport() {
   await closeActivitySyncTab(previous.tabId);
   const scanId = crypto.randomUUID();
   const observedAt = new Date().toISOString();
-  await historyStatus({
+  const written = await historyStatus({
     state: 'running',
     mode: 'deep',
     stage: 'history',
@@ -662,7 +835,8 @@ async function startDeepHistoryImport() {
     oldestEventAt: resumable ? previous.oldestEventAt ?? null : null,
     newestEventAt: resumable ? previous.newestEventAt ?? null : null,
     lastError: '',
-  });
+  }, (current) => current.state !== 'running' && isCurrent(account));
+  if (!written) throw new Error('A history import is already running');
   void startDeepHistoryRange(scanId).catch((error) => failDeepHistoryImport(scanId, error));
   return { scanId, observedAt, resumed: Boolean(resumable) };
 }
@@ -705,14 +879,15 @@ async function completeDeepHistoryRange(message) {
     oldestEventAt,
     newestEventAt,
   };
-  await historyStatus(completedStatus);
+  const account = await currentAccount();
+  if (!await historyStatus(completedStatus, runningScan(status.scanId, account))) return { updated: false };
   await closeActivitySyncTab(status.tabId);
   if (ranges.length) {
     void startDeepHistoryRange(status.scanId)
       .catch((error) => failDeepHistoryImport(status.scanId, error));
     return { updated: true, complete: false };
   }
-  await reportScanEnd(completedStatus, 'history-start', {
+  await reportScanEnd(account, completedStatus, 'history-start', {
     landedUrl: 'https://myactivity.google.com/product/youtube',
     oldestWatchedAt: oldestEventAt,
     newestWatchedAt: newestEventAt,
@@ -723,7 +898,7 @@ async function completeDeepHistoryRange(message) {
     endReason: 'history-start',
     completedAt: new Date().toISOString(),
     lastError: '',
-  });
+  }, runningScan(status.scanId, account));
   return { updated: true, complete: true };
 }
 
@@ -731,17 +906,22 @@ async function failDeepHistoryImport(syncId, error) {
   const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
   const status = stored[HISTORY_STATUS_KEY] ?? {};
   if (status.state !== 'running' || status.mode !== 'deep' || status.scanId !== syncId) return;
-  await historyStatus({
+  if (!await historyStatus({
     state: 'error',
     completedAt: new Date().toISOString(),
     lastError: error instanceof Error ? error.message : String(error),
-  });
+  }, runningScan(syncId))) return;
   await closeActivitySyncTab(status.tabId);
 }
 
+// The checkpoint (lastEventAt) is the connected account's own: it lives in
+// that account's partition, and a switch while the server is being asked
+// abandons this start instead of writing one account's checkpoint into
+// another's sync.
 async function startLifelogSync({ automatic = false } = {}) {
-  const config = await settings();
-  if (!config.enabled || !config.token) throw new Error('Capture token is not configured');
+  const account = await currentAccount();
+  const { config } = account;
+  if (!config.token) throw new Error('Capture token is not configured');
   if (automatic && config.autoSync === false) return { skipped: true, reason: 'disabled' };
   const stored = await chrome.storage.local.get([LIFELOG_STATUS_KEY, HISTORY_STATUS_KEY]);
   if (stored[LIFELOG_STATUS_KEY]?.state === 'running') {
@@ -750,7 +930,8 @@ async function startLifelogSync({ automatic = false } = {}) {
   if (stored[HISTORY_STATUS_KEY]?.state === 'running') {
     throw new Error('A history progress import is already running');
   }
-  const remote = await serverHistoryStatus();
+  const remote = await serverHistoryStatus(account);
+  assertCurrent(account);
   const candidates = [
     stored[LIFELOG_STATUS_KEY]?.lastEventAt,
     remote.latestEventAt,
@@ -762,7 +943,7 @@ async function startLifelogSync({ automatic = false } = {}) {
     : new Date(Date.now() - 7 * 86_400_000).toISOString();
   const syncId = crypto.randomUUID();
   const observedAt = new Date().toISOString();
-  await lifelogStatus({
+  const written = await lifelogStatus({
     state: 'running',
     stage: 'activity',
     syncId,
@@ -778,9 +959,13 @@ async function startLifelogSync({ automatic = false } = {}) {
     activityTabId: null,
     historyTabId: null,
     lastError: '',
-  });
+  }, (current) => current.state !== 'running' && isCurrent(account));
+  if (!written) {
+    assertCurrent(account);
+    throw new Error('A YouTube lifelog sync is already running');
+  }
   try {
-    await startActivitySync(syncId, observedAt, since);
+    await startActivitySync(account, syncId, observedAt, since);
     return { syncId, observedAt, since };
   } catch (error) {
     await failLifelogSync(syncId, error);
@@ -794,20 +979,21 @@ async function completeActivitySync(syncId, patch) {
   if (status.syncId !== syncId || status.state !== 'running' || status.stage !== 'activity') {
     return { updated: false };
   }
+  const account = await currentAccount();
   await closeActivitySyncTab(status.activityTabId);
   const latestEventAt = [
     status.lastEventAt ?? status.latestEventAt,
     patch.newestEventAt,
   ]
     .filter(Boolean).sort().at(-1) ?? null;
-  await lifelogStatus({
+  if (!await lifelogStatus({
     state: 'running',
     stage: 'progress',
     events: patch.events,
     lastEventAt: latestEventAt,
     latestEventAt,
     activityTabId: null,
-  });
+  }, runningSync(syncId, account))) return { updated: false };
   try {
     // No covering scan yet (new account, or every scan so far failed): read
     // the whole page once. Only a sync the user asked for may take the
@@ -819,13 +1005,15 @@ async function completeActivitySync(syncId, patch) {
         mode: 'incremental',
         coveredSince: coverage.coveredSince,
         parentSyncId: syncId,
+        account,
       }
       : {
         active: !status.automatic,
         mode: 'full',
         parentSyncId: syncId,
+        account,
       });
-    await lifelogStatus({ historyTabId: history.tabId });
+    await lifelogStatus({ historyTabId: history.tabId }, runningSync(syncId));
     return { updated: true };
   } catch (error) {
     await failLifelogSync(syncId, error);
@@ -857,12 +1045,14 @@ async function cancelLifelogSync() {
     activityTabId: null,
     historyTabId: null,
     lastError: '',
-  });
+  }, runningSync(status.syncId));
 }
 
+// Daily account-history sync is its own setting (autoSync); pausing
+// watch-time recording (enabled) does not stop it, and vice versa.
 async function maybeStartLifelogSync() {
   const config = await settings();
-  if (!config.enabled || !config.token || config.autoSync === false) return;
+  if (!config.token || config.autoSync === false) return;
   const stored = await chrome.storage.local.get(LIFELOG_STATUS_KEY);
   const status = stored[LIFELOG_STATUS_KEY] ?? {};
   if (status.state === 'running') return;
@@ -880,6 +1070,147 @@ async function maybeStartLifelogSync() {
   await startLifelogSync({ automatic: true }).catch(() => {});
 }
 
+// The outgoing account's running scans end here: their statuses are marked
+// cancelled in its own partition (a deep scan stays resumable) and their
+// tabs are listed so the caller can stop and close them.
+function stopRunningWork(history, lifelog) {
+  const completedAt = new Date().toISOString();
+  const tabs = [];
+  let stoppedHistory = history;
+  let stoppedLifelog = lifelog;
+  if (history.state === 'running') {
+    tabs.push([history.tabId, history.mode === 'deep' ? 'cancel-activity-sync' : 'cancel-history-import']);
+    stoppedHistory = { ...history, state: 'cancelled', endReason: 'cancelled', completedAt, tabId: null, lastError: '' };
+  }
+  if (lifelog.state === 'running') {
+    tabs.push([lifelog.activityTabId, 'cancel-activity-sync']);
+    stoppedLifelog = {
+      ...lifelog, state: 'cancelled', stage: 'idle', completedAt, activityTabId: null, historyTabId: null, lastError: '',
+    };
+  }
+  return { history: stoppedHistory, lifelog: stoppedLifelog, tabs };
+}
+
+// Every change of connection goes through here (provisioning and the
+// options page), so it is atomic with the queue and status writers.
+// - Same account (token rotation, toggles, or a pre-2.1 connection now
+//   identified): its queue and checkpoints stay, rebound to its key.
+// - Another account: the current one's queue, checkpoints and statuses are
+//   parked under its key without its token, its running work is cancelled,
+//   and the incoming account gets back its own parked partition, or a fresh
+//   one. Nothing moves between accounts.
+// Recording toggles not given (provisioning) keep the account's own values.
+async function applyConnection(input) {
+  await storageReady;
+  const before = await settings();
+  const next = {
+    endpoint: String(input.endpoint ?? ''),
+    token: String(input.token ?? ''),
+    googleAccount: String(input.googleAccount ?? ''),
+    accountId: input.accountId == null ? '' : String(input.accountId),
+    handle: String(input.handle ?? ''),
+  };
+  if (!next.token || !endpointOrigin(next.endpoint)) throw new Error('connection-settings');
+  // A code typed into the options page carries no account id: ask the server.
+  if (!next.accountId && !next.handle && next.token !== before.token) {
+    const identity = await resolveIdentity(next.endpoint, next.token);
+    if (identity) Object.assign(next, identity);
+  }
+  if (before.token && !sameAccount(before, next)) {
+    accountEpoch += 1;
+    accountAbort.abort();
+    accountAbort = new AbortController();
+  }
+  const { switched, accountKey, closing, pending } = await withQueueLock(() => withStatusLock(async () => {
+    const stored = await chrome.storage.local.get([SETTINGS_KEY, ACCOUNTS_KEY, ...ACCOUNT_STATE_KEYS]);
+    const current = withDefaults(stored[SETTINGS_KEY]);
+    const accounts = { ...(stored[ACCOUNTS_KEY] ?? {}) };
+    let state = {
+      queue: Array.isArray(stored[QUEUE_KEY]) ? stored[QUEUE_KEY] : [],
+      status: stored[STATUS_KEY] ?? {},
+      history: stored[HISTORY_STATUS_KEY] ?? {},
+      lifelog: stored[LIFELOG_STATUS_KEY] ?? {},
+    };
+    // A first connection keeps what an unconnected install has.
+    const same = !current.token || sameAccount(current, next);
+    let previous = current;
+    let owned = (item) => item.account === current.accountKey || (!current.token && !item.account);
+    let closingTabs = [];
+    if (!same) {
+      const stopped = stopRunningWork(state.history, state.lifelog);
+      closingTabs = stopped.tabs;
+      if (current.accountKey) {
+        accounts[current.accountKey] = {
+          settings: { ...stored[SETTINGS_KEY], token: '' },
+          [QUEUE_KEY]: state.queue,
+          [STATUS_KEY]: state.status,
+          [HISTORY_STATUS_KEY]: stopped.history,
+          [LIFELOG_STATUS_KEY]: stopped.lifelog,
+        };
+      }
+      const exactKey = await accountKeyFor(next);
+      const parkedKey = exactKey in accounts
+        ? exactKey
+        : Object.keys(accounts).find((key) => sameAccount(accounts[key].settings, next));
+      const parked = parkedKey ? accounts[parkedKey] : {};
+      if (parkedKey) delete accounts[parkedKey];
+      previous = withDefaults(parked.settings);
+      owned = (item) => Boolean(parkedKey) && item.account === parkedKey;
+      state = {
+        queue: parked[QUEUE_KEY] ?? [],
+        status: parked[STATUS_KEY] ?? {},
+        history: parked[HISTORY_STATUS_KEY] ?? {},
+        lifelog: parked[LIFELOG_STATUS_KEY] ?? {},
+      };
+    }
+    const enabled = typeof input.enabled === 'boolean' ? input.enabled : previous.enabled;
+    const autoSync = typeof input.autoSync === 'boolean' ? input.autoSync : previous.autoSync;
+    const connected = {
+      ...(same ? stored[SETTINGS_KEY] ?? {} : {}),
+      endpoint: next.endpoint,
+      token: next.token,
+      googleAccount: next.googleAccount,
+      accountId: next.accountId || previous.accountId,
+      handle: next.handle || previous.handle,
+      enabled,
+      autoSync,
+      // Counting restarts at a resume or a new account; sessions from before
+      // are refused on receipt.
+      recordingSince: !same || (enabled && !current.enabled)
+        ? new Date().toISOString()
+        : current.recordingSince,
+    };
+    connected.accountKey = await accountKeyFor(connected);
+    const now = Date.now();
+    // New credentials retry the account's own queue right away.
+    const queue = state.queue.map((item) => owned(item)
+      ? { ...item, account: connected.accountKey, nextAttemptAt: now }
+      : item);
+    await chrome.storage.local.set({
+      [SETTINGS_KEY]: connected,
+      [ACCOUNTS_KEY]: accounts,
+      [QUEUE_KEY]: queue,
+      [STATUS_KEY]: { ...state.status, configured: true, pending: queue.length },
+      [HISTORY_STATUS_KEY]: state.history,
+      [LIFELOG_STATUS_KEY]: state.lifelog,
+      [RECORDING_KEY]: recordingView(connected),
+    });
+    return { switched: !same, accountKey: connected.accountKey, closing: closingTabs, pending: queue.length };
+  }));
+  for (const [tabId, type] of closing) {
+    if (!Number.isInteger(tabId)) continue;
+    await chrome.tabs.sendMessage(tabId, { type }).catch(() => {});
+    await chrome.tabs.remove(tabId).catch(() => {});
+  }
+  await updateBadge(pending);
+  await ensureAlarms();
+  // Re-run the queue immediately: besides sending this account's pending
+  // captures, it replaces a stale "token is not configured" status.
+  await flushQueue();
+  void maybeStartLifelogSync();
+  return { switched, accountKey };
+}
+
 async function ensureAlarms() {
   await chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
   await chrome.alarms.create(DAILY_SYNC_ALARM, {
@@ -891,8 +1222,28 @@ async function ensureAlarms() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'capture' && message.payload) {
     enqueue(message.payload)
-      .then(() => sendResponse({ queued: true }))
+      .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ queued: false, error: String(error) }));
+    return true;
+  }
+  // provision.js hands over the /extension-setup payload; the switch happens
+  // here so it is atomic with queued and in-flight work.
+  if (message?.type === 'provision' && message.payload) {
+    applyConnection({
+      endpoint: message.payload.endpoint,
+      token: message.payload.token,
+      googleAccount: message.payload.googleAccount,
+      accountId: message.payload.accountId,
+      handle: message.payload.handle,
+    })
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+  if (message?.type === 'settings-save' && message.settings) {
+    applyConnection(message.settings)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   if (message?.type === 'flush') {
@@ -948,7 +1299,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'history-progress-batch' && message.payload) {
-    sendProgressBatch(message.payload)
+    ownedScanAccount(message.payload.scanId)
+      .then((account) => sendProgressBatch(message.payload, account))
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({
         ok: false,
@@ -957,7 +1309,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'history-backfill-batch' && message.payload) {
-    sendBackfillBatch(message.payload)
+    ownedScanAccount(message.payload.scanId)
+      .then((account) => postSyncBatch(account, backfillEndpoint, message.payload, 'Backfill import failed'))
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({
         ok: false,
@@ -966,7 +1319,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'activity-history-batch' && message.payload) {
-    sendHistoryBatch(message.payload)
+    ownedScanAccount(message.payload.syncId)
+      .then((account) => postSyncBatch(account, historyEndpoint, message.payload, 'History sync failed'))
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({
         ok: false,
@@ -986,7 +1340,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           pass: message.pass,
           oldestEventAt: [status.oldestEventAt, message.oldestEventAt].filter(Boolean).sort().at(0) ?? null,
           newestEventAt: [status.newestEventAt, message.newestEventAt].filter(Boolean).sort().at(-1) ?? null,
-        });
+        }, runningScan(message.syncId));
         return;
       }
       const stored = await chrome.storage.local.get(LIFELOG_STATUS_KEY);
@@ -998,7 +1352,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         events: message.events,
         pass: message.pass,
         latestEventAt: message.newestEventAt ?? status.latestEventAt ?? null,
-      });
+      }, runningSync(message.syncId));
     })();
     operation
       .then(() => sendResponse({ ok: true }))
@@ -1034,11 +1388,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'history-import-progress') {
     const operation = (async () => {
-      await historyStatus({
-        state: 'running',
+      // Only the scan still running for the connected account reports here.
+      if (!await historyStatus({
         videos: message.videos,
         pass: message.pass,
-      });
+      }, runningScan(message.scanId))) return;
       const stored = await chrome.storage.local.get([
         HISTORY_STATUS_KEY,
         LIFELOG_STATUS_KEY,
@@ -1054,7 +1408,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           stage: 'progress',
           videos: message.videos,
           pass: message.pass,
-        });
+        }, runningSync(history.parentSyncId));
       }
     })();
     operation
@@ -1107,6 +1461,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
+  await storageReady;
   const stored = await chrome.storage.local.get([
     SETTINGS_KEY,
     HISTORY_STATUS_KEY,
@@ -1119,7 +1474,9 @@ chrome.runtime.onInstalled.addListener(async () => {
         token: '',
         enabled: true,
         autoSync: true,
+        accountKey: '',
       },
+      [RECORDING_KEY]: recordingView(withDefaults()),
     });
     // One-click provisioning: the site page hands us endpoint + token via
     // the provision content script; no manual copying.

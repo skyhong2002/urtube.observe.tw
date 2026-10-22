@@ -2,7 +2,12 @@
   const MIN_CAPTURE_SECONDS = 5;
   const FLUSH_INTERVAL_SECONDS = 30;
   const SESSION_PREFIX = 'urtubeYoutubeCapture:';
+  const RECORDING_KEY = 'captureRecording';
   let state = null;
+  // The worker publishes whether watch time is being recorded, for which
+  // account, and since when. Nothing is counted until that is known, while
+  // it is off, or for a session that began before it last changed.
+  let recording = null;
   let boundVideo = null;
   let lastTickAt = performance.now();
   let lastMediaTime = 0;
@@ -44,6 +49,15 @@
     }));
   }
 
+  function recordingActive() {
+    return Boolean(recording?.enabled);
+  }
+
+  function startedBeforeRecording(watchedAt) {
+    const since = Date.parse(recording?.since ?? '');
+    return Number.isFinite(since) && !(Date.parse(watchedAt ?? '') >= since);
+  }
+
   function restoredSession(videoId) {
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey(videoId)) ?? 'null');
@@ -51,6 +65,8 @@
       if (
         saved?.videoId === videoId
         && typeof saved.sessionId === 'string'
+        && saved.accountKey === recording?.accountKey
+        && !startedBeforeRecording(saved.watchedAt)
         && age >= 0
         && age < 30 * 60_000
       ) {
@@ -67,6 +83,7 @@
   }
 
   function ensureSession(video) {
+    if (!recordingActive()) return null;
     const videoId = videoIdFromLocation();
     if (!videoId) return null;
     if (state?.videoId === videoId) return state;
@@ -74,6 +91,7 @@
     state = restoredSession(videoId) ?? {
       sessionId: crypto.randomUUID(),
       videoId,
+      accountKey: recording.accountKey,
       watchedAt: new Date().toISOString(),
       actualSeconds: 0,
       lastSentSeconds: 0,
@@ -103,7 +121,7 @@
   }
 
   function flush(force = false) {
-    if (!state || !boundVideo) return;
+    if (!state || !boundVideo || !recordingActive()) return;
     const seconds = Math.floor(state.actualSeconds);
     if (!force && seconds - state.lastSentSeconds < FLUSH_INTERVAL_SECONDS) return;
     const payload = capturePayload(boundVideo);
@@ -122,7 +140,8 @@
     const elapsed = Math.max(0, (now - lastTickAt) / 1000);
     lastTickAt = now;
     if (
-      !boundVideo
+      !recordingActive()
+      || !boundVideo
       || boundVideo.paused
       || boundVideo.ended
       || document.querySelector('.ad-showing')
@@ -157,6 +176,36 @@
     video.addEventListener('pause', () => flush(true));
     video.addEventListener('ended', () => flush(true));
     if (!video.paused) ensureSession(video);
+  }
+
+  // Pausing, resuming or switching accounts ends the capture session without
+  // sending it: its unsent seconds are dropped, and the next one starts at
+  // zero, so a resume never adds the paused interval.
+  function endSession() {
+    state = null;
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith(SESSION_PREFIX)) sessionStorage.removeItem(key);
+    }
+    lastTickAt = performance.now();
+    lastMediaTime = boundVideo?.currentTime ?? 0;
+  }
+
+  function applyRecording(next) {
+    const value = {
+      enabled: Boolean(next?.enabled),
+      accountKey: String(next?.accountKey ?? ''),
+      since: next?.since ?? null,
+    };
+    const previous = recording;
+    recording = value;
+    if (
+      previous
+      && (previous.enabled !== value.enabled
+        || previous.accountKey !== value.accountKey
+        || previous.since !== value.since)
+    ) endSession();
+    if (value.enabled && boundVideo && !boundVideo.paused) ensureSession(boundVideo);
   }
 
   function wait(milliseconds) {
@@ -371,6 +420,15 @@
     lastMediaTime = boundVideo?.currentTime ?? 0;
   });
   window.addEventListener('pagehide', () => flush(true));
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes[RECORDING_KEY]) applyRecording(changes[RECORDING_KEY].newValue);
+  });
+  chrome.storage.local.get(RECORDING_KEY)
+    .then((stored) => {
+      // A change that arrived first is newer than this initial read.
+      if (!recording) applyRecording(stored[RECORDING_KEY]);
+    })
+    .catch(() => {});
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'start-history-import') {
       runHistoryImport(message.scanId, message.observedAt, {

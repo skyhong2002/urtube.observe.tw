@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 import { mergeQueue, retryDelayMs } from '../chrome-extension/queue.js';
 import {
   buildDeepHistoryRanges,
@@ -18,7 +19,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '2.0.0');
+  assert.equal(manifest.version, '2.1.0');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -436,8 +437,8 @@ test('first sync reads the whole history page; later syncs stop at server covera
   // timers throttled after five minutes); the automatic hourly one does not.
   assert.match(background, /active: !status\.automatic,\s+mode: 'full'/);
   // Failures the content script cannot report are reported from here.
-  assert.match(background, /reportScanEnd\(status, 'no-receiver', \{ error, landedUrl \}\)/);
-  assert.match(background, /reportScanEnd\(status, 'cancelled'\)/);
+  assert.match(background, /reportScanEnd\(account, status, 'no-receiver', \{ error, landedUrl \}\)/);
+  assert.match(background, /reportScanEnd\(await currentAccount\(\), status, 'cancelled'\)/);
   // A foreground read that saw no video keeps its tab open as the diagnosis.
   assert.match(background, /if \(!\(active && failed\)\) void closeHistoryImportTab\(tabId\)/);
 });
@@ -541,6 +542,548 @@ test('deep history uses capped date windows and restarts tabs between segments',
   assert.match(background, /splitDeepHistoryRange/);
   assert.match(background, /closeActivitySyncTab/);
   assert.match(background, /myActivityRangeUrl/);
-  assert.match(background, /reportScanEnd\(completedStatus, 'history-start'/);
+  assert.match(background, /reportScanEnd\(account, completedStatus, 'history-start'/);
   assert.match(background, /response does not match the active range/);
+});
+
+// --- Behavioural harness -------------------------------------------------
+// The tests below run the real background worker, YouTube content script and
+// provisioning bridge against an in-memory chrome.* and fetch. Every token,
+// account and video is synthetic; nothing touches the network.
+
+const ENDPOINT = 'https://urtube.observe.tw/api/ingest/youtube/capture';
+const TOKEN_A = 'synthetic-capture-token-account-a-000000000001';
+const TOKEN_A2 = 'synthetic-capture-token-account-a-000000000002';
+const TOKEN_B = 'synthetic-capture-token-account-b-000000000001';
+let backgroundInstance = 0;
+
+const clone = (value) => value === undefined ? undefined : structuredClone(value);
+
+async function settle(rounds = 40) {
+  for (let index = 0; index < rounds; index++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+function fakeNetwork() {
+  const network = {
+    online: true,
+    calls: [],
+    // Synthetic server identity per token; anything else is rejected as 401.
+    accounts: new Map(),
+    gate: null,
+    async fetch(url, init = {}) {
+      const target = new URL(String(url));
+      if (target.pathname === '/extension-version.json') {
+        return new Response('{}', { status: 404 });
+      }
+      const call = {
+        path: target.pathname,
+        method: init.method ?? 'GET',
+        token: String(init.headers?.authorization ?? '').replace(/^Bearer /, ''),
+        body: init.body ? JSON.parse(init.body) : null,
+      };
+      network.calls.push(call);
+      if (network.gate) await network.gate(call, init.signal);
+      if (!network.online) throw new TypeError('Failed to fetch');
+      const account = network.accounts.get(call.token);
+      if (!account) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      call.accepted = true;
+      if (call.path.endsWith('/capture/status')) {
+        return Response.json({ status: 'ready', user: account.handle });
+      }
+      if (call.path.endsWith('/history/status')) return Response.json(account.historyStatus ?? {});
+      return Response.json({ ok: true }, { status: call.path.endsWith('/capture') ? 201 : 200 });
+    },
+    sent(path) {
+      return network.calls.filter((call) => call.accepted && call.path.endsWith(path));
+    },
+  };
+  return network;
+}
+
+function fakeChrome(initial = {}) {
+  const data = clone(initial);
+  const lists = {
+    message: [], changed: [], installed: [], startup: [], alarm: [], tabRemoved: [], tabUpdated: [],
+  };
+  const event = (list) => ({
+    addListener: (listener) => list.push(listener),
+    removeListener: (listener) => {
+      const index = list.indexOf(listener);
+      if (index >= 0) list.splice(index, 1);
+    },
+  });
+  const pick = (keys) => {
+    const names = keys == null
+      ? Object.keys(data)
+      : typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
+    return Object.fromEntries(names.filter((name) => name in data).map((name) => [name, clone(data[name])]));
+  };
+  const tabs = new Map();
+  let nextTabId = 100;
+  const fake = {
+    data,
+    lists,
+    tabMessages: [],
+    removedTabs: [],
+    // Content scripts in tabs the extension opens; tests reply for them.
+    tabReplies: () => ({ ok: true, started: true }),
+    dispatch(message, sender = {}) {
+      return new Promise((resolve) => {
+        let pending = false;
+        for (const listener of [...lists.message]) {
+          if (listener(message, sender, resolve) === true) pending = true;
+        }
+        if (!pending) resolve(undefined);
+      });
+    },
+    restartWorker() {
+      for (const name of ['message', 'installed', 'startup', 'alarm', 'tabRemoved', 'tabUpdated']) {
+        lists[name].length = 0;
+      }
+    },
+  };
+  fake.chrome = {
+    storage: {
+      local: {
+        async get(keys) { return pick(keys); },
+        async set(items) {
+          const changes = {};
+          for (const [name, value] of Object.entries(items)) {
+            changes[name] = { oldValue: clone(data[name]), newValue: clone(value) };
+            data[name] = clone(value);
+          }
+          for (const listener of [...lists.changed]) listener(clone(changes), 'local');
+        },
+        async remove(keys) {
+          for (const name of [].concat(keys)) delete data[name];
+        },
+      },
+      onChanged: event(lists.changed),
+    },
+    runtime: {
+      onMessage: event(lists.message),
+      onInstalled: event(lists.installed),
+      onStartup: event(lists.startup),
+      getManifest: () => ({ version: '0.0.0' }),
+      sendMessage: (message) => fake.dispatch(message, { url: 'https://urtube.observe.tw/extension-setup' }),
+      openOptionsPage: async () => {},
+    },
+    tabs: {
+      async create({ url, active }) {
+        const tab = { id: nextTabId++, url, active, status: 'complete' };
+        tabs.set(tab.id, tab);
+        return tab;
+      },
+      async get(id) {
+        if (!tabs.has(id)) throw new Error('No tab with id');
+        return tabs.get(id);
+      },
+      async remove(id) {
+        fake.removedTabs.push(id);
+        tabs.delete(id);
+      },
+      async sendMessage(id, message) {
+        fake.tabMessages.push({ id, message });
+        return fake.tabReplies(id, message);
+      },
+      onUpdated: event(lists.tabUpdated),
+      onRemoved: event(lists.tabRemoved),
+    },
+    alarms: { async create() {}, onAlarm: event(lists.alarm) },
+    action: { async setBadgeText() {}, async setBadgeBackgroundColor() {} },
+  };
+  return fake;
+}
+
+async function startWorker(fake, network) {
+  globalThis.chrome = fake.chrome;
+  globalThis.fetch = network.fetch;
+  await import(new URL(`../chrome-extension/background.js?instance=${++backgroundInstance}`, import.meta.url).href);
+  await settle();
+}
+
+async function restartWorker(fake, network) {
+  fake.restartWorker();
+  await startWorker(fake, network);
+}
+
+const provisionSource = readFileSync(new URL('../chrome-extension/provision.js', import.meta.url), 'utf8');
+
+// Runs the real provision.js the way /extension-setup drives it.
+async function provision(fake, payload) {
+  const root = { dataset: {} };
+  const listeners = {};
+  let finished;
+  const done = new Promise((resolve) => { finished = resolve; });
+  const context = vm.createContext({
+    chrome: fake.chrome,
+    document: { querySelector: (selector) => selector === '[data-urtube-provision]' ? root : null },
+    window: {
+      addEventListener: (type, listener) => { listeners[type] = listener; },
+      dispatchEvent: (event) => {
+        if (event.type === 'urtube-provision-done' || event.type === 'urtube-provision-error') finished(event.type);
+      },
+    },
+    Event: class { constructor(type) { this.type = type; } },
+  });
+  vm.runInContext(provisionSource, context);
+  root.dataset.provisionPayload = JSON.stringify(payload);
+  void listeners['urtube-provision-request']();
+  const outcome = await done;
+  await settle();
+  return { outcome, error: root.dataset.provisionError ?? '' };
+}
+
+function capturePayload(sessionId, seconds, watchedAt = new Date().toISOString()) {
+  return {
+    sessionId,
+    videoId: 'SYNTHETIC01',
+    title: 'Synthetic video',
+    url: 'https://www.youtube.com/watch?v=SYNTHETIC01',
+    channelTitle: null,
+    watchedAt,
+    actualWatchedSeconds: seconds,
+    durationSeconds: 600,
+  };
+}
+
+function capturedSessions(network, token) {
+  return network.sent('/capture')
+    .filter((call) => call.method === 'POST' && (!token || call.token === token))
+    .map((call) => call.body.sessionId);
+}
+
+function queuedSessions(fake) {
+  return (fake.data.captureQueue ?? []).map((item) => item.payload.sessionId);
+}
+
+const accountA = { endpoint: ENDPOINT, token: TOKEN_A, accountId: '101', handle: 'synthetic-a', googleAccount: '' };
+const accountB = { endpoint: ENDPOINT, token: TOKEN_B, accountId: '202', handle: 'synthetic-b', googleAccount: '' };
+
+function networkFor(...entries) {
+  const network = fakeNetwork();
+  for (const [token, handle] of entries) network.accounts.set(token, { handle });
+  return network;
+}
+
+async function saveSettings(fake, patch) {
+  const current = fake.data.captureSettings ?? {};
+  return fake.dispatch({
+    type: 'settings-save',
+    settings: {
+      endpoint: current.endpoint ?? ENDPOINT,
+      token: current.token ?? '',
+      enabled: current.enabled ?? true,
+      autoSync: current.autoSync ?? true,
+      googleAccount: current.googleAccount ?? '',
+      ...patch,
+    },
+  });
+}
+
+test('R02: a paused worker stores nothing, even after a service-worker restart', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = fakeChrome({
+    captureSettings: { endpoint: ENDPOINT, token: TOKEN_A, enabled: false, autoSync: false },
+  });
+  await startWorker(fake, network);
+  const paused = await fake.dispatch({ type: 'capture', payload: capturePayload('paused-session-0001', 40) });
+  assert.equal(paused?.queued, false);
+  assert.deepEqual(queuedSessions(fake), []);
+  await restartWorker(fake, network);
+  const afterRestart = await fake.dispatch({ type: 'capture', payload: capturePayload('paused-session-0002', 40) });
+  assert.equal(afterRestart?.queued, false);
+  assert.deepEqual(queuedSessions(fake), []);
+
+  // Re-enabling counts only what starts afterwards: a late update from a
+  // session that began before the resume is refused, a fresh one is kept.
+  const before = new Date(Date.now() - 60_000).toISOString();
+  assert.equal((await saveSettings(fake, { enabled: true }))?.ok, true);
+  await settle();
+  const stale = await fake.dispatch({ type: 'capture', payload: capturePayload('paused-session-0001', 95, before) });
+  assert.equal(stale?.queued, false);
+  const fresh = await fake.dispatch({ type: 'capture', payload: capturePayload('resumed-session-0001', 12) });
+  assert.equal(fresh?.queued, true);
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network), ['resumed-session-0001']);
+});
+
+test('R02: items queued before pausing are kept and sent after resuming; nothing from the pause is', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  network.online = false;
+  const fake = fakeChrome({
+    captureSettings: { endpoint: ENDPOINT, token: TOKEN_A, enabled: true, autoSync: false },
+  });
+  await startWorker(fake, network);
+  await fake.dispatch({ type: 'capture', payload: capturePayload('before-pause-0001', 45) });
+  assert.deepEqual(queuedSessions(fake), ['before-pause-0001']);
+  assert.equal((await saveSettings(fake, { enabled: false }))?.ok, true);
+  await fake.dispatch({ type: 'capture', payload: capturePayload('during-pause-0001', 50) });
+  assert.deepEqual(queuedSessions(fake), ['before-pause-0001']);
+  network.online = true;
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network), [], 'paused recording also holds uploads');
+  assert.equal((await saveSettings(fake, { enabled: true }))?.ok, true);
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network), ['before-pause-0001']);
+  assert.deepEqual(queuedSessions(fake), []);
+});
+
+const contentSource = readFileSync(new URL('../chrome-extension/content.js', import.meta.url), 'utf8');
+
+// Runs content.js in a YouTube watch tab that is already playing.
+function youtubeTab(recording) {
+  const stored = { captureRecording: clone(recording) };
+  const changed = [];
+  const sent = [];
+  const intervals = [];
+  const session = new Map();
+  let clock = 1_000;
+  const video = {
+    currentTime: 0, paused: false, ended: false, playbackRate: 1, duration: 600,
+    addEventListener() {},
+  };
+  let sessionCounter = 0;
+  const context = vm.createContext({
+    performance: { now: () => clock },
+    location: { href: 'https://www.youtube.com/watch?v=SYNTHETIC01', pathname: '/watch' },
+    document: {
+      title: 'Synthetic video - YouTube',
+      visibilityState: 'visible',
+      documentElement: {},
+      querySelector: (selector) => selector === 'video' ? video : null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+    },
+    window: { addEventListener() {}, setTimeout },
+    sessionStorage: {
+      get length() { return session.size; },
+      key: (index) => [...session.keys()][index] ?? null,
+      getItem: (key) => session.get(key) ?? null,
+      setItem: (key, value) => session.set(key, String(value)),
+      removeItem: (key) => session.delete(key),
+    },
+    crypto: { randomUUID: () => `synthetic-tab-session-${++sessionCounter}` },
+    chrome: {
+      runtime: {
+        sendMessage: async (message) => { sent.push(clone(message)); return { queued: true }; },
+        onMessage: { addListener() {} },
+      },
+      storage: {
+        local: { get: async (keys) => Object.fromEntries([].concat(keys).filter((key) => key in stored).map((key) => [key, clone(stored[key])])) },
+        onChanged: { addListener: (listener) => changed.push(listener) },
+      },
+    },
+    MutationObserver: class { observe() {} disconnect() {} },
+    Element: class {},
+    URL,
+    setInterval: (callback) => intervals.push(callback),
+  });
+  vm.runInContext(contentSource, context);
+  return {
+    sent,
+    captures: () => sent.filter((message) => message.type === 'capture').map((message) => message.payload),
+    async play(seconds) {
+      for (let index = 0; index < seconds; index++) {
+        clock += 1_000;
+        video.currentTime += 1;
+        for (const callback of intervals) callback();
+        await settle(2);
+      }
+    },
+    async setRecording(next) {
+      const oldValue = stored.captureRecording;
+      stored.captureRecording = clone(next);
+      for (const listener of changed) listener({ captureRecording: { oldValue, newValue: clone(next) } }, 'local');
+      await settle(4);
+    },
+  };
+}
+
+test('R02: an open YouTube tab stops counting while paused and restarts from zero on resume', async () => {
+  const tab = youtubeTab({ enabled: true, accountKey: 'synthetic-account', since: null });
+  await settle(4);
+  await tab.play(35);
+  const recorded = tab.captures();
+  assert.equal(recorded.length, 1);
+  const firstSession = recorded[0].sessionId;
+  await tab.setRecording({ enabled: false, accountKey: 'synthetic-account', since: null });
+  await tab.play(120);
+  assert.equal(tab.captures().length, 1, 'no capture while paused');
+  await tab.setRecording({ enabled: true, accountKey: 'synthetic-account', since: new Date().toISOString() });
+  await tab.play(35);
+  const resumed = tab.captures().slice(1);
+  assert.equal(resumed.length, 1);
+  assert.notEqual(resumed[0].sessionId, firstSession);
+  assert.ok(resumed[0].actualWatchedSeconds <= 35, `counted ${resumed[0].actualWatchedSeconds}s`);
+  assert.ok(Date.parse(resumed[0].watchedAt) >= Date.parse(new Date(Date.now() - 5_000).toISOString()));
+});
+
+test('R03: an offline queue of account A is never uploaded with account B credentials', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a'], [TOKEN_B, 'synthetic-b'], [TOKEN_A2, 'synthetic-a']);
+  const fake = fakeChrome({});
+  await startWorker(fake, network);
+  assert.equal((await provision(fake, accountA)).outcome, 'urtube-provision-done');
+  network.online = false;
+  await fake.dispatch({ type: 'capture', payload: capturePayload('account-a-offline-0001', 60) });
+  assert.deepEqual(queuedSessions(fake), ['account-a-offline-0001']);
+
+  assert.equal((await provision(fake, accountB)).outcome, 'urtube-provision-done');
+  network.online = true;
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network, TOKEN_B), [], 'B received an item captured for A');
+  assert.deepEqual(queuedSessions(fake), []);
+  await fake.dispatch({ type: 'capture', payload: capturePayload('account-b-0001', 20) });
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network, TOKEN_B), ['account-b-0001']);
+
+  // B goes offline with its own item, A reconnects (its token rotated on the
+  // server): A resumes its own queue only, then B resumes its own.
+  network.online = false;
+  await fake.dispatch({ type: 'capture', payload: capturePayload('account-b-offline-0002', 25) });
+  network.accounts.delete(TOKEN_A);
+  network.online = true;
+  assert.equal((await provision(fake, { ...accountA, token: TOKEN_A2 })).outcome, 'urtube-provision-done');
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network, TOKEN_A2), ['account-a-offline-0001']);
+  assert.deepEqual(capturedSessions(network, TOKEN_A), []);
+  assert.equal(capturedSessions(network, TOKEN_B).includes('account-b-offline-0002'), false);
+  network.accounts.delete(TOKEN_B);
+  const TOKEN_B2 = 'synthetic-capture-token-account-b-000000000002';
+  network.accounts.set(TOKEN_B2, { handle: 'synthetic-b' });
+  assert.equal((await provision(fake, { ...accountB, token: TOKEN_B2 })).outcome, 'urtube-provision-done');
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network, TOKEN_B2), ['account-b-offline-0002']);
+  assert.deepEqual(capturedSessions(network, TOKEN_A2), ['account-a-offline-0001']);
+});
+
+test('R03: a same-account token rotation keeps the pending queue', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = fakeChrome({});
+  await startWorker(fake, network);
+  await provision(fake, accountA);
+  network.online = false;
+  await fake.dispatch({ type: 'capture', payload: capturePayload('rotation-0001', 30) });
+  network.accounts.delete(TOKEN_A);
+  network.accounts.set(TOKEN_A2, { handle: 'synthetic-a' });
+  network.online = true;
+  await provision(fake, { ...accountA, token: TOKEN_A2 });
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network, TOKEN_A2), ['rotation-0001']);
+  assert.deepEqual(queuedSessions(fake), []);
+});
+
+test('R03: a flush in flight during an account switch stays with the original account', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a'], [TOKEN_B, 'synthetic-b']);
+  const fake = fakeChrome({});
+  await startWorker(fake, network);
+  await provision(fake, accountA);
+  network.online = false;
+  await fake.dispatch({ type: 'capture', payload: capturePayload('in-flight-0001', 30) });
+  network.online = true;
+  let release;
+  network.gate = (call, signal) => {
+    if (!(call.path.endsWith('/capture') && call.method === 'POST')) return undefined;
+    network.gate = null;
+    return new Promise((resolve, reject) => {
+      release = () => reject(new TypeError('Failed to fetch'));
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    });
+  };
+  const inFlight = fake.dispatch({ type: 'flush' });
+  await settle();
+  assert.ok(release, 'the flush is waiting on the network');
+  const switching = provision(fake, accountB);
+  await settle();
+  release();
+  await inFlight;
+  await switching;
+  await fake.dispatch({ type: 'flush' });
+  for (const alarm of fake.lists.alarm) alarm({ name: 'flush-captures' });
+  await settle();
+  assert.deepEqual(capturedSessions(network, TOKEN_B), []);
+  assert.deepEqual(queuedSessions(fake), []);
+});
+
+test('R03: a history scan in flight during a switch is cancelled and B starts from its own checkpoint', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a'], [TOKEN_B, 'synthetic-b']);
+  const fake = fakeChrome({});
+  await startWorker(fake, network);
+  await provision(fake, accountA);
+  // A finished one daily sync (checkpoint) and is now in its next one.
+  await fake.chrome.storage.local.set({
+    lifelogSyncStatus: {
+      ...(fake.data.lifelogSyncStatus ?? {}),
+      state: 'complete',
+      lastEventAt: '2026-10-20T08:00:00.000Z',
+      lastSuccessAt: '2026-10-20T09:00:00.000Z',
+    },
+  });
+  const started = await fake.dispatch({ type: 'lifelog-sync-start' });
+  assert.equal(started?.ok, true);
+  const syncA = fake.data.lifelogSyncStatus.syncId;
+  const tabA = fake.data.lifelogSyncStatus.activityTabId;
+  assert.equal(fake.data.lifelogSyncStatus.state, 'running');
+
+  fake.tabMessages.length = 0;
+  await provision(fake, accountB);
+  assert.ok(fake.removedTabs.includes(tabA), "A's sync tab is closed");
+  assert.ok(fake.tabMessages.some(({ id, message }) => id === tabA && message.type === 'cancel-activity-sync'));
+  const startB = fake.tabMessages.find(({ message }) => message.type === 'start-activity-sync');
+  assert.ok(startB, 'provisioning starts B’s first sync');
+  assert.notEqual(startB.message.syncId, syncA);
+  assert.ok(
+    Date.parse(startB.message.since) < Date.parse('2026-10-20T06:00:00.000Z') - 86_400_000,
+    `B reused A's checkpoint: since=${startB.message.since}`,
+  );
+
+  // A's still-open tab reports a batch after the switch: it must not be
+  // uploaded under B, nor change B's sync status.
+  const before = network.sent('/history').length;
+  const late = await fake.dispatch({
+    type: 'activity-history-batch',
+    payload: { syncId: syncA, observedAt: new Date().toISOString(), events: [{ kind: 'watch', occurredAt: '2026-10-21T08:00:00.000Z', url: 'https://www.youtube.com/watch?v=SYNTHETIC01' }] },
+  });
+  assert.equal(late?.ok, false);
+  assert.equal(network.sent('/history').length, before);
+  await fake.dispatch({ type: 'activity-sync-progress', syncId: syncA, events: 9, pass: 3, newestEventAt: '2026-10-21T08:00:00.000Z' });
+  assert.notEqual(fake.data.lifelogSyncStatus.latestEventAt, '2026-10-21T08:00:00.000Z');
+  assert.equal(fake.data.lifelogSyncStatus.events, 0);
+});
+
+test('R03: existing single-account storage migrates into the configured account without loss', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  network.online = false;
+  const legacyQueue = [{ payload: capturePayload('legacy-0001', 40), attempts: 2, nextAttemptAt: 0 }];
+  const fake = fakeChrome({
+    captureSettings: { endpoint: ENDPOINT, token: TOKEN_A, enabled: true, autoSync: true, googleAccount: '' },
+    captureQueue: legacyQueue,
+    lifelogSyncStatus: { state: 'complete', lastEventAt: '2026-10-19T10:00:00.000Z' },
+    historyImportStatus: { state: 'complete', mode: 'deep', events: 12 },
+  });
+  await startWorker(fake, network);
+  assert.ok(fake.data.captureSettings.accountKey, 'the configured account gets a partition key');
+  assert.deepEqual(queuedSessions(fake), ['legacy-0001']);
+  assert.equal(fake.data.captureQueue[0].account, fake.data.captureSettings.accountKey);
+  assert.equal(fake.data.lifelogSyncStatus.lastEventAt, '2026-10-19T10:00:00.000Z');
+  assert.equal(fake.data.historyImportStatus.events, 12);
+  assert.equal(fake.data.captureRecording?.enabled, true);
+
+  // Once the server confirms who the legacy token belongs to, re-provisioning
+  // that same account (token rotated) adopts the legacy queue.
+  network.online = true;
+  await fake.dispatch({ type: 'flush' });
+  assert.equal(fake.data.captureSettings.handle, 'synthetic-a');
+  network.online = false;
+  await fake.dispatch({ type: 'capture', payload: capturePayload('legacy-0002', 41) });
+  network.accounts.delete(TOKEN_A);
+  network.accounts.set(TOKEN_A2, { handle: 'synthetic-a' });
+  network.online = true;
+  await provision(fake, { ...accountA, token: TOKEN_A2 });
+  await fake.dispatch({ type: 'flush' });
+  assert.deepEqual(capturedSessions(network, TOKEN_A), ['legacy-0001']);
+  assert.deepEqual(capturedSessions(network, TOKEN_A2), ['legacy-0002']);
+  assert.equal(fake.data.lifelogSyncStatus.lastEventAt, '2026-10-19T10:00:00.000Z');
 });
