@@ -133,3 +133,33 @@ test('a job whose lease expired under a crashed worker is recovered by the next 
     assert.equal(store.profile(user.id)?.processedVideos, 1);
   } finally { await running.stop(); registry.close(); }
 });
+
+test('discovery lets heartbeat timers run between archives', async () => {
+  const registry = new UserRegistry(':memory:');
+  for (let index = 0; index < 5; index++) account(registry, `slow-${index}`, `SLOWVIDEO0${index}`);
+  // Stand-in for a cold matchingV3Source: synchronous work per archive.
+  let built = 0;
+  const repositoryFor = registry.repositoryFor.bind(registry);
+  registry.repositoryFor = (user) => {
+    const repository = repositoryFor(user);
+    return new Proxy(repository, {
+      get(target, property, receiver) {
+        if (property !== 'matchingV3Source') return Reflect.get(target, property, receiver);
+        return (limit: number) => {
+          built++;
+          const until = Date.now() + 20;
+          while (Date.now() < until) { /* synchronous SQLite stand-in */ }
+          return target.matchingV3Source(limit);
+        };
+      },
+    });
+  };
+  let ticks = 0;
+  const heartbeat = setInterval(() => { ticks++; }, 1);
+  // Stop once discovery has built all five sources.
+  const done = runCycle(registry, s, provider(), compute, () => built >= 5, options);
+  try {
+    await done;
+    assert.ok(ticks >= 4, `heartbeat ran ${ticks} times during discovery of 5 archives`);
+  } finally { clearInterval(heartbeat); registry.close(); }
+});

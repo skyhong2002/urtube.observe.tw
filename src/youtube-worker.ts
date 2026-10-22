@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { yieldToEventLoop } from './event-loop-turns.js';
 import type { Repository } from './data/database.js';
 import {
   EventLoopLagProbe,
@@ -71,30 +72,6 @@ const defaultSteps: YoutubeWorkerSteps = {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
-}
-
-// Grants one archive's synchronous stage per event-loop turn. Plain
-// setImmediate is not enough: every immediate queued before the check phase
-// runs in that same phase, so 37 archives yielding together still built all
-// their crystals back to back (a 72 s block on 2026-10-22) before any timer
-// fired. Draining from inside the check phase defers the next waiter to the
-// following turn, so heartbeat timers run between stages.
-const stageWaiters: Array<() => void> = [];
-let stageDrainScheduled = false;
-function drainStageTurn(): void {
-  const next = stageWaiters.shift();
-  if (stageWaiters.length) setImmediate(drainStageTurn);
-  else stageDrainScheduled = false;
-  next?.();
-}
-export function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => {
-    stageWaiters.push(resolve);
-    if (!stageDrainScheduled) {
-      stageDrainScheduled = true;
-      setImmediate(drainStageTurn);
-    }
-  });
 }
 
 // Data Portability remains tied to the instance owner's Google OAuth grant.

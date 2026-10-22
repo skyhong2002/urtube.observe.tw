@@ -1,4 +1,5 @@
 import { createDispatchLimiter } from './dispatch.js';
+import { yieldToEventLoop } from '../event-loop-turns.js';
 import { type AsyncLimiter } from '../youtube/concurrency.js';
 import { assessProfileAvailability, classificationInput, GENRES, CHANNEL_TYPES, CONTENT_GENRES, digest, version, type Classification, type Genre, type GenreProfile, type Profile, type Settings, type SourceSnapshot, type TagPoint, type VideoInput } from './model.js';
 import type { Compute } from './compute.js';
@@ -227,16 +228,21 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
   // Discovery is separate from the drain: a job waiting on provider retries
   // must not hide accounts or videos that arrived after the cycle started.
   let userCount = 0;
-  function discover() {
+  // Building every archive's source took ~25 s across 37 production archives
+  // when caches were cold. One turn per archive keeps the heartbeat timer
+  // running in between (the same stall #97 found in the YouTube worker).
+  async function discover() {
     store.resumeRecoverableFailures();
     const users = registry.listUsers();
     userCount = users.length;
     for (const user of users) {
+      await yieldToEventLoop();
+      if (shouldStop()) return;
       const source = registry.repositoryFor(user).matchingV3Source(s.backfillVideoLimit);
       store.schedule(user.id, sourceKey(source.fingerprint, allGenres), version(s));
     }
   }
-  discover();
+  await discover();
   // Idle consumers wake on each discovery tick instead of sleeping out a poll.
   const sleepers = new Set<() => void>();
   const nap = (ms: number) => new Promise<void>(resolve => {
@@ -318,9 +324,12 @@ export async function runCycle(registry: UserRegistry, s: Settings, provider: Pr
   // Consumers grow with discovered accounts, up to the configured ceiling.
   const consumers: Promise<void>[] = [];
   const spawn = () => { while (consumers.length < Math.min(s.concurrency, userCount)) consumers.push(consume()); };
+  let discovering = false;
   const discovery = setInterval(() => {
-    if (!shouldStop()) {
-      try { discover(); spawn(); } catch { console.error('Matching v3 discovery failed; will retry.'); }
+    if (!shouldStop() && !discovering) {
+      discovering = true;
+      discover().then(spawn, () => console.error('Matching v3 discovery failed; will retry.'))
+        .finally(() => { discovering = false; wake(); });
     }
     wake();
   }, discoveryIntervalMs);
