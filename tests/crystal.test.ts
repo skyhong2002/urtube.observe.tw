@@ -3,7 +3,12 @@ import test from 'node:test';
 import { Repository } from '../src/data/database.js';
 import { createApp } from '../src/index.js';
 import { UserRegistry } from '../src/users.js';
-import { buildYoutubeCrystal, compareCrystals } from '../src/youtube/crystal.js';
+import {
+  buildYoutubeCrystal,
+  compareCrystals,
+  youtubeCrystalShiftSection,
+  youtubeMatchingCrystalSection,
+} from '../src/youtube/crystal.js';
 import type { YoutubeParsedArchive } from '../src/youtube/types.js';
 
 const NOW = new Date('2026-08-14T00:00:00.000Z');
@@ -208,5 +213,28 @@ test('renaming a user keeps tokens and encryption key, moves the dashboard', asy
     assert.throws(() => registry.renameUser('missing', 'other'), /Unknown user/);
   } finally {
     registry.close();
+  }
+});
+
+test('partial crystal sections equal the matching parts of a full build', () => {
+  const repository = new Repository(':memory:');
+  try {
+    seed(repository, [
+      watch('p1', 'AAAAAAAAAA1', 'a', '2026-07-05T10:00:00Z', 1800),
+      watch('r1', 'BBBBBBBBBB1', 'b', '2026-08-10T10:00:00Z', 2700),
+      watch('r2', 'AAAAAAAAAA3', 'a', '2026-08-12T10:00:00Z', 600),
+      watch('o1', 'CCCCCCCCCC1', 'c', '2025-01-01T10:00:00Z', 900),
+    ]);
+    const full = buildYoutubeCrystal(repository, { handle: 'tester', displayName: 'Tester' }, NOW);
+    assert.deepEqual(youtubeMatchingCrystalSection(repository, NOW), full.matching);
+    const change = youtubeCrystalShiftSection(repository, NOW);
+    assert.deepEqual(change, {
+      windowDays: full.windowDays, recent: full.recent, prior: full.prior,
+      shifts: full.shifts, volumeChange: full.volumeChange,
+    });
+    assert.ok(full.allTime.watchEvents > full.recent.watchEvents + full.prior.watchEvents,
+      'fixture has history outside both windows');
+  } finally {
+    repository.close();
   }
 });

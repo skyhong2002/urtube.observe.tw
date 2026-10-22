@@ -47,7 +47,15 @@ import {
   type AccountPageState,
 } from './output/onboarding.js';
 import { guidedOnboardingState, type GuidedOnboardingState } from './onboarding-flow.js';
-import { buildYoutubeCrystal, compareCrystals, type YoutubeCrystal } from './youtube/crystal.js';
+import {
+  buildYoutubeCrystal,
+  compareCrystals,
+  youtubeCrystalShiftSection,
+  youtubeMatchingCrystalSection,
+  type MatchingCrystal,
+  type YoutubeCrystal,
+  type YoutubeCrystalShiftSection,
+} from './youtube/crystal.js';
 import { fetchYoutubeChannelMetadata, youtubeApiUsage } from './youtube/metadata.js';
 import {
   brandMark, html, primaryNav, shell,
@@ -159,6 +167,16 @@ function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: Youtu
 }
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystal {
   return cachedRead(repository, `crystal:${user.handle}:${user.displayName}`, () => buildYoutubeCrystal(repository, user));
+}
+// Pages that need only one part of the crystal must not pay for the
+// all-time window: a full build took up to 83 s on a production archive
+// under memory pressure, blocking every request in this process.
+function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): MatchingCrystal {
+  const matching = cachedRead(repository, 'crystal-matching', () => youtubeMatchingCrystalSection(repository));
+  return { handle: user.handle, displayName: user.displayName, matching };
+}
+function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystalShiftSection {
+  return cachedRead(repository, 'crystal-shifts', () => youtubeCrystalShiftSection(repository));
 }
 
 interface AppServices {
@@ -376,7 +394,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   function blendIdentity(user: User): MatchableCrystal {
     const crystal = registry.matchingCrystalFor(user.handle)
-      ?? registryMatchingCrystal(cachedCrystalFor(registry, user));
+      ?? registryMatchingCrystal({ generatedAt: new Date().toISOString(), ...cachedMatchingCrystalFor(registry, user) });
     return { userId: user.id, handle: user.handle, displayName: user.displayName,
       disclosureLevel: 'topics_and_channel', crystal, dimensions: resolveMatchingDimensions(crystal, null) };
   }
@@ -442,7 +460,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const data = cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
     const hasData = counts.watches > 0;
     const crystalHtml = page === 'insights' && hasData
-      ? shiftsSection(cachedCrystalFor(registry, user, repository), lang) : '';
+      ? shiftsSection({ handle: user.handle, ...cachedCrystalShiftsFor(registry, user, repository) }, lang) : '';
     let leaningsHtml = '';
     if (page === 'insights' && hasData) {
       try {
@@ -1516,7 +1534,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || keyed(user, param)
       || Boolean(registry.userByDashboardToken(user.handle, getCookie(c, `urtube_dash_id_${user.id}`) ?? getCookie(c, `urtube_dash_${user.handle}`) ?? ''));
     if (!allowed(a, 'keyA') || !allowed(b, 'keyB')) return notFoundPage(c);
-    const comparison = compareCrystals(cachedCrystalFor(registry, a), cachedCrystalFor(registry, b));
+    const comparison = compareCrystals(cachedMatchingCrystalFor(registry, a), cachedMatchingCrystalFor(registry, b));
     c.header('Cache-Control', 'no-cache');
     // Keyed compare links must not get indexed if they leak to a crawler.
     if (!a.dashboardPublic || !b.dashboardPublic) c.header('X-Robots-Tag', 'noindex');

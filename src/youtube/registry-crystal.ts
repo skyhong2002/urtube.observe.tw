@@ -36,7 +36,7 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[])
   return Object.keys(value).every((key) => allowedKeys.has(key));
 }
 
-export function registryMatchingCrystal(crystal: YoutubeCrystal): RegistryMatchingCrystal {
+export function registryMatchingCrystal(crystal: Pick<YoutubeCrystal, 'generatedAt' | 'matching'>): RegistryMatchingCrystal {
   return {
     kind: 'matching',
     version: REGISTRY_CRYSTAL_VERSION,

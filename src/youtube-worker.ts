@@ -9,7 +9,7 @@ import {
 } from './ops-status.js';
 import { UserRegistry, DEFAULT_HANDLE, type User } from './users.js';
 import { classifyYoutubeVideos } from './youtube/ai.js';
-import { buildYoutubeCrystal } from './youtube/crystal.js';
+import { youtubeMatchingCrystalSection } from './youtube/crystal.js';
 import { enrichYoutubeChannelMetadata, enrichYoutubeMetadata, youtubeApiUsage } from './youtube/metadata.js';
 import { classifyYoutubeVideosForMatching, youtubeMatchingWorkPending } from './youtube/matching.js';
 import { runYoutubePortabilityStep } from './youtube/portability.js';
@@ -142,7 +142,11 @@ export async function runYoutubeWorkerCycle(
       // matching topics. Publish it before the optional AI step so a model
       // outage cannot leave a stale crystal in the registry.
       await yieldToEventLoop();
-      const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
+      const builtAt = now();
+      const crystal = registryMatchingCrystal({
+        generatedAt: builtAt.toISOString(),
+        matching: youtubeMatchingCrystalSection(repository, builtAt),
+      });
       registry.upsertMatchingCrystal(user, crystal);
       await yieldToEventLoop();
       repository.setYoutubeSyncState('worker_stage', 'topics');

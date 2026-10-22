@@ -1,4 +1,4 @@
-import type { CrystalComparison, CrystalShift, YoutubeCrystal } from '../youtube/crystal.js';
+import type { CrystalComparison, CrystalShift, YoutubeCrystal, YoutubeCrystalShiftSection } from '../youtube/crystal.js';
 import { matchingSimilarityBand } from '../youtube/matching.js';
 import { messages, type Lang, type Messages } from './i18n.js';
 import { html, primaryNav, shell, type ShellNavItem } from './pages.js';
@@ -48,7 +48,7 @@ function shiftRow(shift: CrystalShift, t: Messages): string {
 // The "what changed" section injected into a dashboard: recent window vs the
 // one before it. This is the single-user difference question the crystal
 // design starts from.
-export function shiftsSection(crystal: YoutubeCrystal, lang: Lang = 'en'): string {
+export function shiftsSection(crystal: YoutubeCrystalShiftSection & Pick<YoutubeCrystal, 'handle'>, lang: Lang = 'en'): string {
   const t = messages(lang);
   if (!crystal.shifts.length && crystal.volumeChange === null) return '';
   const volume = crystal.volumeChange === null

@@ -150,22 +150,44 @@ function shiftsBetween(recent: CrystalItem[], prior: CrystalItem[], kind: Crysta
   return shifts.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 }
 
-export function buildYoutubeCrystal(
+// The matching section depends only on the dedicated matching window. The
+// worker publishes nothing else to the registry, so it builds just this part
+// instead of also scanning the recent, prior and all-time windows.
+export function youtubeMatchingCrystalSection(
   repository: Repository,
-  identity: { handle: string; displayName: string },
+  now = new Date(),
+): YoutubeCrystal['matching'] {
+  const end = now.toISOString();
+  const matchingStart = new Date(now.getTime() - MATCHING_WINDOW_DAYS * 86_400_000).toISOString();
+  const matchingSource = crystalWindow(repository, matchingStart, end);
+  const matchingProfile = matchingTopicProfile(repository, matchingStart, end);
+  return {
+    taxonomyVersion: matchingProfile.taxonomyVersion,
+    windowDays: MATCHING_WINDOW_DAYS,
+    watchEvents: matchingSource.watchEvents,
+    uniqueVideos: matchingSource.uniqueVideos,
+    estimatedWatchSeconds: matchingSource.estimatedWatchSeconds,
+    activeDays: matchingSource.activeDays,
+    topicCoverage: matchingProfile.coverage,
+    channels: matchingSource.channels,
+    topics: matchingProfile.topics,
+  };
+}
+
+export type YoutubeCrystalShiftSection = Pick<YoutubeCrystal, 'windowDays' | 'recent' | 'prior' | 'shifts' | 'volumeChange'>;
+
+// Recent-versus-prior change, without the all-time window that dominates a
+// full crystal build. The Insights page needs only this part.
+export function youtubeCrystalShiftSection(
+  repository: Repository,
   now = new Date(),
   windowDays = 28,
-): YoutubeCrystal {
+): YoutubeCrystalShiftSection {
   const end = now.toISOString();
   const mid = new Date(now.getTime() - windowDays * 86_400_000).toISOString();
   const start = new Date(now.getTime() - 2 * windowDays * 86_400_000).toISOString();
   const recent = crystalWindow(repository, mid, end);
   const prior = crystalWindow(repository, start, mid);
-  const allTime = crystalWindow(repository, null, null);
-  const matchingWindowDays = MATCHING_WINDOW_DAYS;
-  const matchingStart = new Date(now.getTime() - matchingWindowDays * 86_400_000).toISOString();
-  const matchingSource = crystalWindow(repository, matchingStart, end);
-  const matchingProfile = matchingTopicProfile(repository, matchingStart, end);
   // Topic rows are filled asynchronously. Comparing a mostly classified
   // recent window with an unclassified prior window manufactures "new"
   // interests, so channel shifts remain live while topic shifts wait until
@@ -179,30 +201,36 @@ export function buildYoutubeCrystal(
     ...shiftsBetween(recent.channels, prior.channels, 'channel'),
   ].slice(0, 24);
   return {
-    version: 2,
-    keywordAlgorithmVersion: KEYWORD_ALGORITHM_VERSION,
-    generatedAt: end,
-    handle: identity.handle,
-    displayName: identity.displayName,
     windowDays,
     recent,
     prior,
-    allTime,
-    matching: {
-      taxonomyVersion: matchingProfile.taxonomyVersion,
-      windowDays: matchingWindowDays,
-      watchEvents: matchingSource.watchEvents,
-      uniqueVideos: matchingSource.uniqueVideos,
-      estimatedWatchSeconds: matchingSource.estimatedWatchSeconds,
-      activeDays: matchingSource.activeDays,
-      topicCoverage: matchingProfile.coverage,
-      channels: matchingSource.channels,
-      topics: matchingProfile.topics,
-    },
     shifts,
     volumeChange: prior.estimatedWatchSeconds > 0
       ? (recent.estimatedWatchSeconds - prior.estimatedWatchSeconds) / prior.estimatedWatchSeconds
       : null,
+  };
+}
+
+export function buildYoutubeCrystal(
+  repository: Repository,
+  identity: { handle: string; displayName: string },
+  now = new Date(),
+  windowDays = 28,
+): YoutubeCrystal {
+  const change = youtubeCrystalShiftSection(repository, now, windowDays);
+  return {
+    version: 2,
+    keywordAlgorithmVersion: KEYWORD_ALGORITHM_VERSION,
+    generatedAt: now.toISOString(),
+    handle: identity.handle,
+    displayName: identity.displayName,
+    windowDays,
+    recent: change.recent,
+    prior: change.prior,
+    allTime: crystalWindow(repository, null, null),
+    matching: youtubeMatchingCrystalSection(repository, now),
+    shifts: change.shifts,
+    volumeChange: change.volumeChange,
   };
 }
 
@@ -240,7 +268,9 @@ function onlyIn(mine: CrystalItem[], theirs: CrystalItem[], kind: 'channel' | 't
     .map((item) => ({ name: item.name, kind, share: item.share }));
 }
 
-export function compareCrystals(a: YoutubeCrystal, b: YoutubeCrystal): CrystalComparison {
+export type MatchingCrystal = Pick<YoutubeCrystal, 'handle' | 'displayName' | 'matching'>;
+
+export function compareCrystals(a: MatchingCrystal, b: MatchingCrystal): CrystalComparison {
   const shared = (mine: CrystalItem[], theirs: CrystalItem[], limit: number) => {
     const theirsByKey = new Map(theirs.map((item) => [item.key, item]));
     return mine
