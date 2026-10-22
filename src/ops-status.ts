@@ -88,9 +88,13 @@ export class EventLoopLagProbe {
   // Worst lag since the previous take, including a block still in progress
   // when a status write runs before the next tick.
   take(): number {
-    const pending = this.now() - this.last - this.intervalMs;
+    const at = this.now();
+    const pending = at - this.last - this.intervalMs;
     const worst = Math.max(0, this.maxLagMs, pending);
     this.maxLagMs = 0;
+    // A block already reported must not be reported again by later writes
+    // in the same burst; the next tick measures only the remainder.
+    if (pending > 0) this.last = at;
     return Math.round(worst);
   }
 }

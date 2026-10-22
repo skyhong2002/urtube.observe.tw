@@ -5,6 +5,7 @@ import { createApp } from '../src/index.js';
 import { EVENT_LOOP_DELAY_WINDOW_MS, EventLoopLagProbe, nextEventLoopDelay } from '../src/ops-status.js';
 import { ORIGIN_KEEP_ALIVE_TIMEOUT_MS, outliveProxyKeepAlive } from '../src/origin-server.js';
 import { UserRegistry } from '../src/users.js';
+import { runYoutubeWorkerCycle, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 
 test('origin keeps idle connections longer than the tunnel reuses them', () => {
   const server = outliveProxyKeepAlive(createServer()) as ReturnType<typeof createServer>;
@@ -47,6 +48,9 @@ test('lag probe reports a synchronous block, including one still in progress', (
   clock = 151_500; probe.tick();
   clock = 272_500;
   assert.equal(probe.take(), 120_000, 'block observed before the next tick');
+  assert.equal(probe.take(), 0, 'the same block is not reported twice');
+  clock = 273_500; probe.tick();
+  assert.equal(probe.take(), 0, 'the next on-time tick after the block is clean');
 });
 
 test('lag probe sees a real synchronous block', async () => {
@@ -61,5 +65,37 @@ test('lag probe sees a real synchronous block', async () => {
     assert.ok(probe.take() >= 250);
   } finally {
     clearInterval(timer);
+  }
+});
+
+test('a worker cycle with no pending work still lets heartbeat timers run', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    for (let index = 0; index < 5; index++) registry.createUser(`idle-${index}`, `Idle ${index}`);
+    let busyUntil = 0;
+    const synchronousStep = async () => {
+      // Resolves without I/O, like a step whose archive has nothing to do.
+      const until = Date.now() + 15;
+      while (Date.now() < until) { /* synchronous SQLite stand-in */ }
+      return 0;
+    };
+    const steps: YoutubeWorkerSteps = {
+      portability: async () => 'idle',
+      metadata: synchronousStep,
+      channelMetadata: synchronousStep,
+      matchingClassification: synchronousStep,
+      classification: synchronousStep,
+    };
+    let heartbeats = 0;
+    const heartbeat = setInterval(() => { heartbeats++; }, 1);
+    try {
+      busyUntil = heartbeats;
+      await runYoutubeWorkerCycle(registry, steps);
+    } finally {
+      clearInterval(heartbeat);
+    }
+    assert.ok(heartbeats - busyUntil >= 5, `heartbeat ran ${heartbeats - busyUntil} times during the cycle`);
+  } finally {
+    registry.close();
   }
 });

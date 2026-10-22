@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { config } from './config.js';
 import type { Repository } from './data/database.js';
 import {
@@ -85,6 +86,12 @@ export async function runYoutubeWorkerCycle(
   // Repositories are independent SQLite files. Start every archive together;
   // the external-service limiters provide bounded, FIFO backpressure. Promise
   // ordering keeps logs and tests stable even though the work overlaps.
+  //
+  // Steps with nothing to do resolve without real I/O, so without explicit
+  // yields every archive's synchronous SQLite work (crystal builds alone took
+  // 64 s across 37 archives on 2026-10-22) ran as one microtask chain. Timers
+  // never fired, so the heartbeat went stale for ~129 s and /readyz failed
+  // (#97). Yield before each synchronous stage so heartbeats keep landing.
   return Promise.all(registry.listUsers().filter(user => !options.userIds || options.userIds.includes(user.id)).map(async (user): Promise<YoutubeWorkerUserResult> => {
     const repository = registry.repositoryFor(user);
     if (options.activeUsers?.has(user.id) || !youtubeRetryDue(repository, now().getTime())) return { user: user.handle };
@@ -93,20 +100,28 @@ export async function runYoutubeWorkerCycle(
     // this archive was last looked at, even when a step fails midway.
     repository.setYoutubeSyncState('worker_cycle_at', now().toISOString());
     try {
+      // Only after the account is claimed: a concurrent sweep must still see
+      // it in activeUsers and skip it.
+      await yieldToEventLoop();
       const portability = user.storageName === DEFAULT_HANDLE
         ? await steps.portability(repository, user)
         : 'not_applicable';
+      await yieldToEventLoop();
       repository.setYoutubeSyncState('worker_stage', 'metadata');
       const metadata = await steps.metadata(repository, user);
+      await yieldToEventLoop();
       repository.setYoutubeSyncState('worker_stage', 'channels');
       const channelMetadata = await steps.channelMetadata(repository, user);
+      await yieldToEventLoop();
       repository.setYoutubeSyncState('worker_stage', 'matching');
       const matchingClassified = await steps.matchingClassification(repository, user);
       // The matching projection only needs metadata and the category-based
       // matching topics. Publish it before the optional AI step so a model
       // outage cannot leave a stale crystal in the registry.
+      await yieldToEventLoop();
       const crystal = registryMatchingCrystal(buildYoutubeCrystal(repository, user, now()));
       registry.upsertMatchingCrystal(user, crystal);
+      await yieldToEventLoop();
       repository.setYoutubeSyncState('worker_stage', 'topics');
       const classified = await steps.classification(repository, user);
       repository.setYoutubeSyncState('worker_retry_at', '0');

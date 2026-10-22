@@ -158,7 +158,9 @@ test('failed accounts retry after their own backoff while another account is sti
       },
     };
     const first = runYoutubeWorkerCycle(registry, steps, () => new Date(100000), {activeUsers, onUserSettled});
-    await new Promise(resolve => setImmediate(resolve));
+    // The cycle yields between stages so heartbeats can run; wait for the
+    // failing account to settle rather than a fixed number of turns.
+    for (let turn = 0; turn < 100 && !publishedFailures.length; turn++) await new Promise(resolve => setImmediate(resolve));
     assert.equal(activeUsers.has(b.id), true);
     assert.deepEqual(publishedFailures, [1]);
     assert.equal(registry.repositoryFor(a).youtubeSyncState('worker_retry_at'), '130000');
