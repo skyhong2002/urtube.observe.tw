@@ -10,6 +10,7 @@ import { availabilityReason, GENRES, genreSchema, selectionSchema, version, type
 import { computeClient, type Compute } from './compute.js';
 import { compareMatchRank, compareProfiles } from './matching.js';
 import { sourceKey } from './store.js';
+import { yieldToEventLoop } from '../event-loop-turns.js';
 import type { Lang } from '../output/i18n.js';
 import { pickLang } from '../output/i18n.js';
 import { adminPage } from './admin-page.js';
@@ -132,6 +133,9 @@ export function matchingRoutes(registry: UserRegistry, s: Settings, origin: stri
       const computed: { user: User; builtAt: string; result: Awaited<ReturnType<typeof compareProfiles>> }[] = [];
       for (const other of registry.listUsers()) {
         if (other.id === user.id || !other.matchingOptIn) continue;
+        // Warm pair-cache hits still parse profiles and query SQLite. Give
+        // ingest, timers and consent changes a turn even when no HTTP awaits.
+        await yieldToEventLoop();
         const consent = store.preferences(other.id).genres;
         if (selected.some(g => !consent.includes(g))) continue;
         const right = store.profile(other.id);

@@ -32,13 +32,18 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Set up numeric runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.14'
+
       - name: Test numerical matching service
         env:
           OPENBLAS_NUM_THREADS: 1
           OMP_NUM_THREADS: 1
           PYTHONDONTWRITEBYTECODE: 1
         run: |
-          python3 -m pip install -r services/matching-compute/requirements.txt
+          python3 -m pip install --require-hashes -r services/matching-compute/requirements.txt
           python3 -m unittest discover -s services/matching-compute -p 'test_*.py'
           export MATCHING_V3_COMPUTE_TOKEN=isolated-numeric-test-token-32-characters
           python3 services/matching-compute/compute.py &

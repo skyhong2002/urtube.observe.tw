@@ -36,10 +36,12 @@ export function clusterUpload(points: TagPoint[], s: Settings) {
 }
 
 export interface Compute {
+  ready?(): Promise<boolean>;
   cluster(points: TagPoint[]): Promise<Pick<GenreProfile, 'clusters' | 'totalMass' | 'retainedCoverage'>>;
   compare(left: GenreProfile, right: GenreProfile): Promise<Comparison>;
 }
 export function computeClient(s: Settings): Compute {
+  let readiness: { checkedAt: number; value: Promise<boolean> } | undefined;
   async function call<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${path === '/compare' && s.compareUrl ? s.compareUrl : s.computeUrl}${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.computeToken}` },
@@ -51,6 +53,23 @@ export function computeClient(s: Settings): Compute {
   let lane = clusterLanes.get(s.computeUrl);
   if (!lane) { lane = createAsyncLimiter(1); clusterLanes.set(s.computeUrl, lane); }
   return {
+    ready: () => {
+      // Probe the interactive lane; the background lane may legitimately be
+      // occupied by a long cluster job. Coalesce probes and bound failure time.
+      if (!readiness || Date.now() - readiness.checkedAt >= 5000) readiness = {
+        checkedAt: Date.now(), value: (async () => {
+          try {
+            const response = await fetch(`${s.compareUrl || s.computeUrl}/healthz`, {
+              headers: { Authorization: `Bearer ${s.computeToken}` }, signal: AbortSignal.timeout(2000),
+            });
+            if (!response.ok) { await response.body?.cancel(); return false; }
+            const body = await response.json() as { status?: unknown; algorithm?: unknown };
+            return body.status === 'ready' && body.algorithm === 'compact-medoid-v1';
+          } catch { return false; }
+        })(),
+      };
+      return readiness.value;
+    },
     cluster: points => lane!(async () => {
       if (!points.length) return { clusters: [], totalMass: 0, retainedCoverage: 0 };
       const upload = clusterUpload(points, s);

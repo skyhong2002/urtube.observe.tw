@@ -47,7 +47,7 @@ export class MatchingStore {
         fingerprint TEXT NOT NULL, version TEXT NOT NULL,
         state TEXT NOT NULL, token TEXT, lease_until INTEGER NOT NULL DEFAULT 0,
         attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0,
-        error TEXT
+        error TEXT, queued_at INTEGER
       );
     `);
     if (!db.prepare('PRAGMA table_info(matching_v3_operations)').all().some(row => row.name === 'valid_items')) db.exec('ALTER TABLE matching_v3_operations ADD COLUMN valid_items INTEGER');
@@ -55,12 +55,27 @@ export class MatchingStore {
     if (!db.prepare('PRAGMA table_info(matching_v3_jobs)').all().some(row => row.name === 'progress_json')) {
       db.exec('ALTER TABLE matching_v3_jobs ADD COLUMN progress_json TEXT');
     }
+    if (!db.prepare('PRAGMA table_info(matching_v3_jobs)').all().some(row => row.name === 'queued_at')) {
+      // Existing jobs have an unknown age; do not invent a migration-time age.
+      db.exec('ALTER TABLE matching_v3_jobs ADD COLUMN queued_at INTEGER');
+    }
   }
   operationUsage(id: number, value: TokenObservation): void {
     this.db.prepare('UPDATE matching_v3_operations SET usage_json=? WHERE id=?').run(JSON.stringify(value), id);
   }
   workerHeartbeat(): void {
     this.db.prepare('INSERT OR REPLACE INTO matching_v3_worker_status VALUES (1,?)').run(Date.now());
+  }
+  readiness(now = Date.now()) {
+    const heartbeatAt = this.db.prepare('SELECT heartbeat FROM matching_v3_worker_status WHERE id=1').get()?.heartbeat;
+    const rows = this.db.prepare('SELECT state,count(*) count,min(queued_at) oldest,sum(queued_at IS NULL) unknown_age FROM matching_v3_jobs GROUP BY state').all();
+    const count = (state: string) => Number(rows.find(row => row.state === state)?.count ?? 0);
+    const oldest = rows.find(row => row.state === 'queued')?.oldest;
+    return { worker: heartbeatAt != null && Number(heartbeatAt) <= now && now - Number(heartbeatAt) <= 120_000,
+      heartbeatAt: heartbeatAt == null ? null : Number(heartbeatAt),
+      queued: count('queued'), running: count('running'), failed: count('failed'),
+      queuedAgeUnknown: Number(rows.find(row => row.state === 'queued')?.unknown_age ?? 0),
+      oldestQueuedAgeMs: oldest == null ? null : Math.max(0, now - Number(oldest)) };
   }
   operationStart(kind: string, items: number): number {
     const result = this.db.prepare("INSERT INTO matching_v3_operations(kind,items,started_at,status) VALUES (?,?,?,'running')").run(kind, items, Date.now());
@@ -130,10 +145,10 @@ export class MatchingStore {
       .run(JSON.stringify(progress), job.userId, job.token);
   }
   schedule(userId: number, fingerprint: string, version: string): void {
-    this.db.prepare(`INSERT INTO matching_v3_jobs(user_id,fingerprint,version,state) VALUES (?,?,?,'queued')
+    this.db.prepare(`INSERT INTO matching_v3_jobs(user_id,fingerprint,version,state,queued_at) VALUES (?,?,?,'queued',?)
       ON CONFLICT(user_id) DO UPDATE SET fingerprint=excluded.fingerprint, version=excluded.version,
-      state='queued', token=NULL, lease_until=0, attempts=0, retry_at=0, error=NULL, progress_json=NULL
-      WHERE fingerprint<>excluded.fingerprint OR version<>excluded.version`).run(userId, fingerprint, version);
+      state='queued', token=NULL, lease_until=0, attempts=0, retry_at=0, error=NULL, progress_json=NULL, queued_at=excluded.queued_at
+      WHERE fingerprint<>excluded.fingerprint OR version<>excluded.version`).run(userId, fingerprint, version, Date.now());
   }
   claim(now = Date.now(), exclude: number[] = []): Job | null {
     const token = randomUUID();

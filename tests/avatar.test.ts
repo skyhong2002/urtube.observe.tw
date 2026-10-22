@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { completeGoogleLogin, googleLoginUrl } from '../src/auth.js';
+import { completeGoogleLogin, googleLoginUrl, loginNonce } from '../src/auth.js';
 import {
   AVATAR_FETCH_TIMEOUT_MS,
   AVATAR_MAX_BYTES,
@@ -92,6 +92,8 @@ test('Google login requests profile scope and accepts picture claims', async () 
     const state = login.searchParams.get('state')!;
     const claims = Buffer.from(JSON.stringify({
       sub: 'google-avatar-user',
+      iss: 'https://accounts.google.com', aud: config.login.googleClientId,
+      iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600, nonce: loginNonce(state),
       email: 'avatar@example.test',
       picture: 'https://lh3.googleusercontent.com/a/avatar-value#fragment',
     })).toString('base64url');
@@ -235,11 +237,17 @@ test('same-origin avatar routes enforce dashboard and matching authorization', a
 
 test('missing token picture uses same-account UserInfo and keeps login working on failure', async () => {
   const registry = new UserRegistry(':memory:');
+  const previousClient = config.login.googleClientId;
   try {
+    config.login.googleClientId = 'userinfo-fixture';
     for (const scenario of ['valid', 'different-account', 'failed']) {
-      const claims = Buffer.from(JSON.stringify({ sub: 'userinfo-user', email: 'fixture@example.test' })).toString('base64url');
+      const state = registry.createLoginState('/account');
+      const claims = Buffer.from(JSON.stringify({ sub: 'userinfo-user', email: 'fixture@example.test',
+        iss: 'https://accounts.google.com', aud: config.login.googleClientId,
+        iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600, nonce: loginNonce(state),
+      })).toString('base64url');
       let requests = 0;
-      const identity = await completeGoogleLogin(registry, 'code', registry.createLoginState('/account'), (async (input, init) => {
+      const identity = await completeGoogleLogin(registry, 'code', state, (async (input, init) => {
         if (++requests === 1) return Response.json({ id_token: `header.${claims}.sig`, access_token: 'fixture-token' });
         assert.equal(String(input), 'https://openidconnect.googleapis.com/v1/userinfo');
         assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fixture-token');
@@ -251,7 +259,7 @@ test('missing token picture uses same-account UserInfo and keeps login working o
       assert.equal(identity.avatarUrl, scenario === 'valid' ? 'https://lh3.googleusercontent.com/a/fixture' : null);
       assert.equal(identity.next, '/account');
     }
-  } finally { registry.close(); }
+  } finally { config.login.googleClientId = previousClient; registry.close(); }
 });
 
 test('temporary Gravatar fallback retries Google after a minute', async t => {

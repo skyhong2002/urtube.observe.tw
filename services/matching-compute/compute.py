@@ -232,6 +232,22 @@ def cluster_stream(stream, size):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        token = os.environ.get("MATCHING_V3_COMPUTE_TOKEN", "")
+        if not token or not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
+            self.send_error(401)
+            return
+        if self.path != "/healthz":
+            self.send_error(404)
+            return
+        body = b'{"status":"ready","algorithm":"compact-medoid-v1"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         token = os.environ.get("MATCHING_V3_COMPUTE_TOKEN", "")
         if not token or not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):

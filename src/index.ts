@@ -2,6 +2,7 @@ import { cachedScore } from './matching-v3/score-cache.js';
 import { presentationError } from './output/presentation-errors.js';
 import { normalizeSocialUrl } from './social-links.js';
 import { createHash } from 'node:crypto';
+import { yieldToEventLoop } from './event-loop-turns.js';
 import { ProfileError, validHandle, type ProfileInput } from './profile.js';
 import { profileDetails, profileEditPage, profileMessages } from './output/profile.js';
 import { readFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, suggestedHandle } from './auth.js';
+import { completeGoogleLogin, googleLoginConfigured, googleLoginUrl, loginStateCookie, suggestedHandle } from './auth.js';
 import { AvatarService, type AvatarImage } from './avatars.js';
 import { config } from './config.js';
 import { settings as matchingV3Settings, version as matchingV3Version, GENRES } from './matching-v3/model.js';
@@ -269,6 +270,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     await next();
   });
   const v3 = services.matchingV3?.settings ?? matchingV3Settings();
+  const readinessCompute = v3.enabled ? services.matchingV3?.compute ?? computeClient(v3) : null;
   if (v3.enabled) app.route('/', matchingRoutes(registry, v3, config.publicBaseUrl, services.matchingV3?.compute, (viewer, target, result, lang) => {
     const card = blendCard(viewer, target);
     if (viewer.matchingOptIn && target.matchingOptIn) card.actionToken = registry.issueMatchActionToken(viewer, target.id, card.disclosure.topics);
@@ -380,7 +382,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   }
 
   const secureCookies = config.publicBaseUrl.startsWith('https://');
-  const LOGIN_STATE_COOKIE = 'urtube_login_state';
 
   function sessionUser(c: Context): User | null {
     const token = getCookie(c, 'urtube_session') ?? '';
@@ -454,6 +455,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   async function fillV3Score(me: User, other: User, card: ActionableMatchingCandidateCard, requested?: string[]): Promise<void> {
     if (v3.enabled) {
+      await yieldToEventLoop();
       const store = registry.matchingV3Store();
       const available = store.preferences(me.id).genres.filter(genre => store.preferences(other.id).genres.includes(genre));
       const selected = requested ? available.filter(genre => requested.includes(genre)) : available;
@@ -710,7 +712,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       // it started in this browser. Binding it to a cookie stops someone from
       // handing a victim their own callback link and logging them into the
       // attacker's account (login CSRF).
-      setCookie(c, LOGIN_STATE_COOKIE, new URL(url).searchParams.get('state') ?? '', {
+      const state = new URL(url).searchParams.get('state')!;
+      setCookie(c, loginStateCookie(state), state, {
         httpOnly: true, sameSite: 'Lax', path: '/auth/google', secure: secureCookies, maxAge: 600,
       });
       return c.redirect(url);
@@ -720,15 +723,19 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   });
 
   app.get('/auth/google/callback', async (c) => {
-    // e.g. the user pressed Cancel on the Google consent screen.
-    if (c.req.query('error')) return c.redirect('/signup');
     const code = c.req.query('code');
     const state = c.req.query('state');
-    if (!code || !state) return c.text(presentationError(null, langOf(c), 'login'), 400);
-    const browserState = getCookie(c, LOGIN_STATE_COOKIE) ?? '';
-    deleteCookie(c, LOGIN_STATE_COOKIE, { path: '/auth/google' });
+    if (!state) return c.text(presentationError(null, langOf(c), 'login'), 400);
+    const browserState = getCookie(c, loginStateCookie(state)) ?? '';
+    deleteCookie(c, loginStateCookie(state), { path: '/auth/google', httpOnly: true, sameSite: 'Lax', secure: secureCookies });
     if (!browserState || !timingSafeEquals(browserState, state)) {
       return c.text(presentationError(null, langOf(c), 'login'), 400);
+    }
+    // Cancellation consumes only this browser's transaction. Other tabs keep
+    // their independent short-lived cookies and can complete normally.
+    if (c.req.query('error') || !code) {
+      registry.consumeLoginState(state);
+      return c.req.query('error') ? c.redirect('/signup') : c.text(presentationError(null, langOf(c), 'login'), 400);
     }
     try {
       const identity = await completeGoogleLogin(registry, code, state);
@@ -1722,12 +1729,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // open, required signup config must exist, and scheduled jobs must either
   // be live with a fresh heartbeat or have completed recently. External
   // monitoring should probe this endpoint.
-  app.get('/readyz', (c) => {
+  app.get('/readyz', async (c) => {
     const now = Date.now();
     const worker = readOpsStatus<WorkerOpsStatus>('worker');
     const backup = readOpsStatus<{ lastCompletedAt?: string; lastError?: string }>('backup');
     const fresh = (iso: string | undefined, maxAgeMs: number) =>
-      Boolean(iso && Number.isFinite(Date.parse(iso)) && now - Date.parse(iso) <= maxAgeMs);
+      Boolean(iso && Number.isFinite(Date.parse(iso)) && Date.parse(iso) <= now && now - Date.parse(iso) <= maxAgeMs);
     let databaseFailures = 0;
     const users = registry.listUsers();
     for (const user of users) {
@@ -1737,12 +1744,15 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         databaseFailures++;
       }
     }
+    const matching = v3.enabled ? registry.matchingV3Store().readiness(now) : null;
+    const computeReady = readinessCompute ? await readinessCompute.ready?.().catch(() => false) ?? false : true;
     const checks = {
       config: Boolean(config.youtube.privateDataKey && (!config.signupEnabled || googleLoginConfigured())),
       databases: databaseFailures === 0,
       worker: workerOpsReady(worker, now),
       backup: fresh(backup?.lastCompletedAt, (config.backup.intervalHours + 2) * 3600_000)
         && !backup?.lastError,
+      ...(matching ? { matchingWorker: matching.worker, matchingCompute: computeReady } : {}),
     };
     const ready = Object.values(checks).every(Boolean);
     return c.json({
@@ -1758,6 +1768,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         eventLoopMaxDelayAt: worker?.eventLoopMaxDelayAt ?? null,
       },
       backup: { lastCompletedAt: backup?.lastCompletedAt ?? null },
+      ...(matching ? { matching: { ...matching, compute: computeReady } } : {}),
     }, ready ? 200 : 503);
   });
 

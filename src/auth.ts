@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import type { UserRegistry } from './users.js';
 import { safeGoogleAvatarUrl } from './avatars.js';
+import { createHash } from 'node:crypto';
 
 // "Sign in with Google" (openid + email + profile). The point is account
 // uniqueness: Google's `sub` claim is a permanent per-account id, so one
@@ -19,6 +20,11 @@ export function googleLoginConfigured(): boolean {
   return Boolean(config.login.googleClientId && config.login.googleClientSecret);
 }
 
+// Domain-separated from the random, single-use state; no extra persistent
+// secret or schema is needed. Every login has its own cookie for parallel tabs.
+export const loginNonce = (state: string) => createHash('sha256').update(`urtube-oidc-nonce:${state}`).digest('base64url');
+export const loginStateCookie = (state: string) => `urtube_login_state_${createHash('sha256').update(state).digest('hex').slice(0, 32)}`;
+
 export function googleLoginUrl(registry: UserRegistry, next = ''): string {
   if (!googleLoginConfigured()) {
     throw new Error('Google login is not configured (set GOOGLE_LOGIN_CLIENT_ID / GOOGLE_LOGIN_CLIENT_SECRET)');
@@ -28,7 +34,9 @@ export function googleLoginUrl(registry: UserRegistry, next = ''): string {
   url.searchParams.set('redirect_uri', config.login.googleRedirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', 'openid email profile');
-  url.searchParams.set('state', registry.createLoginState(next));
+  const state = registry.createLoginState(next);
+  url.searchParams.set('state', state);
+  url.searchParams.set('nonce', loginNonce(state));
   url.searchParams.set('prompt', 'select_account');
   return url.toString();
 }
@@ -53,17 +61,30 @@ export async function completeGoogleLogin(
     }).toString(),
     // A hung token endpoint must not hold the login request open indefinitely.
     signal: AbortSignal.timeout(10_000),
+    redirect: 'error',
   });
   const body = await response.json().catch(() => ({})) as Record<string, unknown>;
   if (!response.ok || typeof body.id_token !== 'string') {
-    throw new Error(`Google token exchange failed: ${JSON.stringify(body).slice(0, 300)}`);
+    throw new Error('Google token exchange failed');
   }
-  // The id_token arrives directly from Google's token endpoint over TLS, so
-  // decoding without signature verification is safe here.
-  const payload = body.id_token.split('.')[1] ?? '';
+  // This token is obtained exclusively from Google's authenticated TLS token
+  // endpoint, never from the browser. Validate the OIDC claims as well as that
+  // trusted delivery channel; do not accept a token for another client/flow.
+  if (body.id_token.length > 16384 || body.id_token.split('.').length !== 3) throw new Error('Invalid Google identity token');
+  const payload = body.id_token.split('.')[1];
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
-  const sub = String(claims.sub ?? '');
-  if (!sub) throw new Error('Google id_token is missing the sub claim');
+  const audience = Array.isArray(claims?.aud) ? claims.aud : [claims?.aud];
+  const now = Date.now() / 1000;
+  if (!claims || !['https://accounts.google.com', 'accounts.google.com'].includes(String(claims.iss))
+    || !config.login.googleClientId || !audience.every(aud => typeof aud === 'string') || !audience.includes(config.login.googleClientId)
+    || ((audience.length > 1 || claims.azp !== undefined) && claims.azp !== config.login.googleClientId)
+    || typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now
+    || typeof claims.iat !== 'number' || !Number.isFinite(claims.iat) || claims.iat > now + 60 || claims.iat >= claims.exp
+    || claims.nonce !== loginNonce(state)
+    || typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 255) {
+    throw new Error('Invalid Google identity claims');
+  }
+  const sub = claims.sub;
   let avatarUrl = safeGoogleAvatarUrl(claims.picture);
   if (!avatarUrl && typeof body.access_token === 'string') {
     try {
@@ -79,7 +100,7 @@ export async function completeGoogleLogin(
   }
   return {
     sub,
-    email: claims.email ? String(claims.email) : '',
+    email: typeof claims.email === 'string' ? claims.email : '',
     avatarUrl,
     next: sameSitePath(consumed.next),
   };
