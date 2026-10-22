@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import compute
 from compute import cluster, compare
 
 
@@ -45,6 +46,27 @@ class CompactTests(unittest.TestCase):
         self.assertAlmostEqual(match(a,b)['score'],9/19)
         self.assertAlmostEqual(match(a,b)['score'],match(b,a)['score'])
         self.assertEqual(a,build(list(reversed(make([3,2,5,9])))))
+
+    def test_discarded_candidates_are_bounded(self):
+        # Six stars whose centre has enough support but whose leaves are too
+        # far apart to share a group: each yields a discarded candidate. A
+        # real group follows them in anchor order.
+        dims=14
+        def unit(k,angle):
+            v=np.zeros(dims); v[2*k]=np.cos(angle); v[2*k+1]=np.sin(angle); return v.tolist()
+        pts=[]
+        for k in range(6):
+            pts.append(dict(text=f'a{k}-centre',vector=unit(k,0),count=3))
+            pts.append(dict(text=f'a{k}-left',vector=unit(k,-.44),count=1))
+            pts.append(dict(text=f'a{k}-right',vector=unit(k,.44),count=1))
+        pts.append(dict(text='z-real',vector=unit(6,0),count=5))
+        self.assertEqual([g['tags'][0]['text'] for g in build(pts)['clusters']],['z-real'])
+        previous=compute.MAX_GROUP_ATTEMPTS
+        try:
+            compute.MAX_GROUP_ATTEMPTS=3
+            self.assertEqual(build(pts)['clusters'],[],'stops after the attempt bound')
+        finally:
+            compute.MAX_GROUP_ATTEMPTS=previous
 
     def test_empty_and_invalid(self):
         self.assertEqual(build([])['clusters'],[])

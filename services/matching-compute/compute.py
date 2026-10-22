@@ -53,11 +53,20 @@ def compact_cluster(data, vectors=None):
             neighbors._mmap.close()
 
 
+# At most ten groups are kept, but a candidate whose diameter-bounded mass
+# falls below minSamples is discarded without counting toward that limit.
+# Each attempt rescans the N x N neighbourhood, so bound the attempts too
+# (#92 R19). Below this bound the result is unchanged.
+MAX_GROUP_ATTEMPTS = 200
+
+
 def compact_groups(points, x, w, neighbors, minimum):
     active = np.ones(len(x), dtype=bool)
     groups = []
     total = float(w.sum())
-    while active.any() and len(groups) < 10:
+    attempts = 0
+    while active.any() and len(groups) < 10 and attempts < MAX_GROUP_ATTEMPTS:
+        attempts += 1
         support = np.empty(len(x))
         for start in range(0, len(x), 128):
             rows = np.unpackbits(neighbors[start:start+128], axis=1, count=len(x), bitorder="little")
