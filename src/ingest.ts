@@ -5,6 +5,7 @@ import type { Repository } from './data/database.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type User } from './users.js';
 import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
+import { outliveProxyKeepAlive } from './origin-server.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
 import { parseYoutubeArchive } from './youtube/takeout.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
@@ -235,5 +236,5 @@ if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
   const app = createIngestApp(registry);
-  serve({ fetch: app.fetch, port: config.port }, (info) => console.log(`urtube ingest listening on :${info.port}`));
+  outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => console.log(`urtube ingest listening on :${info.port}`)));
 }

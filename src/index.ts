@@ -66,6 +66,7 @@ import {
 import { readOpsStatus, workerOpsReady, type MatchingOpsStatus, type WorkerOpsStatus } from './ops-status.js';
 import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
+import { outliveProxyKeepAlive } from './origin-server.js';
 import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
@@ -1607,12 +1608,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   app.get('/healthz', (c) => {
     try {
       const user = registry.ensureDefaultUser();
-      const counts = registry.repositoryFor(user).youtubeCounts();
+      const repository = registry.repositoryFor(user);
+      repository.ping();
       return c.json({
         status: 'healthy',
         service: 'urtube',
-        counts,
-        lastError: registry.repositoryFor(user).youtubeSyncState('last_error') || null,
+        lastError: repository.youtubeSyncState('last_error') || null,
       });
     } catch (error) {
       return c.json({
@@ -1637,7 +1638,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const users = registry.listUsers();
     for (const user of users) {
       try {
-        registry.repositoryFor(user).youtubeCounts();
+        registry.repositoryFor(user).ping();
       } catch {
         databaseFailures++;
       }
@@ -1659,6 +1660,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         heartbeatAt: worker?.heartbeatAt ?? null,
         lastCompletedAt: worker?.lastCompletedAt ?? null,
         failedUsers: worker?.failedUsers ?? null,
+        eventLoopMaxDelayMs: worker?.eventLoopMaxDelayMs ?? null,
+        eventLoopMaxDelayAt: worker?.eventLoopMaxDelayAt ?? null,
       },
       backup: { lastCompletedAt: backup?.lastCompletedAt ?? null },
     }, ready ? 200 : 503);
@@ -1744,7 +1747,7 @@ if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   registry.ensureDefaultUser();
   const app = createApp(registry);
-  serve({ fetch: app.fetch, port: config.port }, (info) => {
+  outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);
-  });
+  }));
 }

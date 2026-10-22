@@ -12,6 +12,11 @@ export interface WorkerOpsStatus {
   users?: number;
   failedUsers?: number;
   lastError?: string;
+  // Longest event-loop stall observed in the recent window, and when it was
+  // seen. Heartbeats share that loop, so a stale heartbeat with a large value
+  // here means the process was blocked rather than dead or slow to persist.
+  eventLoopMaxDelayMs?: number;
+  eventLoopMaxDelayAt?: string;
   // YouTube Data API requests this worker process made since the last quota
   // reset (one request = one quota unit). See youtubeApiUsage().
   youtubeApiRequestsSinceReset?: number;
@@ -59,6 +64,21 @@ export function patchOpsStatus<T extends object>(
   const next = { ...(readOpsStatus<T>(name) ?? {} as T), ...patch } as T;
   writeOpsStatus(name, next);
   return next;
+}
+
+export const EVENT_LOOP_DELAY_WINDOW_MS = 15 * 60_000;
+
+// Keeps the worst stall for a while so a heartbeat written right after an
+// unblock does not immediately overwrite the evidence with a small value.
+export function nextEventLoopDelay(
+  previous: { ms: number; at: number } | null,
+  observedMs: number,
+  now: number,
+): { ms: number; at: number } {
+  if (!previous || now - previous.at > EVENT_LOOP_DELAY_WINDOW_MS || observedMs >= previous.ms) {
+    return { ms: observedMs, at: now };
+  }
+  return previous;
 }
 
 function fresh(iso: string | undefined, maxAgeMs: number, now: number): boolean {

@@ -1418,6 +1418,13 @@ export class Repository {
     };
   }
 
+  // Health probes only need proof that the file opens and its schema is
+  // readable. Counting history scans the archive and stalls the event loop
+  // whenever those pages are not cached.
+  ping(): void {
+    this.db.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get();
+  }
+
   youtubeCounts(): {
     watches: number;
     videoWatches: number;
