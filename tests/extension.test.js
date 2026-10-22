@@ -701,6 +701,14 @@ async function startWorker(fake, network) {
   globalThis.chrome = fake.chrome;
   globalThis.fetch = network.fetch;
   await import(new URL(`../chrome-extension/background.js?instance=${++backgroundInstance}`, import.meta.url).href);
+  // Storage migration hashes legacy tokens with crypto.subtle, which settles
+  // on the thread pool rather than in a fixed number of turns. Wait for its
+  // result (a fixed settle() was flaky on a loaded CI runner).
+  const migrated = () => fake.data.captureRecording
+    && (!fake.data.captureSettings || fake.data.captureSettings.accountKey !== undefined);
+  for (const deadline = Date.now() + 5000; !migrated() && Date.now() < deadline;) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
   await settle();
 }
 
