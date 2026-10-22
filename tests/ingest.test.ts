@@ -6,6 +6,7 @@ import test from 'node:test';
 import { zipSync, strToU8 } from 'fflate';
 import { config } from '../src/config.js';
 import { createIngestApp } from '../src/ingest.js';
+import { Repository } from '../src/data/database.js';
 import { UserRegistry } from '../src/users.js';
 
 const INGEST_TOKEN = process.env.INGEST_TOKEN!;
@@ -371,5 +372,34 @@ test('ingest enforces per-user request and database-size limits', async () => {
     config.maxUserDatabaseBytes = previousBytes;
     storageRegistry.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an exact event supersedes a day placeholder imported earlier in the same archive', () => {
+  const repository = new Repository(':memory:');
+  const base = {
+    title: 'Fixture', channelId: null, channelTitle: null, channelUrl: null,
+    actualWatchedSeconds: null, durationSeconds: 600, activityType: 'video' as const,
+  };
+  try {
+    const result = repository.ingestYoutubeArchive({
+      archiveHash: 'same-import-placeholder', source: 'extension', searches: [],
+      watches: [
+        { ...base, eventId: 'day-1', videoId: 'AAAAAAAAAAA', url: 'https://www.youtube.com/watch?v=AAAAAAAAAAA',
+          watchedAt: '2026-03-01T04:00:00.000Z', precision: 'day' },
+        { ...base, eventId: 'day-2', videoId: 'BBBBBBBBBBB', url: 'https://www.youtube.com/watch?v=BBBBBBBBBBB',
+          watchedAt: '2026-03-01T04:00:00.000Z', precision: 'day' },
+        // Same Taipei day (2026-03-01 21:30 +08:00) as the first placeholder.
+        { ...base, eventId: 'exact-1', videoId: 'AAAAAAAAAAA', url: 'https://www.youtube.com/watch?v=AAAAAAAAAAA',
+          watchedAt: '2026-03-01T13:30:00.000Z' },
+        // Next Taipei day: must not replace anything.
+        { ...base, eventId: 'exact-2', videoId: 'BBBBBBBBBBB', url: 'https://www.youtube.com/watch?v=BBBBBBBBBBB',
+          watchedAt: '2026-03-01T16:30:00.000Z' },
+      ],
+    });
+    assert.equal(result.watchesInserted, 4);
+    assert.equal(repository.youtubeCounts().watches, 3, 'only the same-day placeholder is removed');
+  } finally {
+    repository.close();
   }
 });

@@ -1088,13 +1088,19 @@ export class Repository {
       const value = row as { watched_day: string; identity: string };
       return `${value.watched_day}\u001f${value.identity}`;
     }));
-    const selectDayPlaceholders = this.db.prepare(`
-      SELECT w.event_id, w.activity_id
+    // Placeholders are read once, keyed like watchDayKeys. Querying them per
+    // imported event scanned every watch event each time (O(M·N), #92 R10).
+    const dayPlaceholders = new Map<string, Array<{ event_id: string; activity_id: string }>>();
+    for (const row of this.db.prepare(`
+      SELECT w.event_id, w.activity_id,
+        strftime('%Y-%m-%d', w.watched_at, '+8 hours') watched_day,
+        COALESCE(w.video_id, NULLIF(w.raw_url, ''), w.raw_title) identity
       FROM youtube_watch_events w JOIN activities a ON a.id = w.activity_id
       WHERE a.occurred_precision = 'day'
-        AND COALESCE(w.video_id, NULLIF(w.raw_url, ''), w.raw_title) = ?
-        AND strftime('%Y-%m-%d', w.watched_at, '+8 hours') = ?
-    `);
+    `).all() as Array<{ event_id: string; activity_id: string; watched_day: string; identity: string }>) {
+      const key = `${row.watched_day}\u001f${row.identity}`;
+      dayPlaceholders.set(key, [...dayPlaceholders.get(key) ?? [], { event_id: row.event_id, activity_id: row.activity_id }]);
+    }
     const deleteWatchEvent = this.db.prepare('DELETE FROM youtube_watch_events WHERE event_id=?');
     const deleteActivity = this.db.prepare('DELETE FROM activities WHERE id=?');
 
@@ -1123,12 +1129,11 @@ export class Repository {
         } else if (watch.videoId) {
           // An exact event supersedes any day-precision placeholder for the
           // same video on the same Taipei day.
-          const placeholders = selectDayPlaceholders.all(identity, taipeiDay(watch.watchedAt)) as
-            Array<{ event_id: string; activity_id: string }>;
-          for (const row of placeholders) {
+          for (const row of dayPlaceholders.get(dayKey) ?? []) {
             deleteWatchEvent.run(row.event_id);
             deleteActivity.run(row.activity_id);
           }
+          dayPlaceholders.delete(dayKey);
         }
         const activity = activityFromEntry({
           source: 'youtube',
@@ -1164,6 +1169,9 @@ export class Repository {
           watchSecondKeys.add(secondKey);
           watchMinuteKeys.add(minuteKey);
           watchDayKeys.add(dayKey);
+          if (activity.occurredAtPrecision === 'day') {
+            dayPlaceholders.set(dayKey, [...dayPlaceholders.get(dayKey) ?? [], { event_id: watch.eventId, activity_id: activity.id }]);
+          }
         }
         // A prior interrupted import can leave the generic activity but not the
         // YouTube event. Count only the canonical event insert.

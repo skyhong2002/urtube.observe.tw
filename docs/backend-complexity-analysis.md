@@ -133,7 +133,19 @@ placeholder：SCAN a
 v3 source：SCAN w + USE TEMP B-TREE FOR GROUP BY / ORDER BY
 ```
 
-完整計畫與量測見 [evidence JSON](analysis/backend-complexity-evidence.json)，可重跑的合成探針見 [complexity-probe.mjs](analysis/complexity-probe.mjs)。
+### 2026-10-22 重新量測（#92 R10）
+
+探針已改為只透過 Repository 公開 API 做端到端量測（舊版用 regex 從原始碼擷取 SQL，查詢一改就失效）。day placeholder 改為匯入開始時讀一次並以「台北日期＋identity」建 Map，取代逐筆查詢。同一台機器、Node v24.15.0，前後對照（中位數）：
+
+| 情境 | n=250 | 500 | 1,000 | 2,000 |
+|---|---:|---:|---:|---:|
+| 精確事件取代 day placeholder（同一影片），修正前 | 25 ms | 76 ms | 400 ms | 1,487 ms |
+| 同上，修正後 | 6 ms | 25 ms | 32 ms | 74 ms |
+| Dashboard 全期間聚合（同一影片），修正後 | 9 ms | 17 ms | 29 ms | 35 ms |
+
+推估的 ±300 秒查詢已在先前改用 TEMP covering index（b5549e4、c304117），Dashboard 聚合不再呈平方成長。上表仍是合成資料的形狀驗證，不是正式站 SLA。
+
+完整量測見 [evidence JSON](analysis/backend-complexity-evidence.json)，可重跑的合成探針見 [complexity-probe.mjs](analysis/complexity-probe.mjs)。
 
 ## 4. Dashboard、頻道與時間序列聚合
 
