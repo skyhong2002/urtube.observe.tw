@@ -21,7 +21,7 @@ import { compareMatchRank } from './matching-v3/matching.js';
 import { computeClient, type Compute } from './matching-v3/compute.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
-import { cachedRead, cachedReadAsync, clearReadCaches, forgetDurableReads, type AsyncReadOptions } from './data/read-cache.js';
+import { cachedRead, cachedReadAsync, clearReadCaches, forgetDurableReads, type AsyncReadOptions, type DurableRead } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
@@ -161,7 +161,7 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
 // other requests or the health checks (src/read-pool.ts).
 function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' | 'summary' = false, staleFor = 0): Promise<YoutubeDashboardData> {
   return cachedReadAsync(repository, `dashboard:${range}:${includeInsights}`, () => readOffThread(repository, registry.databasePathFor(user), 'dashboard',
-    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>, undefined, readOptions(registry, user, staleFor));
+    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>, undefined, readOptions(registry, user, staleFor, DURABLE.dashboard));
 }
 // Visitors other than the owner may see aggregates up to this old while a
 // refresh runs (src/data/read-cache.ts). Cold, they took 20-90 s per Insights
@@ -170,9 +170,34 @@ const PUBLIC_STALE_MS = 24 * 3600_000;
 // A visit refreshes an aggregate older than this; younger ones are served as
 // they are, so frequent visits do not keep the read threads rebuilding.
 const PUBLIC_REFRESH_MS = 10 * 60_000;
-// staleFor 0 is the owner: always current data, never a durable copy.
-function readOptions(registry: UserRegistry, user: User, staleFor: number): AsyncReadOptions {
-  return { staleFor, refreshAfter: staleFor ? PUBLIC_REFRESH_MS : 0, durable: { path: registry.databasePathFor(user), subject: user.id } };
+// What each read may keep on disk (src/data/read-cache.ts): public aggregates
+// only. Bump a version when its calculation or shape changes.
+type DurableShape = Pick<DurableRead, 'version' | 'project' | 'valid'>;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const same = (value: unknown) => value;
+const DURABLE: Record<'dashboard' | 'channels' | 'crystalShifts' | 'popularity' | 'counts' | 'metadata' | 'referenceUpdated', DurableShape> = {
+  // Individual recent watches (titles, URLs, exact times) are never written.
+  dashboard: { version: 'dashboard:1', project: (value) => ({ ...(value as YoutubeDashboardData), recent: [] }),
+    valid: (value) => isRecord(value) && isRecord(value.stats) && Array.isArray(value.daily) && Array.isArray(value.topChannels)
+      && Array.isArray(value.recent) && value.recent.length === 0 },
+  channels: { version: 'channels:1', project: same, valid: (value) => Array.isArray(value)
+    && value.every((row) => isRecord(row) && typeof row.watches === 'number' && typeof row.estimatedWatchSeconds === 'number') },
+  crystalShifts: { version: 'crystal-shifts:1', project: same, valid: (value) => isRecord(value) && Array.isArray(value.shifts) },
+  popularity: { version: 'popularity:1', project: same, valid: (value) => isRecord(value) && typeof value.totalVideos === 'number' },
+  counts: { version: 'counts:1', project: same, valid: (value) => isRecord(value) && typeof value.watches === 'number' },
+  metadata: { version: 'metadata-processing:1', project: same, valid: isRecord },
+  // Shown by day only; the exact latest-activity time is not kept.
+  referenceUpdated: { version: 'reference-updated:1', project: (value) => typeof value === 'string' ? value.slice(0, 10) : null,
+    valid: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) },
+};
+// staleFor 0 (the owner, key holders): current data, no durable copy read or
+// written. Every read still knows its archive, so an import or deletion while
+// it runs discards the result.
+function readOptions(registry: UserRegistry, user: User, staleFor: number, shape: DurableShape): AsyncReadOptions {
+  const path = registry.databasePathFor(user);
+  return staleFor
+    ? { staleFor, refreshAfter: PUBLIC_REFRESH_MS, archive: path, durable: { path, subject: user.id, ...shape } }
+    : { archive: path };
 }
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): Promise<YoutubeComparisonProfile> {
   return cachedReadAsync(repository, `comparison:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
@@ -185,11 +210,11 @@ function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: s
 function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange, staleFor = 0): Promise<YoutubeChannelSummary[]> {
   const repository = registry.repositoryFor(user);
   return cachedReadAsync(repository, `channels:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
-    'youtubeChannelTotals', range, new Date()), undefined, readOptions(registry, user, staleFor));
+    'youtubeChannelTotals', range, new Date()), undefined, readOptions(registry, user, staleFor, DURABLE.channels));
 }
 function pooledCountsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), staleFor = 0): Promise<ReturnType<Repository['youtubeCounts']>> {
   return cachedReadAsync(repository, 'counts', () => readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeCounts'),
-    undefined, readOptions(registry, user, staleFor));
+    undefined, readOptions(registry, user, staleFor, DURABLE.counts));
 }
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystal {
   return cachedRead(repository, `crystal:${user.handle}:${user.displayName}`, () => buildYoutubeCrystal(repository, user));
@@ -208,7 +233,7 @@ async function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repo
 }
 function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), staleFor = 0): Promise<YoutubeCrystalShiftSection> {
   return cachedReadAsync(repository, 'crystal-shifts', () => readOffThread(repository, registry.databasePathFor(user), 'crystalShifts',
-    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>, undefined, readOptions(registry, user, staleFor));
+    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>, undefined, readOptions(registry, user, staleFor, DURABLE.crystalShifts));
 }
 
 interface AppServices {
@@ -316,7 +341,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const repository = registry.repositoryFor(user);
     return cachedReadAsync(repository, 'metadata-processing', () =>
       readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeMetadataProcessingCounts', new Date()), 5000,
-      readOptions(registry, user, staleFor));
+      readOptions(registry, user, staleFor, DURABLE.metadata));
   };
   const pooledV3DataFor = async (user: User) => v3DataWith(user, await pooledV3MetadataFor(user));
   // Session-only progress, independent of matching consent or whether v3 is enabled.
@@ -514,7 +539,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   ) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
-    const staleFor = sessionUser(c)?.id === user.id ? 0 : PUBLIC_STALE_MS;
+    // The owner and dashboard-key holders can see individual watches: they get
+    // current, complete data. Everyone else may get the public aggregates.
+    const staleFor = privateDashboardAccess(c, user) ? 0 : PUBLIC_STALE_MS;
     const counts = await pooledCountsFor(registry, user, repository, staleFor);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
@@ -543,7 +570,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           const contributorRepository = registry.repositoryFor(contributor);
           const dataUpdatedAt = await cachedReadAsync(contributorRepository, 'reference-updated', () => readMethodOffThread(
             contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'), undefined,
-            readOptions(registry, contributor, staleFor));
+            readOptions(registry, contributor, staleFor, DURABLE.referenceUpdated));
           if (!dataUpdatedAt) return [];
           return [{
             subjectId: contributor.id,
@@ -567,7 +594,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const popularity = page === 'insights' && hasData
       ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
         { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined,
-        readOptions(registry, user, staleFor)) : undefined;
+        readOptions(registry, user, staleFor, DURABLE.popularity)) : undefined;
     const v3Metadata = await pooledV3MetadataFor(user, staleFor);
     // Every await is above. Nothing below yields before the response, so
     // visibility, the session and reference consent are checked as of render,

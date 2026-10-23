@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { load } from 'cheerio';
 import test from 'node:test';
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { clearReadCaches } from '../src/data/read-cache.js';
@@ -311,9 +311,15 @@ test('durable public aggregates survive a restart but never outlive visibility o
     seedWatch(registry, bob);
     registry.setDashboardPublic(bob.handle, true);
     let app = createApp(registry, { loadTagLists: async () => snapshot });
+    const directory = `${registry.databasePathFor(bob)}-aggregates`;
+    const owner = { cookie: `urtube_session=${registry.createSession(bob)}` };
+    for (const suffix of ['', '/insights']) assert.equal((await app.request(`/durable-bob${suffix}`, { headers: owner })).status, 200);
+    await readPoolIdle();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(existsSync(directory), false, 'the owner\'s views write no copy');
+    clearReadCaches();
     for (const suffix of ['', '/insights']) assert.equal((await app.request(`/durable-bob${suffix}`)).status, 200);
     await readPoolIdle();
-    const directory = `${registry.databasePathFor(bob)}-aggregates`;
     // Copies are written after each read settles; wait until none are pending.
     let listing = '';
     for (let i = 0; i < 100; i++) {
@@ -323,6 +329,13 @@ test('durable public aggregates survive a restart but never outlive visibility o
       listing = next;
     }
     assert.ok(readdirSync(directory).length >= 4, 'dashboard, counts and Insights reads were written');
+    for (const name of readdirSync(directory)) {
+      const raw = readFileSync(join(directory, name), 'utf8');
+      assert.doesNotMatch(raw, /01:23:45/, 'no exact watch time on disk');
+      const saved = JSON.parse(raw) as { value: { recent?: unknown[] } };
+      // The dashboard's individual recent watches (crystal windows are aggregates).
+      if (Array.isArray(saved.value?.recent)) assert.deepEqual(saved.value.recent, []);
+    }
 
     const written = () => readdirSync(directory).map((name) => `${name}:${statSync(join(directory, name)).mtimeMs}`).sort();
     const before = written();

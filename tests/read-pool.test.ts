@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { strToU8, zipSync } from 'fflate';
 import { Repository } from '../src/data/database.js';
-import { cachedReadAsync, clearReadCaches, forgetDurableReads } from '../src/data/read-cache.js';
+import { cachedReadAsync, clearReadCaches, forgetDurableReads, type DurableRead } from '../src/data/read-cache.js';
 import { readMethodOffThread, readOffThread, runRead } from '../src/read-pool.js';
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 
@@ -113,43 +113,157 @@ test('stale-while-revalidate serves the previous value during one background ref
   }
 });
 
-test('durable aggregates serve visitors after a restart, never the owner, and never across an import', async () => {
+type Value = { n: number; recent: string[] };
+function durableFixture(path: string, subject = 7, version = 'test:1'): DurableRead {
+  return {
+    path, subject, version,
+    project: (value) => ({ ...(value as Value), recent: [] }),
+    valid: (value) => typeof value === 'object' && value !== null && typeof (value as Value).n === 'number'
+      && Array.isArray((value as Value).recent) && (value as Value).recent.length === 0,
+  };
+}
+// Durable copies are written after the read settles; wait until nothing is pending.
+// expectFiles: wait (up to 5 s) for at least one; otherwise give pending
+// writes a moment and report what exists.
+async function settled(directory: string, expectFiles = false): Promise<string[]> {
+  let listing: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const next = existsSync(directory) ? readdirSync(directory).sort().join() : '';
+    if (next === listing && !next.includes('.tmp') && (next || !expectFiles) && i >= 3) break;
+    listing = next;
+  }
+  return existsSync(directory) ? readdirSync(directory) : [];
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void, reject!: (error: Error) => void;
+  const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; });
+  return { promise, resolve, reject };
+}
+const importOne = (repository: Repository) => repository.ingestYoutubeArchive(parseYoutubeArchive(zipSync({ 'Takeout/YouTube and YouTube Music/history/watch-history.json': strToU8(JSON.stringify([{
+  header: 'YouTube', title: 'Watched Another', titleUrl: 'https://www.youtube.com/watch?v=BBBBBBBBBBB',
+  time: '2026-07-20T00:00:00.000Z', products: ['YouTube'], activityControls: ['YouTube watch history'],
+}])) }), SECRET, 'takeout'));
+
+test('durable copies hold only the public projection, are private files, and never serve the owner', async () => {
   const root = mkdtempSync(join(tmpdir(), 'urtube-durable-'));
   const path = join(root, 'archive.sqlite');
+  const directory = `${path}-aggregates`;
   let repository = seeded(path);
   try {
     clearReadCaches();
     let reads = 0;
-    const read = async () => ++reads;
-    const durable = { path, subject: 7 };
-    const visitor = (r: Repository, options = {}) => cachedReadAsync(r, 'key', read, 300_000, { staleFor: 60_000, refreshAfter: 60_000, durable, ...options });
-    assert.equal(await cachedReadAsync(repository, 'key', read, 300_000, { durable }), 1, 'the owner computes and writes the copy');
-    for (let i = 0; i < 50 && !existsSync(`${path}-aggregates`); i++) await new Promise((resolve) => setTimeout(resolve, 10));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(readdirSync(`${path}-aggregates`).length, 1);
+    const read = async (): Promise<Value> => ({ n: ++reads, recent: ['private watch at 2026-07-01T00:00:00Z'] });
+    const visitor = (r: Repository, durable = durableFixture(path)) =>
+      cachedReadAsync(r, 'key', read, 300_000, { staleFor: 60_000, refreshAfter: 60_000, archive: path, durable });
+    const owner = (r: Repository) => cachedReadAsync(r, 'key', read, 300_000, { archive: path, durable: durableFixture(path) });
 
-    // A restart: a new process has no memory cache and a new connection.
+    assert.deepEqual(await owner(repository), { n: 1, recent: ['private watch at 2026-07-01T00:00:00Z'] }, 'the owner gets complete data');
+    assert.deepEqual(await settled(directory), [], 'the owner never writes a copy');
+    clearReadCaches();
+    assert.equal((await visitor(repository)).n, 2);
+    const [file] = await settled(directory, true);
+    const raw = readFileSync(join(directory, file), 'utf8');
+    assert.doesNotMatch(raw, /private watch/, 'individual watches never reach the disk');
+    assert.equal(statSync(directory).mode & 0o777, 0o700);
+    assert.equal(statSync(join(directory, file)).mode & 0o777, 0o600);
+
+    // A restart: no memory cache, a new connection.
     clearReadCaches();
     repository.close();
     repository = new Repository(path);
-    assert.equal(await visitor(repository), 1, 'served from the durable copy');
-    assert.equal(reads, 1, 'young enough: no recompute (refreshAfter)');
-    assert.equal(await visitor(repository, { durable: { path, subject: 8 } }), 1, 'memory entry still answers this process');
+    assert.deepEqual(await visitor(repository), { n: 2, recent: [] }, 'the projection is served after a restart');
+    assert.equal(reads, 2, 'young enough: no recompute (refreshAfter)');
+    assert.deepEqual(await owner(repository), { n: 3, recent: ['private watch at 2026-07-01T00:00:00Z'] },
+      'the owner never gets the loaded projection, even from memory');
     clearReadCaches();
-    assert.equal(await visitor(repository, { durable: { path, subject: 8 } }), 2, 'another account never reads it');
+    assert.equal((await visitor(repository, durableFixture(path, 8))).n, 4, 'another account never reads it');
     clearReadCaches();
-    assert.equal(await cachedReadAsync(repository, 'key', read, 300_000, { durable }), 3, 'the owner never reads a copy');
+    assert.equal((await visitor(repository, durableFixture(path, 7, 'test:2'))).n, 5, 'another calculation version recomputes');
+    await settled(directory, true);
+    clearReadCaches();
+    assert.equal((await visitor(repository, { ...durableFixture(path, 7, 'test:2'), valid: () => false })).n, 6, 'an unexpected shape recomputes');
+  } finally {
+    repository.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-    // An import makes every earlier copy unusable, even for visitors.
+test('an import that lands while a copy is read is never served from before it', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-durable-import-'));
+  const path = join(root, 'archive.sqlite');
+  const repository = seeded(path);
+  try {
     clearReadCaches();
-    repository.ingestYoutubeArchive(parseYoutubeArchive(zipSync({ 'Takeout/YouTube and YouTube Music/history/watch-history.json': strToU8(JSON.stringify([{
-      header: 'YouTube', title: 'Watched Another', titleUrl: 'https://www.youtube.com/watch?v=BBBBBBBBBBB',
-      time: '2026-07-20T00:00:00.000Z', products: ['YouTube'], activityControls: ['YouTube watch history'],
-    }])) }), SECRET, 'takeout'));
-    assert.equal(await visitor(repository), 4, 'a pre-import copy is never served');
+    let reads = 0;
+    const read = async (): Promise<Value> => ({ n: ++reads, recent: [] });
+    const visitor = () => cachedReadAsync(repository, 'key', read, 300_000, { staleFor: 60_000, refreshAfter: 60_000, archive: path, durable: durableFixture(path) });
+    assert.equal((await visitor()).n, 1);
+    await settled(`${path}-aggregates`, true);
+    clearReadCaches();
+    // The request runs synchronously up to reading the file; the import
+    // commits while that read is pending.
+    const request = visitor();
+    importOne(repository);
+    assert.equal((await request).n, 2, 'recomputed, not the pre-import copy');
+  } finally {
+    repository.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-    forgetDurableReads(path);
-    assert.equal(existsSync(`${path}-aggregates`), false);
+test('a read that spans an import or deletion neither returns nor writes its result', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-durable-forget-'));
+  const path = join(root, 'archive.sqlite');
+  const directory = `${path}-aggregates`;
+  const repository = seeded(path);
+  try {
+    for (const outcome of ['retried', 'deleted'] as const) {
+      clearReadCaches();
+      const first = deferred<Value>();
+      const started = deferred<void>();
+      let calls = 0;
+      const read = (): Promise<Value> => {
+        calls++;
+        if (calls === 1) { started.resolve(); return first.promise; }
+        return outcome === 'retried' ? Promise.resolve({ n: 2, recent: [] }) : Promise.reject(new Error('archive is gone'));
+      };
+      const request = cachedReadAsync(repository, `key-${outcome}`, read, 300_000, { staleFor: 60_000, archive: path, durable: durableFixture(path) });
+      await started.promise;
+      // The import or deletion lands while the read is running.
+      forgetDurableReads(path);
+      first.resolve({ n: 1, recent: [] });
+      if (outcome === 'retried') assert.equal((await request).n, 2, 'the pre-import result is not returned');
+      else await assert.rejects(request, /archive is gone/, 'nothing from the deleted archive is returned');
+      const left = await settled(directory);
+      if (outcome === 'deleted') assert.deepEqual(left, [], 'nothing from the deleted archive is written back');
+      forgetDurableReads(path);
+    }
+    assert.equal(existsSync(directory), false);
+  } finally {
+    repository.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an older refresh that finishes later never replaces a newer copy', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-durable-order-'));
+  const path = join(root, 'archive.sqlite');
+  const repository = seeded(path);
+  try {
+    clearReadCaches();
+    const older = deferred<Value>();
+    const options = { staleFor: 60_000, refreshAfter: 60_000, archive: path, durable: durableFixture(path) };
+    const first = cachedReadAsync(repository, 'key', () => older.promise, 300_000, options);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    clearReadCaches();
+    assert.equal((await cachedReadAsync(repository, 'key', async () => ({ n: 2, recent: [] }), 300_000, options)).n, 2);
+    await settled(`${path}-aggregates`, true);
+    older.resolve({ n: 1, recent: [] });
+    await first;
+    await settled(`${path}-aggregates`);
+    clearReadCaches();
+    assert.equal((await cachedReadAsync(repository, 'key', async () => ({ n: 3, recent: [] }), 300_000, options)).n, 2, 'the newer copy is kept');
   } finally {
     repository.close();
     rmSync(root, { recursive: true, force: true });
