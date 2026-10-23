@@ -244,7 +244,10 @@ export class UserRegistry {
     if (registryPath !== ':memory:') mkdirSync(dirname(registryPath), { recursive: true });
     this.dataDir = dataDir ?? (registryPath === ':memory:' ? ':memory:' : join(dirname(registryPath), 'users'));
     this.db = new DatabaseSync(registryPath);
-    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+    // busy_timeout first: when the app, ingest and worker start together, one of
+    // them may be recovering the WAL, and journal_mode would otherwise fail at
+    // once with "database is locked" (seen on the 2026-10-23 deploy).
+    this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

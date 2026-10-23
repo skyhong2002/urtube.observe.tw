@@ -6,7 +6,7 @@ import test from 'node:test';
 import { strToU8, zipSync } from 'fflate';
 import { Repository } from '../src/data/database.js';
 import { cachedReadAsync, clearReadCaches, forgetDurableReads, type DurableRead } from '../src/data/read-cache.js';
-import { readMethodOffThread, readOffThread, runRead } from '../src/read-pool.js';
+import { pauseReadPoolForTests, readMethodOffThread, readOffThread, readPoolIdle, readPoolPending, readPoolState, runRead, withReadPriority } from '../src/read-pool.js';
 import { parseYoutubeArchive } from '../src/youtube/takeout.js';
 
 const SECRET = 'test-private-data-key-with-at-least-32-characters';
@@ -286,6 +286,58 @@ test('the web server opens archives without the full-table channel repair', () =
       assert.equal(calls, 1, 'the default (worker, ingest) still repairs on open');
     } finally { prototype.backfillYoutubeChannelIds = saved; }
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a request never queues behind background refreshes, which hold at most one read thread', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-priority-'));
+  const path = join(root, 'archive.sqlite');
+  const repository = seeded(path);
+  try {
+    const now = '2026-08-01T00:00:00.000Z';
+    const read = () => readOffThread(repository, path, 'dashboard', { range: 'all', now, includeInsights: true });
+    await readPoolIdle();
+    const background = withReadPriority({ background: true }, () => [read(), read(), read()]);
+    assert.deepEqual(readPoolState(), { queued: 2, running: 1, backgroundRunning: 1, queuedBackground: 2 }, 'one thread for refreshes');
+    const request = read();
+    assert.deepEqual(readPoolState(), { queued: 2, running: 2, backgroundRunning: 1, queuedBackground: 2 }, 'the request starts at once, ahead of queued refreshes');
+    await Promise.all([...background, request]);
+    await readPoolIdle();
+    assert.equal(readPoolPending(), 0);
+  } finally {
+    repository.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a request that joins a queued background computation promotes it', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-promote-'));
+  const path = join(root, 'archive.sqlite');
+  const repository = seeded(path);
+  try {
+    clearReadCaches();
+    await readPoolIdle();
+    const now = '2026-08-01T00:00:00.000Z';
+    const read = () => readOffThread(repository, path, 'dashboard', { range: 'all', now, includeInsights: true });
+    pauseReadPoolForTests(true);
+    // Background work (as start-up warming) starts the computation; across its
+    // own awaits it stays background.
+    const warming = withReadPriority({ background: true }, async () => {
+      await Promise.resolve();
+      return cachedReadAsync(repository, 'key', read);
+    });
+    for (let i = 0; i < 50 && !readPoolState().queued; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual(readPoolState(), { queued: 1, running: 0, backgroundRunning: 0, queuedBackground: 1 });
+    const visitor = cachedReadAsync(repository, 'key', read);
+    await Promise.resolve();
+    assert.equal(readPoolState().queuedBackground, 0, 'the visitor joined and promoted it');
+    assert.equal(readPoolState().queued, 1, 'one shared computation');
+    pauseReadPoolForTests(false);
+    assert.deepEqual(await visitor, await warming);
+  } finally {
+    pauseReadPoolForTests(false);
+    repository.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

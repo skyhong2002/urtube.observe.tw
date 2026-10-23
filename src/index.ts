@@ -79,7 +79,8 @@ import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { importArchive } from './archive-import.js';
-import { readMethodOffThread, readOffThread, readPoolIdle } from './read-pool.js';
+import { readMethodOffThread, readOffThread, readPoolIdle, readPoolPending, withReadPriority } from './read-pool.js';
+import { stageTimer, watchEventLoop } from './timing.js';
 import { computeTagLean, fetchTagLists, type TagLeanData } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation, type ReferenceContribution } from './youtube/reference-population.js';
@@ -168,8 +169,9 @@ function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRa
 // page on 2026-10-23. Owner actions clear the caches; access is per request.
 const PUBLIC_STALE_MS = 24 * 3600_000;
 // A visit refreshes an aggregate older than this; younger ones are served as
-// they are, so frequent visits do not keep the read threads rebuilding.
-const PUBLIC_REFRESH_MS = 10 * 60_000;
+// they are. Every Insights page reads 14 contributors and the landing page 24
+// archives, so at 10 minutes refreshes alone kept the read threads busy.
+const PUBLIC_REFRESH_MS = 60 * 60_000;
 // What each read may keep on disk (src/data/read-cache.ts): public aggregates
 // only. Bump a version when its calculation or shape changes.
 type DurableShape = Pick<DurableRead, 'version' | 'project' | 'valid'>;
@@ -542,7 +544,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     // The owner and dashboard-key holders can see individual watches: they get
     // current, complete data. Everyone else may get the public aggregates.
     const staleFor = privateDashboardAccess(c, user) ? 0 : PUBLIC_STALE_MS;
+    const timer = stageTimer('page', { page, viewer: staleFor ? 'public' : 'private' });
     const counts = await pooledCountsFor(registry, user, repository, staleFor);
+    timer.mark('counts');
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
     const shortFormVariant = requestedShortForm === 'stacked'
@@ -552,18 +556,22 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
     const data = await cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights', staleFor);
+    timer.mark('dashboard');
     const hasData = counts.watches > 0;
     const crystalHtml = page === 'insights' && hasData
       ? shiftsSection({ handle: user.handle, ...await cachedCrystalShiftsFor(registry, user, repository, staleFor) }, lang) : '';
+    timer.mark('crystal');
     let leanings: { tagLean: TagLeanData; contributions: ReferenceContribution[] } | 'unavailable' | undefined;
     if (page === 'insights' && hasData) {
       try {
         const snapshot = await loadTagLists();
+        timer.mark('tagLists');
         const tagLean = computeTagLean(
           range,
           await cachedChannelTotalsFor(registry, user, range, staleFor),
           snapshot,
         );
+        timer.mark('ownTotals');
         // Every contributor's totals load in parallel on the read pool.
         const contributions = (await Promise.all(registry.listReferencePopulationUsers().map(async (contributor) => {
           // Unindexed MAX() over each archive: a full scan, so off this thread.
@@ -584,6 +592,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
               ),
           }];
         }))).flat();
+        timer.mark('reference');
         leanings = { tagLean, contributions };
       } catch (error) {
         console.warn('channel classifications unavailable:',
@@ -595,7 +604,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
         { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined,
         readOptions(registry, user, staleFor, DURABLE.popularity)) : undefined;
+    timer.mark('popularity');
     const v3Metadata = await pooledV3MetadataFor(user, staleFor);
+    timer.mark('metadata');
     // Every await is above. Nothing below yields before the response, so
     // visibility, the session and reference consent are checked as of render,
     // not as of the earlier reads.
@@ -648,7 +659,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       overview: '', insights: '/insights', history: '/history', recap: '/recap',
     };
     const pagePath = `${profilePath}${suffix[page]}`;
-    return c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
+    const response = c.html(youtubeDashboardPage(user.displayName, data, requestedSort(c.req.query('sort')), {
       basePath: pagePath,
       profilePath,
       profileHtml: profileDetails(user, viewerOwns, lang),
@@ -678,13 +689,19 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       dashboardPrivate: !user.dashboardPublic,
       shortFormVariant,
     }));
+    timer.mark('render');
+    timer.log();
+    return response;
   }
 
   // Channel totals run on the read pool so a cold refresh never blocks the
   // request thread (src/youtube/community.ts).
   const publicCommunityStats = communityStatsProvider({
     listUsers: () => registry.listUsers(),
-    repositoryFor: (user: User) => ({ youtubeChannelTotals: () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS) }),
+    // The landing page waits at most 2 s for these; refreshing them is
+    // background work for the read pool.
+    repositoryFor: (user: User) => ({ youtubeChannelTotals: () => withReadPriority({ background: true },
+      () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS)) }),
   });
   app.get('/', async (c) => {
     const stats = await publicCommunityStats();
@@ -1980,7 +1997,9 @@ export async function warmPublicPages(app: Hono, registry: UserRegistry): Promis
       if (!registry.userByHandle(listed.handle)?.dashboardPublic) break;
       pages++;
       try {
-        const response = await app.request(`/${listed.handle}${suffix}`);
+        // The whole request, across its awaits, is background work for the
+        // read pool: visitors' reads go first.
+        const response = await withReadPriority({ background: true }, () => app.request(`/${listed.handle}${suffix}`));
         await response.arrayBuffer();
         if (response.status === 200) ok++;
         // Background refreshes the page started: one page's reads at a time.
@@ -1999,6 +2018,7 @@ if (process.env.NODE_ENV !== 'test') {
   outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);
   }));
+  watchEventLoop(() => ({ poolPending: readPoolPending() }));
   // After the start-up health checks; ingest and worker also restart on deploy.
   setTimeout(() => {
     const started = Date.now();

@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { clearReadCaches } from '../src/data/read-cache.js';
-import { readPoolIdle } from '../src/read-pool.js';
+import { pauseReadPoolForTests, readPoolIdle, readPoolState } from '../src/read-pool.js';
 import { createApp } from './browser-app.js';
 import { UserRegistry, type User } from '../src/users.js';
 import { MATCHING_TAXONOMY } from '../src/youtube/matching.js';
@@ -362,6 +362,52 @@ test('durable public aggregates survive a restart but never outlive visibility o
     registry.deleteUser(bob.handle);
     assert.equal(existsSync(directory), false, 'deleting the account deletes its aggregates');
   } finally {
+    registry.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('start-up warming of uncached pages is background work: a visitor first read goes ahead of it', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-warm-priority-'));
+  const registry = new UserRegistry(join(root, 'users.sqlite'));
+  const until = async (condition: () => boolean, what: string) => {
+    for (let i = 0; i < 400 && !condition(); i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(condition(), what);
+  };
+  try {
+    clearReadCaches();
+    await readPoolIdle();
+    const warmed = registry.createUser('warm-first', 'First'), visited = registry.createUser('warm-visited', 'Visited');
+    for (const user of [warmed, visited]) {
+      seedWatch(registry, user);
+      registry.setDashboardPublic(user.handle, true);
+      registry.setReferenceOptIn(user.handle, true);
+    }
+    const app = createApp(registry, { loadTagLists: async () => snapshot });
+    const { warmPublicPages } = await import('../src/index.js');
+    pauseReadPoolForTests(true);
+    // Nothing is cached on disk or in memory: every read is a first computation.
+    const warming = warmPublicPages(app, registry);
+    await until(() => readPoolState().queued > 0, 'warming queued a read');
+    const before = readPoolState();
+    assert.equal(before.queuedBackground, before.queued, 'everything warming queues is background, across awaits');
+
+    const visitor = app.request('/warm-visited/insights');
+    await until(() => readPoolState().queued > before.queued, 'the visitor queued a read');
+    const during = readPoolState();
+    assert.equal(during.queued - during.queuedBackground, 1, 'the visitor\'s read is a request, not background');
+
+    // A visitor to the page being warmed joins its queued reads and promotes them.
+    const joining = app.request('/warm-first/insights');
+    await until(() => readPoolState().queuedBackground < during.queuedBackground, 'joined background work was promoted');
+
+    pauseReadPoolForTests(false);
+    assert.equal((await visitor).status, 200);
+    assert.equal((await joining).status, 200);
+    assert.deepEqual(await warming, { pages: 4, ok: 4 });
+  } finally {
+    pauseReadPoolForTests(false);
+    await readPoolIdle();
     registry.close();
     rmSync(root, { recursive: true, force: true });
   }

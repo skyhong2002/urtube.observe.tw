@@ -2,7 +2,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { renameSync, rmdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import type { Repository } from './database.js';
+import { logTiming, SLOW_MS } from '../timing.js';
+import { currentlyBackground, promoteReads, withReadPriority, type ReadPriority } from '../read-pool.js';
 
 // Cache data, never authorization or rendered HTML. Repository identity keeps
 // different registries/accounts isolated, even if their handles are identical.
@@ -11,7 +14,8 @@ import type { Repository } from './database.js';
 type Entry = { revision: string; at: number; value: unknown; guard?: string; projected?: boolean };
 let caches = new WeakMap<Repository, Map<string, Entry>>();
 
-let pending = new WeakMap<Repository, Map<string, Promise<unknown>>>();
+type Inflight = { promise: Promise<unknown>; priority: ReadPriority };
+let pending = new WeakMap<Repository, Map<string, Inflight>>();
 
 export function clearReadCaches(): void {
   caches = new WeakMap();
@@ -142,7 +146,20 @@ export interface AsyncReadOptions {
 // computation. The revision is taken before the read starts, so a write that
 // lands meanwhile makes the next request recompute.
 export async function cachedReadAsync<T>(repository: Repository, key: string, read: () => Promise<T>, ttl = 300_000,
-  { staleFor = 0, refreshAfter = 0, archive, durable: requested }: AsyncReadOptions = {}): Promise<T> {
+  options: AsyncReadOptions = {}): Promise<T> {
+  // Timing metadata only: the key's first segment (a read name) and the path taken.
+  const started = performance.now();
+  const decision = { name: 'compute' };
+  try {
+    return await cachedReadAsyncInner(repository, key, read, ttl, options, decision);
+  } finally {
+    const waitMs = performance.now() - started;
+    if (waitMs >= SLOW_MS) logTiming('cache-read', { read: key.split(':')[0], decision: decision.name, waitMs: Math.round(waitMs), owner: options.staleFor ? 0 : 1 });
+  }
+}
+
+async function cachedReadAsyncInner<T>(repository: Repository, key: string, read: () => Promise<T>, ttl: number,
+  { staleFor = 0, refreshAfter = 0, archive, durable: requested }: AsyncReadOptions, decision: { name: string }): Promise<T> {
   const durable = staleFor > 0 && requested && requested.path !== ':memory:' ? requested : undefined;
   let cache = caches.get(repository);
   if (!cache) {
@@ -150,7 +167,11 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
     caches.set(repository, cache);
   }
   let entry = cache.get(key);
-  if (entry && !entry.projected && entry.revision === repository.readRevision() && Date.now() - entry.at < ttl) return entry.value as T;
+  if (entry && !entry.projected && entry.revision === repository.readRevision() && Date.now() - entry.at < ttl) {
+    decision.name = 'fresh';
+    return entry.value as T;
+  }
+  let loadedFromDisk = false;
   if (!entry && durable) {
     const store = cache;
     const generation = generationOf(durable.path);
@@ -163,6 +184,7 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
     else if (usable) {
       entry = usable;
       store.set(key, usable);
+      loadedFromDisk = true;
     }
   }
   // Taken after any await above, so an import that landed meanwhile counts.
@@ -174,9 +196,20 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
     pending.set(repository, inflight);
   }
   const stale = staleFor > 0 && entry && entry.guard === guard && Date.now() - entry.at < staleFor ? entry : undefined;
+  const source = loadedFromDisk ? 'disk' : 'memory';
   const existing = inflight.get(key);
-  if (existing) return stale ? stale.value as T : existing as Promise<T>;
-  if (stale && Date.now() - stale.at < refreshAfter) return stale.value as T;
+  if (existing) {
+    decision.name = stale ? `stale-${source}` : `join-inflight${durable && !entry ? '-disk-miss' : ''}`;
+    if (stale) return stale.value as T;
+    // A request now waits for it: queued background work becomes a request.
+    if (!currentlyBackground()) promoteReads(existing.priority);
+    return existing.promise as Promise<T>;
+  }
+  if (stale && Date.now() - stale.at < refreshAfter) {
+    decision.name = `stale-${source}`;
+    return stale.value as T;
+  }
+  decision.name = stale ? `stale-${source}+refresh` : durable && !entry ? 'compute-disk-miss' : 'compute';
   const store = cache;
   const requests = inflight;
   const path = archive ?? requested?.path;
@@ -198,8 +231,11 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
     if (durable) void saveDurable(durable, key, fresh, generation, startedAt);
     return value;
   };
-  const promise = compute(0).finally(() => requests.delete(key));
-  inflight.set(key, promise);
+  // Background for the read pool: a refresh behind a stale value, or any read
+  // started by background work (start-up warming, landing statistics).
+  const priority: ReadPriority = { background: Boolean(stale) || currentlyBackground() };
+  const promise = withReadPriority(priority, () => compute(0)).finally(() => requests.delete(key));
+  inflight.set(key, { promise, priority });
   if (stale) {
     // A failed background refresh keeps the previous entry until staleFor.
     promise.catch(() => {});

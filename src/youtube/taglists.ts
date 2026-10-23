@@ -1,3 +1,5 @@
+import { performance } from 'node:perf_hooks';
+import { logTiming } from '../timing.js';
 import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type { YoutubeChannelSummary, YoutubeRange } from './types.js';
@@ -135,7 +137,9 @@ export async function fetchTagLists(now = Date.now()): Promise<TagListSnapshot> 
   if (cached && now - cached.at < TAG_LISTS_TTL_MS) return cached.snapshot;
   if (!pending) {
     pending = (async () => {
-      const responses = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUPS[key])));
+      const started = performance.now();
+      const responses = await Promise.all(ALL_KEYS.map((key) => fetchList(TAG_GROUPS[key])))
+        .finally(() => logTiming('taglists-fetch', { lists: ALL_KEYS.length, ms: Math.round(performance.now() - started) }));
       const lists = Object.fromEntries(
         ALL_KEYS.map((key, index) => [key, responses[index].ids]),
       ) as TagLists;

@@ -437,7 +437,10 @@ export class Repository {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.function('urtube_history_lower', { deterministic: true }, (value) => String(value ?? '').toLowerCase());
-    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+    // busy_timeout first: when the app, ingest and worker start together, one of
+    // them may be recovering the WAL, and journal_mode would otherwise fail at
+    // once with "database is locked" (seen on the 2026-10-23 deploy).
+    this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.migrate();
     // Every writer also backfills the videos it touches (import, capture,
     // metadata); this full-table pass repairs older rows. It scans the whole
