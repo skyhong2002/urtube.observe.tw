@@ -80,9 +80,9 @@ import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { importArchive } from './archive-import.js';
 import { readMethodOffThread, readOffThread } from './read-pool.js';
-import { computeTagLean, fetchTagLists } from './youtube/taglists.js';
+import { computeTagLean, fetchTagLists, type TagLeanData } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
-import { referencePopulation as buildReferencePopulation } from './youtube/reference-population.js';
+import { referencePopulation as buildReferencePopulation, type ReferenceContribution } from './youtube/reference-population.js';
 import { MAX_YOUTUBE_ARCHIVE_BYTES } from './youtube/takeout.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
@@ -304,11 +304,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return v3DataWith(user, cachedRead(repository, 'metadata-processing', () => repository.youtubeMetadataProcessingCounts(), 5000));
   };
   // Same data with the metadata counts computed on the read pool.
-  const pooledV3DataFor = async (user: User) => {
+  const pooledV3MetadataFor = (user: User) => {
     const repository = registry.repositoryFor(user);
-    return v3DataWith(user, await cachedReadAsync(repository, 'metadata-processing', () =>
-      readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeMetadataProcessingCounts', new Date()), 5000));
+    return cachedReadAsync(repository, 'metadata-processing', () =>
+      readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeMetadataProcessingCounts', new Date()), 5000);
   };
+  const pooledV3DataFor = async (user: User) => v3DataWith(user, await pooledV3MetadataFor(user));
   // Session-only progress, independent of matching consent or whether v3 is enabled.
   app.get('/api/processing', (c) => {
     c.header('Cache-Control', 'private, no-store');
@@ -518,7 +519,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const hasData = counts.watches > 0;
     const crystalHtml = page === 'insights' && hasData
       ? shiftsSection({ handle: user.handle, ...await cachedCrystalShiftsFor(registry, user, repository, staleFor) }, lang) : '';
-    let leaningsHtml = '';
+    let leanings: { tagLean: TagLeanData; contributions: ReferenceContribution[] } | 'unavailable' | undefined;
     if (page === 'insights' && hasData) {
       try {
         const snapshot = await loadTagLists();
@@ -531,7 +532,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         const contributions = (await Promise.all(registry.listReferencePopulationUsers().map(async (contributor) => {
           // Unindexed MAX() over each archive: a full scan, so off this thread.
           const contributorRepository = registry.repositoryFor(contributor);
-          // Contributors are listed fresh above, so a withdrawal applies at once.
           const dataUpdatedAt = await cachedReadAsync(contributorRepository, 'reference-updated', () => readMethodOffThread(
             contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'), undefined, staleFor);
           if (!dataUpdatedAt) return [];
@@ -547,25 +547,42 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
               ),
           }];
         }))).flat();
-        leaningsHtml = tagLeanSection(
-          tagLean,
-          lang,
-          buildReferencePopulation(tagLean, contributions),
-          { owner: sessionUser(c)?.id === user.id },
-        );
+        leanings = { tagLean, contributions };
       } catch (error) {
         console.warn('channel classifications unavailable:',
           error instanceof Error ? error.message : 'unknown error');
-        leaningsHtml = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
+        leanings = 'unavailable';
       }
     }
-    // Insights may await external classification. Recheck visibility and
-    // the session before rendering any data from the earlier snapshot.
+    const popularity = page === 'insights' && hasData
+      ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
+        { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined, staleFor) : undefined;
+    const v3Metadata = await pooledV3MetadataFor(user);
+    // Every await is above. Nothing below yields before the response, so
+    // visibility, the session and reference consent are checked as of render,
+    // not as of the earlier reads.
     if (!profileAccess(c, user, page)) return notFoundPage(c);
     user = registry.userByHandle(user.handle)!;
     const me = sessionUser(c);
     const viewerOwns = me?.id === user.id;
-    const v3Data = await pooledV3DataFor(user);
+    const v3Data = v3DataWith(user, v3Metadata);
+    let leaningsHtml = '';
+    if (leanings) {
+      const unavailable = `<section class="section"><div class="section-head"><h2>${messages(lang).tagLeanTitle}</h2></div><p class="muted">${messages(lang).tagLeanUnavailable}</p></section>`;
+      try {
+        // Contributors who withdrew or were deleted while the reads ran drop out.
+        const consenting = new Set(registry.listReferencePopulationUsers().map((contributor) => contributor.id));
+        leaningsHtml = leanings === 'unavailable' ? unavailable : tagLeanSection(
+          leanings.tagLean,
+          lang,
+          buildReferencePopulation(leanings.tagLean, leanings.contributions.filter((contribution) => consenting.has(contribution.subjectId))),
+          { owner: viewerOwns },
+        );
+      } catch (error) {
+        console.warn('reference population unavailable:', error instanceof Error ? error.message : 'unknown error');
+        leaningsHtml = unavailable;
+      }
+    }
     const selectedGenres = viewerOwns ? [...GENRES] : user.matchingOptIn && v3.enabled
       ? registry.matchingV3Store().preferences(user.id).genres : [];
     const visibleProcessing = viewerOwns || selectedGenres.length ? v3Data.processing
@@ -609,9 +626,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       processingHtml: hasData || viewerOwns ? v3ProcessingNotice(visibleProcessing, lang, { ownerDetails: viewerOwns }) : '',
       statsProvisional: v3Data.processing.metadata.enabled && v3Data.processing.metadata.videosPendingMetadata > 0,
       insightsHtml: crystalHtml + leaningsHtml,
-      popularity: page === 'insights' && hasData
-        ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
-          { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined, staleFor) : undefined,
+      popularity,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
         genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done', ownerDetails: viewerOwns,
@@ -1919,18 +1934,20 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 // Render each public page once after start, one at a time, as an anonymous
 // visitor would, so the first visitor or crawler after a deploy is not the one
 // waiting. Visibility is rechecked before every page.
-export async function warmPublicPages(app: Hono, registry: UserRegistry): Promise<number> {
-  let pages = 0;
+export async function warmPublicPages(app: Hono, registry: UserRegistry): Promise<{ pages: number; ok: number }> {
+  let pages = 0, ok = 0;
   for (const listed of registry.listUsers()) {
     for (const suffix of ['/insights', '']) {
       if (!registry.userByHandle(listed.handle)?.dashboardPublic) break;
+      pages++;
       try {
-        await (await app.request(`/${listed.handle}${suffix}`)).arrayBuffer();
-        pages++;
+        const response = await app.request(`/${listed.handle}${suffix}`);
+        await response.arrayBuffer();
+        if (response.status === 200) ok++;
       } catch { /* the next visitor computes it */ }
     }
   }
-  return pages;
+  return { pages, ok };
 }
 
 if (process.env.NODE_ENV !== 'test') {
@@ -1943,7 +1960,7 @@ if (process.env.NODE_ENV !== 'test') {
   // After the start-up health checks; ingest and worker also restart on deploy.
   setTimeout(() => {
     const started = Date.now();
-    void warmPublicPages(app, registry).then((pages) =>
-      console.log(`warmed ${pages} public pages in ${Math.round((Date.now() - started) / 1000)} s`));
+    void warmPublicPages(app, registry).then(({ pages, ok }) =>
+      console.log(`warmed ${pages} public pages (${ok} returned 200) in ${Math.round((Date.now() - started) / 1000)} s`));
   }, 120_000).unref();
 }

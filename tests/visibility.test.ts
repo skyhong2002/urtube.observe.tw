@@ -215,12 +215,12 @@ test('start-up warming renders only public dashboards and never outlives a visib
     registry.createUser('warm-private', 'Hidden');
     registry.setDashboardPublic(shown.handle, true);
     const app = createApp(registry, { loadTagLists: async () => snapshot });
-    assert.equal(await warmPublicPages(app, registry), 2, 'Insights and Overview of the one public dashboard');
+    assert.deepEqual(await warmPublicPages(app, registry), { pages: 2, ok: 2 }, 'Insights and Overview of the one public dashboard');
     for (const suffix of ['', '/insights']) assert.equal((await app.request(`/warm-public${suffix}`)).status, 200);
     registry.repositoryFor(shown).setYoutubeSyncState('worker_cycle_at', new Date().toISOString());
     assert.equal((await app.request('/warm-public/insights')).status, 200);
     registry.setDashboardPublic(shown.handle, false);
-    assert.equal(await warmPublicPages(app, registry), 0);
+    assert.deepEqual(await warmPublicPages(app, registry), { pages: 0, ok: 0 });
     for (const suffix of ['', '/insights']) {
       const response = await app.request(`/warm-public${suffix}`);
       assert.equal(response.status, 404, 'cached aggregates never bypass the visibility check');
@@ -228,3 +228,72 @@ test('start-up warming renders only public dashboards and never outlives a visib
     }
   } finally { registry.close(); }
 });
+
+// Later windows than loadTagLists: the popularity and metadata-processing reads
+// run after the leanings. A revocation that lands while one of them is in
+// flight must still produce a 404.
+for (const window of ['youtubePopularity', 'youtubeMetadataProcessingCounts'] as const) {
+  for (const revocation of ['public', 'friendship', 'session'] as const) {
+    test(`Insights rechecks ${revocation} access revoked during the ${window} read`, async () => {
+      const registry = new UserRegistry(':memory:');
+      try {
+        const alice = registry.createUser('late-alice', 'Alice'), bob = registry.createUser('late-bob', 'Bob');
+        publish(registry, alice); publish(registry, bob); seedWatch(registry, bob);
+        const requestToken = connect(registry, alice, bob);
+        if (revocation === 'public') registry.setDashboardPublic(bob.handle, true);
+        const session = registry.createSession(alice);
+        const repository = registry.repositoryFor(bob) as unknown as Record<string, (...args: unknown[]) => unknown>;
+        const original = repository[window].bind(repository);
+        let revoked = 0;
+        repository[window] = (...args: unknown[]) => {
+          const value = original(...args);
+          if (!revoked++) {
+            if (revocation === 'public') registry.setDashboardPublic(bob.handle, false);
+            if (revocation === 'friendship') registry.withdrawMatchRequest(alice, requestToken);
+            if (revocation === 'session') registry.deleteSession(session);
+          }
+          return value;
+        };
+        const app = createApp(registry, { loadTagLists: async () => snapshot });
+        const response = await app.request('/late-bob/insights', revocation === 'public' ? {} : { headers: { cookie: `urtube_session=${session}` } });
+        assert.equal(revoked, 1, `${window} ran during the request`);
+        assert.equal(response.status, 404);
+        assert.doesNotMatch(await response.text(), /Aggregate channel|Bob/);
+      } finally { registry.close(); }
+    });
+  }
+}
+
+for (const removal of ['withdrawal', 'deletion'] as const) {
+  test(`reference population drops a contributor whose ${removal} lands while totals load`, async () => {
+    const registry = new UserRegistry(':memory:');
+    try {
+      const viewer = registry.createUser('ref-viewer', 'Viewer');
+      const kept = registry.createUser('ref-kept', 'Kept');
+      const leaving = registry.createUser('ref-leaving', 'Leaving');
+      for (const user of [viewer, kept, leaving]) {
+        seedWatch(registry, user);
+        registry.setReferenceOptIn(user.handle, true);
+      }
+      registry.setDashboardPublic(viewer.handle, true);
+      const repository = registry.repositoryFor(leaving) as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const original = repository.youtubeChannelTotals.bind(repository);
+      let removed = 0;
+      repository.youtubeChannelTotals = (...args: unknown[]) => {
+        const value = original(...args);
+        if (!removed++) {
+          if (removal === 'withdrawal') registry.setReferenceOptIn(leaving.handle, false);
+          else registry.deleteUser(leaving.handle);
+        }
+        return value;
+      };
+      const app = createApp(registry, { loadTagLists: async () => snapshot });
+      const response = await app.request('/ref-viewer/insights?lang=en');
+      assert.equal(removed, 1, 'the leaving contributor was read during the request');
+      assert.equal(response.status, 200);
+      const page = await response.text();
+      assert.match(page, /2 members have comparable data/);
+      assert.doesNotMatch(page, /3 members have comparable data/);
+    } finally { registry.close(); }
+  });
+}
