@@ -76,3 +76,39 @@ test('concurrent requests share one read and later writes recompute', async () =
     repository.close();
   }
 });
+
+test('stale-while-revalidate serves the previous value during one background refresh', async () => {
+  clearReadCaches();
+  const repository = new Repository(':memory:');
+  try {
+    let reads = 0;
+    let release = () => {};
+    const read = async () => {
+      const n = ++reads;
+      if (n > 1) await new Promise<void>((resolve) => { release = resolve; });
+      return n;
+    };
+    const visitor = () => cachedReadAsync(repository, 'key', read, 300_000, 60_000);
+    assert.equal(await visitor(), 1);
+    repository.setYoutubeSyncState('fixture', 'changed');
+    assert.equal(await visitor(), 1, 'previous value while the archive refreshes');
+    assert.equal(await visitor(), 1);
+    assert.equal(reads, 2, 'one background refresh');
+    const owner = cachedReadAsync(repository, 'key', read);
+    release();
+    assert.equal(await owner, 2, 'without staleFor (the owner) a request waits for current data');
+    assert.equal(await visitor(), 2);
+
+    let fail = true;
+    const failing = async () => { if (fail) throw new Error('unavailable'); return 'fresh'; };
+    fail = false;
+    assert.equal(await cachedReadAsync(repository, 'failing', failing, 300_000, 60_000), 'fresh');
+    fail = true;
+    repository.setYoutubeSyncState('fixture', 'again');
+    assert.equal(await cachedReadAsync(repository, 'failing', failing, 300_000, 60_000), 'fresh', 'a failed refresh keeps the entry');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await assert.rejects(cachedReadAsync(repository, 'failing', failing, 300_000, 1), /unavailable/, 'not beyond staleFor');
+  } finally {
+    repository.close();
+  }
+});

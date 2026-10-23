@@ -159,10 +159,14 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
 }
 // Dashboard aggregates run on the read pool so a slow archive never blocks
 // other requests or the health checks (src/read-pool.ts).
-function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' | 'summary' = false): Promise<YoutubeDashboardData> {
+function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' | 'summary' = false, staleFor = 0): Promise<YoutubeDashboardData> {
   return cachedReadAsync(repository, `dashboard:${range}:${includeInsights}`, () => readOffThread(repository, registry.databasePathFor(user), 'dashboard',
-    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>);
+    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>, undefined, staleFor);
 }
+// Visitors other than the owner may see aggregates up to this old while a
+// refresh runs (src/data/read-cache.ts). Cold, they took 20-90 s per Insights
+// page on 2026-10-23. Owner actions clear the caches; access is per request.
+const PUBLIC_STALE_MS = 24 * 3600_000;
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): Promise<YoutubeComparisonProfile> {
   return cachedReadAsync(repository, `comparison:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
     'youtubeComparisonProfile', MATCHING_TAXONOMY.version, range, new Date()));
@@ -171,10 +175,10 @@ function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: s
   return cachedReadAsync(repository, `channel:${channelId}:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
     'youtubeChannelDetail', channelId, range, new Date()));
 }
-function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange): Promise<YoutubeChannelSummary[]> {
+function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange, staleFor = 0): Promise<YoutubeChannelSummary[]> {
   const repository = registry.repositoryFor(user);
   return cachedReadAsync(repository, `channels:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
-    'youtubeChannelTotals', range, new Date()));
+    'youtubeChannelTotals', range, new Date()), undefined, staleFor);
 }
 function pooledCountsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<ReturnType<Repository['youtubeCounts']>> {
   return cachedReadAsync(repository, 'counts', () => readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeCounts'));
@@ -194,9 +198,9 @@ async function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repo
     'matchingCrystal', { now: new Date().toISOString() }) as Promise<MatchingCrystal['matching']>);
   return { handle: user.handle, displayName: user.displayName, matching };
 }
-function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<YoutubeCrystalShiftSection> {
+function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), staleFor = 0): Promise<YoutubeCrystalShiftSection> {
   return cachedReadAsync(repository, 'crystal-shifts', () => readOffThread(repository, registry.databasePathFor(user), 'crystalShifts',
-    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>);
+    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>, undefined, staleFor);
 }
 
 interface AppServices {
@@ -500,6 +504,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   ) {
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
+    const staleFor = sessionUser(c)?.id === user.id ? 0 : PUBLIC_STALE_MS;
     const counts = await pooledCountsFor(registry, user, repository);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
@@ -509,25 +514,26 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       || requestedShortForm === 'absolute'
       || requestedShortForm === 'dual'
       ? requestedShortForm : undefined;
-    const data = await cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights');
+    const data = await cachedDashboardFor(registry, user, range, repository, page === 'overview' ? 'overview' : page === 'insights', staleFor);
     const hasData = counts.watches > 0;
     const crystalHtml = page === 'insights' && hasData
-      ? shiftsSection({ handle: user.handle, ...await cachedCrystalShiftsFor(registry, user, repository) }, lang) : '';
+      ? shiftsSection({ handle: user.handle, ...await cachedCrystalShiftsFor(registry, user, repository, staleFor) }, lang) : '';
     let leaningsHtml = '';
     if (page === 'insights' && hasData) {
       try {
         const snapshot = await loadTagLists();
         const tagLean = computeTagLean(
           range,
-          await cachedChannelTotalsFor(registry, user, range),
+          await cachedChannelTotalsFor(registry, user, range, staleFor),
           snapshot,
         );
         // Every contributor's totals load in parallel on the read pool.
         const contributions = (await Promise.all(registry.listReferencePopulationUsers().map(async (contributor) => {
           // Unindexed MAX() over each archive: a full scan, so off this thread.
           const contributorRepository = registry.repositoryFor(contributor);
+          // Contributors are listed fresh above, so a withdrawal applies at once.
           const dataUpdatedAt = await cachedReadAsync(contributorRepository, 'reference-updated', () => readMethodOffThread(
-            contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'));
+            contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'), undefined, staleFor);
           if (!dataUpdatedAt) return [];
           return [{
             subjectId: contributor.id,
@@ -536,7 +542,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
               ? tagLean
               : computeTagLean(
                 range,
-                await cachedChannelTotalsFor(registry, contributor, range),
+                await cachedChannelTotalsFor(registry, contributor, range, staleFor),
                 snapshot,
               ),
           }];
@@ -605,7 +611,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       insightsHtml: crystalHtml + leaningsHtml,
       popularity: page === 'insights' && hasData
         ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
-          { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>) : undefined,
+          { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined, staleFor) : undefined,
       v3Html: v3DashboardSection(v3Data.profile, {
         enabled: v3.enabled, currentVersion: matchingV3Version(v3), backfillVideoLimit: v3.backfillVideoLimit,
         genres: selectedGenres, lang, provisional: v3Data.processing.state !== 'done', ownerDetails: viewerOwns,
@@ -1909,6 +1915,24 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   return app;
 }
 
+// Cold, a public page's aggregates took up to a minute on the production host.
+// Render each public page once after start, one at a time, as an anonymous
+// visitor would, so the first visitor or crawler after a deploy is not the one
+// waiting. Visibility is rechecked before every page.
+export async function warmPublicPages(app: Hono, registry: UserRegistry): Promise<number> {
+  let pages = 0;
+  for (const listed of registry.listUsers()) {
+    for (const suffix of ['/insights', '']) {
+      if (!registry.userByHandle(listed.handle)?.dashboardPublic) break;
+      try {
+        await (await app.request(`/${listed.handle}${suffix}`)).arrayBuffer();
+        pages++;
+      } catch { /* the next visitor computes it */ }
+    }
+  }
+  return pages;
+}
+
 if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   registry.ensureDefaultUser();
@@ -1916,4 +1940,10 @@ if (process.env.NODE_ENV !== 'test') {
   outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);
   }));
+  // After the start-up health checks; ingest and worker also restart on deploy.
+  setTimeout(() => {
+    const started = Date.now();
+    void warmPublicPages(app, registry).then((pages) =>
+      console.log(`warmed ${pages} public pages in ${Math.round((Date.now() - started) / 1000)} s`));
+  }, 120_000).unref();
 }

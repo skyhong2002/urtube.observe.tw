@@ -206,3 +206,25 @@ for (const decision of ['accept', 'decline', 'withdraw'] as const) {
     } finally { registry.close(); }
   });
 }
+
+test('start-up warming renders only public dashboards and never outlives a visibility change', async () => {
+  const { warmPublicPages } = await import('../src/index.js');
+  const registry = new UserRegistry(':memory:');
+  try {
+    const shown = registry.createUser('warm-public', 'Shown');
+    registry.createUser('warm-private', 'Hidden');
+    registry.setDashboardPublic(shown.handle, true);
+    const app = createApp(registry, { loadTagLists: async () => snapshot });
+    assert.equal(await warmPublicPages(app, registry), 2, 'Insights and Overview of the one public dashboard');
+    for (const suffix of ['', '/insights']) assert.equal((await app.request(`/warm-public${suffix}`)).status, 200);
+    registry.repositoryFor(shown).setYoutubeSyncState('worker_cycle_at', new Date().toISOString());
+    assert.equal((await app.request('/warm-public/insights')).status, 200);
+    registry.setDashboardPublic(shown.handle, false);
+    assert.equal(await warmPublicPages(app, registry), 0);
+    for (const suffix of ['', '/insights']) {
+      const response = await app.request(`/warm-public${suffix}`);
+      assert.equal(response.status, 404, 'cached aggregates never bypass the visibility check');
+      assert.doesNotMatch(await response.text(), /Shown/);
+    }
+  } finally { registry.close(); }
+});

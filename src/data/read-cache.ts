@@ -31,7 +31,13 @@ export function cachedRead<T>(repository: Repository, key: string, read: () => T
 // For reads computed elsewhere (a read thread). Concurrent requests share one
 // computation. The revision is taken before the read starts, so a write that
 // lands meanwhile makes the next request recompute.
-export async function cachedReadAsync<T>(repository: Repository, key: string, read: () => Promise<T>, ttl = 300_000): Promise<T> {
+//
+// staleFor > 0 (stale-while-revalidate): an entry younger than staleFor is
+// returned even after a write, while one recompute runs in the background.
+// The worker's bookkeeping writes change every archive's revision every few
+// minutes, so without this each public view recomputed. Only for data, never
+// for authorization: callers check access on every request.
+export async function cachedReadAsync<T>(repository: Repository, key: string, read: () => Promise<T>, ttl = 300_000, staleFor = 0): Promise<T> {
   let cache = caches.get(repository);
   if (!cache) {
     cache = new Map();
@@ -45,8 +51,9 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
     inflight = new Map();
     pending.set(repository, inflight);
   }
+  const stale = entry && Date.now() - entry.at < staleFor ? entry : undefined;
   const existing = inflight.get(key);
-  if (existing) return existing as Promise<T>;
+  if (existing) return stale ? stale.value as T : existing as Promise<T>;
   const store = cache;
   const requests = inflight;
   const promise = read().then((value) => {
@@ -55,5 +62,10 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
     return value;
   }).finally(() => requests.delete(key));
   inflight.set(key, promise);
+  if (stale) {
+    // A failed background refresh keeps the previous entry until staleFor.
+    promise.catch(() => {});
+    return stale.value as T;
+  }
   return promise;
 }
