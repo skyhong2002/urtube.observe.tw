@@ -412,3 +412,27 @@ test('start-up warming of uncached pages is background work: a visitor first rea
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('Insights reuses each contributor\'s leanings instead of re-reading and keeping their channel totals', async () => {
+  const registry = new UserRegistry(':memory:');
+  try {
+    clearReadCaches();
+    const viewer = registry.createUser('lean-viewer', 'Viewer'), other = registry.createUser('lean-other', 'Other');
+    for (const user of [viewer, other]) {
+      seedWatch(registry, user);
+      registry.setReferenceOptIn(user.handle, true);
+    }
+    registry.setDashboardPublic(viewer.handle, true);
+    const repository = registry.repositoryFor(other) as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const original = repository.youtubeChannelTotals.bind(repository);
+    let reads = 0;
+    repository.youtubeChannelTotals = (...args: unknown[]) => { reads++; return original(...args); };
+    const app = createApp(registry, { loadTagLists: async () => snapshot });
+    for (let i = 0; i < 2; i++) {
+      const page = await app.request('/lean-viewer/insights?lang=en');
+      assert.equal(page.status, 200);
+      assert.match(await page.text(), /2 members have comparable data/);
+    }
+    assert.equal(reads, 1, 'the second render used the cached leanings');
+  } finally { registry.close(); }
+});

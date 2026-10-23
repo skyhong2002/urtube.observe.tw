@@ -140,6 +140,11 @@ export interface AsyncReadOptions {
   archive?: string;
   // Only together with staleFor > 0.
   durable?: DurableRead;
+  // false: the value is not kept in this process's memory (only on disk, if
+  // durable). For large inputs that are reduced right away: kept in memory,
+  // they were swapped out between visits and paging them back in stalled the
+  // request thread for seconds (2026-10-23).
+  memory?: boolean;
 }
 
 // For reads computed elsewhere (a read thread). Concurrent requests share one
@@ -159,9 +164,9 @@ export async function cachedReadAsync<T>(repository: Repository, key: string, re
 }
 
 async function cachedReadAsyncInner<T>(repository: Repository, key: string, read: () => Promise<T>, ttl: number,
-  { staleFor = 0, refreshAfter = 0, archive, durable: requested }: AsyncReadOptions, decision: { name: string }): Promise<T> {
+  { staleFor = 0, refreshAfter = 0, archive, durable: requested, memory = true }: AsyncReadOptions, decision: { name: string }): Promise<T> {
   const durable = staleFor > 0 && requested && requested.path !== ':memory:' ? requested : undefined;
-  let cache = caches.get(repository);
+  let cache = memory ? caches.get(repository) : new Map<string, Entry>();
   if (!cache) {
     cache = new Map();
     caches.set(repository, cache);

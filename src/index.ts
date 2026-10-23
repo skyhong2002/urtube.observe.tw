@@ -177,7 +177,7 @@ const PUBLIC_REFRESH_MS = 60 * 60_000;
 type DurableShape = Pick<DurableRead, 'version' | 'project' | 'valid'>;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const same = (value: unknown) => value;
-const DURABLE: Record<'dashboard' | 'channels' | 'crystalShifts' | 'popularity' | 'counts' | 'metadata' | 'referenceUpdated', DurableShape> = {
+const DURABLE: Record<'dashboard' | 'channels' | 'tagLean' | 'crystalShifts' | 'popularity' | 'counts' | 'metadata' | 'referenceUpdated', DurableShape> = {
   // Individual recent watches (titles, URLs, exact times) are never written.
   dashboard: { version: 'dashboard:1', project: (value) => ({ ...(value as YoutubeDashboardData), recent: [] }),
     valid: (value) => isRecord(value) && isRecord(value.stats) && Array.isArray(value.daily) && Array.isArray(value.topChannels)
@@ -186,6 +186,8 @@ const DURABLE: Record<'dashboard' | 'channels' | 'crystalShifts' | 'popularity' 
     && value.every((row) => isRecord(row) && typeof row.watches === 'number' && typeof row.estimatedWatchSeconds === 'number') },
   crystalShifts: { version: 'crystal-shifts:1', project: same, valid: (value) => isRecord(value) && Array.isArray(value.shifts) },
   popularity: { version: 'popularity:1', project: same, valid: (value) => isRecord(value) && typeof value.totalVideos === 'number' },
+  tagLean: { version: 'tag-lean:1', project: same, valid: (value) => isRecord(value) && isRecord(value.totals) && isRecord(value.provenance)
+    && Array.isArray(value.content) && Array.isArray(value.political) },
   counts: { version: 'counts:1', project: same, valid: (value) => isRecord(value) && typeof value.watches === 'number' },
   metadata: { version: 'metadata-processing:1', project: same, valid: isRecord },
   // Shown by day only; the exact latest-activity time is not kept.
@@ -209,10 +211,22 @@ function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: s
   return cachedReadAsync(repository, `channel:${channelId}:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
     'youtubeChannelDetail', channelId, range, new Date()));
 }
-function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange, staleFor = 0): Promise<YoutubeChannelSummary[]> {
+function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange, staleFor = 0, memory = true): Promise<YoutubeChannelSummary[]> {
   const repository = registry.repositoryFor(user);
   return cachedReadAsync(repository, `channels:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
-    'youtubeChannelTotals', range, new Date()), undefined, readOptions(registry, user, staleFor, DURABLE.channels));
+    'youtubeChannelTotals', range, new Date()), undefined, { ...readOptions(registry, user, staleFor, DURABLE.channels), memory });
+}
+// One account's leanings against the tag lists. Cached instead of its input:
+// an Insights page needs 14 contributors' leanings, and their full channel
+// totals (up to ~12,000 rows each) kept in memory were paged back in from swap
+// on every render. The totals are read (from their durable copy if public)
+// only when the leanings are recomputed, and are not kept.
+function cachedTagLeanFor(registry: UserRegistry, user: User, range: YoutubeRange, snapshot: TagListSnapshot, staleFor = 0): Promise<TagLeanData> {
+  const repository = registry.repositoryFor(user);
+  const { membershipVersion, policyVersion } = snapshot.provenance;
+  return cachedReadAsync(repository, `tag-lean:${range}:${policyVersion}:${membershipVersion}`,
+    async () => computeTagLean(range, await cachedChannelTotalsFor(registry, user, range, staleFor, false), snapshot),
+    undefined, readOptions(registry, user, staleFor, DURABLE.tagLean));
 }
 function pooledCountsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), staleFor = 0): Promise<ReturnType<Repository['youtubeCounts']>> {
   return cachedReadAsync(repository, 'counts', () => readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeCounts'),
@@ -566,11 +580,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       try {
         const snapshot = await loadTagLists();
         timer.mark('tagLists');
-        const tagLean = computeTagLean(
-          range,
-          await cachedChannelTotalsFor(registry, user, range, staleFor),
-          snapshot,
-        );
+        const tagLean = await cachedTagLeanFor(registry, user, range, snapshot, staleFor);
         timer.mark('ownTotals');
         // Every contributor's totals load in parallel on the read pool.
         const contributions = (await Promise.all(registry.listReferencePopulationUsers().map(async (contributor) => {
@@ -583,13 +593,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           return [{
             subjectId: contributor.id,
             dataUpdatedAt,
-            data: contributor.id === user.id
-              ? tagLean
-              : computeTagLean(
-                range,
-                await cachedChannelTotalsFor(registry, contributor, range, staleFor),
-                snapshot,
-              ),
+            data: contributor.id === user.id ? tagLean : await cachedTagLeanFor(registry, contributor, range, snapshot, staleFor),
           }];
         }))).flat();
         timer.mark('reference');
@@ -700,8 +704,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     listUsers: () => registry.listUsers(),
     // The landing page waits at most 2 s for these; refreshing them is
     // background work for the read pool.
+    // Not kept in memory: the provider keeps its small result, and 24 full
+    // channel lists held between visits were swapped out (see cachedTagLeanFor).
     repositoryFor: (user: User) => ({ youtubeChannelTotals: () => withReadPriority({ background: true },
-      () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS)) }),
+      () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS, false)) }),
   });
   app.get('/', async (c) => {
     const stats = await publicCommunityStats();
