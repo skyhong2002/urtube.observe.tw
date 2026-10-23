@@ -21,7 +21,7 @@ import { compareMatchRank } from './matching-v3/matching.js';
 import { computeClient, type Compute } from './matching-v3/compute.js';
 import type { Settings as MatchingSettings } from './matching-v3/model.js';
 import type { Repository } from './data/database.js';
-import { cachedRead, cachedReadAsync, clearReadCaches } from './data/read-cache.js';
+import { cachedRead, cachedReadAsync, clearReadCaches, forgetDurableReads, type AsyncReadOptions } from './data/read-cache.js';
 import { userDataExport } from './data/user-export.js';
 import { buildExtensionZip, extensionDownloadName, extensionVersion } from './extension-bundle.js';
 import { comparePage, shiftsSection } from './output/crystal.js';
@@ -79,7 +79,7 @@ import { securityHeaders } from './security-headers.js';
 import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { importArchive } from './archive-import.js';
-import { readMethodOffThread, readOffThread } from './read-pool.js';
+import { readMethodOffThread, readOffThread, readPoolIdle } from './read-pool.js';
 import { computeTagLean, fetchTagLists, type TagLeanData } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation, type ReferenceContribution } from './youtube/reference-population.js';
@@ -161,12 +161,19 @@ function processingFor(repository: Repository): YoutubeProcessingStatus {
 // other requests or the health checks (src/read-pool.ts).
 function cachedDashboardFor(registry: UserRegistry, user: User, range: YoutubeRange, repository = registry.repositoryFor(user), includeInsights: boolean | 'overview' | 'summary' = false, staleFor = 0): Promise<YoutubeDashboardData> {
   return cachedReadAsync(repository, `dashboard:${range}:${includeInsights}`, () => readOffThread(repository, registry.databasePathFor(user), 'dashboard',
-    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>, undefined, staleFor);
+    { range, now: new Date().toISOString(), includeInsights }) as Promise<YoutubeDashboardData>, undefined, readOptions(registry, user, staleFor));
 }
 // Visitors other than the owner may see aggregates up to this old while a
 // refresh runs (src/data/read-cache.ts). Cold, they took 20-90 s per Insights
 // page on 2026-10-23. Owner actions clear the caches; access is per request.
 const PUBLIC_STALE_MS = 24 * 3600_000;
+// A visit refreshes an aggregate older than this; younger ones are served as
+// they are, so frequent visits do not keep the read threads rebuilding.
+const PUBLIC_REFRESH_MS = 10 * 60_000;
+// staleFor 0 is the owner: always current data, never a durable copy.
+function readOptions(registry: UserRegistry, user: User, staleFor: number): AsyncReadOptions {
+  return { staleFor, refreshAfter: staleFor ? PUBLIC_REFRESH_MS : 0, durable: { path: registry.databasePathFor(user), subject: user.id } };
+}
 function cachedComparisonProfileFor(registry: UserRegistry, user: User, range: ComparisonRange, repository = registry.repositoryFor(user)): Promise<YoutubeComparisonProfile> {
   return cachedReadAsync(repository, `comparison:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
     'youtubeComparisonProfile', MATCHING_TAXONOMY.version, range, new Date()));
@@ -178,10 +185,11 @@ function cachedChannelDetailFor(registry: UserRegistry, user: User, channelId: s
 function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: YoutubeRange, staleFor = 0): Promise<YoutubeChannelSummary[]> {
   const repository = registry.repositoryFor(user);
   return cachedReadAsync(repository, `channels:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
-    'youtubeChannelTotals', range, new Date()), undefined, staleFor);
+    'youtubeChannelTotals', range, new Date()), undefined, readOptions(registry, user, staleFor));
 }
-function pooledCountsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): Promise<ReturnType<Repository['youtubeCounts']>> {
-  return cachedReadAsync(repository, 'counts', () => readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeCounts'));
+function pooledCountsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), staleFor = 0): Promise<ReturnType<Repository['youtubeCounts']>> {
+  return cachedReadAsync(repository, 'counts', () => readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeCounts'),
+    undefined, readOptions(registry, user, staleFor));
 }
 function cachedCrystalFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user)): YoutubeCrystal {
   return cachedRead(repository, `crystal:${user.handle}:${user.displayName}`, () => buildYoutubeCrystal(repository, user));
@@ -200,7 +208,7 @@ async function cachedMatchingCrystalFor(registry: UserRegistry, user: User, repo
 }
 function cachedCrystalShiftsFor(registry: UserRegistry, user: User, repository = registry.repositoryFor(user), staleFor = 0): Promise<YoutubeCrystalShiftSection> {
   return cachedReadAsync(repository, 'crystal-shifts', () => readOffThread(repository, registry.databasePathFor(user), 'crystalShifts',
-    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>, undefined, staleFor);
+    { now: new Date().toISOString() }) as Promise<YoutubeCrystalShiftSection>, undefined, readOptions(registry, user, staleFor));
 }
 
 interface AppServices {
@@ -304,10 +312,11 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return v3DataWith(user, cachedRead(repository, 'metadata-processing', () => repository.youtubeMetadataProcessingCounts(), 5000));
   };
   // Same data with the metadata counts computed on the read pool.
-  const pooledV3MetadataFor = (user: User) => {
+  const pooledV3MetadataFor = (user: User, staleFor = 0) => {
     const repository = registry.repositoryFor(user);
     return cachedReadAsync(repository, 'metadata-processing', () =>
-      readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeMetadataProcessingCounts', new Date()), 5000);
+      readMethodOffThread(repository, registry.databasePathFor(user), 'youtubeMetadataProcessingCounts', new Date()), 5000,
+      readOptions(registry, user, staleFor));
   };
   const pooledV3DataFor = async (user: User) => v3DataWith(user, await pooledV3MetadataFor(user));
   // Session-only progress, independent of matching consent or whether v3 is enabled.
@@ -506,7 +515,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const lang = langOf(c);
     const repository = registry.repositoryFor(user);
     const staleFor = sessionUser(c)?.id === user.id ? 0 : PUBLIC_STALE_MS;
-    const counts = await pooledCountsFor(registry, user, repository);
+    const counts = await pooledCountsFor(registry, user, repository, staleFor);
     const range = requestedRange(c.req.query('range'));
     const requestedShortForm = c.req.query('shorts');
     const shortFormVariant = requestedShortForm === 'stacked'
@@ -533,7 +542,8 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
           // Unindexed MAX() over each archive: a full scan, so off this thread.
           const contributorRepository = registry.repositoryFor(contributor);
           const dataUpdatedAt = await cachedReadAsync(contributorRepository, 'reference-updated', () => readMethodOffThread(
-            contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'), undefined, staleFor);
+            contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'), undefined,
+            readOptions(registry, contributor, staleFor));
           if (!dataUpdatedAt) return [];
           return [{
             subjectId: contributor.id,
@@ -556,8 +566,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     }
     const popularity = page === 'insights' && hasData
       ? await cachedReadAsync(repository, `popularity:${range}`, () => readOffThread(repository, registry.databasePathFor(user), 'popularity',
-        { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined, staleFor) : undefined;
-    const v3Metadata = await pooledV3MetadataFor(user);
+        { range, now: new Date().toISOString() }) as Promise<ReturnType<Repository['youtubePopularity']>>, undefined,
+        readOptions(registry, user, staleFor)) : undefined;
+    const v3Metadata = await pooledV3MetadataFor(user, staleFor);
     // Every await is above. Nothing below yields before the response, so
     // visibility, the session and reference consent are checked as of render,
     // not as of the earlier reads.
@@ -646,7 +657,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // request thread (src/youtube/community.ts).
   const publicCommunityStats = communityStatsProvider({
     listUsers: () => registry.listUsers(),
-    repositoryFor: (user: User) => ({ youtubeChannelTotals: () => cachedChannelTotalsFor(registry, user, '90d') }),
+    repositoryFor: (user: User) => ({ youtubeChannelTotals: () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS) }),
   });
   app.get('/', async (c) => {
     const stats = await publicCommunityStats();
@@ -1467,6 +1478,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       });
       registry.markCrystalDirty(me);
       clearReadCaches();
+      forgetDurableReads(registry.databasePathFor(me));
       c.header('Cache-Control', 'no-store');
       return c.html(accountPage(me, accountStateFor(me, {
         takeoutResult: result,
@@ -1944,6 +1956,8 @@ export async function warmPublicPages(app: Hono, registry: UserRegistry): Promis
         const response = await app.request(`/${listed.handle}${suffix}`);
         await response.arrayBuffer();
         if (response.status === 200) ok++;
+        // Background refreshes the page started: one page's reads at a time.
+        await readPoolIdle();
       } catch { /* the next visitor computes it */ }
     }
   }
@@ -1952,6 +1966,7 @@ export async function warmPublicPages(app: Hono, registry: UserRegistry): Promis
 
 if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
+  registry.repairArchivesOnOpen = false;
   registry.ensureDefaultUser();
   const app = createApp(registry);
   outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => {

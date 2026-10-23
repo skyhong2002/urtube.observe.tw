@@ -426,7 +426,7 @@ export class Repository {
   // readOnly connections serve aggregate reads off the request thread. They
   // skip migrations and backfills, which the owning app or worker already
   // ran, and can still build per-connection TEMP caches.
-  constructor(path: string, { readOnly = false }: { readOnly?: boolean } = {}) {
+  constructor(path: string, { readOnly = false, repairOnOpen = true }: { readOnly?: boolean; repairOnOpen?: boolean } = {}) {
     this.path = path;
     if (readOnly) {
       this.db = new DatabaseSync(path, { readOnly: true });
@@ -439,7 +439,18 @@ export class Repository {
     this.db.function('urtube_history_lower', { deterministic: true }, (value) => String(value ?? '').toLowerCase());
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.migrate();
-    this.backfillYoutubeChannelIds();
+    // Every writer also backfills the videos it touches (import, capture,
+    // metadata); this full-table pass repairs older rows. It scans the whole
+    // watch history on the opening thread, so the web server, which opens
+    // archives on its request thread, leaves it to the worker and ingest.
+    if (repairOnOpen) this.backfillYoutubeChannelIds();
+  }
+
+  // Changes whenever an archive is imported (Takeout, data portability or
+  // extension history). Read caches never serve data from before an import.
+  youtubeImportMark(): string {
+    const row = this.db.prepare('SELECT COUNT(*) n, MAX(imported_at) latest FROM youtube_imports').get() as { n: number; latest: string | null };
+    return `${row.n}:${row.latest ?? ''}`;
   }
 
   // Extension captures often know the video but not its channel, so those

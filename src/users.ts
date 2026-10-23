@@ -8,6 +8,7 @@ import { MatchingStore } from './matching-v3/store.js';
 import { AdminMonitoring } from './matching-v3/monitoring.js';
 import { readAdminSnapshot } from './matching-v3/monitoring-read.js';
 import { Repository } from './data/database.js';
+import { forgetDurableReads } from './data/read-cache.js';
 import {
   MATCHING_DISCLOSURE_LEVELS,
   type MatchingDisclosureLevel,
@@ -234,6 +235,10 @@ export class UserRegistry {
   private readonly db: DatabaseSync;
   private readonly repositories = new Map<string, Repository>();
   private readonly dataDir: string;
+
+  // The web server turns this off: the full-table repair would run on its
+  // request thread the first time each archive is opened (Repository).
+  repairArchivesOnOpen = true;
 
   constructor(private readonly registryPath: string, dataDir?: string) {
     if (registryPath !== ':memory:') mkdirSync(dirname(registryPath), { recursive: true });
@@ -1158,6 +1163,7 @@ export class UserRegistry {
     const path = this.databasePathFor(user);
     if (path !== ':memory:') {
       for (const suffix of ['', '-wal', '-shm']) rmSync(`${path}${suffix}`, { force: true });
+      forgetDurableReads(path);
     }
   }
 
@@ -1373,7 +1379,7 @@ export class UserRegistry {
     const key = String(user.id);
     let repository = this.repositories.get(key);
     if (!repository) {
-      repository = new Repository(this.databasePathFor(user));
+      repository = new Repository(this.databasePathFor(user), { repairOnOpen: this.repairArchivesOnOpen });
       this.repositories.set(key, repository);
     }
     return repository;

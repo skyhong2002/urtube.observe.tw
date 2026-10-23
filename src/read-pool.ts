@@ -56,6 +56,20 @@ interface Slot { worker: Worker; busy: number }
 const slots: Slot[] = [];
 const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; slot: Slot }>();
 let nextId = 0;
+let idleWaiters: Array<() => void> = [];
+function settled(): void {
+  if (waiting.size) return;
+  const waiters = idleWaiters;
+  idleWaiters = [];
+  for (const resolve of waiters) resolve();
+}
+
+// Resolves once no pooled read is queued or running, including background
+// refreshes. Lets bounded batch work run one page's reads at a time.
+export function readPoolIdle(): Promise<void> {
+  if (!waiting.size) return Promise.resolve();
+  return new Promise((resolve) => { idleWaiters.push(resolve); });
+}
 
 function slot(): Slot {
   if (slots.length < POOL_SIZE) {
@@ -70,6 +84,7 @@ function slot(): Slot {
       created.busy--;
       if (message.error !== undefined) request.reject(new Error(message.error));
       else request.resolve(message.value);
+      settled();
     });
     const fail = (error: Error) => {
       slots.splice(slots.indexOf(created), 1);
@@ -78,6 +93,7 @@ function slot(): Slot {
         waiting.delete(id);
         request.reject(error);
       }
+      settled();
     };
     worker.on('error', fail);
     worker.on('exit', (code) => fail(new Error(`Read thread exited (${code})`)));

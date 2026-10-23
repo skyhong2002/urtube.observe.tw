@@ -111,6 +111,8 @@ export function restoreFullBackup(
     moveAside(join(targetDir, name));
     moveAside(join(targetDir, `${name}-wal`));
     moveAside(join(targetDir, `${name}-shm`));
+    // Durable read aggregates (src/data/read-cache.ts) describe the replaced data.
+    moveAside(join(targetDir, `${name}-aggregates`));
   }
   renameSync(join(stage, 'users'), join(targetDir, 'users'));
   for (const name of ['users.sqlite', 'urtube.sqlite']) {

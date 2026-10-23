@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { load } from 'cheerio';
 import test from 'node:test';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { clearReadCaches } from '../src/data/read-cache.js';
+import { readPoolIdle } from '../src/read-pool.js';
 import { createApp } from './browser-app.js';
 import { UserRegistry, type User } from '../src/users.js';
 import { MATCHING_TAXONOMY } from '../src/youtube/matching.js';
@@ -297,3 +302,54 @@ for (const removal of ['withdrawal', 'deletion'] as const) {
     } finally { registry.close(); }
   });
 }
+
+test('durable public aggregates survive a restart but never outlive visibility or the account', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'urtube-durable-app-'));
+  let registry = new UserRegistry(join(root, 'users.sqlite'));
+  try {
+    const bob = registry.createUser('durable-bob', 'Bob');
+    seedWatch(registry, bob);
+    registry.setDashboardPublic(bob.handle, true);
+    let app = createApp(registry, { loadTagLists: async () => snapshot });
+    for (const suffix of ['', '/insights']) assert.equal((await app.request(`/durable-bob${suffix}`)).status, 200);
+    await readPoolIdle();
+    const directory = `${registry.databasePathFor(bob)}-aggregates`;
+    // Copies are written after each read settles; wait until none are pending.
+    let listing = '';
+    for (let i = 0; i < 100; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const next = existsSync(directory) ? readdirSync(directory).sort().join() : '';
+      if (next && next === listing) break;
+      listing = next;
+    }
+    assert.ok(readdirSync(directory).length >= 4, 'dashboard, counts and Insights reads were written');
+
+    const written = () => readdirSync(directory).map((name) => `${name}:${statSync(join(directory, name)).mtimeMs}`).sort();
+    const before = written();
+    // A new process: empty memory caches, new connections, same files.
+    clearReadCaches();
+    registry.close();
+    registry = new UserRegistry(join(root, 'users.sqlite'));
+    app = createApp(registry, { loadTagLists: async () => snapshot });
+    const page = await app.request('/durable-bob');
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Aggregate channel/);
+    assert.equal((await app.request('/durable-bob/insights')).status, 200);
+    await readPoolIdle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(written(), before, 'served from the durable copies: nothing was recomputed or rewritten');
+
+    registry.setDashboardPublic(bob.handle, false);
+    for (const suffix of ['', '/insights']) {
+      const response = await app.request(`/durable-bob${suffix}`);
+      assert.equal(response.status, 404);
+      assert.doesNotMatch(await response.text(), /Aggregate channel/);
+    }
+    await readPoolIdle();
+    registry.deleteUser(bob.handle);
+    assert.equal(existsSync(directory), false, 'deleting the account deletes its aggregates');
+  } finally {
+    registry.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
