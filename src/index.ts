@@ -619,8 +619,14 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     }));
   }
 
-  const publicCommunityStats = communityStatsProvider(registry);
-  app.get('/', (c) => {
+  // Channel totals run on the read pool so a cold refresh never blocks the
+  // request thread (src/youtube/community.ts).
+  const publicCommunityStats = communityStatsProvider({
+    listUsers: () => registry.listUsers(),
+    repositoryFor: (user: User) => ({ youtubeChannelTotals: () => cachedChannelTotalsFor(registry, user, '90d') }),
+  });
+  app.get('/', async (c) => {
+    const stats = await publicCommunityStats();
     const lang = langOf(c);
     const t = messages(lang);
     const me = sessionUser(c);
@@ -629,7 +635,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       : config.signupEnabled ? `<a class="lp-primary" href="/signup">${t.landingCta}</a>` : '';
     c.header('Cache-Control', 'no-store');
     const title = lang === 'zh' ? '你的 YouTube 人生，都記得。' : 'Your YouTube life, remembered.';
-    return c.html(shell(title, landingContent(lang, primaryAction, publicCommunityStats()), siteNav(c, lang), '', lang, '/'));
+    return c.html(shell(title, landingContent(lang, primaryAction, stats), siteNav(c, lang), '', lang, '/'));
   });
 
   // Only these public, user-supplied product screenshots can be served.
@@ -1546,7 +1552,9 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     }
     const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${paths.map((path) => `  <url><loc>${html(config.publicBaseUrl + path)}</loc></url>`).join('\n')}\n</urlset>\n`;
     c.header('Content-Type', 'application/xml');
-    c.header('Cache-Control', 'public, max-age=3600');
+    // Revalidate every fetch so a dashboard made private leaves the sitemap
+    // immediately rather than after a shared cache's lifetime.
+    c.header('Cache-Control', 'no-cache');
     return c.body(body);
   });
 
