@@ -524,8 +524,10 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
         );
         // Every contributor's totals load in parallel on the read pool.
         const contributions = (await Promise.all(registry.listReferencePopulationUsers().map(async (contributor) => {
+          // Unindexed MAX() over each archive: a full scan, so off this thread.
           const contributorRepository = registry.repositoryFor(contributor);
-          const dataUpdatedAt = contributorRepository.youtubeReferenceDataUpdatedAt();
+          const dataUpdatedAt = await cachedReadAsync(contributorRepository, 'reference-updated', () => readMethodOffThread(
+            contributorRepository, registry.databasePathFor(contributor), 'youtubeReferenceDataUpdatedAt'));
           if (!dataUpdatedAt) return [];
           return [{
             subjectId: contributor.id,

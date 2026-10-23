@@ -17,6 +17,7 @@ export const POOLED_METHODS = [
   'youtubeChannelDetail',
   'youtubeComparisonProfile',
   'youtubeHistoryPage',
+  'youtubeReferenceDataUpdatedAt',
 ] as const;
 export type PooledMethod = typeof POOLED_METHODS[number];
 
