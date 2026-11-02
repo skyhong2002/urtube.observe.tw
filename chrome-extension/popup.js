@@ -9,6 +9,8 @@ function isNewerVersion(latest, current) {
   return false;
 }
 
+let actionError = '';
+
 async function render() {
   const stored = await chrome.storage.local.get([
     'captureSettings',
@@ -37,7 +39,8 @@ async function render() {
   const captureError = configured && status.lastError === 'Capture token is not configured'
     ? ''
     : status.lastError ?? '';
-  document.querySelector('#error').textContent = urtubeErrorMessage(captureError);
+  const syncError = actionError || captureError || lifelog.lastError || history.lastError;
+  document.querySelector('#error').textContent = urtubeErrorMessage(syncError);
   const latest = stored.latestExtensionVersion ?? '';
   const installed = chrome.runtime.getManifest().version;
   const updateDue = isNewerVersion(latest, installed);
@@ -70,38 +73,46 @@ async function render() {
     : history.state === 'complete'
       ? urtubeT.historyResult(history.endReason, history.events ?? history.videos ?? 0)
       : history.state === 'error'
-        ? urtubeT.historyResult(history.endReason, history.events ?? history.videos ?? 0)
+        ? urtubeT.importFailed
         : urtubeT.notImported;
-  if (history.lastError) document.querySelector('#error').textContent = urtubeErrorMessage(history.lastError);
   const lifelogRunning = lifelog.state === 'running';
   document.querySelector('#sync').textContent = lifelogRunning ? urtubeT.cancelSync : urtubeT.syncNow;
-  document.querySelector('#lifelog-state').textContent = lifelogRunning
-    ? lifelog.stage === 'activity'
-      ? urtubeT.events(lifelog.events ?? 0)
-      : urtubeT.progressRows(lifelog.videos ?? 0)
-    : lifelog.state === 'complete'
-      ? urtubeT.upToDate
-      : lifelog.state === 'error'
-        ? urtubeT.syncFailed
-        : urtubeT.notSynced;
-  if (lifelog.lastError) document.querySelector('#error').textContent = urtubeErrorMessage(lifelog.lastError);
+  document.querySelector('#lifelog-state').textContent = syncError
+    ? urtubeT.syncFailed
+    : lifelogRunning
+      ? lifelog.stage === 'activity'
+        ? urtubeT.events(lifelog.events ?? 0)
+        : urtubeT.progressRows(lifelog.videos ?? 0)
+      : lifelog.state === 'complete'
+        ? urtubeT.upToDate
+        : lifelog.state === 'error'
+          ? urtubeT.syncFailed
+          : urtubeT.notSynced;
 }
 
-document.querySelector('#sync').addEventListener('click', async () => {
-  const stored = await chrome.storage.local.get('lifelogSyncStatus');
-  const running = stored.lifelogSyncStatus?.state === 'running';
-  await chrome.runtime.sendMessage({
-    type: running ? 'lifelog-sync-cancel' : 'lifelog-sync-start',
-  });
+async function runAction(statusKey, start, cancel) {
+  actionError = '';
+  try {
+    const stored = await chrome.storage.local.get(statusKey);
+    const running = stored[statusKey]?.state === 'running';
+    const response = await chrome.runtime.sendMessage({ type: running ? cancel : start });
+    if (!response?.ok) throw new Error(response?.error || 'Sync failed');
+  } catch (error) {
+    const stored = await chrome.storage.local.get(['captureStatus', statusKey]);
+    // Persisted worker errors remain the source of truth, so recovery in
+    // Settings can clear them while this popup is still open.
+    if (!stored.captureStatus?.lastError && !stored[statusKey]?.lastError) {
+      actionError = error instanceof Error ? error.message : String(error);
+    }
+  }
   await render();
+}
+
+document.querySelector('#sync').addEventListener('click', () => {
+  return runAction('lifelogSyncStatus', 'lifelog-sync-start', 'lifelog-sync-cancel');
 });
-document.querySelector('#history').addEventListener('click', async () => {
-  const stored = await chrome.storage.local.get('historyImportStatus');
-  const running = stored.historyImportStatus?.state === 'running';
-  await chrome.runtime.sendMessage({
-    type: running ? 'history-import-cancel' : 'history-import-start',
-  });
-  await render();
+document.querySelector('#history').addEventListener('click', () => {
+  return runAction('historyImportStatus', 'history-import-start', 'history-import-cancel');
 });
 document.querySelector('#options').addEventListener('click', () => {
   void chrome.runtime.openOptionsPage();

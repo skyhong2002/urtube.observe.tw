@@ -19,7 +19,7 @@ test('Chrome extension manifest is least-privilege and captures YouTube SPA page
     'utf8',
   ));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '2.1.0');
+  assert.equal(manifest.version, '2.1.1');
   assert.deepEqual(Object.keys(manifest.icons ?? {}).sort(), ['128', '16', '32', '48']);
   assert.deepEqual(manifest.permissions.sort(), ['alarms', 'storage']);
   assert.deepEqual(manifest.host_permissions, [
@@ -586,6 +586,7 @@ function fakeNetwork() {
       network.calls.push(call);
       if (network.gate) await network.gate(call, init.signal);
       if (!network.online) throw new TypeError('Failed to fetch');
+      if (network.failureStatus) return Response.json({ error: 'Synthetic failure' }, { status: network.failureStatus });
       const account = network.accounts.get(call.token);
       if (!account) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       call.accepted = true;
@@ -1042,10 +1043,8 @@ test('R03: a history scan in flight during a switch is cancelled and B starts fr
   const startB = fake.tabMessages.find(({ message }) => message.type === 'start-activity-sync');
   assert.ok(startB, 'provisioning starts B’s first sync');
   assert.notEqual(startB.message.syncId, syncA);
-  assert.ok(
-    Date.parse(startB.message.since) < Date.parse('2026-10-20T06:00:00.000Z') - 86_400_000,
-    `B reused A's checkpoint: since=${startB.message.since}`,
-  );
+  assert.ok(Math.abs(Date.parse(startB.message.since) - (Date.now() - 7 * 86_400_000)) < 5000,
+    `B should use its own initial seven-day window: since=${startB.message.since}`);
 
   // A's still-open tab reports a batch after the switch: it must not be
   // uploaded under B, nor change B's sync status.
@@ -1094,4 +1093,256 @@ test('R03: existing single-account storage migrates into the configured account 
   assert.deepEqual(capturedSessions(network, TOKEN_A), ['legacy-0001']);
   assert.deepEqual(capturedSessions(network, TOKEN_A2), ['legacy-0002']);
   assert.equal(fake.data.lifelogSyncStatus.lastEventAt, '2026-10-19T10:00:00.000Z');
+});
+
+// Exercise the actual popup/options scripts, including async click handlers
+// and periodic rerenders, without a browser or any real account data.
+async function extensionPage(fake, name) {
+  const elements = new Map();
+  const element = (selector) => {
+    if (!elements.has(selector)) elements.set(selector, {
+      textContent: '', value: '', checked: false, hidden: false,
+      classList: { toggle() {} },
+      listeners: {},
+      addEventListener(type, listener) { this.listeners[type] = listener; },
+    });
+    return elements.get(selector);
+  };
+  const context = vm.createContext({
+    chrome: fake.chrome, URL, Error,
+    navigator: { language: 'en' },
+    document: { querySelector: element },
+    window: { setInterval() {} },
+  });
+  for (const script of ['i18n.js', `${name}.js`]) {
+    vm.runInContext(readFileSync(new URL(`../chrome-extension/${script}`, import.meta.url), 'utf8'), context);
+  }
+  await settle();
+  return {
+    element,
+    text: (selector) => element(selector).textContent,
+    click: (selector) => element(selector).listeners.click(),
+    render: () => vm.runInContext('render()', context),
+  };
+}
+
+const previousSyncAt = '2026-10-20T09:00:00.000Z';
+function previouslySynced() {
+  return fakeChrome({
+    captureSettings: { ...accountA, enabled: true, autoSync: false },
+    captureStatus: { configured: true, lastError: '', lastSuccessAt: previousSyncAt },
+    captureQueue: [],
+    lifelogSyncStatus: { state: 'complete', lastSuccessAt: previousSyncAt, lastEventAt: previousSyncAt },
+  });
+}
+
+for (const failure of [401, 403, 'offline']) {
+  test(`sync preflight ${failure} replaces old completion and recovers only after a real sync`, async () => {
+    const network = networkFor([TOKEN_A, 'synthetic-a']);
+    const fake = previouslySynced();
+    await startWorker(fake, network);
+    const popup = await extensionPage(fake, 'popup');
+    assert.equal(popup.text('#lifelog-state'), 'Up to date');
+    const lastSyncLabel = popup.text('#last-sync');
+    network.failureStatus = typeof failure === 'number' ? failure : null;
+    network.online = failure !== 'offline';
+    await popup.click('#sync');
+    assert.equal(fake.data.lifelogSyncStatus.state, 'error');
+    assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+    assert.match(fake.data.lifelogSyncStatus.lastError, failure === 'offline' ? /fetch/ : new RegExp(`HTTP ${failure}`));
+    assert.equal(popup.text('#lifelog-state'), 'Sync failed');
+    assert.match(popup.text('#error'), /reconnect/);
+    assert.equal(popup.text('#last-sync'), lastSyncLabel);
+    assert.equal(fake.tabMessages.length, 0, 'preflight failure must not open sync tabs');
+
+    await fake.dispatch({ type: 'flush' });
+    await restartWorker(fake, network);
+    await popup.render();
+    assert.equal(popup.text('#lifelog-state'), 'Sync failed');
+    assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+
+    network.failureStatus = null;
+    network.online = true;
+    const options = await extensionPage(fake, 'options');
+    await options.click('#test');
+    await popup.render();
+    assert.equal(options.text('#result'), 'Connection ready.');
+    assert.equal(popup.text('#error'), '', 'verified connection clears the preflight diagnosis');
+    assert.equal(popup.text('#lifelog-state'), 'Sync failed', 'the failed sync still needs a retry');
+    assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+    await popup.click('#sync');
+    assert.equal(fake.data.lifelogSyncStatus.state, 'running');
+    assert.equal(popup.text('#error'), '');
+    assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt, 'preflight is not a successful import');
+    const syncId = fake.data.lifelogSyncStatus.syncId;
+    assert.equal((await fake.dispatch({ type: 'activity-sync-complete', syncId, events: 2, newestEventAt: previousSyncAt })).ok, true);
+    await settle();
+    assert.equal((await fake.dispatch({
+      type: 'history-import-complete', scanId: fake.data.historyImportStatus.scanId,
+      videos: 2, endReason: 'history-start',
+    })).ok, true);
+    await settle();
+    await popup.render();
+    assert.equal(fake.data.lifelogSyncStatus.state, 'complete');
+    assert.ok(Date.parse(fake.data.lifelogSyncStatus.lastSuccessAt) > Date.parse(previousSyncAt));
+    assert.equal(popup.text('#lifelog-state'), 'Up to date');
+    assert.equal(popup.text('#error'), '');
+  });
+}
+
+test('options connection errors reach the popup, survive idle/paused flushes, and clear on verification without importing', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  const options = await extensionPage(fake, 'options');
+  const popup = await extensionPage(fake, 'popup');
+  network.accounts.delete(TOKEN_A);
+  await options.click('#test');
+  assert.match(options.text('#result'), /reconnect/);
+  assert.match(fake.data.captureStatus.lastError, /HTTP 401/);
+  await popup.render();
+  assert.equal(popup.text('#lifelog-state'), 'Sync failed');
+  assert.match(popup.text('#error'), /reconnect/);
+  const failedStatus = clone(fake.data.captureStatus);
+  const calls = network.calls.length;
+  await fake.dispatch({ type: 'flush' });
+  assert.equal(network.calls.length, calls, 'an empty flush did not verify anything');
+  assert.deepEqual(fake.data.captureStatus, failedStatus);
+  await saveSettings(fake, { enabled: false });
+  assert.equal(fake.data.captureStatus.lastError, failedStatus.lastError);
+  await restartWorker(fake, network);
+  await popup.render();
+  assert.equal(popup.text('#lifelog-state'), 'Sync failed');
+
+  network.accounts.set(TOKEN_A, { handle: 'synthetic-a' });
+  await options.click('#test');
+  await popup.render();
+  assert.equal(options.text('#result'), 'Connection ready.');
+  assert.equal(popup.text('#error'), '');
+  assert.equal(popup.text('#lifelog-state'), 'Up to date');
+  assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+  assert.equal(fake.data.captureStatus.lastSuccessAt, previousSyncAt);
+  assert.equal(fake.tabMessages.length, 0, 'health checks do not start another import after a previous success');
+});
+
+test('testing unsaved credentials cannot clear or overwrite the active connection error', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a'], [TOKEN_B, 'synthetic-b']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  await fake.chrome.storage.local.set({ captureStatus: { lastError: 'Connection failed: HTTP 401' } });
+  const options = await extensionPage(fake, 'options');
+  options.element('#token').value = TOKEN_B;
+  await options.click('#test');
+  assert.equal(options.text('#result'), 'Connection ready.');
+  assert.equal(fake.data.captureStatus.lastError, 'Connection failed: HTTP 401');
+  network.accounts.delete(TOKEN_B);
+  await options.click('#test');
+  assert.match(options.text('#result'), /reconnect/);
+  assert.equal(fake.data.captureStatus.lastError, 'Connection failed: HTTP 401');
+  assert.equal(fake.data.captureSettings.token, TOKEN_A);
+});
+
+test('deferred captures retain their failure until an upload really succeeds', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  network.accounts.delete(TOKEN_A);
+  await fake.dispatch({ type: 'capture', payload: capturePayload('retry-synthetic-0001', 10) });
+  await fake.dispatch({ type: 'flush' });
+  assert.match(fake.data.captureStatus.lastError, /HTTP 401/);
+  const failedStatus = clone(fake.data.captureStatus);
+  const calls = network.calls.length;
+  await fake.dispatch({ type: 'flush' });
+  assert.equal(network.calls.length, calls);
+  assert.deepEqual(fake.data.captureStatus, failedStatus);
+  network.accounts.set(TOKEN_A, { handle: 'synthetic-a' });
+  fake.data.captureQueue[0].nextAttemptAt = 0;
+  await fake.dispatch({ type: 'flush' });
+  assert.equal(fake.data.captureStatus.lastError, '');
+  assert.equal(fake.data.captureQueue.length, 0);
+  assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt, 'capture upload is not history sync');
+});
+
+for (const rejected of [false, true]) {
+  test(`popup handles ${rejected ? 'rejected messages' : 'ok:false replies'} across rerenders and clears on retry`, async () => {
+    const fake = previouslySynced();
+    let fail = true;
+    fake.chrome.runtime.sendMessage = async ({ type }) => {
+      if (type === 'extension-update-check') return { ok: true };
+      if (fail) {
+        if (rejected) throw new Error('Connection failed: HTTP 401');
+        return { ok: false, error: 'Connection failed: HTTP 403' };
+      }
+      return { ok: true };
+    };
+    const popup = await extensionPage(fake, 'popup');
+    for (const button of ['#sync', '#history']) {
+      fail = true;
+      await popup.click(button);
+      await popup.render();
+      assert.equal(popup.text('#lifelog-state'), 'Sync failed');
+      assert.match(popup.text('#error'), /reconnect/);
+      assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+      fail = false;
+      await popup.click(button);
+      assert.equal(popup.text('#error'), '');
+      assert.equal(popup.text('#lifelog-state'), 'Up to date');
+    }
+  });
+}
+
+test('a pending preflight can be cancelled and its late failure cannot replace cancellation', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  let release;
+  network.gate = (call) => call.path.endsWith('/history/status')
+    ? new Promise((resolve) => { release = resolve; }) : undefined;
+  const starting = fake.dispatch({ type: 'lifelog-sync-start' });
+  await settle();
+  assert.equal(typeof release, 'function');
+  assert.equal(fake.data.lifelogSyncStatus.state, 'running');
+  assert.equal((await fake.dispatch({ type: 'lifelog-sync-start' })).ok, false);
+  assert.equal((await fake.dispatch({ type: 'lifelog-sync-cancel' })).ok, true);
+  network.failureStatus = 401;
+  release();
+  assert.equal((await starting).ok, false);
+  assert.equal(fake.data.lifelogSyncStatus.state, 'cancelled');
+  assert.equal(fake.data.lifelogSyncStatus.lastError, '');
+  assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+  assert.equal(fake.tabMessages.length, 0);
+});
+
+test('a connection test finishing after credentials change cannot overwrite the new connection status', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a'], [TOKEN_B, 'synthetic-b']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  let release;
+  network.gate = (call) => call.token === TOKEN_A && call.path.endsWith('/capture/status')
+    ? new Promise((resolve) => { release = resolve; }) : undefined;
+  const testing = fake.dispatch({ type: 'connection-test', settings: fake.data.captureSettings });
+  await settle();
+  assert.equal(typeof release, 'function');
+  await saveSettings(fake, { ...accountB, autoSync: false });
+  const current = clone(fake.data.captureStatus);
+  network.accounts.delete(TOKEN_A);
+  release();
+  assert.equal((await testing).ok, false);
+  assert.equal(fake.data.captureSettings.token, TOKEN_B);
+  assert.deepEqual(fake.data.captureStatus, current);
+});
+
+test('a history import authorization error also overrides an old daily completion', async () => {
+  const fake = previouslySynced();
+  fake.chrome.runtime.sendMessage = async () => ({ ok: true });
+  fake.data.historyImportStatus = { state: 'error', lastError: 'History sync failed: HTTP 403', videos: 3 };
+  const popup = await extensionPage(fake, 'popup');
+  assert.equal(popup.text('#lifelog-state'), 'Sync failed');
+  assert.equal(popup.text('#history-state'), 'Import failed');
+  assert.match(popup.text('#error'), /reconnect/);
+  fake.data.historyImportStatus = { state: 'complete', lastError: '', videos: 3, endReason: 'history-start' };
+  await popup.render();
+  assert.equal(popup.text('#lifelog-state'), 'Up to date');
+  assert.equal(popup.text('#error'), '');
+  assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
 });

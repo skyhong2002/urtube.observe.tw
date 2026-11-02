@@ -198,15 +198,45 @@ async function migrateStorage() {
 
 const storageReady = migrateStorage().catch(() => {});
 
-async function updateStatus(patch) {
-  const stored = await chrome.storage.local.get([STATUS_KEY, QUEUE_KEY]);
-  await chrome.storage.local.set({
-    [STATUS_KEY]: {
-      ...(stored[STATUS_KEY] ?? {}),
-      ...patch,
-      pending: (stored[QUEUE_KEY] ?? []).length,
-    },
+function updateStatus(patch, config = null) {
+  return withStatusLock(async () => {
+    const stored = await chrome.storage.local.get([STATUS_KEY, QUEUE_KEY, SETTINGS_KEY, LIFELOG_STATUS_KEY]);
+    // A test of unsaved settings, or a response from an old connection, must
+    // not change the connected account's status.
+    if (config && (stored[SETTINGS_KEY]?.token !== config.token
+      || stored[SETTINGS_KEY]?.endpoint !== config.endpoint)) return;
+    const lifelog = stored[LIFELOG_STATUS_KEY];
+    await chrome.storage.local.set({
+      [STATUS_KEY]: {
+        ...(stored[STATUS_KEY] ?? {}),
+        ...patch,
+        pending: (stored[QUEUE_KEY] ?? []).length,
+      },
+      // A verified connection resolves a preflight diagnosis, but the failed
+      // sync still needs a retry. Never mark it complete or advance its time.
+      ...(patch.lastError === '' && lifelog?.state === 'error' && lifelog.failureStage === 'connection'
+        ? { [LIFELOG_STATUS_KEY]: { ...lifelog, lastError: '' } }
+        : {}),
+    });
   });
+}
+
+async function testConnection(config) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IDENTITY_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(config.endpoint.replace(/\/capture$/, '/capture/status'), {
+      headers: { authorization: `Bearer ${config.token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Connection failed: HTTP ${response.status}`);
+    await updateStatus({ lastError: '' }, config);
+  } catch (error) {
+    await updateStatus({ lastError: error instanceof Error ? error.message : String(error) }, config);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function updateBadge(pending) {
@@ -280,7 +310,7 @@ async function runFlush() {
   if (!config.enabled || !config.token) {
     await updateStatus({
       configured: Boolean(config.token),
-      lastError: config.enabled ? 'Capture token is not configured' : '',
+      ...(!config.token && config.enabled ? { lastError: 'Capture token is not configured' } : {}),
     });
     await updateBadge(queue.length);
     return;
@@ -327,16 +357,12 @@ async function runFlush() {
       lastError = error instanceof Error ? error.message : String(error);
     }
   }
-  await chrome.storage.local.set({
-    [QUEUE_KEY]: remaining,
-    [STATUS_KEY]: {
-      configured: true,
-      pending: remaining.length,
-      lastSuccessAt: lastSuccessAt
-        ?? (await chrome.storage.local.get(STATUS_KEY))[STATUS_KEY]?.lastSuccessAt
-        ?? null,
-      lastError,
-    },
+  await chrome.storage.local.set({ [QUEUE_KEY]: remaining });
+  await updateStatus({
+    configured: true,
+    ...(lastSuccessAt ? { lastSuccessAt } : {}),
+    // Empty queues and deferred retries provide no evidence of recovery.
+    ...(lastError || lastSuccessAt ? { lastError } : {}),
   });
   await updateBadge(remaining.length);
 }
@@ -384,7 +410,11 @@ async function postSyncBatch(account, endpoint, payload, failure) {
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
-      if (response.ok) return await response.json();
+      if (response.ok) {
+        const body = await response.json();
+        await updateStatus({ lastError: '' }, config);
+        return body;
+      }
       const body = await response.json().catch(() => ({}));
       throw new Error(body?.error || `${failure}: HTTP ${response.status}`);
     } catch (error) {
@@ -427,7 +457,7 @@ async function serverHistoryStatus(account) {
     signal: account.signal,
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body?.error || `History status failed: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`History status failed: HTTP ${response.status}${body?.error ? `: ${body.error}` : ''}`);
   return body;
 }
 
@@ -707,6 +737,7 @@ async function failLifelogSync(syncId, error) {
   await closeHistoryImportTab(status.historyTabId);
   await lifelogStatus({
     state: 'error',
+    failureStage: status.stage,
     stage: 'idle',
     completedAt: new Date().toISOString(),
     activityTabId: null,
@@ -921,7 +952,6 @@ async function failDeepHistoryImport(syncId, error) {
 async function startLifelogSync({ automatic = false } = {}) {
   const account = await currentAccount();
   const { config } = account;
-  if (!config.token) throw new Error('Capture token is not configured');
   if (automatic && config.autoSync === false) return { skipped: true, reason: 'disabled' };
   const stored = await chrome.storage.local.get([LIFELOG_STATUS_KEY, HISTORY_STATUS_KEY]);
   if (stored[LIFELOG_STATUS_KEY]?.state === 'running') {
@@ -930,22 +960,12 @@ async function startLifelogSync({ automatic = false } = {}) {
   if (stored[HISTORY_STATUS_KEY]?.state === 'running') {
     throw new Error('A history progress import is already running');
   }
-  const remote = await serverHistoryStatus(account);
-  assertCurrent(account);
-  const candidates = [
-    stored[LIFELOG_STATUS_KEY]?.lastEventAt,
-    remote.latestEventAt,
-  ].filter(Boolean).sort();
-  const latestEventAt = candidates.at(-1) ?? null;
-  const historyCoverage = remote.coverage ?? null;
-  const since = latestEventAt
-    ? new Date(Date.parse(latestEventAt) - DAILY_SYNC_OVERLAP_MS).toISOString()
-    : new Date(Date.now() - 7 * 86_400_000).toISOString();
   const syncId = crypto.randomUUID();
   const observedAt = new Date().toISOString();
   const written = await lifelogStatus({
     state: 'running',
-    stage: 'activity',
+    stage: 'connection',
+    failureStage: null,
     syncId,
     observedAt,
     startedAt: observedAt,
@@ -954,8 +974,6 @@ async function startLifelogSync({ automatic = false } = {}) {
     events: 0,
     videos: 0,
     pass: 0,
-    latestEventAt,
-    historyCoverage,
     activityTabId: null,
     historyTabId: null,
     lastError: '',
@@ -965,6 +983,21 @@ async function startLifelogSync({ automatic = false } = {}) {
     throw new Error('A YouTube lifelog sync is already running');
   }
   try {
+    // Claim this attempt before the preflight request so a failed connection
+    // replaces an old "complete" state and follows the normal failure path.
+    if (!config.token) throw new Error('Capture token is not configured');
+    const remote = await serverHistoryStatus(account);
+    assertCurrent(account);
+    const latestEventAt = [stored[LIFELOG_STATUS_KEY]?.lastEventAt, remote.latestEventAt]
+      .filter(Boolean).sort().at(-1) ?? null;
+    const historyCoverage = remote.coverage ?? null;
+    const since = latestEventAt
+      ? new Date(Date.parse(latestEventAt) - DAILY_SYNC_OVERLAP_MS).toISOString()
+      : new Date(Date.now() - 7 * 86_400_000).toISOString();
+    if (!await lifelogStatus({ stage: 'activity', latestEventAt, historyCoverage }, runningSync(syncId, account))) {
+      return { cancelled: true };
+    }
+    await updateStatus({ lastError: '' }, config);
     await startActivitySync(account, syncId, observedAt, since);
     return { syncId, observedAt, since };
   } catch (error) {
@@ -1204,8 +1237,8 @@ async function applyConnection(input) {
   }
   await updateBadge(pending);
   await ensureAlarms();
-  // Re-run the queue immediately: besides sending this account's pending
-  // captures, it replaces a stale "token is not configured" status.
+  // Retry this account's pending captures immediately. Only successful
+  // requests clear errors; an empty queue cannot verify the connection.
   await flushQueue();
   void maybeStartLifelogSync();
   return { switched, accountKey };
@@ -1246,6 +1279,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
+  if (message?.type === 'connection-test' && message.settings) {
+    testConnection(message.settings)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
   if (message?.type === 'flush') {
     flushQueue()
       .then(() => sendResponse({ ok: true }))
@@ -1269,9 +1308,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === 'settings-updated') {
     ensureAlarms()
-      // Re-run the queue immediately after provisioning or saving settings.
-      // Besides sending pending captures, this replaces any stale
-      // "token is not configured" status left by the install-time flush.
+      // Retry pending captures immediately after provisioning or saving settings.
       .then(() => flushQueue())
       .then(() => maybeStartLifelogSync())
       .then(() => sendResponse({ ok: true }))
