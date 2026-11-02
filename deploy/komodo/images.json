@@ -1,0 +1,66 @@
+{
+  "services": {
+    "tunnel": {
+      "environment": {
+        "TUNNEL_TRANSPORT_PROTOCOL": "http2",
+        "TUNNEL_REGION": "us"
+      }
+    },
+    "app": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:daa8c7cf30b4645faf80992271e0bb03c0c787cccb3d09e8c0812ff7c0bca4d5",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "sky-quality",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
+        "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "ingest": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:daa8c7cf30b4645faf80992271e0bb03c0c787cccb3d09e8c0812ff7c0bca4d5",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "sky-quality",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
+        "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:daa8c7cf30b4645faf80992271e0bb03c0c787cccb3d09e8c0812ff7c0bca4d5",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "sky-quality",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
+        "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "backup": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:daa8c7cf30b4645faf80992271e0bb03c0c787cccb3d09e8c0812ff7c0bca4d5",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "sky-quality",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
+        "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "matching-worker": {
+      "image": "ghcr.io/skyhong2002/urtube.observe.tw@sha256:daa8c7cf30b4645faf80992271e0bb03c0c787cccb3d09e8c0812ff7c0bca4d5",
+      "environment": {
+        "MATCHING_V3_BACKFILL_VIDEO_LIMIT": "5000",
+        "AI_MODEL": "sky-quality",
+        "MATCHING_V3_CLASSIFICATION_MODEL": "sky-fast",
+        "AI_REUSE_MODEL": "gpt-6-sol,gpt-5.6-sol",
+        "MATCHING_V3_CLASSIFICATION_CACHE_MODEL": "gpt-5.6-luna"
+      }
+    },
+    "matching-compute": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:c18c99f10168bfcb28d99c06a462395c36425bf102f657f6581a129b16375317"
+    },
+    "matching-compare": {
+      "image": "ghcr.io/skyhong2002/urtube-matching-compute@sha256:c18c99f10168bfcb28d99c06a462395c36425bf102f657f6581a129b16375317"
+    }
+  }
+}
