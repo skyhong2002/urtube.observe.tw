@@ -65,20 +65,18 @@ document.querySelector('#test').addEventListener('click', async () => {
   try {
     const settings = values();
     result.textContent = urtubeT.testing;
-    const statusUrl = settings.endpoint.replace(/\/capture$/, '/capture/status');
-    const response = await fetch(statusUrl, {
-      headers: { authorization: `Bearer ${settings.token}` },
-    });
-    if (!response.ok) throw new Error(`Connection failed: HTTP ${response.status}`);
+    const response = await chrome.runtime.sendMessage({ type: 'connection-test', settings });
+    if (!response?.ok) throw new Error(response?.error || 'Connection test failed');
     result.textContent = urtubeT.connectionReady;
     // Manual setup path: a working connection that has never synced starts
     // its first sync immediately, same as one-click provisioning.
     const status = await chrome.storage.local.get('lifelogSyncStatus');
     if (!status.lifelogSyncStatus?.lastSuccessAt) {
-      await save(values());
-      try {
-        await chrome.runtime.sendMessage({ type: 'lifelog-sync-start' });
-      } catch { /* already running */ }
+      await save(settings);
+      const started = await chrome.runtime.sendMessage({ type: 'lifelog-sync-start' });
+      if (!started?.ok && !/already running/i.test(started?.error ?? '')) {
+        throw new Error(started?.error || 'Sync failed');
+      }
     }
   } catch (error) {
     result.textContent = urtubeErrorMessage(error);
