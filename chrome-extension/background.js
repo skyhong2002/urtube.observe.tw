@@ -452,13 +452,24 @@ async function ownedScanAccount(scanId) {
 async function serverHistoryStatus(account) {
   const { config } = account;
   if (!config.token) throw new Error('Capture token is not configured');
-  const response = await fetch(historyEndpoint(config.endpoint, '/status'), {
-    headers: { authorization: `Bearer ${config.token}` },
-    signal: account.signal,
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`History status failed: HTTP ${response.status}${body?.error ? `: ${body.error}` : ''}`);
-  return body;
+  assertCurrent(account);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IDENTITY_REQUEST_TIMEOUT_MS);
+  const cancel = () => controller.abort();
+  account.signal.addEventListener('abort', cancel);
+  try {
+    const response = await fetch(historyEndpoint(config.endpoint, '/status'), {
+      headers: { authorization: `Bearer ${config.token}` },
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => ({}));
+    controller.signal.throwIfAborted();
+    if (!response.ok) throw new Error(`History status failed: HTTP ${response.status}${body?.error ? `: ${body.error}` : ''}`);
+    return body;
+  } finally {
+    clearTimeout(timeout);
+    account.signal.removeEventListener('abort', cancel);
+  }
 }
 
 // Status writes share a lock with the account switch. A guard, when given,
@@ -729,10 +740,10 @@ async function closeActivitySyncTab(tabId) {
   await chrome.tabs.remove(tabId).catch(() => {});
 }
 
-async function failLifelogSync(syncId, error) {
+async function failLifelogSync(syncId, error, account = null) {
   const stored = await chrome.storage.local.get(LIFELOG_STATUS_KEY);
   const status = stored[LIFELOG_STATUS_KEY] ?? {};
-  if (status.syncId !== syncId || status.state !== 'running') return;
+  if (!runningSync(syncId, account)(status)) return;
   await closeActivitySyncTab(status.activityTabId);
   await closeHistoryImportTab(status.historyTabId);
   await lifelogStatus({
@@ -743,7 +754,7 @@ async function failLifelogSync(syncId, error) {
     activityTabId: null,
     historyTabId: null,
     lastError: error instanceof Error ? error.message : String(error),
-  }, runningSync(syncId));
+  }, runningSync(syncId, account));
 }
 
 async function finishLifelogSync(syncId, videos) {
@@ -953,6 +964,9 @@ async function startLifelogSync({ automatic = false } = {}) {
   const account = await currentAccount();
   const { config } = account;
   if (automatic && config.autoSync === false) return { skipped: true, reason: 'disabled' };
+  // An unconfigured install has not attempted a sync. Do not put its first
+  // connection into the automatic retry backoff.
+  if (!config.token) throw new Error('Capture token is not configured');
   const stored = await chrome.storage.local.get([LIFELOG_STATUS_KEY, HISTORY_STATUS_KEY]);
   if (stored[LIFELOG_STATUS_KEY]?.state === 'running') {
     throw new Error('A YouTube lifelog sync is already running');
@@ -985,7 +999,6 @@ async function startLifelogSync({ automatic = false } = {}) {
   try {
     // Claim this attempt before the preflight request so a failed connection
     // replaces an old "complete" state and follows the normal failure path.
-    if (!config.token) throw new Error('Capture token is not configured');
     const remote = await serverHistoryStatus(account);
     assertCurrent(account);
     const latestEventAt = [stored[LIFELOG_STATUS_KEY]?.lastEventAt, remote.latestEventAt]
@@ -1001,7 +1014,7 @@ async function startLifelogSync({ automatic = false } = {}) {
     await startActivitySync(account, syncId, observedAt, since);
     return { syncId, observedAt, since };
   } catch (error) {
-    await failLifelogSync(syncId, error);
+    await failLifelogSync(syncId, error, account);
     throw error;
   }
 }

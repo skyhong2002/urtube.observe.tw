@@ -1127,6 +1127,89 @@ async function extensionPage(fake, name) {
 }
 
 const previousSyncAt = '2026-10-20T09:00:00.000Z';
+test('sync before configuration does not delay automatic sync on the first connection', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = fakeChrome();
+  await startWorker(fake, network);
+  const reply = await fake.dispatch({ type: 'lifelog-sync-start' });
+  assert.equal(reply.ok, false);
+  assert.match(reply.error, /not configured/);
+  assert.notEqual(fake.data.lifelogSyncStatus?.state, 'error');
+  assert.equal((await saveSettings(fake, { ...accountA, autoSync: true })).ok, true);
+  await settle();
+  assert.equal(fake.data.lifelogSyncStatus.state, 'running');
+  assert.equal(fake.data.lifelogSyncStatus.stage, 'activity');
+  assert.equal(fake.data.lifelogSyncStatus.automatic, true);
+});
+
+for (const stall of ['request', 'response body']) {
+test(`a stalled history preflight ${stall} times out and permits a manual retry`, async (t) => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  const originalTimeout = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (fn, ms, ...args) =>
+    originalTimeout(fn, ms === 10_000 ? 5 : ms, ...args));
+  const untilAborted = (signal) => new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  const originalFetch = globalThis.fetch;
+  if (stall === 'request') {
+    network.gate = (call, signal) => call.path.endsWith('/history/status') ? untilAborted(signal) : undefined;
+  } else {
+    globalThis.fetch = async (url, init) => String(url).endsWith('/history/status')
+      ? { ok: true, json: () => untilAborted(init.signal) }
+      : originalFetch(url, init);
+    t.after(() => { globalThis.fetch = originalFetch; });
+  }
+  assert.equal((await fake.dispatch({ type: 'lifelog-sync-start' })).ok, false);
+  assert.equal(fake.data.lifelogSyncStatus.state, 'error');
+  assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+  assert.equal(fake.tabMessages.length, 0);
+  network.gate = null;
+  globalThis.fetch = originalFetch;
+  assert.equal((await fake.dispatch({ type: 'lifelog-sync-start' })).ok, true);
+  assert.equal(fake.data.lifelogSyncStatus.stage, 'activity');
+});
+}
+
+test('an aborted preflight remains cancelled when an account switch waits on a flush', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a'], [TOKEN_B, 'synthetic-b']);
+  const fake = previouslySynced();
+  await startWorker(fake, network);
+  network.online = false;
+  await fake.dispatch({ type: 'capture', payload: capturePayload('switch-preflight-0001', 10) });
+  await fake.dispatch({ type: 'flush' });
+  network.online = true;
+  fake.data.captureQueue[0].nextAttemptAt = 0;
+  let releaseFlush;
+  network.gate = (call, signal) => {
+    if (call.path.endsWith('/capture') && call.method === 'POST') {
+      return new Promise((resolve) => { releaseFlush = resolve; });
+    }
+    if (call.path.endsWith('/history/status')) {
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    }
+  };
+  const flushing = fake.dispatch({ type: 'flush' });
+  const starting = fake.dispatch({ type: 'lifelog-sync-start' });
+  await settle();
+  assert.equal(typeof releaseFlush, 'function');
+  assert.equal(fake.data.lifelogSyncStatus.stage, 'connection');
+  const switching = saveSettings(fake, { ...accountB, autoSync: false });
+  assert.equal((await starting).ok, false);
+  assert.equal(fake.data.lifelogSyncStatus.state, 'running', 'the switch will cancel outgoing work, not record a sync failure');
+  releaseFlush();
+  await flushing;
+  assert.equal((await switching).ok, true);
+  network.gate = null;
+  assert.equal((await saveSettings(fake, { ...accountA, autoSync: false })).ok, true);
+  assert.equal(fake.data.lifelogSyncStatus.state, 'cancelled');
+  assert.equal(fake.data.lifelogSyncStatus.lastError, '');
+});
+
 function previouslySynced() {
   return fakeChrome({
     captureSettings: { ...accountA, enabled: true, autoSync: false },
