@@ -26,13 +26,13 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.12",
+    "@hono/node-server": "^2.1.5",
     "cheerio": "^1.2.0",
     "fflate": "^0.8.3",
     "hono": "^4.12.28",
     "js-tiktoken": "^1.0.21",
     "tsx": "^4.23.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
