@@ -72,7 +72,7 @@ const styles = `
   .skip-link:focus{transform:none}
   ::selection{background:rgba(208,59,59,.35)}
   h1,h2,h3,p{overflow-wrap:anywhere}
-  .eyebrow{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+  .eyebrow{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
   .muted{color:var(--ink-2)}
   .site-main[data-loading]{cursor:progress}
   .site-main[data-loading]::before{background:var(--accent);content:'';height:3px;left:0;position:fixed;right:0;top:0;z-index:100}
@@ -84,7 +84,7 @@ const styles = `
   .site-brand{align-items:center;color:var(--ink);display:flex;flex:0 0 auto;gap:11px;text-decoration:none}
   .site-brand svg{display:block;height:30px;width:30px}
   .site-brand strong{font-size:15px;letter-spacing:.01em}
-  .site-brand small{color:var(--muted);display:block;font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+  .site-brand small{color:var(--muted);display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
   .site-nav{display:flex;gap:4px;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none}
   .site-nav::-webkit-scrollbar{display:none}
   .site-nav a{border-radius:999px;color:var(--ink-2);flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 13px;text-decoration:none;white-space:nowrap}
@@ -92,6 +92,7 @@ const styles = `
   .site-nav a[aria-current=page]{background:var(--ink);color:#111}
   .site-main{margin:0 auto;max-width:1180px;padding:26px 22px 90px}
   .site-footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;margin:0 auto;max-width:1180px;padding:24px 22px 54px}
+  .site-footer a{display:inline-block;padding:4px 0}
 
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
   .section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-top:18px;padding:22px 24px}
@@ -214,7 +215,7 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
     ? `<link rel="canonical" href="${html(config.publicBaseUrl + canonicalPath)}">\n  ` : '';
   const ogUrl = canonicalPath
     ? `<meta property="og:url" content="${html(config.publicBaseUrl + canonicalPath)}">` : '';
-  return `<!doctype html><html lang="${t.htmlLang}" data-processing-account="${html(processingAccount)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${t.description}">
+  return `<!doctype html><html lang="${t.htmlLang}" data-processing-account="${html(processingAccount)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="${t.description}">
   ${canonical}<meta property="og:type" content="website"><meta property="og:title" content="${html(title)}"><meta property="og:description" content="${t.description}">${ogUrl}
   <meta property="og:image" content="${html(config.publicBaseUrl)}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="${t.landingDocTitle}">
   <meta name="twitter:card" content="summary_large_image">

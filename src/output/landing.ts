@@ -4,82 +4,201 @@ import { landingChannelShelf, landingShelfStyles, landingShelfScript } from './l
 import type { Lang } from './i18n.js';
 import type { CommunityStats } from '../youtube/community.js';
 
+// Public example linked from the landing page. It is a real member's public
+// dashboard, so copy must never present it as the synthetic sample data shown
+// in the screenshots.
+const PUBLIC_EXAMPLE_HREF = '/skyhong.tw';
+
+// The route passes one of three states: a dashboard link (signed in), a signup
+// link (anonymous, signups open) or nothing (signups closed). The landing page
+// relabels the anonymous link so the hero names the actual next step.
+function heroAction(primaryAction: string, label: string, closed: string): string {
+  if (!primaryAction) return `<span class="lp-primary lp-disabled" aria-disabled="true">${closed}</span>`;
+  if (/href="\/signup"/.test(primaryAction)) return `<a class="lp-primary" href="/signup">${label}</a>`;
+  return primaryAction;
+}
+
 export function landingContent(lang: Lang, primaryAction: string, stats: CommunityStats): string {
   const zh = lang === 'zh';
-  // Refresh screenshots alongside UI copy; clearly labeled sample data avoids exposing personal histories.
-  // Public launch copy reflects current sharing defaults; implementation history belongs in project docs.
+  // Screenshots and the small HTML sample use synthetic data; public-member
+  // links are labelled as real examples. Public launch copy reflects current
+  // sharing defaults (new accounts private, discovery off).
   const copy = zh ? {
-    eyebrow: 'YOUR YOUTUBE, REMEMBERED',
+    eyebrow: '你的 YouTube 觀看回顧',
     title: '你的 YouTube 人生，<br><span class="lp-title-accent">都記得。</span>',
-    intro: '把 YouTube 觀看紀錄，變成自己的興趣檔案。回顧喜歡的影片、探索常看的頻道，遇見和你合拍的人。',
+    intro: '把 YouTube 觀看紀錄，變成只屬於你的興趣檔案。回顧喜歡的影片、看懂常看的頻道；想分享時，再決定要公開什麼。',
+    cta: '開始建立私人回顧 →',
+    closed: '目前暫停開放新註冊',
+    closedNote: '既有會員仍可<a href="/signup">登入</a>。',
+    secondary: '看看大家在看什麼 ↓',
+    reassure: '免費 · Google 登入 · 新帳號預設私人、不開放探索',
+    steps: [
+      ['使用 Google 登入', '只取得名稱、Email 與頭像，不會存取你的 YouTube 帳號。'],
+      ['選擇匯入方式', '桌機 Chrome 擴充功能持續同步，或上傳 Google Takeout 補齊舊紀錄。'],
+      ['預覽，再決定分享', '先看自己的回顧。匯入與預覽都不會公開，分享由你開啟。'],
+    ],
+    stepsLabel: '開始只要三步',
+    sampleBadge: '範例資料',
+    sampleNote: '畫面為合成範例，人名、頻道與數字皆為虛構。',
+    publicLink: '查看公開會員實例 ↗',
+    publicAria: '查看公開會員實例：Sky Hong 的公開儀表板（真實公開資料，不是上方的合成範例）',
+    shotAlt: 'urtube 儀表板截圖，使用合成範例資料，顯示觀看時數與常看頻道',
+    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板' },
+    communityKicker: '社群 · 近 90 天',
+    communityTitle: '大家最近在看什麼？',
+    scope: '近 90 天 · 僅計入公開儀表板成員 · 觀看時間為估計值',
+    scopeSummary: '統計範圍與計算方式',
     unavailable: '社群統計暫時無法載入，請稍後重新整理。',
     method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
-    updated: '統計更新', github: '查看原始碼 ↗', privacy: '資料與隱私 →',
+    updated: '統計更新',
+    tourKicker: '產品導覽',
+    tourTitle: '登入後，你會看到這些。',
+    tourNote: '截圖皆使用合成範例資料。',
+    tour: {
+      channel: ['頻道探索', '常看的創作者，以及大家的共同喜好。', '開啟這個頻道的公開頁面 ↗', '開啟頻道公開頁面（真實公開統計，截圖為範例資料）'],
+      matching: ['興趣配對', '從共同主題，多認識一點彼此。需登入，且需雙方開啟好友探索。', '登入後探索配對 ↗', '前往興趣配對（需登入）'],
+    } as Record<string, [string, string, string, string]>,
+    useKicker: '可以怎麼用',
+    useTitle: '看懂自己，也找到共同點。',
+    uses: [
+      ['回顧', '最近，又迷上了什麼？', '從觀看時間、常看頻道與興趣主題，回顧注意力去了哪裡。'],
+      ['探索', '大家都在看哪個頻道？', '依觀看時間與次數探索公開成員的熱門頻道，發現新的創作者。'],
+      ['連結', '原來，我們都喜歡。', '開啟好友探索後，從共同主題認識彼此；隨時可以關閉。'],
+    ],
+    startKicker: '開始建立',
+    startTitle: '讓看過的日常，有個屬於你的地方。',
+    faqTitle: '常見問題',
+    faq: [
+      ['擴充功能和 Google Takeout 要選哪個？', '擴充功能需要桌機版 Chrome，會持續同步新的觀看紀錄；Google Takeout 是一次性上傳 ZIP，可補齊較舊的紀錄與確切觀看時間，但 Google 準備檔案可能需要數小時以上。兩種都可以使用。'],
+      ['我的紀錄會被公開嗎？', '不會自動公開。新帳號預設私人、好友探索關閉；匯入資料或預覽分享畫面都不會改變設定。'],
+      ['可以匯出或刪除資料嗎？', '可以。在設定中隨時下載 ZIP 匯出，或永久刪除帳號與所有紀錄。'],
+    ],
+    github: '查看原始碼 ↗', privacy: '資料與隱私 →',
   } : {
-    eyebrow: 'YOUR YOUTUBE, REMEMBERED',
+    eyebrow: 'Your YouTube, remembered',
     title: 'Your YouTube life,<br><span class="lp-title-accent">remembered.</span>',
-    intro: 'Turn your YouTube history into a personal interest archive. Revisit favorite videos, explore your channels and find people on your wavelength.',
+    intro: 'Turn your YouTube watch history into a private interest archive. Revisit favorite videos and understand your channels, then decide what, if anything, to share.',
+    cta: 'Import my YouTube history →',
+    closed: 'New sign-ups are paused',
+    closedNote: 'Existing members can still <a href="/signup">sign in</a>.',
+    secondary: 'Explore the community ↓',
+    reassure: 'Free · Sign in with Google · New accounts start private with discovery off',
+    steps: [
+      ['Sign in with Google', 'We receive only your name, email and picture, never access to your YouTube account.'],
+      ['Choose how to import', 'Sync with the desktop Chrome extension, or upload a Google Takeout archive for older history.'],
+      ['Preview, then decide', 'Explore your own recap first. Importing and previewing never publish anything.'],
+    ],
+    stepsLabel: 'Three steps to start',
+    sampleBadge: 'Sample data',
+    sampleNote: 'Synthetic example: names, channels and numbers are made up.',
+    publicLink: 'See a real public member dashboard ↗',
+    publicAria: 'View a public member’s dashboard: Sky Hong’s public page (real public data, not the synthetic sample above)',
+    shotAlt: 'urtube dashboard screenshot with synthetic sample data showing viewing hours and favorite channels',
+    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard' },
+    communityKicker: 'Community · 90 days',
+    communityTitle: 'What are people watching?',
+    scope: 'Last 90 days · Public dashboard members only · Viewing time is estimated',
+    scopeSummary: 'Scope & methodology',
     unavailable: 'Community statistics are unavailable. Please refresh later.',
     method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
-    updated: 'Statistics updated', github: 'View source code ↗', privacy: 'Data and privacy →',
+    updated: 'Statistics updated',
+    tourKicker: 'Product tour',
+    tourTitle: 'What you get after signing in.',
+    tourNote: 'All screenshots use synthetic sample data.',
+    tour: {
+      channel: ['Channel exploration', 'Favorite creators and shared interests.', 'Open the live channel page ↗', 'Open the channel’s public page (real public statistics; the screenshot uses sample data)'],
+      matching: ['Interest matching', 'Get to know people through shared topics. Requires sign-in and friend discovery on both sides.', 'Sign in to explore matching ↗', 'Go to interest matching (sign-in required)'],
+    } as Record<string, [string, string, string, string]>,
+    useKicker: 'What you can do',
+    useTitle: 'Understand yourself. Find common ground.',
+    uses: [
+      ['Revisit', 'What are you into lately?', 'Viewing time, favorite channels and interest topics show where your attention went.'],
+      ['Explore', 'Which creators are people watching?', 'Browse public members’ popular channels by time and views and discover new creators.'],
+      ['Connect', 'Something we both love.', 'Turn on friend discovery to meet people through shared topics. Turn it off anytime.'],
+    ],
+    startKicker: 'Get started',
+    startTitle: 'Give your watch history a home.',
+    faqTitle: 'Questions',
+    faq: [
+      ['Extension or Google Takeout?', 'The extension needs desktop Chrome and keeps syncing new views. Google Takeout is a one-time ZIP upload that adds older history with exact times, but Google can take hours or longer to prepare it. You can use both.'],
+      ['Will my history be public?', 'Not unless you choose to share it. New accounts start private with friend discovery off, and importing or previewing never changes that.'],
+      ['Can I export or delete my data?', 'Yes. Download a ZIP export or permanently delete your account and history from Settings at any time.'],
+    ],
+    github: 'View source code ↗', privacy: 'Data and privacy →',
   };
+  const action = heroAction(primaryAction, copy.cta, copy.closed);
+  const closedNote = primaryAction ? '' : `<p class="lp-closed-note">${copy.closedNote}</p>`;
+  const sampleChannels: Array<[string, string, string]> = [['Open Lab', '#3d6f86', '15.4h'], ['Sound Room', '#a3424a', '12.8h'], ['Design Notes', '#5b5aa0', '9.6h']];
+  const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}</span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
+  const deviceBar = (label: string) => `<div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${label}</span></div>`;
+  const tour = [['channel', '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d', 1422, 1506], ['matching', '/matches', 1480, 1636]] as const;
   return `<style>
-  .lp{--lp-gold:#e7c694;position:relative;isolation:isolate}
-  .lp::before{content:"";position:absolute;z-index:-1;pointer-events:none;top:100px;right:-22px;width:min(80vw,850px);height:780px;background:radial-gradient(ellipse at 80% 55%,rgba(208,59,59,.13),transparent 65%)}
-  .lp h1,.lp h2,.lp h3{margin:0}.lp p{color:var(--ink-2);line-height:1.8}.lp-kicker{font:600 10px/1.5 ui-monospace,monospace;letter-spacing:.19em;color:var(--muted)}
-  .lp-hero{padding:58px 0 48px;text-align:left}.lp-hero-grid{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(270px,1fr);gap:36px;align-items:end}.lp-title-block{min-width:0}.lp-title-block>.lp-kicker{display:flex;align-items:center;gap:10px;margin-bottom:26px}.lp-title-block>.lp-kicker::before{content:"";width:22px;height:2px;background:var(--accent-text)}
-  .lp h1{font-size:clamp(34px,4.3vw,57px);font-weight:720;line-height:1.35;letter-spacing:-.055em}.lp h1 em{display:inline-block;margin-top:1px;padding-right:.15em;font-size:clamp(78px,8.7vw,118px);font-weight:760;font-style:italic;line-height:1.22;letter-spacing:-.085em;color:var(--accent-text)}
-  .lp-intro{font-size:15px;max-width:360px;margin:0}.lp-hero-side{padding-bottom:7px}.lp-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px;align-items:center;justify-content:flex-start}.lp-actions a{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;padding:14px 20px;font-size:13px;font-weight:700;text-decoration:none;transition:background .18s,transform .18s}.lp-primary{background:var(--ink);color:var(--bg);box-shadow:0 4px 20px #0003}.lp-actions .lp-primary:hover{background:#fff;transform:translateY(-2px)}.lp-actions .lp-secondary{padding-left:0;padding-right:0;color:var(--ink-2);border-bottom:1px solid var(--line-strong);border-radius:0}.lp-actions .lp-secondary:hover{color:var(--ink)}.lp-start-note{font-size:11px;margin:15px 0 0}
-  .lp-product{position:relative;margin:8px 0 65px}.lp-device{border:1px solid #47403e;border-radius:14px;overflow:hidden;background:#121210;box-shadow:0 35px 90px -30px #000c,0 0 70px -35px #dc494955}.lp-device-bar{display:flex;align-items:center;justify-content:space-between;gap:20px;height:39px;padding:0 18px;background:linear-gradient(180deg,#292522,#1b1917);border-bottom:1px solid #39332f;font:10px ui-monospace,monospace;color:#a59b93}.lp-device-dots{display:flex;gap:6px}.lp-device-dots i{display:block;width:6px;height:6px;border-radius:50%;background:#73655c}.lp-device-dots i:first-child{background:#df6661}.lp-device-bar>span:last-child{letter-spacing:.13em;font-size:9px}
-  .lp-screen{display:block;overflow:hidden;background:var(--surface);border:1px solid var(--line-strong);border-radius:14px}.lp-screen img{width:100%;height:100%;display:block;object-fit:cover;object-position:50% 12%}.lp-screen-dashboard{aspect-ratio:2.05;border:0;border-radius:0}.lp-screen-dashboard img{object-position:50% 13%}.lp-product figcaption{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:18px 1px}.lp-product figcaption strong{font-size:12px;font-weight:500}.lp-product figcaption span,.lp-shot-note{font-size:10px;color:var(--muted)}
-  .lp-section{padding:66px 0;border-top:1px solid var(--line)}.lp h2{font-size:clamp(26px,3.2vw,40px);font-weight:650;line-height:1.4;letter-spacing:-.045em}.lp-section-intro{max-width:700px;margin-bottom:28px}.lp-why{display:grid;grid-template-columns:1.1fr 1fr;gap:70px;align-items:start}.lp-why p{font-size:15px;margin:0}
-  #features{scroll-margin-top:28px}.lp-showcases{margin-top:40px}.lp-showcase{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.35fr);gap:60px;align-items:center;padding:26px 0 50px;min-width:0}.lp-showcase+.lp-showcase{grid-template-columns:minmax(0,1.35fr) minmax(0,.8fr);border-top:1px solid var(--line);padding:50px 0 8px}.lp-showcase+.lp-showcase .lp-showcase-copy{order:2}.lp-showcase-copy{min-width:0}.lp-showcase-copy>.lp-kicker{color:var(--accent-text)}.lp-showcase h3{font-size:clamp(24px,2.4vw,31px);font-weight:620;letter-spacing:-.035em;line-height:1.5;margin:16px 0}.lp-showcase p{font-size:14px;max-width:340px}.lp-screen-detail{aspect-ratio:1.35;box-shadow:0 20px 50px -35px #000}.lp-screen-detail img{object-position:50% 9%}.lp-shot-note{margin-top:24px}
-  .lp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;margin:36px 0}.lp-step{border-top:1px solid var(--line-strong);padding-top:20px}.lp-step>span{color:var(--accent-text);font:12px ui-monospace,monospace}.lp-step h3{font-size:18px;font-weight:600;margin-top:16px}.lp-step p{font-size:14px}.lp-ai{padding:30px 0 0;border-top:1px solid var(--line)}.lp-ai h3{font-size:22px;font-weight:600}.lp-ai p{font-size:14px;max-width:850px}.lp-ai p:last-child{font-size:12px;margin-bottom:0}
-  .lp-community{scroll-margin-top:25px}.lp-stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:34px 0 40px}.lp-stat{padding:28px 20px}.lp-stat:first-child{padding-left:0}.lp-stat+.lp-stat{border-left:1px solid var(--line)}.lp-stat strong{display:block;font-size:clamp(26px,3.6vw,48px);font-weight:600;letter-spacing:-.05em;font-variant-numeric:tabular-nums}.lp-stat span{font-size:11px;color:var(--ink-2)}.lp-ranking-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap}.lp-ranking-head h3{font-size:20px}.lp-ranking-head p{font-size:12px;margin:0}.lp-ranking{padding:0;list-style:none;margin-top:22px}.lp-channel{display:flex;gap:22px;align-items:center;padding:20px 0;border-bottom:1px solid var(--line)}.lp-rank{font:14px ui-monospace,monospace;color:var(--muted)}.lp-channel-main{flex:1;min-width:0}.lp-channel-main a{color:var(--ink);text-decoration:none;font-size:16px;font-weight:600}.lp-channel-main a:hover{text-decoration:underline}.lp-track{height:3px;background:var(--raised);max-width:460px;margin-top:12px;overflow:hidden}.lp-track span{display:block;background:var(--accent-text);height:100%}.lp-channel-count{text-align:right;flex-shrink:0}.lp-channel-count strong{display:block;font-size:18px;font-variant-numeric:tabular-nums}.lp-channel-count small{font-size:11px;color:var(--ink-2);font-weight:400}.lp-channel-count>span{display:block;color:var(--muted);font-size:11px;margin-top:4px}.lp-method{font-size:12px;max-width:850px}.lp-updated{font-size:11px;color:var(--muted)}.lp-empty{padding:28px;background:var(--surface);border:1px dashed var(--line-strong);border-radius:12px}.lp-ending{padding:68px 0 15px}.lp-ending h2{font-size:clamp(30px,4vw,52px)}.lp-ending .lp-actions{margin-bottom:32px}.lp-origin{font-size:12px;max-width:750px}.lp-links{display:flex;gap:25px;flex-wrap:wrap;font-size:13px;margin-top:26px}
-  @media(min-width:1100px){.lp-hero-side .lp-actions{gap:20px}.lp-hero-side .lp-actions a{font-size:12px}.lp-hero-side .lp-primary{padding:14px 16px}}
-  @media(max-width:900px){.lp-hero-grid{grid-template-columns:1fr;gap:24px}.lp-hero{padding:36px 0 30px}.lp h1{font-size:clamp(32px,6vw,56px)}.lp h1 em{font-size:clamp(76px,13vw,112px)}.lp-intro{max-width:600px}.lp-hero-side{padding:0}.lp-showcase,.lp-showcase+.lp-showcase{gap:28px}.lp-why{gap:35px}.lp-screen-dashboard{aspect-ratio:1.7}}
-  @media(max-width:600px){.lp-hero{text-align:left;padding-top:24px}.lp-title-block>.lp-kicker{margin-bottom:22px}.lp h1{font-size:clamp(26px,6.9vw,40px);letter-spacing:-.05em}.lp h1 em{font-size:clamp(66px,17vw,98px)}.lp-intro{font-size:14px}.lp-actions{gap:20px;margin-top:20px}.lp-start-note{font-size:10px}.lp-screen-dashboard{aspect-ratio:1.12}.lp-product{margin-bottom:38px}.lp-device-bar{height:30px;padding:0 12px;font-size:9px}.lp-device-bar>span:last-child{font-size:8px}.lp-product figcaption{gap:6px}.lp-section{padding:40px 0}.lp-why{grid-template-columns:1fr;gap:20px}.lp-showcases{margin-top:18px}.lp-showcase,.lp-showcase+.lp-showcase{grid-template-columns:1fr;gap:14px;padding:20px 0 32px}.lp-showcase+.lp-showcase{padding:32px 0 0}.lp-showcase+.lp-showcase .lp-showcase-copy{order:0}.lp-showcase p{max-width:none}.lp-screen-detail{aspect-ratio:1.15}.lp-steps{grid-template-columns:1fr;gap:18px;margin:28px 0}.lp-stats{grid-template-columns:1fr 1fr}.lp-stat{padding:20px 12px}.lp-stat:nth-child(3){border-left:0;padding-left:0}.lp-stat:nth-child(n+3){border-top:1px solid var(--line)}.lp-stat span{font-size:10px}.lp-channel{gap:12px}.lp-channel-main a{font-size:14px}.lp-channel-count small{display:block}.lp-ranking-head{gap:8px}.lp-ending{padding-top:46px}}
-  @media(prefers-reduced-motion:reduce){.lp-actions a{transition:none}.lp-actions .lp-primary:hover{transform:none}}
-
-  .lp::before{display:none}.lp-hero{padding:56px 0 65px}.lp-hero-grid{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:65px;align-items:center}.lp-title-block .lp-intro{max-width:530px;margin-top:26px;font-size:15px}.lp-title-block .lp-actions{margin-top:25px}.lp-interest-visual{padding:8px 0 0;min-width:0}.lp-visual-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line-strong);padding-bottom:17px}.lp-visual-heading>span:last-child{font-size:10px;color:var(--muted)}.lp-visual-row{display:grid;grid-template-columns:24px 1fr;gap:16px;padding:25px 0;border-bottom:1px solid var(--line)}.lp-visual-number{font:11px ui-monospace,monospace;color:var(--accent-text);padding-top:8px}.lp-visual-row h3{font-size:23px;font-weight:600;letter-spacing:-.035em;line-height:1.4}.lp-visual-row p{font-size:12px;margin:8px 0 14px}.lp-interest-tags{display:flex;flex-wrap:wrap;gap:7px}.lp-interest-tags>span{padding:7px 10px;font-size:11px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-radius:4px}.lp-interest-topics>span{font-size:14px;border-color:#6d4141;background:#2a1919;color:#ffaaaa;padding:7px 15px}.lp-common-mark{position:relative;display:flex;align-items:center;height:40px;margin-top:12px}.lp-common-mark>span{display:block;width:38px;height:38px;border:1px solid #bc6868;border-radius:50%;background:#d03b3b14}.lp-common-mark>span+span{margin-left:-13px;background:#d03b3b30}.lp-common-mark i{font-style:normal;color:var(--accent-text);margin-left:18px;font-size:24px}.lp-why{padding:42px 0}.lp-gallery h2{margin:14px 0 18px;font-size:28px}.lp-gallery-item{border-top:1px solid var(--line);margin:0}.lp-gallery-item:last-child{border-bottom:1px solid var(--line)}.lp-gallery-item summary{cursor:pointer;display:flex;align-items:center;gap:22px;list-style:none;padding:24px 0}.lp-gallery-item summary::-webkit-details-marker{display:none}.lp-gallery-number{font:12px ui-monospace,monospace;color:var(--accent-text)}.lp-gallery-item summary strong{display:block;font-size:17px;font-weight:600}.lp-gallery-item summary small{display:block;font-size:12px;color:var(--muted);margin-top:5px}.lp-gallery-toggle{margin-left:auto;font-size:25px;color:var(--ink-2)}.lp-gallery-item[open] .lp-gallery-toggle{transform:rotate(45deg)}.lp-gallery-item>a{display:block;margin-bottom:25px;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden}.lp-gallery-item img{display:block;width:100%;height:auto}.lp-gallery-item summary:hover strong{color:var(--accent-text)}.lp-gallery-item summary:focus-visible{outline:2px solid var(--accent-text);outline-offset:4px}
-  @media(max-width:1050px){.lp-hero-grid{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:34px}.lp h1{font-size:clamp(30px,4.5vw,50px)}.lp h1 em{font-size:clamp(76px,9vw,105px)}}
-  @media(max-width:750px){.lp-hero-grid{grid-template-columns:1fr;gap:40px}.lp-hero{padding:30px 0 40px}.lp h1{font-size:clamp(27px,6.9vw,48px)}.lp h1 em{font-size:clamp(68px,17vw,105px)}.lp-interest-visual{max-width:560px}.lp-visual-row{padding:22px 0}.lp-visual-row h3{font-size:23px}.lp-title-block .lp-intro{font-size:14px;margin-top:20px}.lp-gallery-item summary{gap:14px}.lp-gallery h2{font-size:25px}}
-
-  .lp-hero-grid{grid-template-columns:minmax(0,1fr) minmax(0,1.18fr);gap:48px}.lp h1{font-size:clamp(30px,3.65vw,49px);line-height:1.45;letter-spacing:-.05em}.lp-title-accent{font-size:inherit;font-style:normal;font-weight:inherit;color:var(--accent-text)}.lp-hero-shot{margin:0;min-width:0}.lp-sky-screen{aspect-ratio:1.08;border:0;border-radius:0}.lp-sky-screen img{object-position:50% 8%}.lp-hero-shot figcaption{font-size:10px;color:var(--muted);margin-top:13px}.lp-mac-dots{display:flex;gap:6px}.lp-mac-dots i{display:block;width:8px;height:8px;border-radius:50%;background:#ff6058}.lp-mac-dots i:nth-child(2){background:#ffbd2e}.lp-mac-dots i:nth-child(3){background:#28c840}.lp-community-story{display:grid;grid-template-columns:1fr auto;gap:30px;padding:0 0 35px;margin-bottom:30px;border-bottom:1px solid var(--line);align-items:center}.lp-community-story h3{font-size:26px;margin-top:12px}.lp-community-story p{font-size:13px;max-width:440px}.lp-hours{text-align:right}.lp-hours strong{font-size:56px;line-height:1.2;font-weight:600;color:var(--accent-text);display:block;letter-spacing:-.05em}.lp-hours>span{font-size:11px;color:var(--muted)}.lp-community-ranks{display:grid;grid-template-columns:1fr 1fr;gap:36px}.lp-community-ranks .lp-ranking-head{display:block;min-height:66px}.lp-community-ranks .lp-ranking-head p{margin-top:9px;font-size:11px}.lp-community-ranks .lp-channel{gap:10px;padding:15px 0}.lp-community-ranks .lp-channel-main a{font-size:13px}.lp-channel-avatar{width:36px;height:36px;object-fit:cover;flex-shrink:0;border-radius:50%;background:var(--raised)}.lp-avatar-fallback{display:grid;place-items:center;color:var(--muted)}.lp-community-ranks .lp-channel-count strong{font-size:15px}.lp-community-ranks .lp-channel-count small{display:block;font-size:10px}.lp-community-ranks .lp-rank{font-size:11px}.lp-gallery-grid{display:grid;grid-template-columns:1fr 1fr;gap:25px;margin-top:30px}.lp-gallery-window{margin:0;min-width:0}.lp-gallery-image{display:block;aspect-ratio:1.05;overflow:hidden}.lp-gallery-image img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 8%}.lp-gallery-window figcaption{margin-top:18px}.lp-gallery-window figcaption strong{font-size:17px;display:block}.lp-gallery-window figcaption span{font-size:12px;color:var(--muted);display:block;margin-top:8px}#features .lp-actions{margin-top:32px}
-  @media(max-width:900px){.lp-hero-grid{grid-template-columns:1fr;gap:30px}.lp h1{font-size:clamp(31px,6vw,52px)}.lp-hero-shot{max-width:700px}.lp-sky-screen{aspect-ratio:1.5}.lp-community-ranks{grid-template-columns:1fr;gap:30px}.lp-community-ranks .lp-ranking-head{min-height:0}.lp-community-ranks .lp-channel-main a{font-size:15px}}
-  @media(max-width:600px){.lp h1{font-size:clamp(27px,6.9vw,40px)}.lp-sky-screen{aspect-ratio:1.05}.lp-community-story{grid-template-columns:1fr;gap:12px}.lp-hours{text-align:left}.lp-hours strong{font-size:48px}.lp-gallery-grid{grid-template-columns:1fr;gap:30px}.lp-gallery-image{aspect-ratio:1.05}}
-
-  .lp-community .lp-stats{grid-template-columns:repeat(3,minmax(0,1fr));margin:25px 0 32px}.lp-community .lp-stat{padding:20px}.lp-community .lp-stat:first-child{padding-left:0}.lp-community .lp-stat strong{font-size:clamp(28px,3.4vw,42px)}.lp-community .lp-stat:nth-child(3){border-left:1px solid var(--line);border-top:0}.lp-community .lp-ranking{margin:12px 0 22px}.lp-community .lp-channel{padding:15px 0;gap:15px}.lp-community .lp-track{display:none}.lp-community .lp-channel-count>span{display:none}.lp-community .lp-channel-main a{font-size:15px}.lp-more-stats{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:22px 0 16px;padding:16px 0}.lp-more-stats summary{cursor:pointer;font-size:13px;color:var(--ink-2);width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-more-stats summary:focus-visible{outline:2px solid var(--accent-text);outline-offset:5px}.lp-more-stats[open] summary{margin-bottom:22px}.lp-gallery{padding-top:46px}.lp-gallery h2{font-size:clamp(26px,3.2vw,40px)}
-  @media(max-width:600px){.lp-community .lp-stat{padding:17px 10px}.lp-community .lp-stat strong{font-size:28px}.lp-community .lp-stat span{font-size:10px}.lp-community .lp-channel{gap:10px}.lp-community .lp-channel-main a{font-size:13px}.lp-community .lp-channel-count strong{font-size:16px}.lp-community .lp-channel-count small{font-size:10px}}
-
-  html{scroll-snap-type:none;scroll-padding-top:24px}.lp>section{min-height:calc(100svh - 48px);scroll-snap-align:none;scroll-margin-top:0;display:flex;flex-direction:column;justify-content:center;padding-top:48px;padding-bottom:48px}.lp>section.lp-hero{min-height:calc(100svh - 110px)}.lp-story .lp-why{padding:0 0 46px}.lp-story .lp-ai{margin-top:14px}.lp-parallel-ranks{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:38px}.lp-parallel-ranks>section{min-width:0}.lp-parallel-ranks .lp-ranking-head{display:block;min-height:62px}.lp-parallel-ranks .lp-ranking-head h3{font-size:19px}.lp-parallel-ranks .lp-ranking-head p{font-size:11px;margin-top:7px}.lp-parallel-ranks .lp-channel{gap:10px}.lp-parallel-ranks .lp-channel-main a{font-size:13px}.lp-parallel-ranks .lp-channel-count strong{font-size:15px}.lp-parallel-ranks .lp-channel-count small{display:block;font-size:10px}.lp-parallel-ranks .lp-rank{font-size:11px}.lp-community .lp-more-stats{margin-top:10px}.lp-gallery .lp-gallery-grid{margin-top:24px}.lp-gallery-image{aspect-ratio:1.2}
-  @media(max-width:750px){.lp-parallel-ranks{grid-template-columns:1fr;gap:20px}.lp-parallel-ranks .lp-ranking-head{min-height:0}.lp-parallel-ranks .lp-channel-main a{font-size:14px}.lp>section{min-height:calc(100svh - 32px);padding-top:34px;padding-bottom:34px}.lp-gallery-image{aspect-ratio:1.05}.lp-story .lp-why{padding-bottom:24px}html{scroll-padding-top:16px}}
-  @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto;scroll-snap-type:none}}
-
-  ${landingShelfStyles}
-  .lp-community-scope{font-size:12px;margin:8px 0 0}.lp-story h2{margin:18px 0 32px}.lp-use-cases{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}.lp-use-card{display:flex;flex-direction:column;padding:26px 22px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);text-decoration:none;transition:border-color .2s}.lp-use-card:hover{border-color:var(--accent-text)}.lp-use-symbol{font-size:42px;color:var(--accent-text);margin-bottom:25px}.lp-use-card h3{font-size:23px;line-height:1.5;margin-top:15px}.lp-use-card p{font-size:14px}.lp-use-link{margin-top:auto;padding-top:22px;font-size:12px;color:var(--accent-text)}.lp-trust-note{font-size:12px;margin-top:26px}.lp-start-intro{max-width:650px;font-size:16px;margin-top:20px}.lp-start .lp-actions a{font-size:16px;padding:17px 27px}.lp-start-path{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:22px;align-items:start;margin-top:60px;padding-top:28px;border-top:1px solid var(--line)}.lp-start-path>div>span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--raised);color:var(--accent-text);margin-bottom:16px}.lp-start-path strong{font-size:18px}.lp-start-path p{font-size:13px}.lp-start-path>i{font-size:22px;color:var(--muted);font-style:normal;padding-top:43px}@media(max-width:750px){.lp-use-cases{grid-template-columns:1fr}.lp-use-symbol{margin-bottom:14px}.lp-use-card{padding:22px}.lp-start-path{grid-template-columns:1fr;gap:20px;margin-top:35px}.lp-start-path>i{display:none}.lp-start-path>div{padding-left:46px;position:relative}.lp-start-path>div>span{position:absolute;left:0;top:0}.lp-start-path p{margin:8px 0}.lp-start h2{font-size:30px}}
-
+  .lp{position:relative}
+  .lp h1,.lp h2,.lp h3{margin:0}.lp p{color:var(--ink-2);line-height:1.7}
+  .lp-kicker{color:var(--muted);font:600 12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase}.lp-kicker:lang(zh){font-family:inherit;font-size:13px;letter-spacing:.06em;text-transform:none}
+  .lp h2{font-size:clamp(26px,3.2vw,38px);font-weight:680;letter-spacing:-.035em;line-height:1.3;margin-top:10px}
+  .lp-section{border-top:1px solid var(--line);margin-top:72px;padding-top:56px}.lp [id]{scroll-margin-top:96px}
+  .lp-section-note{font-size:13px;margin:10px 0 0}
+  .lp-hero{padding:22px 0 0}.lp-hero-grid{align-items:center;display:grid;gap:56px;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr)}.lp-title-block{min-width:0}
+  .lp-title-block>.lp-kicker{align-items:center;display:flex;gap:10px}.lp-title-block>.lp-kicker::before{background:var(--accent-text);content:"";height:2px;width:22px}
+  .lp h1{font-size:clamp(32px,4.1vw,54px);font-weight:720;letter-spacing:-.045em;line-height:1.25;margin-top:18px}.lp-title-accent{color:var(--accent-text)}
+  .lp-intro{font-size:16px;margin:18px 0 0;max-width:520px}
+  .lp-actions{align-items:center;display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+  .lp-actions>a,.lp-actions>span{align-items:center;border-radius:999px;display:inline-flex;font-size:15px;font-weight:700;justify-content:center;min-height:48px;padding:12px 22px;text-decoration:none;transition:background .18s,border-color .18s}
+  .lp-primary{background:var(--accent);border:1px solid var(--accent);color:#fff}.lp-actions a.lp-primary:hover{background:#b02f2f}
+  .lp-secondary{border:1px solid var(--line-strong);color:var(--ink)}.lp-actions a.lp-secondary:hover{border-color:var(--ink-2)}
+  .lp-actions .lp-disabled{background:var(--raised);border-color:var(--line-strong);color:var(--ink-2);cursor:not-allowed}
+  .lp-reassure,.lp-closed-note{font-size:13px;margin:14px 0 0}.lp-closed-note a{display:inline-block;padding:4px 0}
+  .lp-hero-shot{margin:0;min-width:0}.lp-device{background:#121210;border:1px solid #47403e;border-radius:14px;box-shadow:0 35px 90px -30px #000c;overflow:hidden}
+  .lp-device-bar{align-items:center;background:linear-gradient(180deg,#292522,#1b1917);border-bottom:1px solid #39332f;color:#b3aaa2;display:flex;font:12px ui-monospace,monospace;gap:16px;height:38px;padding:0 16px}
+  .lp-mac-dots{display:flex;gap:6px}.lp-mac-dots i{background:#ff6058;border-radius:50%;display:block;height:8px;width:8px}.lp-mac-dots i:nth-child(2){background:#ffbd2e}.lp-mac-dots i:nth-child(3){background:#28c840}
+  .lp-screen{aspect-ratio:1.12;display:block;overflow:hidden}.lp-screen img{display:block;height:100%;object-fit:cover;object-position:50% 8%;width:100%}
+  .lp-shot-caption{align-items:center;display:flex;flex-wrap:wrap;font-size:13px;gap:6px 12px;margin-top:12px}.lp-shot-caption>span:not(.lp-badge){color:var(--muted)}.lp-shot-caption a{display:inline-flex;align-items:center;min-height:32px;font-weight:600}
+  .lp-badge{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.4);border-radius:999px;color:#f5c95e;font-size:12px;font-weight:700;padding:2px 9px;white-space:nowrap}
+  .lp-sample{display:none;background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;padding:16px}
+  .lp-sample-head{align-items:baseline;display:flex;justify-content:space-between}.lp-sample-head strong{font-size:17px}.lp-sample-head span{color:var(--muted);font-size:12px}
+  .lp-sample-stats{display:grid;gap:8px;grid-template-columns:repeat(3,1fr);margin:12px 0 4px}.lp-sample-stats div{background:var(--raised);border-radius:10px;display:flex;flex-direction:column-reverse;padding:10px}.lp-sample-stats dd{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:0}.lp-sample-stats dt{color:var(--ink-2);font-size:12px}.lp-sample-stats div:first-child dd{color:var(--accent-text)}
+  .lp p.lp-sample-label{color:var(--muted);font-size:12px;font-weight:700;margin:12px 0 6px}
+  .lp-sample-channels{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-sample-channels li{align-items:center;display:flex;font-size:14px;gap:10px}.lp-sample-channels i{border-radius:50%;color:#fff;display:grid;flex:0 0 28px;font-size:13px;font-style:normal;font-weight:700;height:28px;place-items:center}.lp-sample-channels span{flex:1}.lp-sample-channels b{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
+  .lp p.lp-sample-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0}.lp-sample-tags span{background:#2a1919;border:1px solid #6d4141;border-radius:999px;color:#ffaaaa;font-size:13px;padding:3px 10px}
+  .lp-steps{counter-reset:lp-step;display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;margin:44px 0 0;padding:0}
+  .lp-steps li{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;gap:14px;padding:18px}.lp-steps li::before{background:var(--raised);border-radius:50%;color:var(--accent-text);content:counter(lp-step);counter-increment:lp-step;display:grid;flex:0 0 32px;font-weight:700;height:32px;place-items:center}
+  .lp-steps strong{display:block;font-size:15px}.lp-steps p{font-size:13px;line-height:1.6;margin:4px 0 0}
+  .lp-community-scope{font-size:13px;margin:8px 0 0}
+  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp-updated{color:var(--muted);font-size:12px}
+  .lp-empty{background:var(--surface);border:1px dashed var(--line-strong);border-radius:12px;padding:24px}
+  .lp-gallery-grid{display:grid;gap:28px;grid-template-columns:1fr 1fr;margin-top:28px}.lp-gallery-window{margin:0;min-width:0}.lp-gallery-image{aspect-ratio:1.2;display:block;overflow:hidden}.lp-gallery-image img{display:block;height:100%;object-fit:cover;object-position:50% 8%;width:100%}
+  .lp-gallery-window figcaption{margin-top:14px}.lp-gallery-window figcaption strong{display:block;font-size:17px}.lp-gallery-window figcaption>span{color:var(--ink-2);display:block;font-size:14px;margin-top:4px}.lp-gallery-window figcaption a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:40px}
+  .lp-use-cases{display:grid;gap:16px;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;margin:26px 0 0;padding:0}.lp-use-cases li{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}.lp-use-cases .lp-kicker{color:var(--accent-text)}.lp-use-cases h3{font-size:19px;line-height:1.4;margin-top:8px}.lp-use-cases p{font-size:14px;margin:8px 0 0}
+  .lp-start-grid{display:grid;gap:48px;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}.lp-start .lp-actions{margin-top:22px}
+  .lp-faq h3{font-size:17px}.lp-faq details{border-bottom:1px solid var(--line)}.lp-faq details:first-of-type{border-top:1px solid var(--line);margin-top:10px}.lp-faq summary{align-items:center;cursor:pointer;display:flex;font-size:15px;font-weight:600;gap:12px;justify-content:space-between;min-height:52px;padding:8px 0}.lp-faq summary::after{color:var(--muted);content:"+";font-size:20px;font-weight:400}.lp-faq details[open] summary::after{content:"−"}.lp-faq details p{font-size:14px;margin:0 0 14px}.lp-faq .lp-privacy-link{display:inline-flex;align-items:center;font-size:14px;margin-top:10px;min-height:44px}
+  .lp-links{display:flex;flex-wrap:wrap;font-size:14px;gap:4px 24px;margin-top:40px}.lp-links a{align-items:center;display:inline-flex;min-height:44px}
+  @media(max-width:900px){.lp-hero-grid{gap:36px;grid-template-columns:1fr}.lp-hero-shot{max-width:680px}.lp-start-grid{gap:28px;grid-template-columns:1fr}}
+  @media(max-width:750px){
+    .lp-hero{padding-top:6px}.lp h1{font-size:clamp(30px,8.4vw,44px);margin-top:12px}.lp-intro{font-size:15px;margin-top:12px}.lp-actions{margin-top:20px}.lp-actions>a,.lp-actions>span{flex:1 1 auto}
+    .lp-hero-shot .lp-device{display:none}.lp-sample{display:block}
+    .lp-steps{gap:10px;grid-template-columns:1fr;margin-top:28px}.lp-steps li{padding:14px}
+    .lp-section{margin-top:48px;padding-top:40px}
+    .lp-gallery-grid,.lp-use-cases{grid-template-columns:1fr}.lp-gallery-image{aspect-ratio:1.3}
+  }
+  @media(prefers-reduced-motion:reduce){.lp-actions>a{transition:none}}
   .site-header{position:sticky;top:0;z-index:100;background:rgba(13,13,12,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
-  html{scroll-padding-top:84px}.lp>section,.lp>section.lp-hero{min-height:calc(100svh - 84px);scroll-margin-top:0}.lp [id]{scroll-margin-top:0}
-  @media(max-width:750px){html{scroll-padding-top:80px}.lp>section,.lp>section.lp-hero{min-height:calc(100svh - 80px)}}
+  ${landingShelfStyles}
   ${contributorStyles}
   </style><div class="lp">
-  <section class="lp-hero" id="welcome"><div class="lp-hero-grid"><div class="lp-title-block"><div class="lp-kicker">${copy.eyebrow}</div><h1>${copy.title}</h1><p class="lp-intro">${copy.intro}</p><div class="lp-actions"><a class="lp-secondary" href="#community">${zh ? '看看大家在看什麼 ↓' : 'Explore the community ↓'}</a></div></div>
-  <figure class="lp-hero-shot"><div class="lp-device"><div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Dashboard / urtube</span><span aria-hidden="true">↗</span></div><a class="lp-screen lp-sky-screen" href="/skyhong.tw" aria-label="${zh ? '開啟 Sky Hong 範例儀表板' : 'Open Sky Hong’s example dashboard'}"><img src="/landing-assets/dashboard.png" width="1500" height="1520" fetchpriority="high" alt="${zh ? 'urtube 儀表板示意，顯示範例觀看時數與熱門頻道' : 'Sample urtube dashboard showing viewing hours and favorite channels'}"></a></div><figcaption>${zh ? '介面示意 · 範例資料 · 點圖探索公開儀表板' : 'Sample data · Click to explore a public dashboard'}</figcaption></figure></div></section>
-  <section class="lp-section lp-gallery" id="product-screens"><div class="lp-kicker">INSIDE URTUBE</div><h2>${zh ? '看看 urtube，實際長什麼樣。' : 'See urtube in action.'}</h2><p class="lp-shot-note">${zh ? '使用範例資料展示儀表板、頻道與興趣配對。' : 'Explore dashboards, channels and interest matching with sample data.'}</p>
-  <div class="lp-gallery-grid">${[
-    ['channel', zh ? '頻道探索' : 'Channel exploration', zh ? '常看的創作者與大家的共同喜好。' : 'Favorite creators and shared interests.', 1422, 1506],
-    ['matching', zh ? '興趣配對 · 登入後探索' : 'Interest matching · Sign in to explore', zh ? '從共同主題，多認識一點彼此。' : 'Get to know each other through shared topics.', 1480, 1636],
-  ].map(([file, title, description, width, height]) => `<figure class="lp-gallery-window"><div class="lp-device"><div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${title} / urtube</span><span aria-hidden="true">↗</span></div><a class="lp-gallery-image" href="${file === 'channel' ? '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d' : '/matches'}" aria-label="${title}"><img src="/landing-assets/${file}.png" width="${width}" height="${height}" loading="lazy" alt="${title} — ${description}"></a></div><figcaption><strong>${title}</strong><span>${description}</span></figcaption></figure>`).join('')}</div>
-  </section>
-  <section class="lp-section lp-story" id="your-story"><div class="lp-kicker">MADE FOR YOUR CURIOSITY</div><h2>${zh ? '看懂自己，也找到共同點。' : 'Understand yourself. Find common ground.'}</h2><div class="lp-use-cases">
-  <a class="lp-use-card" href="#product-screens"><span class="lp-use-symbol" aria-hidden="true">↺</span><span class="lp-kicker">01 / ${zh ? '回顧' : 'REVISIT'}</span><h3>${zh ? '最近，又迷上了什麼？' : 'What are you into lately?'}</h3><p>${zh ? '從觀看時間、常看頻道與興趣主題，回顧自己的注意力去了哪裡。' : 'Explore viewing time, favorite channels and interest topics to revisit where your attention went.'}</p><span class="lp-use-link">${zh ? '看看實際畫面 ↗' : 'See the product ↗'}</span></a>
-  <a class="lp-use-card" href="#community"><span class="lp-use-symbol" aria-hidden="true">◉</span><span class="lp-kicker">02 / ${zh ? '探索' : 'EXPLORE'}</span><h3>${zh ? '大家都在看哪個頻道？' : 'Which creators are people watching?'}</h3><p>${zh ? '用觀看時間與次數探索成員的熱門頻道，點進去看看熟悉或全新的創作者。' : 'Explore popular channels by viewing time and count. Open a channel to discover a familiar or new creator.'}</p><span class="lp-use-link">${zh ? '探索熱門頻道 ↓' : 'Explore channels ↓'}</span></a>
-  <a class="lp-use-card" href="#features"><span class="lp-use-symbol" aria-hidden="true">⇄</span><span class="lp-kicker">03 / ${zh ? '連結' : 'CONNECT'}</span><h3>${zh ? '原來，我們都喜歡。' : 'Something we both love.'}</h3><p>${zh ? '從共同主題多認識一點彼此，並隨時調整好友探索與分享設定。' : 'Discover shared topics and get to know each other. Adjust friend discovery and sharing anytime.'}</p><span class="lp-use-link">${zh ? '從自己的紀錄開始 ↓' : 'Start with your history ↓'}</span></a>
-  </div><p class="lp-trust-note">${zh ? '你的資料由你掌握：可調整分享設定、關閉好友探索、匯出紀錄或申請刪除帳號。' : 'You stay in control: adjust sharing, turn off friend discovery, export your history or request account deletion.'} <a href="/privacy">${zh ? '了解隱私設定 →' : 'Privacy details →'}</a></p></section>
-  <section id="community" class="lp-section lp-community"><div class="lp-kicker">COMMUNITY / 90 DAYS</div><p class="lp-community-scope">${zh ? '近 90 天 · 僅計入公開儀表板成員 · 觀看時間為估計值' : 'Last 90 days · Public dashboard members only · Viewing time is estimated'}</p>
-  ${stats.status === 'ready' ? `${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang)}<details class="lp-more-stats"><summary>${zh ? '統計範圍與計算方式' : 'Scope & methodology'}</summary><p class="lp-method">${copy.method}</p><p class="lp-updated">${copy.updated} <time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time></p></details>` : `<p class="lp-empty" role="status">${copy.unavailable}</p>`}</section>
-  <section class="lp-section lp-start" id="features"><div class="lp-kicker">START YOUR ARCHIVE</div><h2>${zh ? '先登入，讓看過的日常有個家。' : 'Give your watch history a home.'}</h2><p class="lp-start-intro">${zh ? '使用 Google 建立自己的 urtube。登入後，系統會帶你匯入觀看紀錄。' : 'Start your urtube with Google. Once signed in, we will guide you through importing your watch history.'}</p><div class="lp-actions">${primaryAction.replace(zh ? '註冊／登入 →' : 'Sign up / sign in →', zh ? '使用 Google 開始 →' : 'Start with Google →').replace(zh ? '註冊 / 登入 →' : 'Sign up / sign in →', zh ? '使用 Google 開始 →' : 'Start with Google →')}</div><div class="lp-start-path"><div><span>1</span><strong>${zh ? 'Google 登入' : 'Sign in with Google'}</strong><p>${zh ? '建立你的興趣檔案。' : 'Create your own archive.'}</p></div><i aria-hidden="true">→</i><div><span>2</span><strong>${zh ? '選擇匯入方式' : 'Choose an import method'}</strong><p>${zh ? '用擴充功能同步，或上傳 Takeout 檔案。' : 'Sync with the extension or upload a Takeout archive.'}</p></div><i aria-hidden="true">→</i><div><span>3</span><strong>${zh ? '打開你的回顧' : 'Explore your recap'}</strong><p>${zh ? '查看興趣，調整分享設定。' : 'Explore your interests and adjust sharing settings.'}</p></div></div></section>
+  <section class="lp-hero" id="welcome" aria-labelledby="lp-title"><div class="lp-hero-grid"><div class="lp-title-block"><div class="lp-kicker">${copy.eyebrow}</div><h1 id="lp-title">${copy.title}</h1><p class="lp-intro">${copy.intro}</p><div class="lp-actions">${action}<a class="lp-secondary" href="#community">${copy.secondary}</a></div>${closedNote}<p class="lp-reassure">${copy.reassure}</p></div>
+  <figure class="lp-hero-shot"><div class="lp-device">${deviceBar('Dashboard / urtube')}<div class="lp-screen"><img src="/landing-assets/dashboard.png" width="1500" height="1520" loading="lazy" decoding="async" alt="${copy.shotAlt}"></div></div>${sample}<figcaption class="lp-shot-caption"><span class="lp-badge">${copy.sampleBadge}</span><span>${copy.sampleNote}</span><a href="${PUBLIC_EXAMPLE_HREF}" aria-label="${copy.publicAria}">${copy.publicLink}</a></figcaption></figure></div>
+  <ol class="lp-steps" aria-label="${copy.stepsLabel}">${copy.steps.map(([title, text]) => `<li><div><strong>${title}</strong><p>${text}</p></div></li>`).join('')}</ol></section>
+  <section id="community" class="lp-section lp-community" aria-labelledby="lp-community-title"><div class="lp-kicker">${copy.communityKicker}</div><h2 id="lp-community-title">${copy.communityTitle}</h2><p class="lp-community-scope">${copy.scope}</p>
+  ${stats.status === 'ready' ? `${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method}</p><p class="lp-updated">${copy.updated} <time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time></p></details>` : `<p class="lp-empty" role="status">${copy.unavailable}</p>`}</section>
+  <section class="lp-section lp-gallery" id="product-screens" aria-labelledby="lp-tour-title"><div class="lp-kicker">${copy.tourKicker}</div><h2 id="lp-tour-title">${copy.tourTitle}</h2><p class="lp-section-note"><span class="lp-badge">${copy.sampleBadge}</span> ${copy.tourNote}</p>
+  <div class="lp-gallery-grid">${tour.map(([file, href, width, height]) => {
+    const [title, description, linkText, aria] = copy.tour[file];
+    return `<figure class="lp-gallery-window"><div class="lp-device">${deviceBar(`${title} / urtube`)}<a class="lp-gallery-image" href="${href}" tabindex="-1" aria-hidden="true"><img src="/landing-assets/${file}.png" width="${width}" height="${height}" loading="lazy" decoding="async" alt=""></a></div><figcaption><strong>${title}</strong><span>${description}</span><a href="${href}" aria-label="${aria}">${linkText}</a></figcaption></figure>`;
+  }).join('')}</div></section>
+  <section class="lp-section lp-story" id="your-story" aria-labelledby="lp-use-title"><div class="lp-kicker">${copy.useKicker}</div><h2 id="lp-use-title">${copy.useTitle}</h2><ul class="lp-use-cases">${copy.uses.map(([kicker, title, text], index) => `<li><span class="lp-kicker">0${index + 1} / ${kicker}</span><h3>${title}</h3><p>${text}</p></li>`).join('')}</ul></section>
+  <section class="lp-section lp-start" id="features" aria-labelledby="lp-start-title"><div class="lp-start-grid"><div><div class="lp-kicker">${copy.startKicker}</div><h2 id="lp-start-title">${copy.startTitle}</h2><div class="lp-actions">${action}</div>${closedNote}<p class="lp-reassure">${copy.reassure}</p></div>
+  <div class="lp-faq"><h3>${copy.faqTitle}</h3>${copy.faq.map(([question, answer]) => `<details><summary>${question}</summary><p>${answer}</p></details>`).join('')}<a class="lp-privacy-link" href="/privacy">${copy.privacy}</a></div></div></section>
   ${contributorSection(stats.profiles ?? [], lang)}
   <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div></div>${landingShelfScript}${contributorScript}`;
 }
