@@ -1,12 +1,12 @@
 import { html } from './pages.js';
 import { contributorSection, contributorScript, contributorStyles } from './landing-contributors.js';
 import { landingChannelShelf, landingShelfStyles, landingShelfScript } from './landing-channels.js';
-import type { Lang } from './i18n.js';
+import { messages, type Lang } from './i18n.js';
 import type { CommunityStats } from '../youtube/community.js';
 
 // Public example linked from the landing page. It is a real member's public
 // dashboard, so copy must never present it as the synthetic sample data shown
-// in the screenshots.
+// in the hero and tour previews.
 const PUBLIC_EXAMPLE_HREF = '/skyhong.tw';
 
 // The route passes one of three states: a dashboard link (signed in), a signup
@@ -18,23 +18,15 @@ function heroAction(primaryAction: string, label: string, closed: string): strin
   return primaryAction;
 }
 
-// Keyboard-operable enlarged view of a tour screenshot. <dialog> provides
-// Escape to close and a focus trap; focus returns to the opening button.
-const zoomScript = `<script>(()=>{
-  const dialog=document.querySelector('.lp-zoom');if(!dialog||!dialog.showModal)return;
-  const image=dialog.querySelector('img'),text=dialog.querySelector('.lp-zoom-body p'),title=dialog.querySelector('#lp-zoom-title');
-  let opener=null;
-  for(const button of document.querySelectorAll('[data-zoom-src]'))button.addEventListener('click',()=>{
-    opener=button;image.src=button.dataset.zoomSrc;image.alt=button.dataset.zoomAlt;text.textContent=button.dataset.zoomAlt;title.textContent=button.dataset.zoomTitle;dialog.showModal();
-  });
-  dialog.querySelector('[data-zoom-close]').addEventListener('click',()=>dialog.close());
-  dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});
-  dialog.addEventListener('close',()=>{opener?.focus();});
-})();</script>`;
+// Community statistics older than this are flagged as delayed. The provider
+// recomputes every few minutes, so an older calculation means it fell back to
+// its last result (or could not compute at all).
+export const COMMUNITY_STALE_MS = 3_600_000;
 
-export function landingContent(lang: Lang, primaryAction: string, stats: CommunityStats): string {
+export function landingContent(lang: Lang, primaryAction: string, stats: CommunityStats, now = Date.now()): string {
   const zh = lang === 'zh';
-  // Screenshots and the small HTML sample use synthetic data; public-member
+  const t = messages(lang);
+  // The hero sample and tour previews use synthetic data; public-member
   // links are labelled as real examples. Public launch copy reflects current
   // sharing defaults (new accounts private, discovery off).
   const copy = zh ? {
@@ -46,6 +38,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     closedNote: '既有會員仍可<a href="/signup">登入</a>。',
     secondary: '看看大家在看什麼 ↓',
     reassure: '免費 · Google 登入 · 新帳號預設私人、不開放探索',
+    prepMethods: '兩種方式怎麼選 →',
     steps: [
       ['使用 Google 登入', '只取得名稱、Email 與頭像，不會存取你的 YouTube 帳號。'],
       ['選擇匯入方式', '桌機 Chrome 擴充功能持續同步，或上傳 Google Takeout 補齊舊紀錄。'],
@@ -64,22 +57,23 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     unavailable: '社群統計暫時無法載入，請稍後重新整理。',
     method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
     updated: (time: string) => `統計計算於 ${time}，不代表各會員最後匯入時間。`,
+    coverage: '排行與總數涵蓋公開會員各自已匯入的期間；會員不一定持續匯入，因此可能不含最近的觀看。',
+    stale: '資料更新延遲',
+    staleNote: '統計超過 1 小時未重新計算，數字可能落後。',
     rounding: '看過的會員少於 5 位時，時數與次數以約略值顯示。',
     channelSignIn: '頻道頁需要登入才能查看。',
     channelSignInLink: '登入後查看頻道 →',
     tourKicker: '產品導覽',
     tourTitle: '登入後，你會看到這些。',
-    tourNote: '截圖與示意皆使用合成範例資料。',
+    tourNote: '以下為頁面示意，使用合成範例資料。',
     tour: {
-      channel: ['頻道探索', '常看的創作者，以及大家的共同喜好。', '開啟這個頻道的公開頁面 ↗', '開啟頻道公開頁面（真實公開統計，截圖為範例資料）'],
-      matching: ['興趣配對', '從共同主題，多認識一點彼此。需登入，且需雙方開啟好友探索。', '登入後探索配對 ↗', '前往興趣配對（需登入）'],
+      channel: ['頻道探索', '常看的創作者，以及大家的共同喜好。', '開啟這個頻道的公開頁面 ↗', '開啟頻道公開頁面（真實公開統計，上方示意為範例資料）'],
+      matching: ['興趣配對', '從共同主題，多認識一點彼此。需登入，且需雙方開啟好友探索。', '前往興趣配對 →', '前往興趣配對'],
     } as Record<string, [string, string, string, string]>,
-    tourSignIn: ['登入後查看頻道頁 →', '登入後查看頻道頁（頻道頁需要登入）'],
-    tourAlt: {
-      channel: '頻道頁截圖，合成範例資料：Sound Room 的成員合計觀看次數與時數、成員最常看的影片、你的統計與逐月觀看時間',
-      matching: '配對頁截圖，合成範例資料：Alex 與 Mia 的合拍度、兩人觀看統計對照與共同頻道',
-    } as Record<string, string>,
-    zoom: '放大截圖', zoomAria: (title: string) => `放大檢視「${title}」截圖`, zoomClose: '關閉',
+    tourSignIn: {
+      channel: ['登入後查看頻道頁 →', '登入後查看頻道頁（頻道頁需要登入，先看註冊與匯入說明）'],
+      matching: ['登入後探索配對 →', '登入後探索配對（配對需要登入，先看註冊與匯入說明）'],
+    } as Record<string, [string, string]>,
     mock: {
       channel: { label: '合成範例：頻道頁示意', subscribers: '≈ 25,000 位訂閱者', stats: [['3', '觀看成員'], ['64', '觀看次數'], ['15.4h', '估計時數']], list: '成員最常看的影片', videos: [['一段旋律，三種編曲 Vol. 4', '3.2h · 13 次'], ['一段旋律，三種編曲 Vol. 3', '3.1h · 13 次'], ['一段旋律，三種編曲 Vol. 2', '3.1h · 13 次']] },
       matching: { label: '合成範例：配對頁示意', you: '你', them: '對方', score: '合拍度', stats: [['觀看次數', '380', '325'], ['估計時數', '92', '78']], list: '共同頻道', tags: ['音樂', '學習'] },
@@ -109,6 +103,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     closedNote: 'Existing members can still <a href="/signup">sign in</a>.',
     secondary: 'Explore the community ↓',
     reassure: 'Free · Sign in with Google · New accounts start private with discovery off',
+    prepMethods: 'Which method to choose →',
     steps: [
       ['Sign in with Google', 'We receive only your name, email and picture, never access to your YouTube account.'],
       ['Choose how to import', 'Sync with the desktop Chrome extension, or upload a Google Takeout archive for older history.'],
@@ -127,22 +122,23 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     unavailable: 'Community statistics are unavailable. Please refresh later.',
     method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
     updated: (time: string) => `Statistics calculated ${time}. This is not each member’s last import time.`,
+    coverage: 'Rankings and totals cover whatever period each public member has imported. Members do not always keep importing, so recent viewing may be missing.',
+    stale: 'Data update delayed',
+    staleNote: 'Statistics have not been recalculated for over an hour, so the numbers may lag behind.',
     rounding: 'Channels watched by fewer than 5 members show rounded hours and views.',
     channelSignIn: 'Channel pages require sign-in.',
     channelSignInLink: 'Sign in to view channels →',
     tourKicker: 'Product tour',
     tourTitle: 'What you get after signing in.',
-    tourNote: 'Screenshots and previews use synthetic sample data. Screenshots show the Traditional Chinese interface.',
+    tourNote: 'Page previews below use synthetic sample data.',
     tour: {
-      channel: ['Channel exploration', 'Favorite creators and shared interests.', 'Open the live channel page ↗', 'Open the channel’s public page (real public statistics; the screenshot uses sample data)'],
-      matching: ['Interest matching', 'Get to know people through shared topics. Requires sign-in and friend discovery on both sides.', 'Sign in to explore matching ↗', 'Go to interest matching (sign-in required)'],
+      channel: ['Channel exploration', 'Favorite creators and shared interests.', 'Open the live channel page ↗', 'Open the channel’s public page (real public statistics; the preview above uses sample data)'],
+      matching: ['Interest matching', 'Get to know people through shared topics. Requires sign-in and friend discovery on both sides.', 'Go to interest matching →', 'Go to interest matching'],
     } as Record<string, [string, string, string, string]>,
-    tourSignIn: ['Sign in to view channel pages →', 'Sign in to view channel pages (channel pages require sign-in)'],
-    tourAlt: {
-      channel: 'Channel page screenshot with synthetic sample data: Sound Room’s combined member views and hours, members’ most-watched videos, your statistics and monthly viewing time',
-      matching: 'Matching page screenshot with synthetic sample data: Alex and Mia’s match score, their viewing statistics side by side and shared channels',
-    } as Record<string, string>,
-    zoom: 'Enlarge screenshot', zoomAria: (title: string) => `Enlarge the ${title} screenshot`, zoomClose: 'Close',
+    tourSignIn: {
+      channel: ['Sign in to view channel pages →', 'Sign in to view channel pages (channel pages require sign-in; see the sign-up and import guide first)'],
+      matching: ['Sign in to explore matching →', 'Sign in to explore matching (matching requires sign-in; see the sign-up and import guide first)'],
+    } as Record<string, [string, string]>,
     mock: {
       channel: { label: 'Synthetic sample: channel page preview', subscribers: '≈ 25,000 subscribers', stats: [['3', 'members'], ['64', 'views'], ['15.4h', 'est. hours']], list: 'Members’ most-watched videos', videos: [['One melody, three arrangements Vol. 4', '3.2h · 13 views'], ['One melody, three arrangements Vol. 3', '3.1h · 13 views'], ['One melody, three arrangements Vol. 2', '3.1h · 13 views']] },
       matching: { label: 'Synthetic sample: matching page preview', you: 'You', them: 'Them', score: 'match', stats: [['Views', '380', '325'], ['Est. hours', '92', '78']], list: 'Shared channels', tags: ['Music', 'Learning'] },
@@ -168,21 +164,32 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   const closedNote = primaryAction ? '' : `<p class="lp-closed-note">${copy.closedNote}</p>`;
   // The route passes a dashboard link only to signed-in viewers.
   const signedIn = Boolean(primaryAction) && !/href="\/signup"/.test(primaryAction);
+  // What an import needs, stated before anyone taps the main action (phones
+  // cannot run the extension). The full comparison lives on /signup.
+  const prep = signedIn ? '' : `<div class="lp-prep"><p>${t.importPrepSummary(`<a class="lp-inline-link" href="https://takeout.google.com/" target="_blank" rel="noopener noreferrer" aria-label="${t.takeoutLinkAria}">${t.takeoutLink}</a>`)}</p><p class="lp-prep-links"><a href="/signup#import-methods">${copy.prepMethods}</a></p></div>`;
   // Synthetic sample, rendered as translated HTML at every width so its text
   // stays readable (no scaled-down screenshot in the hero).
   const sampleChannels: Array<[string, string, string, number]> = [['Open Lab', '#3d6f86', '15.4h', 100], ['Sound Room', '#a3424a', '12.8h', 83], ['Design Notes', '#5b5aa0', '9.6h', 62], ['Small Adventures', '#58714a', '7.1h', 46]];
   const weekly = [6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 10, 8];
   const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.weekly}</p><div class="lp-sample-bars" role="img" aria-label="${copy.sample.weeklyAria}">${weekly.map(value => `<i style="height:${Math.round(value / 11 * 100)}%"></i>`).join('')}</div><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours, share]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}<s style="width:${share}%" aria-hidden="true"></s></span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
   const deviceBar = (label: string) => `<div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${label}</span></div>`;
-  const tour = [['channel', '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d', 1422, 1506], ['matching', '/matches', 1480, 1636]] as const;
-  // Phone-width previews of the tour screenshots: the screenshots would be
-  // scaled to about a quarter of their size there.
+  const tour = [['channel', '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d'], ['matching', '/matches']] as const;
+  // Tour previews are translated HTML at every width, so English visitors see
+  // English, text stays readable without zooming, and phone and desktop show
+  // the same synthetic numbers. (Screenshots only existed in Chinese and had to
+  // be shrunk to a third of their size.)
   const mocks: Record<string, string> = {
     channel: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.channel.label}"><div class="lp-mock-head"><i style="background:#a3424a" aria-hidden="true">S</i><div><strong>Sound Room</strong><span>${copy.mock.channel.subscribers}</span></div></div><dl class="lp-sample-stats">${copy.mock.channel.stats.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl><p class="lp-sample-label">${copy.mock.channel.list}</p><ol class="lp-mock-list">${copy.mock.channel.videos.map(([title, meta]) => `<li><span>${title}</span><b>${meta}</b></li>`).join('')}</ol></div>`,
     matching: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.matching.label}"><div class="lp-mock-pair"><div><i style="background:#a3424a" aria-hidden="true">A</i><strong>Alex</strong><span>${copy.mock.matching.you}</span></div><p class="lp-mock-score"><b>82%</b><span>${copy.mock.matching.score}</span></p><div><i style="background:#3d6f86" aria-hidden="true">M</i><strong>Mia</strong><span>${copy.mock.matching.them}</span></div></div><table class="lp-mock-compare"><tbody>${copy.mock.matching.stats.map(([label, a, b]) => `<tr><td>${a}</td><th scope="row">${label}</th><td>${b}</td></tr>`).join('')}</tbody></table><p class="lp-sample-label">${copy.mock.matching.list}</p><ol class="lp-mock-list">${[['Open Lab', '15.4h', '26.3h'], ['Design Notes', '15.2h', '26.1h'], ['Small Adventures', '15.2h', '26h']].map(([name, a, b]) => `<li><span>${name}</span><b>${a} · ${b}</b></li>`).join('')}</ol><p class="lp-sample-tags">${copy.mock.matching.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`,
   };
   const generatedAt = `<time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time>`;
   const channelNote = signedIn ? '' : `<p class="lp-channel-note">${copy.channelSignIn} <a href="/signup">${copy.channelSignInLink}</a></p>`;
+  // Freshness: the calculation time is all the front end knows. Flag results
+  // that are over an hour old (a fallback to the last result) or missing.
+  const generatedMs = Date.parse(stats.generatedAt);
+  const stale = stats.status !== 'ready' || !Number.isFinite(generatedMs) || now - generatedMs > COMMUNITY_STALE_MS;
+  const staleBadge = `<span class="lp-stale-badge">${copy.stale}</span>`;
+  const staleNote = stale && stats.status === 'ready' ? `<p class="lp-stale" role="status">${staleBadge} ${copy.staleNote}</p>` : '';
   return `<style>
   .lp{position:relative}
   .lp h1,.lp h2,.lp h3{margin:0}.lp p{color:var(--ink-2);line-height:1.7}
@@ -199,7 +206,8 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   .lp-primary{background:var(--accent);border:1px solid var(--accent);color:#fff}.lp-actions a.lp-primary:hover{background:#b02f2f}
   .lp-secondary{border:1px solid var(--line-strong);color:var(--ink)}.lp-actions a.lp-secondary:hover{border-color:var(--ink-2)}
   .lp-actions .lp-disabled{background:var(--raised);border-color:var(--line-strong);color:var(--ink-2);cursor:not-allowed}
-  .lp-reassure,.lp-closed-note{font-size:13px;margin:14px 0 0}.lp-closed-note a{display:inline-block;padding:4px 0}
+  .lp-reassure,.lp-closed-note{font-size:13px;margin:14px 0 0}
+  .lp-prep{border-left:2px solid var(--line-strong);margin:16px 0 0;max-width:540px;padding-left:12px}.lp .lp-prep p{font-size:14px;line-height:1.6;margin:0}.lp .lp-prep p.lp-prep-links{display:flex;flex-wrap:wrap;gap:0 18px}.lp-prep-links a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}.lp-inline-link{font-weight:600;padding-block:3px}.lp-closed-note a{display:inline-block;padding:4px 0}
   .lp-hero-shot{margin:0;min-width:0}.lp-device{background:#121210;border:1px solid #47403e;border-radius:14px;box-shadow:0 35px 90px -30px #000c;overflow:hidden}
   .lp-device-bar{align-items:center;background:linear-gradient(180deg,#292522,#1b1917);border-bottom:1px solid #39332f;color:#b3aaa2;display:flex;font:12px ui-monospace,monospace;gap:16px;height:38px;padding:0 16px}
   .lp-mac-dots{display:flex;gap:6px}.lp-mac-dots i{background:#ff6058;border-radius:50%;display:block;height:8px;width:8px}.lp-mac-dots i:nth-child(2){background:#ffbd2e}.lp-mac-dots i:nth-child(3){background:#28c840}
@@ -212,24 +220,20 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   .lp-sample-channels{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-sample-channels li{align-items:center;display:flex;font-size:14px;gap:10px}.lp-sample-channels i{border-radius:50%;color:#fff;display:grid;flex:0 0 28px;font-size:13px;font-style:normal;font-weight:700;height:28px;place-items:center}.lp-sample-channels span{flex:1;min-width:0}.lp-sample-channels s{background:var(--raised);border-radius:3px;display:block;height:4px;margin-top:4px;text-decoration:none}.lp-sample-channels b{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
   .lp p.lp-sample-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0}.lp-sample-tags span{background:#2a1919;border:1px solid #6d4141;border-radius:999px;color:#ffaaaa;font-size:13px;padding:3px 10px}
   .lp-sample-bars{align-items:end;display:grid;gap:5px;grid-template-columns:repeat(12,1fr);height:64px}.lp-sample-bars i{background:linear-gradient(180deg,#e05a5a,#8f2d2d);border-radius:3px 3px 0 0;display:block}
-  .lp-mock{display:none}.lp-mock-head{align-items:center;display:flex;gap:12px}.lp-mock-head i,.lp-mock-pair i{border-radius:50%;color:#fff;display:grid;flex:0 0 44px;font-size:18px;font-style:normal;font-weight:700;height:44px;place-items:center;width:44px}.lp-mock-head strong{display:block;font-size:18px}.lp-mock-head span{color:var(--muted);font-size:13px}
+  .lp-mock-head{align-items:center;display:flex;gap:12px}.lp-mock-head i,.lp-mock-pair i{border-radius:50%;color:#fff;display:grid;flex:0 0 44px;font-size:18px;font-style:normal;font-weight:700;height:44px;place-items:center;width:44px}.lp-mock-head strong{display:block;font-size:18px}.lp-mock-head span{color:var(--muted);font-size:13px}
   .lp-mock-list{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-mock-list li{align-items:baseline;border-bottom:1px solid var(--line);display:flex;font-size:14px;gap:10px;justify-content:space-between;padding-bottom:8px}.lp-mock-list b{color:var(--ink-2);flex:0 0 auto;font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
-  .lp-mock-pair{align-items:center;display:grid;gap:8px;grid-template-columns:1fr auto 1fr;text-align:center}.lp-mock-pair>div{display:grid;justify-items:center;gap:2px}.lp-mock-pair strong{font-size:16px}.lp-mock-pair span{color:var(--muted);font-size:12px}.lp p.lp-mock-score{background:var(--accent);border-radius:50%;color:#fff;display:grid;height:72px;margin:0;place-content:center;text-align:center;width:72px}.lp-mock-score b{font-size:20px}.lp-mock-score span{font-size:12px}
+  .lp-mock-pair{align-items:center;display:grid;gap:8px;grid-template-columns:1fr auto 1fr;text-align:center}.lp-mock-pair>div{display:grid;justify-items:center;gap:2px}.lp-mock-pair strong{font-size:16px}.lp-mock-pair>div span{color:var(--muted);font-size:12px}.lp p.lp-mock-score{background:var(--accent);border-radius:50%;color:#fff;display:grid;height:72px;margin:0;place-content:center;text-align:center;width:72px}.lp-mock-score b{font-size:20px}.lp-mock-score span{color:#fff;font-size:12px}
   .lp-mock-compare{border-collapse:collapse;font-variant-numeric:tabular-nums;margin:14px 0 2px;width:100%}.lp-mock-compare td,.lp-mock-compare th{border-bottom:1px solid var(--line);padding:8px 0}.lp-mock-compare td{font-size:16px;font-weight:700}.lp-mock-compare td:last-child{text-align:right}.lp-mock-compare th{color:var(--ink-2);font-size:12px;font-weight:600;text-align:center}
   .lp-mock .lp-sample-tags{margin-top:12px}
-  .lp-zoom-open{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:14px;font-weight:600;margin-left:auto;min-height:44px;padding:8px 16px}.lp-zoom-open:hover{border-color:var(--ink-2)}
-  .lp-zoom{background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;color:var(--ink);max-height:94vh;max-width:min(1480px,96vw);padding:0;width:96vw}.lp-zoom::backdrop{background:rgba(0,0,0,.78)}
-  .lp-zoom-head{align-items:center;border-bottom:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;padding:8px 8px 8px 18px}.lp-zoom-head h3{font-size:16px}.lp-zoom-head button{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:14px;min-height:44px;padding:8px 18px}
-  .lp-zoom-body{max-height:calc(94vh - 64px);overflow:auto}.lp-zoom-body img{display:block;height:auto;width:100%}.lp-zoom-body p{font-size:14px;margin:0;padding:12px 18px}
   .lp-channel-note{font-size:14px;margin:10px 0 0}.lp-channel-note a{align-items:center;display:inline-flex;font-weight:600;min-height:44px}
   .lp-steps{counter-reset:lp-step;display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;margin:44px 0 0;padding:0}
   .lp-steps li{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;gap:14px;padding:18px}.lp-steps li::before{background:var(--raised);border-radius:50%;color:var(--accent-text);content:counter(lp-step);counter-increment:lp-step;display:grid;flex:0 0 32px;font-weight:700;height:32px;place-items:center}
   .lp-steps strong{display:block;font-size:15px}.lp-steps p{font-size:13px;line-height:1.6;margin:4px 0 0}
   .lp-community-scope{font-size:13px;margin:8px 0 0}
-  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp p.lp-updated{color:var(--muted);font-size:13px;margin:6px 0 0}
+  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp p.lp-updated,.lp p.lp-coverage{color:var(--muted);font-size:13px;margin:6px 0 0}.lp p.lp-stale{color:var(--ink-2);font-size:13px;margin:10px 0 0}.lp-stale-badge{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.4);border-radius:999px;color:#f5c95e;font-size:12px;font-weight:700;padding:2px 9px;white-space:nowrap}
   .lp-empty{background:var(--surface);border:1px dashed var(--line-strong);border-radius:12px;padding:24px}
-  .lp-gallery-grid{display:grid;gap:28px;grid-template-columns:1fr 1fr;margin-top:28px}.lp-gallery-window{margin:0;min-width:0}.lp-gallery-image{aspect-ratio:1.2;display:block;margin:0;overflow:hidden}.lp-gallery-image img{display:block;height:100%;object-fit:cover;object-position:50% 8%;width:100%}
-  .lp-gallery-window figcaption{align-items:flex-start;display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:14px}.lp-gallery-window figcaption>div{flex:1 1 260px}.lp-gallery-window figcaption strong{display:block;font-size:17px}.lp-gallery-window figcaption>span{color:var(--ink-2);display:block;font-size:14px;margin-top:4px}.lp-gallery-window figcaption a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}
+  .lp-gallery-grid{display:grid;gap:28px;grid-template-columns:1fr 1fr;margin-top:28px}.lp-gallery-window{display:flex;flex-direction:column;margin:0;min-width:0}.lp-gallery-window .lp-device{flex:1}
+  .lp-gallery-window figcaption{align-items:flex-start;display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:14px}.lp-gallery-window figcaption>div{flex:1 1 260px}.lp-gallery-window figcaption strong{display:block;font-size:17px}.lp-gallery-window figcaption span{color:var(--ink-2);display:block;font-size:14px;margin-top:4px}.lp-gallery-window figcaption a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}
   .lp-use-cases{display:grid;gap:16px;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;margin:26px 0 0;padding:0}.lp-use-cases li{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}.lp-use-cases .lp-kicker{color:var(--accent-text)}.lp-use-cases h3{font-size:19px;line-height:1.4;margin-top:8px}.lp-use-cases p{font-size:14px;margin:8px 0 0}
   .lp-start-grid{display:grid;gap:48px;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}.lp-start .lp-actions{margin-top:22px}
   .lp-faq h3{font-size:17px}.lp-faq details{border-bottom:1px solid var(--line)}.lp-faq details:first-of-type{border-top:1px solid var(--line);margin-top:10px}.lp-faq summary{align-items:center;cursor:pointer;display:flex;font-size:15px;font-weight:600;gap:12px;justify-content:space-between;min-height:52px;padding:8px 0}.lp-faq summary::after{color:var(--muted);content:"+";font-size:20px;font-weight:400}.lp-faq details[open] summary::after{content:"−"}.lp-faq details p{font-size:14px;margin:0 0 14px}.lp-faq .lp-privacy-link{display:inline-flex;align-items:center;font-size:14px;margin-top:10px;min-height:44px}
@@ -240,30 +244,29 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     .lp-device .lp-sample{padding:16px}
     .lp-steps{gap:10px;grid-template-columns:1fr;margin-top:28px}.lp-steps li{padding:14px}
     .lp-section{margin-top:48px;padding-top:40px}
-    .lp-gallery-grid,.lp-use-cases{grid-template-columns:1fr}.lp-gallery-image,.lp-zoom-open{display:none}.lp-mock{display:block}
+    .lp-gallery-grid,.lp-use-cases{grid-template-columns:1fr}
   }
   @media(prefers-reduced-motion:reduce){.lp-actions>a{transition:none}}
   .site-header{position:sticky;top:0;z-index:100;background:rgba(13,13,12,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
   ${landingShelfStyles}
   ${contributorStyles}
   </style><div class="lp">
-  <section class="lp-hero" id="welcome" aria-labelledby="lp-title"><div class="lp-hero-grid"><div class="lp-title-block"><div class="lp-kicker">${copy.eyebrow}</div><h1 id="lp-title">${copy.title}</h1><p class="lp-intro">${copy.intro}</p><div class="lp-actions">${action}<a class="lp-secondary" href="#community">${copy.secondary}</a></div>${closedNote}<p class="lp-reassure">${copy.reassure}</p></div>
+  <section class="lp-hero" id="welcome" aria-labelledby="lp-title"><div class="lp-hero-grid"><div class="lp-title-block"><div class="lp-kicker">${copy.eyebrow}</div><h1 id="lp-title">${copy.title}</h1><p class="lp-intro">${copy.intro}</p><div class="lp-actions">${action}<a class="lp-secondary" href="#community">${copy.secondary}</a></div>${closedNote}${prep}<p class="lp-reassure">${copy.reassure}</p></div>
   <figure class="lp-hero-shot"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${copy.sample.device} / urtube`)}${sample}</div><figcaption class="lp-shot-caption"><span class="lp-badge">${copy.sampleBadge}</span><span>${copy.sampleNote}</span><a href="${PUBLIC_EXAMPLE_HREF}" aria-label="${copy.publicAria}">${copy.publicLink}</a></figcaption></figure></div>
   <ol class="lp-steps" aria-label="${copy.stepsLabel}">${copy.steps.map(([title, text]) => `<li><div><strong>${title}</strong><p>${text}</p></div></li>`).join('')}</ol></section>
   <section id="community" class="lp-section lp-community" aria-labelledby="lp-community-title"><div class="lp-kicker">${copy.communityKicker}</div><h2 id="lp-community-title">${copy.communityTitle}</h2><p class="lp-community-scope">${copy.scope}</p>
-  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p></details>` : `<p class="lp-empty" role="status">${copy.unavailable}</p>`}</section>
+  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${staleNote}<p class="lp-coverage">${copy.coverage}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p></details>` : `<p class="lp-empty" role="status">${staleBadge} ${copy.unavailable}</p>`}</section>
   <section class="lp-section lp-gallery" id="product-screens" aria-labelledby="lp-tour-title"><div class="lp-kicker">${copy.tourKicker}</div><h2 id="lp-tour-title">${copy.tourTitle}</h2><p class="lp-section-note"><span class="lp-badge">${copy.sampleBadge}</span> ${copy.tourNote}</p>
-  <div class="lp-gallery-grid">${tour.map(([file, realHref, width, height]) => {
+  <div class="lp-gallery-grid">${tour.map(([file, realHref]) => {
     const [title, description, realText, realAria] = copy.tour[file];
-    // Channel pages require sign-in; anonymous visitors are sent to sign-up
-    // with a label that says so instead of a link that bounces to Google.
-    const [href, linkText, aria] = file === 'channel' && !signedIn ? ['/signup', ...copy.tourSignIn] : [realHref, realText, realAria];
-    const src = `/landing-assets/${file}.png`;
-    return `<figure class="lp-gallery-window"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${title} / urtube`)}<div class="lp-gallery-image"><img src="${src}" width="${width}" height="${height}" loading="lazy" decoding="async" alt="${copy.tourAlt[file]}"></div>${mocks[file]}</div><figcaption><div><strong>${title}</strong><span>${description}</span><a href="${href}" aria-label="${aria}">${linkText}</a></div><button type="button" class="lp-zoom-open" data-zoom-src="${src}" data-zoom-title="${title}" data-zoom-alt="${copy.tourAlt[file]}" aria-haspopup="dialog" aria-label="${copy.zoomAria(title)}">${copy.zoom}</button></figcaption></figure>`;
-  }).join('')}</div><dialog class="lp-zoom" aria-labelledby="lp-zoom-title"><div class="lp-zoom-head"><h3 id="lp-zoom-title"></h3><button type="button" data-zoom-close>${copy.zoomClose}</button></div><div class="lp-zoom-body" tabindex="0"><img alt=""><p></p></div></dialog></section>
+    // Channel pages and matching require sign-in; anonymous visitors go to
+    // sign-up (which explains the import first), not to a Google redirect.
+    const [href, linkText, aria] = signedIn ? [realHref, realText, realAria] : ['/signup', ...copy.tourSignIn[file]];
+    return `<figure class="lp-gallery-window"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${title} / urtube`)}${mocks[file]}</div><figcaption><div><strong>${title}</strong><span>${description}</span><a href="${href}" aria-label="${aria}">${linkText}</a></div></figcaption></figure>`;
+  }).join('')}</div></section>
   <section class="lp-section lp-story" id="your-story" aria-labelledby="lp-use-title"><div class="lp-kicker">${copy.useKicker}</div><h2 id="lp-use-title">${copy.useTitle}</h2><ul class="lp-use-cases">${copy.uses.map(([kicker, title, text], index) => `<li><span class="lp-kicker">0${index + 1} / ${kicker}</span><h3>${title}</h3><p>${text}</p></li>`).join('')}</ul></section>
   <section class="lp-section lp-start" id="features" aria-labelledby="lp-start-title"><div class="lp-start-grid"><div><div class="lp-kicker">${copy.startKicker}</div><h2 id="lp-start-title">${copy.startTitle}</h2><div class="lp-actions">${action}</div>${closedNote}<p class="lp-reassure">${copy.reassure}</p></div>
   <div class="lp-faq"><h3>${copy.faqTitle}</h3>${copy.faq.map(([question, answer]) => `<details><summary>${question}</summary><p>${answer}</p></details>`).join('')}<a class="lp-privacy-link" href="/privacy">${copy.privacy}</a></div></div></section>
   ${contributorSection(stats.profiles ?? [], lang)}
-  <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div></div>${landingShelfScript}${contributorScript}${zoomScript}`;
+  <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div></div>${landingShelfScript}${contributorScript}`;
 }

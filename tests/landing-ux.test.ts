@@ -19,6 +19,9 @@ const stats: CommunityStats = {
   profiles: [{ handle: 'sample-member', displayName: 'Sample Member' }],
 };
 const anonymous = (label: string) => `<a class="lp-primary" href="/signup">${label}</a>`;
+const signedInAction = '<a class="lp-primary" href="/sample-member">Open my dashboard →</a>';
+// Five minutes after the synthetic calculation time: fresh.
+const freshNow = Date.parse(stats.generatedAt) + 300_000;
 
 test('the hero leads with the import action and keeps signed-in and closed-signup states', () => {
   const en = load(landingContent('en', anonymous('Sign up / sign in →'), stats));
@@ -132,7 +135,7 @@ test('the public example nav item is labelled as a real member page, not sample 
   for (const [lang, label, aria] of [['zh', '公開會員實例', /真實公開資料/], ['en', 'Public member example', /real public data/]] as const) {
     const $ = load(shell('x', '<p>x</p>', primaryNav(lang, { exampleHref: '/sample-owner' }), '', lang));
     const link = $('.site-nav a[href="/sample-owner"]');
-    assert.equal(link.text(), label);
+    assert.equal(link.find('.nav-short').length ? link.find('.nav-full').text() : link.text(), label);
     assert.match(link.attr('aria-label') ?? '', aria);
   }
   const css = shell('x', '<p>x</p>').match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
@@ -177,20 +180,21 @@ test('channels watched by fewer than five members show rounded figures', () => {
 });
 
 test('community timestamp is labelled as calculation time, not import freshness', () => {
-  const en = load(landingContent('en', '', stats));
+  const en = load(landingContent('en', '', stats, freshNow));
   const updated = en('#community > .lp-updated');
   assert.equal(updated.length, 1, 'shown outside the collapsed methodology');
   assert.match(updated.text(), /^Statistics calculated .+\. This is not each member’s last import time\.$/);
   assert.equal(updated.find('time').attr('datetime'), stats.generatedAt);
-  const zh = load(landingContent('zh', '', stats));
+  const zh = load(landingContent('zh', '', stats, freshNow));
   assert.match(zh('#community > .lp-updated').text(), /^統計計算於 .+，不代表各會員最後匯入時間。$/);
   assert.equal(zh('.lp-more-stats .lp-updated').length, 0);
   assert.equal(load(landingContent('zh', '', { ...stats, status: 'unavailable' }))('.lp-updated').length, 0);
 });
 
-test('hero and tour previews are translated synthetic HTML with an accessible enlarged screenshot', () => {
+test('hero and tour previews are translated synthetic HTML at every width', () => {
   for (const lang of ['en', 'zh'] as const) {
-    const $ = load(landingContent(lang, '', stats));
+    const page = landingContent(lang, '', stats, freshNow);
+    const $ = load(page);
     // No scaled-down screenshot in the hero; the sample sits in the device frame.
     assert.equal($('.lp-hero-shot img').length, 0);
     assert.equal($('.lp-hero-shot .lp-device .lp-sample').length, 1);
@@ -199,18 +203,91 @@ test('hero and tour previews are translated synthetic HTML with an accessible en
     const heroText = $('.lp-hero-shot .lp-sample').text();
     if (lang === 'en') assert.doesNotMatch(heroText, /[一-鿿]/);
     else assert.match(heroText, /觀看時數/);
-    // Each tour item has a phone preview, a described screenshot and a zoom button.
+    // The tour shows the same translated HTML previews on phones and desktops:
+    // no screenshots, no zoom dialog, and nothing that hides the previews.
     assert.equal($('.lp-gallery-window').length, 2);
-    assert.equal($('.lp-gallery-window .lp-mock').length, 2);
+    assert.equal($('.lp-gallery-window .lp-device .lp-mock').length, 2);
+    assert.equal($('.lp-gallery img, .lp-zoom, .lp-zoom-open').length, 0);
+    assert.doesNotMatch(page, /\.lp-mock\{display:none\}/);
+    assert.doesNotMatch(page, /Screenshots show/);
     $('.lp-gallery-window .lp-mock').each((_, element) => assert.match($(element).attr('aria-label') ?? '', lang === 'en' ? /Synthetic sample/ : /合成範例/));
-    if (lang === 'en') assert.doesNotMatch($('.lp-mock').text(), /[一-鿿]/);
-    $('.lp-gallery-image img').each((_, element) => assert.match($(element).attr('alt') ?? '', lang === 'en' ? /synthetic sample data/ : /合成範例資料/));
-    const zoom = $('button.lp-zoom-open');
-    assert.equal(zoom.length, 2);
-    assert.equal(zoom.first().attr('aria-haspopup'), 'dialog');
-    assert.equal(zoom.first().attr('data-zoom-src'), '/landing-assets/channel.png');
-    assert.equal($('dialog.lp-zoom [data-zoom-close]').length, 1);
-    assert.equal($('.lp-zoom').attr('aria-labelledby'), 'lp-zoom-title');
+    assert.match($('.lp-gallery .lp-section-note').text(), lang === 'en' ? /Sample data.*synthetic sample data/ : /範例資料.*合成範例資料/);
+    assert.match($('.lp-gallery-window .lp-device-bar').first().text(), lang === 'en' ? /Sample data/ : /範例資料/);
+    if (lang === 'en') assert.doesNotMatch($('.lp-gallery').text(), /[一-鿿]/);
   }
-  assert.match(landingContent('en', '', stats), /Screenshots show the Traditional Chinese interface/);
+  // The score label inside the red circle is white, not the muted grey.
+  const css = landingContent('en', '', stats, freshNow);
+  assert.match(css, /\.lp-mock-pair>div span\{color:var\(--muted\)/);
+  assert.match(css, /\.lp-mock-score span\{color:#fff/);
+});
+
+test('anonymous tour links lead to sign-up, signed-in links to the real pages', () => {
+  for (const lang of ['en', 'zh'] as const) {
+    for (const action of [anonymous('x'), '']) {
+      const $ = load(landingContent(lang, action, stats, freshNow));
+      const links = $('.lp-gallery-window figcaption a');
+      assert.equal(links.length, 2);
+      links.each((_, element) => assert.equal($(element).attr('href'), '/signup'));
+      assert.match(links.eq(1).text(), lang === 'en' ? /Sign in to explore matching/ : /登入後探索配對/);
+      assert.equal($('a[href^="/matches"], a[href^="/channel"], a[href^="/auth"]').length, 0);
+    }
+    const signedIn = load(landingContent(lang, signedInAction, stats, freshNow));
+    const hrefs = signedIn('.lp-gallery-window figcaption a').map((_, element) => signedIn(element).attr('href')).get();
+    assert.deepEqual(hrefs, ['/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d', '/matches']);
+  }
+});
+
+test('import requirements are summarised before the main action on the landing page and signup', () => {
+  for (const [lang, summary] of [['en', /desktop Chrome extension or a ZIP downloaded from Google Takeout ↗\./], ['zh', /桌機 Chrome 擴充功能，或從 Google Takeout ↗ 下載的 ZIP/]] as const) {
+    const $ = load(landingContent(lang, anonymous('x'), stats, freshNow));
+    const prep = $('.lp-hero .lp-title-block .lp-prep');
+    assert.equal(prep.length, 1);
+    assert.match(prep.text(), summary);
+    assert.match(prep.text(), lang === 'en' ? /take a while/ : /一段時間/);
+    // Directly after the hero actions, so phones see it next to the button.
+    assert.ok(prep.prevAll('.lp-actions').length === 1);
+    assert.equal(prep.find('a[href="https://takeout.google.com/"]').attr('target'), '_blank');
+    assert.match(prep.find('a[href="https://takeout.google.com/"]').attr('rel') ?? '', /noopener/);
+    assert.equal(prep.find('a[href="/signup#import-methods"]').length, 1);
+    assert.equal(load(landingContent(lang, signedInAction, stats, freshNow))('.lp-prep').length, 0, 'not shown to members');
+
+    const signup = load(signupStartPage('', lang));
+    const card = signup('.ob-card');
+    assert.match(card.find('.ob-prep-summary').text(), summary);
+    // The summary precedes the Google button inside the card.
+    assert.ok(card.find('.ob-prep-summary').nextAll('a.ob-google').length === 1);
+    assert.equal(card.find('.ob-prep-summary a[href="https://takeout.google.com/"]').length, 1);
+    assert.equal(card.find('.ob-prep-summary a[href="#import-methods"]').length, 1);
+    assert.equal(signup('#import-methods .ob-methods').length, 1, 'the anchor points at the detailed methods');
+  }
+});
+
+test('community statistics explain their coverage and flag delayed updates', () => {
+  for (const lang of ['en', 'zh'] as const) {
+    const fresh = load(landingContent(lang, '', stats, freshNow));
+    assert.match(fresh('#community > .lp-coverage').text(), lang === 'en'
+      ? /^Rankings and totals cover whatever period each public member has imported\. Members do not always keep importing, so recent viewing may be missing\.$/
+      : /^排行與總數涵蓋公開會員各自已匯入的期間；會員不一定持續匯入，因此可能不含最近的觀看。$/);
+    assert.equal(fresh('.lp-stale, .lp-stale-badge').length, 0);
+
+    // Exactly one hour old is still fresh; anything older is delayed.
+    const oneHour = Date.parse(stats.generatedAt) + 3_600_000;
+    assert.equal(load(landingContent(lang, '', stats, oneHour))('.lp-stale').length, 0);
+    const old = load(landingContent(lang, '', stats, oneHour + 1));
+    const stale = old('#community > .lp-stale');
+    assert.equal(stale.length, 1);
+    assert.equal(stale.attr('role'), 'status');
+    assert.equal(stale.find('.lp-stale-badge').text(), lang === 'en' ? 'Data update delayed' : '資料更新延遲');
+    assert.match(stale.text(), lang === 'en' ? /over an hour/ : /超過 1 小時/);
+    // The delay notice sits next to the calculation time, and the rankings stay.
+    assert.equal(stale.prev().is('.lp-updated'), true);
+    assert.ok(old('.ch-row').length > 0);
+
+    const unavailable = load(landingContent(lang, '', { ...stats, status: 'unavailable', generatedAt: new Date(freshNow).toISOString() }, freshNow));
+    assert.equal(unavailable('.lp-empty .lp-stale-badge').text(), lang === 'en' ? 'Data update delayed' : '資料更新延遲');
+    assert.equal(unavailable('.lp-coverage, .lp-updated').length, 0);
+
+    const invalid = load(landingContent(lang, '', { ...stats, generatedAt: 'not a date' }, freshNow));
+    assert.equal(invalid('.lp-stale').length, 1);
+  }
 });

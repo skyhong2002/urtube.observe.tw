@@ -67,7 +67,8 @@ const signupStartStyles = `
   .ob-start{margin:0 auto;max-width:760px}.ob-start .ob-intro{margin:6px 0 20px}
   .ob-start .ob-card{max-width:none}.ob-start .ob-google{min-height:48px;font-size:15px}
   .ob-start .ob-card p.ob-google-note{font-size:13px;margin:14px 0 0}
-  .ob-prep{margin-top:28px}.ob-prep h2{font-size:20px;letter-spacing:-.01em;margin:0 0 4px}.ob-prep>p{color:var(--ink-2);font-size:14px;margin:0 0 14px}
+  .ob-start .ob-card .ob-prep-summary{border-left:2px solid var(--line-strong);margin:0 0 18px;padding-left:12px}.ob-start .ob-card .ob-prep-summary p{color:var(--ink-2);font-size:14px;line-height:1.6;margin:0}.ob-start .ob-card .ob-prep-summary p.ob-prep-links{display:flex;flex-wrap:wrap;gap:0 18px}.ob-prep-links a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}.ob-inline-link{font-weight:600;padding-block:3px}
+  .ob-prep{margin-top:28px;scroll-margin-top:16px}.ob-prep h2{font-size:20px;letter-spacing:-.01em;margin:0 0 4px}.ob-prep>p{color:var(--ink-2);font-size:14px;margin:0 0 14px}
   .ob-methods{display:grid;gap:12px;grid-template-columns:1fr 1fr}
   .ob-method{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}.ob-method h3{font-size:16px;margin:0}
   .ob-method-tag{color:var(--accent-text);display:block;font-size:13px;font-weight:600;margin-top:2px}
@@ -77,6 +78,14 @@ const signupStartStyles = `
   .ob-privacy-link{align-items:center;display:inline-flex;font-size:14px;margin-top:10px;min-height:44px}
   @media(max-width:640px){.ob-methods{grid-template-columns:1fr}.ob-start .ob-card{padding:20px}.ob-start .ob-google{justify-content:center;width:100%}}
 `;
+
+// One-line summary shown before the Google button, so phone visitors learn
+// what an import needs before they sign in.
+function signupPrepSummary(lang: Lang): string {
+  const t = messages(lang);
+  const takeout = `<a class="ob-inline-link" href="https://takeout.google.com/" target="_blank" rel="noopener noreferrer" aria-label="${t.takeoutLinkAria}">${t.takeoutLink}</a>`;
+  return `<div class="ob-prep-summary"><p>${t.importPrepSummary(takeout)}</p><p class="ob-prep-links"><a href="#import-methods">${lang === 'zh' ? '看兩種方式的準備 ↓' : 'What each method needs ↓'}</a></p></div>`;
+}
 
 // Preparation notes describe the existing flow; they do not change OAuth or
 // the defaults it creates (private account, discovery off).
@@ -101,7 +110,7 @@ function signupPreparation(lang: Lang): string {
     '<strong>Nothing goes public automatically:</strong> importing or previewing sharing never changes your settings. You decide when to share.',
     '<strong>Take it with you:</strong> download a ZIP export or permanently delete your account and history from Settings.',
   ];
-  return `<section class="ob-prep" aria-labelledby="signup-prep"><h2 id="signup-prep">${zh ? '開始前先知道' : 'Before you start'}</h2><p>${zh ? '登入後選一種方式匯入 YouTube 觀看紀錄，兩種都可以使用。' : 'After signing in, choose how to import your YouTube watch history. You can use both.'}</p>
+  return `<section class="ob-prep" id="import-methods" aria-labelledby="signup-prep"><h2 id="signup-prep">${zh ? '開始前先知道' : 'Before you start'}</h2><p>${zh ? '登入後選一種方式匯入 YouTube 觀看紀錄，兩種都可以使用。' : 'After signing in, choose how to import your YouTube watch history. You can use both.'}</p>
     <div class="ob-methods">${methods.map(([title, tag, items]) => `<article class="ob-method"><h3>${title}</h3><span class="ob-method-tag">${tag}</span><ul>${items.map(item => `<li>${item}</li>`).join('')}</ul></article>`).join('')}</div>
     <ul class="ob-checklist">${checklist.map(item => `<li><span>${item}</span></li>`).join('')}</ul>
     <a class="ob-privacy-link" href="/privacy">${zh ? '閱讀資料與隱私說明 →' : 'Read how we handle your data →'}</a></section>`;
@@ -115,7 +124,7 @@ export function signupStartPage(error = '', lang: Lang = 'en'): string {
   const body = `<style>${formStyles}${signupStartStyles}</style><div class="ob-start"><section class="ob-intro"><div class="eyebrow">${t.signupEyebrow}</div><h1>${t.signupTitle}</h1>
     <p>${t.signupStartPara}</p></section>
     <div class="ob-card">${error ? `<div class="ob-error" role="alert">${html(error)}</div>` : ''}
-    ${googleButton(t.signinGoogle)}<p class="ob-google-note">${note}</p></div>
+    ${signupPrepSummary(lang)}${googleButton(t.signinGoogle)}<p class="ob-google-note">${note}</p></div>
     ${signupPreparation(lang)}</div>`;
   return shell(t.signupTitle, body, signupNav(lang), '', lang, '/signup');
 }

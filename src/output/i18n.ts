@@ -46,6 +46,12 @@ const en = {
   // The anonymous nav links to a real member's public dashboard, not the
   // synthetic sample on the home page, so the label says so.
   navExample: 'Public member example',
+  navExampleShort: 'Member example',
+  // What an import needs, shown before the main sign-up actions.
+  // takeoutLink is the HTML link to Google's official Takeout page.
+  importPrepSummary: (takeoutLink: string) => `Importing needs the desktop Chrome extension or a ZIP downloaded from ${takeoutLink}. Google can take a while to prepare the file.`,
+  takeoutLink: 'Google Takeout ↗',
+  takeoutLinkAria: 'Google Takeout (Google’s official site, opens in a new tab)',
   navExampleAria: 'Public member example: a real member’s public dashboard (real public data, not synthetic sample data)',
   navBack: 'Back to dashboard',
 
@@ -653,6 +659,10 @@ const zh: typeof en = {
   navOnboarding: '設定流程',
   navSignup: '註冊／登入',
   navExample: '公開會員實例',
+  navExampleShort: '公開會員實例',
+  importPrepSummary: (takeoutLink: string) => `匯入需要桌機 Chrome 擴充功能，或從 ${takeoutLink} 下載的 ZIP；Google 準備檔案可能要一段時間。`,
+  takeoutLink: 'Google Takeout ↗',
+  takeoutLinkAria: 'Google Takeout（Google 官方網站，另開新分頁）',
   navExampleAria: '公開會員實例：一位真實會員的公開儀表板（真實公開資料，不是合成範例）',
   navBack: '回到儀表板',
 

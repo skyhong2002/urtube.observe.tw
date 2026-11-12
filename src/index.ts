@@ -1612,13 +1612,14 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const sections = t.privacySections.map(([heading, para]) =>
       `<h2 style="font-size:16px;margin:26px 0 8px">${heading}</h2><p style="color:var(--ink-2);line-height:1.7;margin:0">${para}</p>`
     ).join('');
-    const body = `<section style="margin:6vh auto 0;max-width:720px">
+    const body = `<section class="privacy-page" style="margin:6vh auto 0;max-width:720px">
       <div class="eyebrow">${t.privacyLink}</div>
       <h1 style="letter-spacing:-.03em;margin:8px 0 14px">${t.privacyTitle}</h1>
       <p style="color:var(--ink-2)">${t.privacyIntro}</p>
       ${sections}
     </section>`;
-    return c.html(shell(t.privacyTitle, body, siteNav(c, lang), '', lang, '/privacy'));
+    // Links inside the policy text get at least a 24px tall target.
+    return c.html(shell(t.privacyTitle, body, siteNav(c, lang), '.privacy-page p a{padding-block:3px}', lang, '/privacy'));
   });
 
   app.get('/robots.txt', (c) => {
@@ -1874,7 +1875,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     const body = `<section style="margin:16vh auto 10vh;max-width:520px;text-align:center">
       <h1 style="font-size:72px;letter-spacing:-.05em;line-height:1;margin:0 0 12px">404</h1>
       <p style="color:var(--ink-2)">${t.notFoundPara}</p>
-      <p style="margin-top:26px"><a href="/" style="background:var(--accent);border-radius:999px;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;text-decoration:none">${t.navHome}</a></p>
+      <p style="margin-top:26px"><a href="/" style="align-items:center;background:var(--accent);border-radius:999px;color:#fff;display:inline-flex;font-size:14px;font-weight:700;min-height:44px;padding:11px 20px;text-decoration:none">${t.navHome}</a></p>
     </section>`;
     return c.html(shell(t.notFoundTitle, body, siteNav(c, lang), '', lang), 404);
   }

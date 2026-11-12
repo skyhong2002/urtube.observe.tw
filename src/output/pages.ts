@@ -68,7 +68,7 @@ const styles = `
   body{background:var(--bg);background-image:radial-gradient(1100px 420px at 50% -180px,rgba(208,59,59,.09),transparent 70%);background-repeat:no-repeat;color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;min-height:100vh}
   a{color:var(--accent-text)}
   a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{border-radius:6px;outline:2px solid var(--accent-text);outline-offset:3px}
-  .skip-link{position:fixed;left:16px;top:12px;z-index:200;padding:10px 16px;background:var(--ink);color:var(--bg);border-radius:6px;transform:translateY(-180%)}
+  .skip-link{position:fixed;left:16px;top:12px;z-index:200;min-height:44px;padding:11px 16px;background:var(--ink);color:var(--bg);border-radius:6px;transform:translateY(-180%)}
   .skip-link:focus{transform:none}
   ::selection{background:rgba(208,59,59,.35)}
   h1,h2,h3,p{overflow-wrap:anywhere}
@@ -81,15 +81,15 @@ const styles = `
   code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;padding:1px 5px}
 
   .site-header{align-items:center;display:flex;gap:24px;justify-content:space-between;padding:18px max(22px,calc((100% - 1180px)/2))}
-  .site-brand{align-items:center;color:var(--ink);display:flex;flex:0 0 auto;gap:11px;text-decoration:none}
+  .site-brand{align-items:center;color:var(--ink);display:flex;flex:0 0 auto;gap:11px;min-height:44px;text-decoration:none}
   .site-brand svg{display:block;height:30px;width:30px}
   .site-brand strong{font-size:15px;letter-spacing:.01em}
   .site-brand small{color:var(--muted);display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
-  .site-nav{display:flex;gap:4px;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none}
-  .site-nav::-webkit-scrollbar{display:none}
-  .site-nav a{align-items:center;border-radius:999px;color:var(--ink-2);display:inline-flex;flex:0 0 auto;font-size:13px;font-weight:600;min-height:44px;padding:7px 14px;text-decoration:none;white-space:nowrap}
+  .site-nav{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:100%}
+  .site-nav a{align-items:center;border-radius:999px;color:var(--ink-2);display:inline-flex;flex:0 0 auto;font-size:13px;font-weight:600;justify-content:center;min-height:44px;min-width:44px;padding:7px 14px;text-decoration:none;white-space:nowrap}
   .site-nav a:hover{background:var(--raised);color:var(--ink)}
   .site-nav a[aria-current=page]{background:var(--ink);color:#111}
+  .site-nav .nav-short{display:none}
   .site-main{margin:0 auto;max-width:1180px;padding:26px 22px 90px}
   .site-footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;margin:0 auto;max-width:1180px;padding:24px 22px 54px}
   .site-footer a{align-items:center;display:inline-flex;min-height:44px;min-width:44px;padding:0 4px;vertical-align:middle}
@@ -129,7 +129,8 @@ const styles = `
   .yt-stat strong{display:block;font-size:22px;font-weight:650;letter-spacing:-.02em}
   .yt-stat span{color:var(--muted);display:block;font-size:10px;font-weight:700;letter-spacing:.09em;margin-top:2px;text-transform:uppercase}
 
-  @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column;gap:10px;padding-block:14px}.site-nav{width:100%}.site-main{padding-top:16px}.section{padding:16px}}
+  @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column;gap:10px;padding-block:14px;position:relative}.site-nav{justify-content:flex-start;width:100%}.site-nav .nav-lang{position:absolute;right:22px;top:14px}.site-main{padding-top:16px}.section{padding:16px}}
+  @media(max-width:480px){.site-nav a{padding-inline:12px}.site-nav .nav-full{display:none}.site-nav .nav-short{display:inline}}
   @media(max-width:560px){.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}}
   @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
@@ -165,6 +166,11 @@ export interface ShellNavItem {
   active?: boolean;
   // Accessible name when the visible label needs more context.
   ariaLabel?: string;
+  // Visible label on phones when the full label would not fit. Only used
+  // together with ariaLabel, so the accessible name stays complete.
+  shortLabel?: string;
+  // The language switch; phones show it beside the brand.
+  language?: boolean;
 }
 
 export type PrimaryNavActive = 'signup' | 'example' | 'dashboard' | 'channels' | 'matches' | 'account';
@@ -185,6 +191,7 @@ export function primaryNav(lang: Lang, options: PrimaryNavOptions = {}): ShellNa
   const language = {
     label: t.langToggle,
     href: options.languageHref ?? `?lang=${lang === 'zh' ? 'en' : 'zh'}`,
+    language: true,
   };
   if (options.dashboardHref) {
     return [
@@ -197,7 +204,7 @@ export function primaryNav(lang: Lang, options: PrimaryNavOptions = {}): ShellNa
   }
   return [
     { label: t.navSignup, href: '/signup', active: options.active === 'signup' },
-    { label: t.navExample, href: options.exampleHref ?? '/', active: options.active === 'example', ariaLabel: t.navExampleAria },
+    { label: t.navExample, shortLabel: t.navExampleShort, href: options.exampleHref ?? '/', active: options.active === 'example', ariaLabel: t.navExampleAria },
     language,
   ];
 }
@@ -208,9 +215,14 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   const t = messages(lang);
   const processingAccount = nav.some(item => item.href === '/account')
     ? nav.find(item => item.label === t.navDashboard)?.href.split('?')[0] ?? '' : '';
-  const links = nav.map((item) =>
-    `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}${item.ariaLabel ? ` aria-label="${html(item.ariaLabel)}"` : ''}>${html(item.label)}</a>`
-  ).join('');
+  // Every item stays visible: the menu wraps instead of scrolling, and long
+  // labels swap to a short visible form on phones (full name in aria-label).
+  const links = nav.map((item) => {
+    const label = item.shortLabel && item.ariaLabel && item.shortLabel !== item.label
+      ? `<span class="nav-full">${html(item.label)}</span><span class="nav-short">${html(item.shortLabel)}</span>`
+      : html(item.label);
+    return `<a href="${html(item.href)}"${item.language ? ' class="nav-lang"' : ''}${item.active ? ' aria-current="page"' : ''}${item.ariaLabel ? ` aria-label="${html(item.ariaLabel)}"` : ''}>${label}</a>`;
+  }).join('');
   // Query-free canonical (?range/?sort/?lang/?key variants all collapse onto
   // the bare path). Error pages pass nothing and get no canonical.
   const canonical = canonicalPath

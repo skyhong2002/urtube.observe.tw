@@ -94,10 +94,10 @@ test('landing and allowlisted screenshots are served through the production app'
     assert.ok(page.includes('你的 YouTube 人生'));
     assert.ok(page.includes('position:sticky;top:0'));
     assert.ok(!page.includes('/match-preview/landing/'));
-    // The hero sample is translated HTML; only the tour uses screenshots.
-    assert.ok(!page.includes('/landing-assets/dashboard.png'));
+    // The hero sample and the tour are translated HTML; the page references no
+    // screenshots, but the allowlisted assets are still served.
+    assert.ok(!page.includes('/landing-assets/'));
     for (const name of ['dashboard.png', 'channel.png', 'matching.png']) {
-      if (name !== 'dashboard.png') assert.ok(page.includes(`/landing-assets/${name}`));
       const image = await app.request(`/landing-assets/${name}`);
       assert.equal(image.status, 200);
       assert.equal(image.headers.get('content-type'), 'image/png');
@@ -132,12 +132,15 @@ test('product tour links point at pages the viewer can open, never at image file
  // Channel pages require sign-in, so anonymous visitors get a labelled sign-up link.
  assert.ok(!anonymous.includes('href="/channel/'));
  assert.match(anonymous, /<a href="\/signup" aria-label="[^"]*需要登入[^"]*">登入後查看頻道頁 →<\/a>/);
- assert.ok(anonymous.includes('href="/matches"'));
+ // Matching redirects anonymous visitors to Google too; they get sign-up instead.
+ assert.match(anonymous, /<a href="\/signup" aria-label="[^"]*配對需要登入[^"]*">登入後探索配對 →<\/a>/);
+ assert.ok(!anonymous.includes('href="/matches"'));
  assert.ok(!anonymous.includes('href="/landing-assets/'));
  const closed = landingContent('en', '', data);
  assert.ok(!closed.includes('href="/channel/'), 'signups closed is still anonymous');
  const signedIn = landingContent('zh', '<a class="lp-primary" href="/alex">x</a>', data);
  assert.ok(signedIn.includes('href="/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d"'));
+ assert.ok(signedIn.includes('href="/matches"'));
 });
 
 test('a slow refresh never holds the landing request and still enforces current visibility', async () => {
