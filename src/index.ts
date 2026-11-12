@@ -1619,7 +1619,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       ${sections}
     </section>`;
     // Links inside the policy text get at least a 24px tall target.
-    return c.html(shell(t.privacyTitle, body, siteNav(c, lang), '.privacy-page p a{padding-block:3px}', lang, '/privacy'));
+    return c.html(shell(t.privacyTitle, body, siteNav(c, lang), '.privacy-page p a{padding-block:5px}', lang, '/privacy'));
   });
 
   app.get('/robots.txt', (c) => {

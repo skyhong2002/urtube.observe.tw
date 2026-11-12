@@ -62,12 +62,12 @@ test('anonymous pages share navigation and use one registration/sign-in term', a
 
     const signup = await (await app.request('/signup?lang=zh')).text();
     assert.match(signup, /<h1>註冊／登入<\/h1>/);
-    assert.match(signup, />使用 Google 註冊／登入<\/a>/);
+    assert.match(signup, /><span>使用 Google 註冊／登入<\/span><\/a>/);
     assert.doesNotMatch(signup, />建立檔案館<\/a>/);
 
     const signupEn = await (await app.request('/signup?lang=en')).text();
     assert.match(signupEn, /<h1>Sign up \/ sign in<\/h1>/);
-    assert.match(signupEn, />Sign up \/ sign in with Google<\/a>/);
+    assert.match(signupEn, /><span>Sign up \/ sign in with Google<\/span><\/a>/);
   } finally {
     registry.close();
   }
@@ -105,7 +105,9 @@ test('signed-in pages share navigation, active state, and query-preserving langu
 
 test('shared shell keeps the full menu usable at phone widths', () => {
   const page = shell('Navigation test', '', primaryNav('en', { dashboardHref: '/alex' }));
-  assert.match(page, /@media\(max-width:760px\)\{\.site-header\{align-items:flex-start;flex-direction:column/);
+  // Computed positions at 320–1440px are checked in a browser by
+  // `npm run test:layout` (tests/layout/layout-check.ts).
+  assert.match(page, /@media\(max-width:760px\)\{\.site-header\{align-items:stretch;flex-direction:column/);
   // Items wrap instead of hiding behind an unmarked horizontal scroll.
   assert.match(page, /\.site-nav\{display:flex;flex-wrap:wrap;/);
   assert.doesNotMatch(page, /\.site-nav\{[^}]*overflow-x/);
@@ -124,10 +126,11 @@ test('long nav labels get a short phone label while keeping the full accessible 
   assert.match(zh, /<a href="\/demo" aria-label="[^"]+">公開會員實例<\/a>/);
   // Items without an aria-label never swap labels.
   assert.equal(shell('x', '', [{ label: 'Long label', shortLabel: 'Short', href: '/x' }]).includes('nav-short">Short'), false);
-  // Phones show the language switch beside the brand, so the menu needs one
-  // row less; it stays last in the menu's DOM and tab order.
+  // The language switch is last in the menu's DOM and tab order, and phones
+  // show it at the end of the menu row (not above it, which made keyboard
+  // focus jump back up).
   assert.match(en, /<a href="[^"]*" class="nav-lang">中文<\/a><\/nav>/);
-  assert.match(en, /@media\(max-width:760px\)\{[^\n]*\.site-nav \.nav-lang\{position:absolute;right:22px;top:14px\}/);
+  assert.doesNotMatch(en, /\.nav-lang\{[^}]*position:absolute/);
   assert.match(en, /\.site-nav a\{[^}]*min-height:44px;min-width:44px/);
   // Brand and skip link meet the 44px target as well.
   assert.match(en, /\.site-brand\{[^}]*min-height:44px/);

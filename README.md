@@ -101,7 +101,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` 執行 TypeScript 檢查與測試。依賴確切版本由 `package-lock.json` 決定。
+`npm run check` 執行 TypeScript 檢查與測試。依賴確切版本由 `package-lock.json` 決定。`npm run test:layout` 另外在瀏覽器量測公開頁版面（需要 Chromium，見 CONTRIBUTING.md）。
 
 ### 2. 先體驗不需憑證的合成示範
 

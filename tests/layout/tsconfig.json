@@ -1,0 +1,8 @@
+{
+  // The layout check runs callbacks inside the browser, so it needs DOM types.
+  // The root project leaves DOM out on purpose (server code has no document).
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["."],
+  "exclude": []
+}

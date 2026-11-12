@@ -66,6 +66,9 @@ const styles = `
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{background:var(--bg);background-image:radial-gradient(1100px 420px at 50% -180px,rgba(208,59,59,.09),transparent 70%);background-repeat:no-repeat;color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;min-height:100vh}
+  /* Where system-ui resolves to a CJK font (some Linux and Android setups),
+     English apostrophes render full-width; English pages try Latin UI fonts first. */
+  html:lang(en) body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,system-ui,sans-serif}
   a{color:var(--accent-text)}
   a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{border-radius:6px;outline:2px solid var(--accent-text);outline-offset:3px}
   .skip-link{position:fixed;left:16px;top:12px;z-index:200;min-height:44px;padding:11px 16px;background:var(--ink);color:var(--bg);border-radius:6px;transform:translateY(-180%)}
@@ -129,8 +132,8 @@ const styles = `
   .yt-stat strong{display:block;font-size:22px;font-weight:650;letter-spacing:-.02em}
   .yt-stat span{color:var(--muted);display:block;font-size:10px;font-weight:700;letter-spacing:.09em;margin-top:2px;text-transform:uppercase}
 
-  @media(max-width:760px){.site-header{align-items:flex-start;flex-direction:column;gap:10px;padding-block:14px;position:relative}.site-nav{justify-content:flex-start;width:100%}.site-nav .nav-lang{position:absolute;right:22px;top:14px}.site-main{padding-top:16px}.section{padding:16px}}
-  @media(max-width:480px){.site-nav a{padding-inline:12px}.site-nav .nav-full{display:none}.site-nav .nav-short{display:inline}}
+  @media(max-width:760px){.site-header{align-items:stretch;flex-direction:column;gap:2px;padding-block:4px;position:relative}.site-nav{justify-content:flex-start;width:100%}.site-nav .nav-lang{margin-left:auto}.site-main{padding-top:16px}.section{padding:16px}}
+  @media(max-width:480px){.site-header{padding-inline:16px}.site-nav{gap:2px}.site-nav a{font-size:12px;padding-inline:8px}.site-nav .nav-full{display:none}.site-nav .nav-short{display:inline}.site-main,.site-footer{padding-inline:16px}}
   @media(max-width:560px){.yt-profile{gap:14px}.yt-avatar{flex-basis:58px;font-size:24px;height:58px;width:58px}}
   @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
@@ -169,7 +172,8 @@ export interface ShellNavItem {
   // Visible label on phones when the full label would not fit. Only used
   // together with ariaLabel, so the accessible name stays complete.
   shortLabel?: string;
-  // The language switch; phones show it beside the brand.
+  // The language switch: always the last item, so keyboard order matches its
+  // position (end of the menu row) at every width.
   language?: boolean;
 }
 

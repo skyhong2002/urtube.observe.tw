@@ -277,14 +277,17 @@ test('community statistics explain their coverage and flag delayed updates', () 
     const stale = old('#community > .lp-stale');
     assert.equal(stale.length, 1);
     assert.equal(stale.attr('role'), 'status');
-    assert.equal(stale.find('.lp-stale-badge').text(), lang === 'en' ? 'Data update delayed' : '資料更新延遲');
+    // Named for what it measures: the calculation, not source freshness.
+    assert.equal(stale.find('.lp-stale-badge').text(), lang === 'en' ? 'Statistics calculation delayed' : '統計計算延遲');
     assert.match(stale.text(), lang === 'en' ? /over an hour/ : /超過 1 小時/);
+    assert.match(stale.text(), lang === 'en' ? /reflects only the recalculation, not when members last imported/ : /只反映統計的重新計算，不反映會員最後匯入的時間/);
+    assert.doesNotMatch(old('#community').text(), /Data update delayed|資料更新延遲/);
     // The delay notice sits next to the calculation time, and the rankings stay.
     assert.equal(stale.prev().is('.lp-updated'), true);
     assert.ok(old('.ch-row').length > 0);
 
     const unavailable = load(landingContent(lang, '', { ...stats, status: 'unavailable', generatedAt: new Date(freshNow).toISOString() }, freshNow));
-    assert.equal(unavailable('.lp-empty .lp-stale-badge').text(), lang === 'en' ? 'Data update delayed' : '資料更新延遲');
+    assert.equal(unavailable('.lp-empty .lp-stale-badge').text(), lang === 'en' ? 'Statistics calculation delayed' : '統計計算延遲');
     assert.equal(unavailable('.lp-coverage, .lp-updated').length, 0);
 
     const invalid = load(landingContent(lang, '', { ...stats, generatedAt: 'not a date' }, freshNow));

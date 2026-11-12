@@ -524,7 +524,7 @@ const en = {
   accountReferenceSave: "Save statistics preference",
   privacyLink: 'Privacy',
   privacyTitle: 'Privacy policy',
-  privacyIntro: `urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: ${PRIVACY_UPDATED}. This revision adds the home page channel rankings and data retention and deletion sections, and explains which setting removes you from which ranking.`,
+  privacyIntro: `urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: ${PRIVACY_UPDATED}. This revision adds the home page channel rankings, data retention and deletion, and images and scripts from other services sections, and explains which setting removes you from which ranking.`,
   // Plain language still needs complete collection, third-party processing and sharing disclosures.
   privacySections: [
   [
@@ -534,6 +534,10 @@ const en = {
   [
     "Storage and AI analysis",
     "Your records are stored on urtube servers, with search terms encrypted. We do not sell data or run ads or analytics tracking. Public video information, such as titles, channels, tags and descriptions, may be retrieved from YouTube and processed by AI services to organize interests. Private watch events and search terms are not sent to AI."
+  ],
+  [
+    "Images and scripts from other services",
+    "urtube does not use analytics or advertising trackers. Cloudflare, which delivers this site, can insert its own Web Analytics script into pages; this site's Content Security Policy blocks that script, so it does not run or send anything. Video thumbnails and channel pictures, including those in the home page channel rankings, load directly from YouTube's image servers (such as i.ytimg.com and yt3.ggpht.com). When they appear, your browser requests them from Google, which can see your IP address and browser details. These requests carry at most this site's address, not the page you are viewing."
   ],
   [
     "What you share",
@@ -1130,7 +1134,7 @@ const zh: typeof en = {
   accountReferenceSave: "儲存統計偏好",
   privacyLink: '隱私權',
   privacyTitle: '隱私權政策',
-  privacyIntro: `urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：${PRIVACY_UPDATED}。本次修訂新增「首頁頻道排行」與「資料保留與刪除」段落，並說明哪個設定會讓你退出哪一種排行。`,
+  privacyIntro: `urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：${PRIVACY_UPDATED}。本次修訂新增「首頁頻道排行」、「資料保留與刪除」與「其他服務的圖片與腳本」段落，並說明哪個設定會讓你退出哪一種排行。`,
   privacySections: [
   [
     "收集什麼",
@@ -1139,6 +1143,10 @@ const zh: typeof en = {
   [
     "資料儲存與 AI 分析",
     "你的紀錄儲存在 urtube 伺服器，搜尋詞加密保存。我們不出售資料，也沒有廣告或分析追蹤。公開影片資訊（例如標題、頻道、標籤與描述）可能向 YouTube 查詢，並交由 AI 服務整理興趣。私人觀看事件與搜尋詞不會送交 AI。"
+  ],
+  [
+    "其他服務的圖片與腳本",
+    "urtube 不使用分析或廣告追蹤工具。負責傳送本站內容的 Cloudflare 可能在頁面中加入它的網站分析（Web Analytics）腳本；本站的內容安全政策（CSP）會封鎖這個腳本，因此它不會執行，也不會傳送任何資料。影片縮圖與頻道圖片（包括首頁頻道排行中的圖片）直接由 YouTube 的圖片伺服器（例如 i.ytimg.com、yt3.ggpht.com）載入。圖片顯示時，你的瀏覽器會向 Google 發出請求，Google 可以看到你的 IP 位址與瀏覽器資訊。這些請求最多只帶有本站網址，不包含你正在瀏覽的頁面。"
   ],
   [
     "分享哪些內容",

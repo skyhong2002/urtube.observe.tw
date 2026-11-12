@@ -54,7 +54,7 @@ function signupNav(lang: Lang) {
 }
 
 const googleButton = (label: string) => `
-  <a class="ob-google" href="/auth/google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>${label}</a>`;
+  <a class="ob-google" href="/auth/google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>${label}</span></a>`;
 
 // Step 1: a verified Google identity is the only way in.
 // Keep the store connection path prominent; manual installation remains available as advanced help.
@@ -67,16 +67,20 @@ const signupStartStyles = `
   .ob-start{margin:0 auto;max-width:760px}.ob-start .ob-intro{margin:6px 0 20px}
   .ob-start .ob-card{max-width:none}.ob-start .ob-google{min-height:48px;font-size:15px}
   .ob-start .ob-card p.ob-google-note{font-size:13px;margin:14px 0 0}
-  .ob-start .ob-card .ob-prep-summary{border-left:2px solid var(--line-strong);margin:0 0 18px;padding-left:12px}.ob-start .ob-card .ob-prep-summary p{color:var(--ink-2);font-size:14px;line-height:1.6;margin:0}.ob-start .ob-card .ob-prep-summary p.ob-prep-links{display:flex;flex-wrap:wrap;gap:0 18px}.ob-prep-links a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}.ob-inline-link{font-weight:600;padding-block:3px}
+  .ob-start .ob-card .ob-prep-summary{border-left:2px solid var(--line-strong);margin:0 0 18px;padding-left:12px}.ob-start .ob-card .ob-prep-summary p{color:var(--ink-2);font-size:14px;line-height:1.6;margin:0}.ob-start .ob-card .ob-prep-summary p.ob-prep-links{display:flex;flex-wrap:wrap;gap:0 18px}.ob-prep-links a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}.ob-inline-link{font-weight:600;padding-block:5px}
   .ob-prep{margin-top:28px;scroll-margin-top:16px}.ob-prep h2{font-size:20px;letter-spacing:-.01em;margin:0 0 4px}.ob-prep>p{color:var(--ink-2);font-size:14px;margin:0 0 14px}
   .ob-methods{display:grid;gap:12px;grid-template-columns:1fr 1fr}
   .ob-method{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}.ob-method h3{font-size:16px;margin:0}
   .ob-method-tag{color:var(--accent-text);display:block;font-size:13px;font-weight:600;margin-top:2px}
   .ob-method ul,.ob-checklist{color:var(--ink-2);font-size:14px;line-height:1.6;margin:10px 0 0;padding-left:18px}.ob-method li+li,.ob-checklist li+li{margin-top:6px}
   .ob-checklist{list-style:none;margin-top:16px;padding:0}.ob-checklist li{display:flex;gap:10px}.ob-checklist li::before{color:#7ecf9d;content:"✓";flex:0 0 auto;font-weight:700}
-  .ob-checklist strong{color:var(--ink)}
+  .ob-checklist strong{color:var(--ink)}.ob-prep p.ob-phone{color:var(--ink-2);font-size:14px;line-height:1.6;margin:14px 0 0}.ob-phone strong{color:var(--ink)}
   .ob-privacy-link{align-items:center;display:inline-flex;font-size:14px;margin-top:10px;min-height:44px}
-  @media(max-width:640px){.ob-methods{grid-template-columns:1fr}.ob-start .ob-card{padding:20px}.ob-start .ob-google{justify-content:center;width:100%}}
+  .ob-google svg{flex:0 0 auto}
+  /* Phones: one centred line where it fits; a balanced, centred second line
+     beside the logo where it does not. */
+  @media(max-width:640px){.ob-methods{grid-template-columns:1fr}.ob-start .ob-card{padding:20px}.ob-start .ob-google{justify-content:center;padding-inline:14px;text-align:center;text-wrap:balance;width:100%}}
+  @media(max-width:400px){.ob-start .ob-card{padding:16px}.ob-start .ob-google{font-size:14px;gap:8px}}
 `;
 
 // One-line summary shown before the Google button, so phone visitors learn
@@ -112,6 +116,7 @@ function signupPreparation(lang: Lang): string {
   ];
   return `<section class="ob-prep" id="import-methods" aria-labelledby="signup-prep"><h2 id="signup-prep">${zh ? '開始前先知道' : 'Before you start'}</h2><p>${zh ? '登入後選一種方式匯入 YouTube 觀看紀錄，兩種都可以使用。' : 'After signing in, choose how to import your YouTube watch history. You can use both.'}</p>
     <div class="ob-methods">${methods.map(([title, tag, items]) => `<article class="ob-method"><h3>${title}</h3><span class="ob-method-tag">${tag}</span><ul>${items.map(item => `<li>${item}</li>`).join('')}</ul></article>`).join('')}</div>
+    <p class="ob-phone">${zh ? '<strong>用手機？</strong>可以先在手機申請 Google Takeout 匯出，檔案準備好時 Google 會寄信通知。安裝擴充功能和上傳較大的 ZIP 在電腦上比較方便；之後在電腦用同一個 Google 帳號登入即可繼續。' : '<strong>On a phone?</strong> You can request your Google Takeout export now; Google emails you when the ZIP is ready. Installing the extension and uploading a large ZIP are easiest on a computer, where you can sign in later with the same Google account.'}</p>
     <ul class="ob-checklist">${checklist.map(item => `<li><span>${item}</span></li>`).join('')}</ul>
     <a class="ob-privacy-link" href="/privacy">${zh ? '閱讀資料與隱私說明 →' : 'Read how we handle your data →'}</a></section>`;
 }

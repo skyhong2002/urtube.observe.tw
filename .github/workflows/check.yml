@@ -66,6 +66,12 @@ jobs:
           PYTHON
           MATCHING_V3_TEST_COMPUTE_URL=http://127.0.0.1:8090 npm test
 
+      - name: Install layout test browser
+        run: npx playwright-core install --with-deps --only-shell chromium
+
+      - name: Test public page layout in a browser
+        run: npm run test:layout
+
       - name: Audit secrets and production dependencies
         run: npm run security:audit
 
