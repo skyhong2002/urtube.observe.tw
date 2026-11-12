@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new urtube production manifest every two minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20
+
+[Install]
+WantedBy=timers.target

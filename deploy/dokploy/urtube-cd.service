@@ -1,0 +1,11 @@
+[Unit]
+Description=urtube continuous deployment onto the Dokploy stack
+Documentation=https://github.com/skyhong2002/urtube.observe.tw/blob/main/deploy/dokploy/README.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/urtube-cd/sync.py
+Nice=10
+TimeoutStartSec=1200

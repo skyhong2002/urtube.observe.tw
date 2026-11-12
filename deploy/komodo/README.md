@@ -1,6 +1,8 @@
 # Production CD
 
-Merge to `main` → GitHub Actions `Check` → GHCR → Komodo `urtube-production`.
+Merge to `main` → GitHub Actions `Check` → GHCR → `codex/production-images` →
+the host CD agent in `deploy/dokploy/` (since 2026-11-13; production moved to
+a Dokploy stack and Komodo no longer deploys it).
 CI publishes application and numeric-compute images with the source SHA, then
 atomically commits both digests to `codex/production-images`. This generated
 branch is an output of main, not a development branch. Do not edit it manually.
