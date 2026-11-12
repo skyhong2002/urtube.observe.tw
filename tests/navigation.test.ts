@@ -26,13 +26,14 @@ test('primary navigation has one anonymous and one signed-in contract in both la
     active: 'signup', exampleHref: '/demo', languageHref: '/signup?lang=en',
   }), [
     { label: '註冊／登入', href: '/signup', active: true },
-    { label: '公開會員實例', shortLabel: '公開會員實例', href: '/demo', active: false, ariaLabel: '公開會員實例：一位真實會員的公開儀表板（真實公開資料，不是合成範例）' },
+    { label: '公開成員實例', shortLabel: '公開成員實例', href: '/demo', active: false, ariaLabel: '公開成員實例：一位真實成員的公開儀表板（真實公開資料，不是合成範例）' },
     { label: 'EN', href: '/signup?lang=en', language: true },
   ]);
   assert.deepEqual(primaryNav('en', {
     active: 'matches', dashboardHref: '/alex', languageHref: '/matches?lang=zh',
   }), [
-    { label: 'Dashboard', href: '/alex', active: false },
+    // Phones show the short form so five items fit on one row.
+    { label: 'Dashboard', shortLabel: 'You', ariaLabel: 'Your dashboard', href: '/alex', active: false },
     { label: 'Channels', href: '/channel/', active: false },
     { label: 'Matches', href: '/matches', active: true },
     { label: 'Settings', href: '/account', active: false },
@@ -49,13 +50,13 @@ test('anonymous pages share navigation and use one registration/sign-in term', a
       ['/?lang=zh', undefined, `/?lang=en`],
       ['/signup?lang=zh', '註冊／登入', '/signup?lang=en'],
       ['/privacy?lang=zh', undefined, '/privacy?lang=en'],
-      [`/${DEFAULT_HANDLE}?range=90d&lang=zh`, '公開會員實例', `/${DEFAULT_HANDLE}?range=90d&lang=en`],
+      [`/${DEFAULT_HANDLE}?range=90d&lang=zh`, '公開成員實例', `/${DEFAULT_HANDLE}?range=90d&lang=en`],
     ] as const;
     for (const [path, active, languageHref] of cases) {
       const response = await app.request(path);
       assert.ok(response.status === 200, `${path} renders successfully`);
       const links = renderedNav(await response.text());
-      assert.deepEqual(links.map((link) => link.label), ['註冊／登入', '公開會員實例', 'EN']);
+      assert.deepEqual(links.map((link) => link.label), ['註冊／登入', '公開成員實例', 'EN']);
       assert.equal(links.find((link) => link.active)?.label, active);
       assert.equal(links.at(-1)?.href, languageHref);
     }
@@ -123,7 +124,7 @@ test('long nav labels get a short phone label while keeping the full accessible 
   assert.match(en, /\.site-nav \.nav-short\{display:none\}/);
   // Chinese already fits at 320px, so it renders one plain label.
   const zh = shell('x', '', primaryNav('zh', { exampleHref: '/demo' }), '', 'zh');
-  assert.match(zh, /<a href="\/demo" aria-label="[^"]+">公開會員實例<\/a>/);
+  assert.match(zh, /<a href="\/demo" aria-label="[^"]+">公開成員實例<\/a>/);
   // Items without an aria-label never swap labels.
   assert.equal(shell('x', '', [{ label: 'Long label', shortLabel: 'Short', href: '/x' }]).includes('nav-short">Short'), false);
   // The language switch is last in the menu's DOM and tab order, and phones

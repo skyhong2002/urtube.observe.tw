@@ -88,7 +88,7 @@ test('channel shelves use correct plurals, a visible scroll hint and large contr
   // Decorative avatar links stay out of the tab order; the name link is the target.
   assert.equal(en('.ch-main > a').first().attr('tabindex'), '-1');
   const zh = load(landingChannelShelf([channel(0, 1)], 'watches', 'zh'));
-  assert.equal(zh('.ch-main small').text(), '1 位會員看過');
+  assert.equal(zh('.ch-main small').text(), '1 位成員看過');
   assert.match(zh('.lp-shelf-hint').text(), /滑動/);
   const empty = load(landingChannelShelf([], 'duration', 'en'));
   assert.equal(empty('.ch-shelf').length, 0, 'empty shelves are not wired to the scroll script');
@@ -132,7 +132,7 @@ test('signup explains import choices and privacy defaults without changing the G
 });
 
 test('the public example nav item is labelled as a real member page, not sample data', () => {
-  for (const [lang, label, aria] of [['zh', '公開會員實例', /真實公開資料/], ['en', 'Public member example', /real public data/]] as const) {
+  for (const [lang, label, aria] of [['zh', '公開成員實例', /真實公開資料/], ['en', 'Public member example', /real public data/]] as const) {
     const $ = load(shell('x', '<p>x</p>', primaryNav(lang, { exampleHref: '/sample-owner' }), '', lang));
     const link = $('.site-nav a[href="/sample-owner"]');
     assert.equal(link.find('.nav-short').length ? link.find('.nav-full').text() : link.text(), label);
@@ -175,7 +175,7 @@ test('channels watched by fewer than five members show rounded figures', () => {
   assert.deepEqual(zh('.ch-nums strong').map((_, element) => zh(element).text()).get(), ['約 40 次', '不到 10 次', '37 次']);
   assert.equal(zh('.ch-nums span').first().text(), '約 12h');
   // Order and member counts are untouched.
-  assert.deepEqual(zh('.ch-main small').map((_, element) => zh(element).text()).get(), ['3 位會員看過', '4 位會員看過', '5 位會員看過']);
+  assert.deepEqual(zh('.ch-main small').map((_, element) => zh(element).text()).get(), ['3 位成員看過', '4 位成員看過', '5 位成員看過']);
   assert.match(load(landingContent('en', '', stats))('.lp-method').text(), /fewer than 5 members show rounded/);
 });
 
@@ -186,7 +186,7 @@ test('community timestamp is labelled as calculation time, not import freshness'
   assert.match(updated.text(), /^Statistics calculated .+\. This is not each member’s last import time\.$/);
   assert.equal(updated.find('time').attr('datetime'), stats.generatedAt);
   const zh = load(landingContent('zh', '', stats, freshNow));
-  assert.match(zh('#community > .lp-updated').text(), /^統計計算於 .+，不代表各會員最後匯入時間。$/);
+  assert.match(zh('#community > .lp-updated').text(), /^統計計算於 .+，不代表各成員最後匯入時間。$/);
   assert.equal(zh('.lp-more-stats .lp-updated').length, 0);
   assert.equal(load(landingContent('zh', '', { ...stats, status: 'unavailable' }))('.lp-updated').length, 0);
 });
@@ -267,7 +267,7 @@ test('community statistics explain their coverage and flag delayed updates', () 
     const fresh = load(landingContent(lang, '', stats, freshNow));
     assert.match(fresh('#community > .lp-coverage').text(), lang === 'en'
       ? /^Rankings and totals cover whatever period each public member has imported\. Members do not always keep importing, so recent viewing may be missing\.$/
-      : /^排行與總數涵蓋公開會員各自已匯入的期間；會員不一定持續匯入，因此可能不含最近的觀看。$/);
+      : /^排行與總數涵蓋公開成員各自已匯入的期間；成員不一定持續匯入，因此可能不含最近的觀看。$/);
     assert.equal(fresh('.lp-stale, .lp-stale-badge').length, 0);
 
     // Exactly one hour old is still fresh; anything older is delayed.
@@ -280,7 +280,7 @@ test('community statistics explain their coverage and flag delayed updates', () 
     // Named for what it measures: the calculation, not source freshness.
     assert.equal(stale.find('.lp-stale-badge').text(), lang === 'en' ? 'Statistics calculation delayed' : '統計計算延遲');
     assert.match(stale.text(), lang === 'en' ? /over an hour/ : /超過 1 小時/);
-    assert.match(stale.text(), lang === 'en' ? /reflects only the recalculation, not when members last imported/ : /只反映統計的重新計算，不反映會員最後匯入的時間/);
+    assert.match(stale.text(), lang === 'en' ? /reflects only the recalculation, not when members last imported/ : /只反映統計的重新計算，不反映成員最後匯入的時間/);
     assert.doesNotMatch(old('#community').text(), /Data update delayed|資料更新延遲/);
     // The delay notice sits next to the calculation time, and the rankings stay.
     assert.equal(stale.prev().is('.lp-updated'), true);
@@ -302,4 +302,36 @@ test('sign-up says which import steps need the tab open and when leaving is fine
   assert.match(zh, /興趣分析會在背景進行，這時可以先離開/);
   assert.match(en, /keep the tab open until the extension(&#39;|')s first scan, or the Takeout upload and import, finishes/);
   assert.match(en, /interest analysis runs in the background, so you can leave/);
+});
+
+test('the synthetic previews share one set of numbers and Chinese copy uses one member term', () => {
+  for (const lang of ['en', 'zh'] as const) {
+    const page = load(landingContent(lang, anonymous('Start →'), stats, freshNow));
+    // Alex's hours per channel in the hero sample...
+    const hero = new Map(page('.lp-hero .lp-sample-channels li').map((_, item) => [[
+      page(item).find('span').text().trim(), page(item).find('b').text().trim(),
+    ]]).get() as [string, string][]);
+    // ...are the hours listed for Alex (first) in the matching preview.
+    const matching = page('.lp-gallery [role=group]').last().find('.lp-mock-list li').map((_, item) => [[
+      page(item).find('span').text().trim(), page(item).find('b').text().split('·')[0]!.trim(),
+    ]]).get() as [string, string][];
+    assert.equal(matching.length, 3);
+    for (const [name, hours] of matching) assert.equal(hours, hero.get(name), `${lang}: ${name} hours match the hero sample`);
+    // The weekly chart has a value scale and states every week's value.
+    assert.deepEqual(page('.lp-sample-scale span').map((_, item) => page(item).text()).get(), ['10h', '5h', '0']);
+    assert.match(page('.lp-sample-bars').attr('aria-label')!, /6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 10, 8|6、4、7、9、5、8、11、7、6、9、10、8/);
+  }
+  const zh = landingContent('zh', anonymous('開始 →'), stats, freshNow);
+  assert.doesNotMatch(zh + primaryNav('zh').map(item => `${item.label}${item.ariaLabel ?? ''}`).join(''), /會員/);
+});
+
+test('an oversized Takeout ZIP gets a next step instead of repeating the export advice', async () => {
+  const { messages } = await import('../src/output/i18n.js');
+  assert.match(messages('en').accountTakeoutTooLarge, /Chrome extension instead/);
+  assert.match(messages('zh').accountTakeoutTooLarge, /改用 Chrome 擴充功能/);
+  for (const message of [messages('en').accountTakeoutTooLarge, messages('zh').accountTakeoutTooLarge]) {
+    assert.doesNotMatch(message, /try again|後再試/);
+  }
+  assert.match(load(signupStartPage('', 'en'))('#import-methods').text(), /still larger with only history selected, use the extension instead/);
+  assert.match(load(signupStartPage('', 'zh'))('#import-methods').text(), /仍超過上限時，改用擴充功能/);
 });

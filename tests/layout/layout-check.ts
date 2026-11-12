@@ -1,13 +1,19 @@
-// Computed-layout checks for the public pages, run in a real browser:
+// Computed-layout checks for the public and signed-in pages, run in a real
+// browser:
 //   npm run test:layout
 // Kept out of `npm test` (no `.test.` in the file name) because it needs a
 // Chromium binary. Set URTUBE_LAYOUT_CHROMIUM to a chrome/headless-shell
 // executable, or install one with `npx playwright-core install chromium`.
 //
+// URTUBE_LAYOUT_SUMMARY=1 prints header and page heights per page and width;
+// URTUBE_LAYOUT_SCREENSHOTS=<dir> also saves full-page screenshots.
+//
 // Pages are rendered from synthetic data only: the landing page from a made-up
-// CommunityStats object, and /signup, /privacy and a 404 through the app with
-// an empty in-memory database. Nothing touches the network; every request is
-// answered from memory and anything else is aborted.
+// CommunityStats object; /signup, /privacy and a 404 through the app with an
+// empty in-memory database; and the signed-in pages (dashboard, /matches,
+// /account and each onboarding step) through the app with made-up members in
+// an in-memory registry and test sessions. Nothing touches the network; every
+// request is answered from memory and anything else is aborted.
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright-core';
@@ -15,17 +21,27 @@ import { createApp } from '../../src/index.js';
 import { messages, type Lang } from '../../src/output/i18n.js';
 import { landingContent } from '../../src/output/landing.js';
 import { primaryNav, shell, type ShellNavItem } from '../../src/output/pages.js';
-import { UserRegistry } from '../../src/users.js';
+import { UserRegistry, type User } from '../../src/users.js';
 import type { CommunityChannel, CommunityStats } from '../../src/youtube/community.js';
+import { MATCHING_TAXONOMY } from '../../src/youtube/matching.js';
+import { REGISTRY_CRYSTAL_VERSION, type RegistryMatchingCrystal } from '../../src/youtube/registry-crystal.js';
 
 const ORIGIN = 'http://layout.test';
-const WIDTHS = [320, 360, 390, 414, 768, 1440] as const;
-const HEIGHTS: Record<number, number> = { 320: 568, 360: 740, 390: 844, 414: 896, 768: 1024, 1440: 900 };
+// 751 and 760 sit between the landing page's sticky breakpoint and the
+// two-row header breakpoint, which once disagreed.
+const WIDTHS = [320, 360, 390, 414, 751, 760, 768, 1440] as const;
+const HEIGHTS: Record<number, number> = { 320: 568, 360: 740, 390: 844, 414: 896, 751: 1024, 760: 1024, 768: 1024, 1440: 900 };
 const LANGS = ['en', 'zh'] as const;
-// Phones get a two-row header at most (brand, then navigation).
+// Phones get a two-row header at most (brand, then navigation), signed in or not.
 const PHONE_HEADER_MAX = 100;
 const MIN_FONT_PX = 12;
-const MIN_TARGET_PX = 24;
+// Controls (header links, buttons, form fields, summaries, block links) need
+// the product's 44px touch target; links inside running text need 24px.
+const MIN_CONTROL_PX = 44;
+const MIN_INLINE_LINK_PX = 24;
+// WCAG AA text contrast: 4.5:1, or 3:1 for large text.
+const MIN_CONTRAST = 4.5;
+const MIN_LARGE_CONTRAST = 3;
 
 const NOW = Date.parse('2026-11-12T12:00:00.000Z');
 const names = ['Open Lab', 'Sound Room with a Rather Long Channel Name', 'Design Notes', 'Small Adventures', '料理研究所 Kitchen Lab', 'Science Hour', 'Night Drive Radio', 'Maps & Places', 'Quiet Piano', 'Retro Games Archive', 'Daily Typography', 'Weekend Hikes'];
@@ -45,7 +61,9 @@ const stats = (generatedAt: string): CommunityStats => ({
 const fresh = stats(new Date(NOW - 5 * 60_000).toISOString());
 const delayed = stats(new Date(NOW - 2 * 3600_000).toISOString());
 
-type PageKind = 'home' | 'home-signed-in' | 'home-delayed' | 'signup' | 'privacy' | '404' | 'regression-long-label';
+const PUBLIC_KINDS = ['home', 'home-signed-in', 'home-delayed', 'signup', 'privacy', '404'] as const;
+const SIGNED_IN_KINDS = ['dashboard', 'matches', 'account', 'onboarding-setup', 'onboarding-processing', 'onboarding-consent'] as const;
+type PageKind = typeof PUBLIC_KINDS[number] | typeof SIGNED_IN_KINDS[number] | 'regression-long-label' | 'regression-small-button';
 interface Rendered { kind: PageKind; lang: Lang; status: number; body: string }
 
 function landing(lang: Lang, signedIn: boolean, data: CommunityStats, nav?: ShellNavItem[]): string {
@@ -58,9 +76,86 @@ function landing(lang: Lang, signedIn: boolean, data: CommunityStats, nav?: Shel
   return shell(lang === 'zh' ? '你的 YouTube 人生，都記得。' : 'Your YouTube life, remembered.', landingContent(lang, action, data, NOW), navItems, '', lang, '/');
 }
 
+// Synthetic members for the signed-in pages. Channel and video names are made
+// up; watch times are spread over the last 90 days before the test runs.
+const syntheticChannels = ['Open Lab', 'Sound Room', 'Design Notes', 'Small Adventures', '料理研究所 Kitchen Lab', 'Science Hour'];
+
+function seedHistory(registry: UserRegistry, user: User, count: number): void {
+  const start = Date.now();
+  registry.repositoryFor(user).ingestYoutubeArchive({
+    archiveHash: `layout-${user.handle}`,
+    source: 'takeout',
+    watches: Array.from({ length: count }, (_, index) => {
+      const channel = index % syntheticChannels.length;
+      const channelId = 'UClayout' + String(channel).padStart(16, '0');
+      const videoId = 'LAYOUT' + String(index).padStart(5, '0');
+      return {
+        eventId: `layout-${user.handle}-${index}`,
+        videoId,
+        title: `Synthetic video ${index + 1} about ${syntheticChannels[channel]}`,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        channelId,
+        channelTitle: syntheticChannels[channel]!,
+        channelUrl: `https://www.youtube.com/channel/${channelId}`,
+        watchedAt: new Date(start - (index * 17 + 3) * 3600_000).toISOString(),
+        actualWatchedSeconds: 300 + (index * 97) % 1500,
+        activityType: 'video' as const,
+      };
+    }),
+    searches: [],
+  });
+}
+
+function eligibleCrystal(shares: [string, number][]): RegistryMatchingCrystal {
+  const name = (key: string) => MATCHING_TAXONOMY.topics.find(topic => topic.key === key)?.name ?? key;
+  return {
+    kind: 'matching',
+    version: REGISTRY_CRYSTAL_VERSION,
+    taxonomyVersion: MATCHING_TAXONOMY.version,
+    generatedAt: new Date().toISOString(),
+    windowDays: 90,
+    data: { watchEvents: 240, uniqueVideos: 90, estimatedWatchSeconds: 120_000, activeDays: 20, topicCoverage: 1 },
+    topics: shares.map(([key, share]) => ({ key, name: name(key), share })),
+    channels: [{ key: 'open-lab', name: 'Open Lab', share: 1 }],
+  };
+}
+
+// Signed-in pages, rendered by the app for made-up members in an in-memory
+// registry. Returns the session cookie each page is requested with.
+function signedInFixture(registry: UserRegistry): Record<typeof SIGNED_IN_KINDS[number], { path: string; cookie: string }> {
+  const session = (user: User) => `urtube_session=${registry.createSession(user)}`;
+  const member = registry.createUser('layout-member', 'Alex Sample Member');
+  seedHistory(registry, member, 120);
+  registry.upsertMatchingCrystal(member, eligibleCrystal([['music', 0.5], ['gaming', 0.3], ['education', 0.2]]));
+  registry.completeOnboarding(member.handle, true, 'topics_and_channel', true);
+  for (const [handle, name, shares] of [['layout-mia', 'Mia Sample', [['music', 0.6], ['education', 0.4]]], ['layout-sam', 'Sam Sample With A Longer Display Name', [['gaming', 0.7], ['music', 0.3]]]] as const) {
+    const friend = registry.createUser(handle, name);
+    seedHistory(registry, friend, 40);
+    registry.upsertMatchingCrystal(friend, eligibleCrystal(shares.map(([key, share]) => [key, share])));
+    registry.completeOnboarding(friend.handle, true, 'topics_and_channel', true);
+  }
+  const fresh = registry.createUser('layout-new', 'New Sample');
+  const processing = registry.createUser('layout-processing', 'Processing Sample');
+  seedHistory(registry, processing, 20);
+  const consent = registry.createUser('layout-consent', 'Consent Sample');
+  seedHistory(registry, consent, 60);
+  registry.upsertMatchingCrystal(consent, eligibleCrystal([['music', 0.65], ['gaming', 0.35]]));
+  const memberCookie = session(registry.userByHandle(member.handle)!);
+  return {
+    dashboard: { path: `/${member.handle}`, cookie: memberCookie },
+    matches: { path: '/matches', cookie: memberCookie },
+    account: { path: '/account', cookie: memberCookie },
+    'onboarding-setup': { path: '/onboarding', cookie: session(fresh) },
+    'onboarding-processing': { path: '/onboarding', cookie: session(processing) },
+    'onboarding-consent': { path: '/onboarding', cookie: session(consent) },
+  };
+}
+
 async function renderAll(): Promise<Map<string, Rendered>> {
   const pages = new Map<string, Rendered>();
-  const app = createApp(new UserRegistry(':memory:'));
+  const registry = new UserRegistry(':memory:');
+  const app = createApp(registry);
+  const signedIn = signedInFixture(registry);
   for (const lang of LANGS) {
     const add = (kind: PageKind, status: number, body: string) => pages.set(`/${kind}/${lang}`, { kind, lang, status, body });
     add('home', 200, landing(lang, false, fresh));
@@ -70,12 +165,21 @@ async function renderAll(): Promise<Map<string, Rendered>> {
       const response = await app.request(`${path}?lang=${lang}`);
       add(kind, response.status, await response.text());
     }
+    for (const kind of SIGNED_IN_KINDS) {
+      const { path, cookie } = signedIn[kind];
+      const response = await app.request(`${path}?lang=${lang}`, { headers: { cookie } });
+      add(kind, response.status, await response.text());
+    }
   }
   // Negative control: the phone header must notice a label that is too long
   // (the regression that once pushed the language switch off screen).
   const long = primaryNav('en', { exampleHref: '/sample-1', languageHref: '/?lang=zh' })
     .map(item => item.shortLabel ? { ...item, shortLabel: undefined } : item);
   pages.set('/regression-long-label/en', { kind: 'regression-long-label', lang: 'en', status: 200, body: landing('en', false, fresh, long) });
+  // Negative control: a 40px-tall button must fail the 44px control check.
+  const small = landing('en', false, fresh).replace('</style>', '.lp-hero .lp-actions>a{min-height:0;padding-block:8px;height:40px}</style>');
+  pages.set('/regression-small-button/en', { kind: 'regression-small-button', lang: 'en', status: 200, body: small });
+  registry.close();
   return pages;
 }
 
@@ -88,7 +192,7 @@ interface Report {
 
 // Runs inside the page. Returns human-readable failures plus a few metrics.
 async function inspect(page: Page, kind: PageKind): Promise<Report> {
-  return page.evaluate(({ kind, minFont, minTarget, phoneHeaderMax }) => {
+  return page.evaluate(({ kind, minFont, minControl, minInline, minContrast, minLargeContrast, phoneHeaderMax }) => {
     const failures: string[] = [];
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -126,10 +230,13 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
       .map(entry => entry.index);
     if (visualOrder.some((value, index) => value !== index)) failures.push(`header tab order differs from visual order: visual ${visualOrder.join(',')}`);
     const headerHeight = header.getBoundingClientRect().height;
-    // Brand row plus one menu row. Signed-in members have five menu items,
-    // which need a second menu row below 390px.
-    const headerMax = kind === 'home-signed-in' && vw < 390 ? phoneHeaderMax + 48 : phoneHeaderMax;
-    if (vw <= 480 && headerHeight > headerMax) failures.push(`phone header is ${Math.round(headerHeight)}px tall (max ${headerMax})`);
+    // Brand row plus one menu row, for anonymous and signed-in menus alike.
+    if (vw <= 480 && headerHeight > phoneHeaderMax) failures.push(`phone header is ${Math.round(headerHeight)}px tall (max ${phoneHeaderMax})`);
+    // A header that wraps onto two rows scrolls away instead of staying fixed
+    // over the content.
+    const headerPosition = getComputedStyle(header).position;
+    const stacked = header.querySelector('.site-nav')!.getBoundingClientRect().top >= rects[0]!.bottom - 1;
+    if (stacked && (headerPosition === 'sticky' || headerPosition === 'fixed')) failures.push(`two-row ${Math.round(headerHeight)}px header stays fixed on screen (${headerPosition})`);
 
     // 2. No horizontal page scroll.
     const scrollWidth = document.documentElement.scrollWidth;
@@ -147,16 +254,76 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
     }
     for (const entry of small) failures.push(`text below ${minFont}px: ${entry}`);
 
-    // 4. Every visible interactive target is at least minTarget × minTarget.
+    // 3b. Text contrast against the composited background (WCAG AA). Text
+    //     over an image or gradient is skipped: its background is not a colour.
+    const parseColor = (value: string): [number, number, number, number] | null => {
+      const match = value.match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      const parts = match[1]!.split(/[\s,/]+/).filter(Boolean).map(Number);
+      return [parts[0]!, parts[1]!, parts[2]!, parts[3] ?? 1];
+    };
+    const over = (top: [number, number, number, number], bottom: [number, number, number]): [number, number, number] =>
+      [0, 1, 2].map(index => top[index]! * top[3] + bottom[index]! * (1 - top[3])) as [number, number, number];
+    const luminance = (rgb: [number, number, number]) => {
+      const [r, g, b] = rgb.map(channel => { const c = channel / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const backgroundOf = (element: Element): [number, number, number] | null => {
+      const layers: [number, number, number, number][] = [];
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (node !== document.body && node !== document.documentElement && style.backgroundImage !== 'none') return null;
+        const color = parseColor(style.backgroundColor);
+        if (color && color[3] > 0) {
+          layers.push(color);
+          if (color[3] >= 1) break;
+        }
+      }
+      let base: [number, number, number] = [255, 255, 255];
+      for (const layer of layers.reverse()) base = over(layer, base);
+      return base;
+    };
+    const lowContrast = new Set<string>();
+    const contrastWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = contrastWalker.nextNode(); node; node = contrastWalker.nextNode()) {
+      if (!node.textContent?.trim()) continue;
+      const parent = node.parentElement;
+      if (!parent || parent.closest('script,style,noscript,[aria-hidden="true"],[aria-disabled="true"],:disabled') || !visible(parent)) continue;
+      const style = getComputedStyle(parent);
+      if (parseFloat(style.opacity) < 1) continue;
+      const background = backgroundOf(parent);
+      const ink = parseColor(style.color);
+      if (!background || !ink) continue;
+      const text = over(ink, background);
+      const [light, dark] = [luminance(text), luminance(background)].sort((a, b) => b - a);
+      const ratio = (light! + 0.05) / (dark! + 0.05);
+      const size = parseFloat(style.fontSize);
+      const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+      const needed = large ? minLargeContrast : minContrast;
+      if (ratio < needed) lowContrast.add(`${ratio.toFixed(2)}:1 ${describe(parent)}`);
+    }
+    for (const entry of lowContrast) failures.push(`text contrast below AA: ${entry}`);
+
+    // 4. Touch targets. Controls need minControl in both directions: header
+    //    links, buttons, form fields, summaries, and links drawn as buttons,
+    //    pills or cards (with a background or border). Other links (in
+    //    running text, lists and word clouds) need minInline.
+    const filled = (style: CSSStyleDeclaration) => (parseColor(style.backgroundColor)?.[3] ?? 0) > 0
+      || style.backgroundImage !== 'none'
+      || ['Top', 'Right', 'Bottom', 'Left'].some(side => parseFloat(style.getPropertyValue(`border-${side.toLowerCase()}-width`)) > 0 && style.getPropertyValue(`border-${side.toLowerCase()}-style`) !== 'none');
     const targets = document.querySelectorAll('a[href],button,summary,input:not([type=hidden]),select,textarea,[tabindex]:not([tabindex="-1"])');
     for (const target of targets) {
       if (!visible(target) || target.classList.contains('skip-link')) continue;
-      const rect = target.getBoundingClientRect();
-      if (rect.height < minTarget - 0.5 || rect.width < minTarget - 0.5) failures.push(`target below ${minTarget}px: ${describe(target)} ${Math.round(rect.width)}×${Math.round(rect.height)}`);
+      // A checkbox or radio is operated through its label.
+      const box = target.matches('input[type=checkbox],input[type=radio]') ? target.closest('label') ?? target : target;
+      const rect = box.getBoundingClientRect();
+      const textLink = target.tagName === 'A' && !target.closest('.site-header') && !filled(getComputedStyle(target));
+      const min = textLink ? minInline : minControl;
+      if (rect.height < min - 0.5 || rect.width < min - 0.5) failures.push(`${textLink ? 'text link' : 'control'} below ${min}px: ${describe(box)} ${Math.round(rect.width)}×${Math.round(rect.height)}`);
     }
 
     // 5. The page's main call to action is on the first screen.
-    const ctaSelector = { home: '.lp-hero .lp-primary', 'home-signed-in': '.lp-hero .lp-primary', 'home-delayed': '.lp-hero .lp-primary', 'regression-long-label': '.lp-hero .lp-primary', signup: 'a.ob-google', '404': 'main a[href="/"]', privacy: 'main h1' }[kind];
+    const ctaSelector = { home: '.lp-hero .lp-primary', 'home-signed-in': '.lp-hero .lp-primary', 'home-delayed': '.lp-hero .lp-primary', 'regression-long-label': '.lp-hero .lp-primary', 'regression-small-button': '.lp-hero .lp-primary', signup: 'a.ob-google', '404': 'main a[href="/"]', privacy: 'main h1', dashboard: 'main h1', matches: 'main h1', account: 'main h1', 'onboarding-setup': 'main h1', 'onboarding-processing': 'main h1', 'onboarding-consent': 'main h1' }[kind];
     const cta = document.querySelector(ctaSelector);
     if (!cta) failures.push(`missing call to action ${ctaSelector}`);
     else {
@@ -183,7 +350,7 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
     if (kind === 'home-delayed' && !document.querySelector('.lp-stale')) failures.push('delayed statistics badge missing');
 
     return { failures, headerHeight: Math.round(headerHeight), docHeight: document.documentElement.scrollHeight, google };
-  }, { kind, minFont: MIN_FONT_PX, minTarget: MIN_TARGET_PX, phoneHeaderMax: PHONE_HEADER_MAX });
+  }, { kind, minFont: MIN_FONT_PX, minControl: MIN_CONTROL_PX, minInline: MIN_INLINE_LINK_PX, minContrast: MIN_CONTRAST, minLargeContrast: MIN_LARGE_CONTRAST, phoneHeaderMax: PHONE_HEADER_MAX });
 }
 
 // In-page anchors must not land underneath the sticky landing header.
@@ -218,7 +385,7 @@ async function tabOrder(page: Page): Promise<string[]> {
   return seen;
 }
 
-describe('public page layout in a real browser', () => {
+describe('page layout in a real browser', () => {
   let browser: Browser;
   let pages: Map<string, Rendered>;
   const summary: string[] = [];
@@ -249,7 +416,7 @@ describe('public page layout in a real browser', () => {
     return page;
   }
 
-  for (const kind of ['home', 'home-signed-in', 'home-delayed', 'signup', 'privacy', '404'] as const) {
+  for (const kind of [...PUBLIC_KINDS, ...SIGNED_IN_KINDS]) {
     for (const lang of LANGS) {
       test(`${kind} (${lang})`, async () => {
         const rendered = pages.get(`/${kind}/${lang}`)!;
@@ -259,6 +426,9 @@ describe('public page layout in a real browser', () => {
           const page = await open(width, `/${kind}/${lang}`);
           try {
             const report = await inspect(page, kind);
+            // URTUBE_LAYOUT_SCREENSHOTS=<dir> saves a full-page capture of each
+            // page and width for visual review (synthetic data only).
+            if (process.env.URTUBE_LAYOUT_SCREENSHOTS) await page.screenshot({ path: `${process.env.URTUBE_LAYOUT_SCREENSHOTS}/${kind}-${lang}-${width}.png`, fullPage: true });
             problems.push(...report.failures.map(failure => `${width}px: ${failure}`));
             if (kind.startsWith('home')) {
               const anchor = await anchorClearsHeader(page);
@@ -284,6 +454,16 @@ describe('public page layout in a real browser', () => {
     try {
       const report = await inspect(page, 'regression-long-label');
       assert.ok(report.failures.some(failure => /header/.test(failure)), `expected a header failure, got ${JSON.stringify(report.failures)}`);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test('negative control: a 40px button is caught', async () => {
+    const page = await open(390, '/regression-small-button/en');
+    try {
+      const report = await inspect(page, 'regression-small-button');
+      assert.ok(report.failures.some(failure => /control below 44px: <a\.lp-primary>.*×40$/.test(failure)), `expected a 44px failure, got ${JSON.stringify(report.failures)}`);
     } finally {
       await page.context().close();
     }

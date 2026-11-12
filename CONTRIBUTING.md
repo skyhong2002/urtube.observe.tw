@@ -18,10 +18,14 @@
    npm run security:audit   # 機密掃描與正式依賴稽核
    ```
 
-   改到頁面版面、CSS 或公開頁文案時，另外執行 `npm run test:layout`：用合成資料在
-   真實瀏覽器量測首頁、`/signup`、`/privacy` 與 404（中英文，320–1440px）。需要
+   改到頁面版面、CSS 或頁面文案時，另外執行 `npm run test:layout`：用合成資料在
+   真實瀏覽器量測首頁、`/signup`、`/privacy`、404，以及已登入的儀表板、`/matches`、
+   `/account` 與引導流程各步驟（中英文，320–1440px，含 751／760px）。檢查頁首、
+   橫向溢出、12px 字級、文字對比、觸控目標（控制項 44px、文字連結 24px）與 Tab 順序。
+   已登入頁面用 in-memory 資料庫裡的合成成員與測試 session，不連任何正式資料。需要
    Chromium，可先 `npx playwright-core install --only-shell chromium`，或用
-   `URTUBE_LAYOUT_CHROMIUM` 指定執行檔路徑。CI 會自動執行。
+   `URTUBE_LAYOUT_CHROMIUM` 指定執行檔路徑；`URTUBE_LAYOUT_SCREENSHOTS=<目錄>`
+   會另存各頁截圖。CI 會自動執行。
 
    改到數值服務（`services/matching-compute/`）時，另外執行
    `python3 -m unittest discover -s services/matching-compute -p 'test_*.py'`。

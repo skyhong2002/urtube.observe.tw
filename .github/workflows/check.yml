@@ -69,7 +69,7 @@ jobs:
       - name: Install layout test browser
         run: npx playwright-core install --with-deps --only-shell chromium
 
-      - name: Test public page layout in a browser
+      - name: Test page layout in a browser
         run: npm run test:layout
 
       - name: Audit secrets and production dependencies

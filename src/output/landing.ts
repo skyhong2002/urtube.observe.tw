@@ -36,7 +36,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     intro: '把 YouTube 觀看紀錄，變成只屬於你的興趣檔案。回顧喜歡的影片、看懂常看的頻道；想分享時，再決定要公開什麼。',
     cta: '開始建立私人回顧 →',
     closed: '目前暫停開放新註冊',
-    closedNote: '既有會員仍可<a href="/signup">登入</a>。',
+    closedNote: '既有成員仍可<a href="/signup">登入</a>。',
     secondary: '看看大家在看什麼 ↓',
     reassure: '免費 · Google 登入 · 新帳號預設私人、不開放探索',
     prepMethods: '兩種方式怎麼選 →',
@@ -48,20 +48,20 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     stepsLabel: '開始只要三步',
     sampleBadge: '範例資料',
     sampleNote: '畫面為合成範例，人名、頻道與數字皆為虛構。',
-    publicLink: '查看公開會員實例 ↗',
-    publicAria: '查看公開會員實例：Sky Hong 的公開儀表板（真實公開資料，不是上方的合成範例）',
-    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板', device: '儀表板', weekly: '每週觀看時數', weeklyStart: '12 週前', weeklyEnd: '本週', weeklyAria: '每週觀看時數長條圖，合成範例：近 12 週介於每週 4 到 11 小時' },
+    publicLink: '查看公開成員實例 ↗',
+    publicAria: '查看公開成員實例：Sky Hong 的公開儀表板（真實公開資料，不是上方的合成範例）',
+    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板', device: '儀表板', weekly: '每週觀看時數', weeklyStart: '12 週前', weeklyEnd: '本週', weeklyAria: (values: number[]) => `每週觀看時數長條圖，合成範例，從 12 週前到本週依序為 ${values.join('、')} 小時，最少 ${Math.min(...values)} 小時、最多 ${Math.max(...values)} 小時` },
     communityKicker: '社群 · 近 90 天',
     communityTitle: '大家最近在看什麼？',
-    scope: '近 90 天 · 僅計入公開儀表板成員 · 至少 3 位會員看過才上榜 · 觀看時間為估計值',
+    scope: '近 90 天已匯入的紀錄 · 僅計入公開儀表板成員 · 至少 3 位成員看過才上榜 · 觀看時間為估計值',
     scopeSummary: '統計範圍與計算方式',
     unavailable: '社群統計暫時無法載入，請稍後重新整理。',
     method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
-    updated: (time: string) => `統計計算於 ${time}，不代表各會員最後匯入時間。`,
-    coverage: '排行與總數涵蓋公開會員各自已匯入的期間；會員不一定持續匯入，因此可能不含最近的觀看。',
+    updated: (time: string) => `統計計算於 ${time}，不代表各成員最後匯入時間。`,
+    coverage: '排行與總數涵蓋公開成員各自已匯入的期間；成員不一定持續匯入，因此可能不含最近的觀看。',
     stale: '統計計算延遲',
-    staleNote: '統計超過 1 小時沒有重新計算，數字可能落後。這只反映統計的重新計算，不反映會員最後匯入的時間。',
-    rounding: '看過的會員少於 5 位時，時數與次數以約略值顯示。',
+    staleNote: '統計超過 1 小時沒有重新計算，數字可能落後。這只反映統計的重新計算，不反映成員最後匯入的時間。',
+    rounding: '看過的成員少於 5 位時，時數與次數以約略值顯示。',
     channelSignIn: '頻道頁需要登入才能查看。',
     channelSignInLink: '登入後查看頻道 →',
     tourKicker: '產品導覽',
@@ -115,10 +115,10 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     sampleNote: 'Synthetic example: names, channels and numbers are made up.',
     publicLink: 'See a real public member dashboard ↗',
     publicAria: 'View a public member’s dashboard: Sky Hong’s public page (real public data, not the synthetic sample above)',
-    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard', device: 'Dashboard', weekly: 'Hours per week', weeklyStart: '12 weeks ago', weeklyEnd: 'This week', weeklyAria: 'Bar chart of hours watched per week, synthetic sample: between 4 and 11 hours a week over the last 12 weeks' },
+    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard', device: 'Dashboard', weekly: 'Hours per week', weeklyStart: '12 weeks ago', weeklyEnd: 'This week', weeklyAria: (values: number[]) => `Bar chart of hours watched per week, synthetic sample, from 12 weeks ago to this week: ${values.join(', ')} hours; lowest ${Math.min(...values)}, highest ${Math.max(...values)}` },
     communityKicker: 'Community · 90 days',
     communityTitle: 'What are people watching?',
-    scope: 'Last 90 days · Public dashboard members only · Listed once 3+ members watched · Viewing time is estimated',
+    scope: 'Imported records from the last 90 days · Public dashboard members only · Listed once 3+ members watched · Viewing time is estimated',
     scopeSummary: 'Scope & methodology',
     unavailable: 'Community statistics are unavailable. Please refresh later.',
     method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
@@ -170,9 +170,15 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   const prep = signedIn ? '' : `<div class="lp-prep"><p>${t.importPrepSummary(`<a class="lp-inline-link" href="https://takeout.google.com/" target="_blank" rel="noopener noreferrer" aria-label="${t.takeoutLinkAria}">${t.takeoutLink}</a>`)}</p><p class="lp-prep-links"><a href="/signup#import-methods">${copy.prepMethods}</a></p></div>`;
   // Synthetic sample, rendered as translated HTML at every width so its text
   // stays readable (no scaled-down screenshot in the hero).
+  // One synthetic data set for every preview: Alex's channel hours in the
+  // hero are the same hours shown for Alex in the matching preview, and the
+  // weekly bars add up to roughly the 92 hours in the hero totals.
   const sampleChannels: Array<[string, string, string, number]> = [['Open Lab', '#3d6f86', '15.4h', 100], ['Sound Room', '#a3424a', '12.8h', 83], ['Design Notes', '#5b5aa0', '9.6h', 62], ['Small Adventures', '#58714a', '7.1h', 46]];
+  const alexHours = new Map(sampleChannels.map(([name, , hours]) => [name, hours]));
+  const sharedChannels = ([['Open Lab', '11.2h'], ['Design Notes', '14.5h'], ['Small Adventures', '6.3h']] as const).map(([name, mia]) => [name, alexHours.get(name)!, mia] as const);
   const weekly = [6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 10, 8];
-  const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.weekly}</p><div class="lp-sample-bars" role="img" aria-label="${copy.sample.weeklyAria}">${weekly.map(value => `<i style="height:${Math.round(value / 11 * 100)}%"></i>`).join('')}</div><p class="lp-sample-axis" aria-hidden="true"><span>${copy.sample.weeklyStart}</span><span>${copy.sample.weeklyEnd}</span></p><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours, share]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}<s style="width:${share}%" aria-hidden="true"></s></span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label lp-sample-topics">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
+  const weeklyMax = 12;
+  const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.weekly}</p><div class="lp-sample-chart"><div class="lp-sample-scale" aria-hidden="true">${[10, 5, 0].map(value => `<span style="bottom:${value / weeklyMax * 100}%">${value}${value ? 'h' : ''}</span>`).join('')}</div><div class="lp-sample-bars" role="img" aria-label="${copy.sample.weeklyAria(weekly)}">${weekly.map(value => `<i style="height:${Math.round(value / weeklyMax * 100)}%"></i>`).join('')}</div></div><p class="lp-sample-axis" aria-hidden="true"><span>${copy.sample.weeklyStart}</span><span>${copy.sample.weeklyEnd}</span></p><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours, share]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}<s style="width:${share}%" aria-hidden="true"></s></span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label lp-sample-topics">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
   const deviceBar = (label: string) => `<div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${label}</span></div>`;
   const tour = [['channel', '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d'], ['matching', '/matches']] as const;
   // Tour previews are translated HTML at every width, so English visitors see
@@ -181,7 +187,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   // be shrunk to a third of their size.)
   const mocks: Record<string, string> = {
     channel: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.channel.label}"><div class="lp-mock-head"><i style="background:#a3424a" aria-hidden="true">S</i><div><strong>Sound Room</strong><span>${copy.mock.channel.subscribers}</span></div></div><dl class="lp-sample-stats">${copy.mock.channel.stats.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl><p class="lp-sample-label">${copy.mock.channel.list}</p><ol class="lp-mock-list">${copy.mock.channel.videos.map(([title, meta]) => `<li><span>${title}</span><b>${meta}</b></li>`).join('')}</ol></div>`,
-    matching: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.matching.label}"><div class="lp-mock-pair"><div><i style="background:#a3424a" aria-hidden="true">A</i><strong>Alex</strong><span>${copy.mock.matching.you}</span></div><p class="lp-mock-score"><b>82%</b><span>${copy.mock.matching.score}</span></p><div><i style="background:#3d6f86" aria-hidden="true">M</i><strong>Mia</strong><span>${copy.mock.matching.them}</span></div></div><table class="lp-mock-compare"><tbody>${copy.mock.matching.stats.map(([label, a, b]) => `<tr><td>${a}</td><th scope="row">${label}</th><td>${b}</td></tr>`).join('')}</tbody></table><p class="lp-sample-label lp-mock-list-head"><span>${copy.mock.matching.list}</span><span>${copy.mock.matching.listHours}</span></p><ol class="lp-mock-list">${[['Open Lab', '15.4h', '26.3h'], ['Design Notes', '15.2h', '26.1h'], ['Small Adventures', '15.2h', '26h']].map(([name, a, b]) => `<li><span>${name}</span><b>${a} · ${b}</b></li>`).join('')}</ol><p class="lp-sample-tags">${copy.mock.matching.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`,
+    matching: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.matching.label}"><div class="lp-mock-pair"><div><i style="background:#a3424a" aria-hidden="true">A</i><strong>Alex</strong><span>${copy.mock.matching.you}</span></div><p class="lp-mock-score"><b>82%</b><span>${copy.mock.matching.score}</span></p><div><i style="background:#3d6f86" aria-hidden="true">M</i><strong>Mia</strong><span>${copy.mock.matching.them}</span></div></div><table class="lp-mock-compare"><tbody>${copy.mock.matching.stats.map(([label, a, b]) => `<tr><td>${a}</td><th scope="row">${label}</th><td>${b}</td></tr>`).join('')}</tbody></table><p class="lp-sample-label lp-mock-list-head"><span>${copy.mock.matching.list}</span><span>${copy.mock.matching.listHours}</span></p><ol class="lp-mock-list">${sharedChannels.map(([name, a, b]) => `<li><span>${name}</span><b>${a} · ${b}</b></li>`).join('')}</ol><p class="lp-sample-tags">${copy.mock.matching.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`,
   };
   const generatedAt = `<time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time>`;
   const channelNote = signedIn ? '' : `<p class="lp-channel-note">${copy.channelSignIn} <a href="/signup">${copy.channelSignInLink}</a></p>`;
@@ -220,8 +226,9 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   .lp p.lp-sample-label{color:var(--muted);font-size:12px;font-weight:700;margin:12px 0 6px}
   .lp-sample-channels{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-sample-channels li{align-items:center;display:flex;font-size:14px;gap:10px}.lp-sample-channels i{border-radius:50%;color:#fff;display:grid;flex:0 0 28px;font-size:13px;font-style:normal;font-weight:700;height:28px;place-items:center}.lp-sample-channels span{flex:1;min-width:0}.lp-sample-channels s{background:var(--raised);border-radius:3px;display:block;height:4px;margin-top:4px;text-decoration:none}.lp-sample-channels b{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
   .lp p.lp-sample-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0}.lp-sample-tags span{background:#2a1919;border:1px solid #6d4141;border-radius:999px;color:#ffaaaa;font-size:13px;padding:3px 10px}
-  .lp-sample-bars{align-items:end;display:grid;gap:5px;grid-template-columns:repeat(12,1fr);height:64px}.lp-sample-bars i{background:linear-gradient(180deg,#e05a5a,#8f2d2d);border-radius:3px 3px 0 0;display:block}
-  .lp p.lp-sample-axis{border-top:1px solid var(--line-strong);color:var(--muted);display:flex;font-size:12px;justify-content:space-between;line-height:1.4;margin:0;padding-top:3px}
+  .lp-sample-chart{display:grid;gap:6px;grid-template-columns:auto 1fr}.lp-sample-scale{color:var(--muted);font-size:12px;line-height:1;min-width:26px;position:relative;text-align:right}.lp-sample-scale span{position:absolute;right:0;transform:translateY(50%)}.lp-sample-scale span:last-child{transform:none}
+  .lp-sample-bars{align-items:end;background:linear-gradient(var(--line-strong),var(--line-strong)) 0 16.67%/100% 1px no-repeat,linear-gradient(var(--line),var(--line)) 0 58.33%/100% 1px no-repeat;display:grid;gap:5px;grid-template-columns:repeat(12,1fr);height:64px}.lp-sample-bars i{background:linear-gradient(180deg,#e05a5a,#8f2d2d);border-radius:3px 3px 0 0;display:block}
+  .lp p.lp-sample-axis{border-top:1px solid var(--line-strong);color:var(--muted);display:flex;font-size:12px;justify-content:space-between;line-height:1.4;margin:0 0 0 32px;padding-top:3px}
   .lp p.lp-mock-list-head{display:flex;gap:10px;justify-content:space-between}.lp-mock-list-head span+span{font-weight:600}
   .lp-mock-head{align-items:center;display:flex;gap:12px}.lp-mock-head i,.lp-mock-pair i{border-radius:50%;color:#fff;display:grid;flex:0 0 44px;font-size:18px;font-style:normal;font-weight:700;height:44px;place-items:center;width:44px}.lp-mock-head strong{display:block;font-size:18px}.lp-mock-head span{color:var(--muted);font-size:13px}
   .lp-mock-list{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-mock-list li{align-items:baseline;border-bottom:1px solid var(--line);display:flex;font-size:14px;gap:10px;justify-content:space-between;padding-bottom:8px}.lp-mock-list b{color:var(--ink-2);flex:0 0 auto;font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
@@ -258,7 +265,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     .lp [id]{scroll-margin-top:16px}
   }
   @media(prefers-reduced-motion:reduce){.lp-actions>a{transition:none}}
-  .site-header{z-index:100;background:rgba(13,13,12,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}@media(min-width:751px){.site-header{position:sticky;top:0}}
+  .site-header{z-index:100;background:rgba(13,13,12,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}@media(min-width:761px){.site-header{position:sticky;top:0}}
   ${landingShelfStyles}
   ${contributorStyles}
   </style><div class="lp">

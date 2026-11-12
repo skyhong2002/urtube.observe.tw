@@ -12,17 +12,17 @@ const crystalStyles = `
   .cx-up{color:var(--accent-text)}.cx-down{color:var(--blue-text)}
   .cx-shift-copy{min-width:0}
   .cx-shift-copy strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .cx-shift-copy span{color:var(--muted);font-size:10px;letter-spacing:.05em;text-transform:uppercase}
+  .cx-shift-copy span{color:var(--muted);font-size:12px;letter-spacing:.05em;text-transform:uppercase}
   .cx-sim{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:22px}
   .cx-sim div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px}
   .cx-sim strong{display:block;font-size:34px;font-weight:750;letter-spacing:-.03em}
-  .cx-sim span{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+  .cx-sim span{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
   .cx-columns{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
   .cx-columns>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px}
   .cx-list{border-top:1px solid var(--line)}
   .cx-row{align-items:center;border-bottom:1px solid var(--line);display:grid;font-size:13px;gap:10px;grid-template-columns:minmax(0,1fr) auto;padding:8px 2px}
-  .cx-row em{color:var(--muted);font-size:11px;font-style:normal;font-variant-numeric:tabular-nums}
-  .cx-tag{border:1px solid var(--line-strong);border-radius:999px;color:var(--muted);font-size:9px;letter-spacing:.06em;padding:1px 7px;text-transform:uppercase}
+  .cx-row em{color:var(--muted);font-size:12px;font-style:normal;font-variant-numeric:tabular-nums}
+  .cx-tag{border:1px solid var(--line-strong);border-radius:999px;color:var(--muted);font-size:12px;letter-spacing:.06em;padding:1px 7px;text-transform:uppercase}
   .cx-intro{margin:14px 0 24px}
   .cx-intro h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.08;margin:7px 0 10px}
   .cx-intro p{color:var(--ink-2);margin:0;max-width:640px}

@@ -18,7 +18,7 @@ export function landingChannelShelf(channels: CommunityChannel[], mode: 'duratio
  const title = zh ? '成員熱門頻道' : 'Popular member channels';
  const subtitle = mode === 'duration' ? (zh ? '依觀看時間' : 'By viewing time') : (zh ? '依觀看次數' : 'By watch count');
  const fmt = new Intl.NumberFormat(zh ? 'zh-TW' : 'en-US');
- const memberLine = (members: number) => zh ? `${fmt.format(members)} 位會員看過` : `Watched by ${fmt.format(members)} ${members === 1 ? 'member' : 'members'}`;
+ const memberLine = (members: number) => zh ? `${fmt.format(members)} 位成員看過` : `Watched by ${fmt.format(members)} ${members === 1 ? 'member' : 'members'}`;
  const rows = channels.map((channel, index) => {
    const href = `/channel/${encodeURIComponent(channel.id)}?range=90d&sort=${mode}&lang=${lang}`;
    const image = channelImageSources(channel.thumbnailUrl ?? '');
