@@ -18,6 +18,20 @@ function heroAction(primaryAction: string, label: string, closed: string): strin
   return primaryAction;
 }
 
+// Keyboard-operable enlarged view of a tour screenshot. <dialog> provides
+// Escape to close and a focus trap; focus returns to the opening button.
+const zoomScript = `<script>(()=>{
+  const dialog=document.querySelector('.lp-zoom');if(!dialog||!dialog.showModal)return;
+  const image=dialog.querySelector('img'),text=dialog.querySelector('.lp-zoom-body p'),title=dialog.querySelector('#lp-zoom-title');
+  let opener=null;
+  for(const button of document.querySelectorAll('[data-zoom-src]'))button.addEventListener('click',()=>{
+    opener=button;image.src=button.dataset.zoomSrc;image.alt=button.dataset.zoomAlt;text.textContent=button.dataset.zoomAlt;title.textContent=button.dataset.zoomTitle;dialog.showModal();
+  });
+  dialog.querySelector('[data-zoom-close]').addEventListener('click',()=>dialog.close());
+  dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});
+  dialog.addEventListener('close',()=>{opener?.focus();});
+})();</script>`;
+
 export function landingContent(lang: Lang, primaryAction: string, stats: CommunityStats): string {
   const zh = lang === 'zh';
   // Screenshots and the small HTML sample use synthetic data; public-member
@@ -42,22 +56,34 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     sampleNote: '畫面為合成範例，人名、頻道與數字皆為虛構。',
     publicLink: '查看公開會員實例 ↗',
     publicAria: '查看公開會員實例：Sky Hong 的公開儀表板（真實公開資料，不是上方的合成範例）',
-    shotAlt: 'urtube 儀表板截圖，使用合成範例資料，顯示觀看時數與常看頻道',
-    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板' },
+    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板', device: '儀表板', weekly: '每週觀看時數', weeklyAria: '每週觀看時數長條圖，合成範例：近 12 週介於每週 4 到 11 小時' },
     communityKicker: '社群 · 近 90 天',
     communityTitle: '大家最近在看什麼？',
     scope: '近 90 天 · 僅計入公開儀表板成員 · 至少 3 位會員看過才上榜 · 觀看時間為估計值',
     scopeSummary: '統計範圍與計算方式',
     unavailable: '社群統計暫時無法載入，請稍後重新整理。',
     method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
-    updated: '統計更新',
+    updated: (time: string) => `統計計算於 ${time}，不代表各會員最後匯入時間。`,
+    rounding: '看過的會員少於 5 位時，時數與次數以約略值顯示。',
+    channelSignIn: '頻道頁需要登入才能查看。',
+    channelSignInLink: '登入後查看頻道 →',
     tourKicker: '產品導覽',
     tourTitle: '登入後，你會看到這些。',
-    tourNote: '截圖皆使用合成範例資料。',
+    tourNote: '截圖與示意皆使用合成範例資料。',
     tour: {
       channel: ['頻道探索', '常看的創作者，以及大家的共同喜好。', '開啟這個頻道的公開頁面 ↗', '開啟頻道公開頁面（真實公開統計，截圖為範例資料）'],
       matching: ['興趣配對', '從共同主題，多認識一點彼此。需登入，且需雙方開啟好友探索。', '登入後探索配對 ↗', '前往興趣配對（需登入）'],
     } as Record<string, [string, string, string, string]>,
+    tourSignIn: ['登入後查看頻道頁 →', '登入後查看頻道頁（頻道頁需要登入）'],
+    tourAlt: {
+      channel: '頻道頁截圖，合成範例資料：Sound Room 的成員合計觀看次數與時數、成員最常看的影片、你的統計與逐月觀看時間',
+      matching: '配對頁截圖，合成範例資料：Alex 與 Mia 的合拍度、兩人觀看統計對照與共同頻道',
+    } as Record<string, string>,
+    zoom: '放大截圖', zoomAria: (title: string) => `放大檢視「${title}」截圖`, zoomClose: '關閉',
+    mock: {
+      channel: { label: '合成範例：頻道頁示意', subscribers: '≈ 25,000 位訂閱者', stats: [['3', '觀看成員'], ['64', '觀看次數'], ['15.4h', '估計時數']], list: '成員最常看的影片', videos: [['一段旋律，三種編曲 Vol. 4', '3.2h · 13 次'], ['一段旋律，三種編曲 Vol. 3', '3.1h · 13 次'], ['一段旋律，三種編曲 Vol. 2', '3.1h · 13 次']] },
+      matching: { label: '合成範例：配對頁示意', you: '你', them: '對方', score: '合拍度', stats: [['觀看次數', '380', '325'], ['估計時數', '92', '78']], list: '共同頻道', tags: ['音樂', '學習'] },
+    },
     useKicker: '可以怎麼用',
     useTitle: '看懂自己，也找到共同點。',
     uses: [
@@ -93,22 +119,34 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     sampleNote: 'Synthetic example: names, channels and numbers are made up.',
     publicLink: 'See a real public member dashboard ↗',
     publicAria: 'View a public member’s dashboard: Sky Hong’s public page (real public data, not the synthetic sample above)',
-    shotAlt: 'urtube dashboard screenshot with synthetic sample data showing viewing hours and favorite channels',
-    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard' },
+    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard', device: 'Dashboard', weekly: 'Hours per week', weeklyAria: 'Bar chart of hours watched per week, synthetic sample: between 4 and 11 hours a week over the last 12 weeks' },
     communityKicker: 'Community · 90 days',
     communityTitle: 'What are people watching?',
     scope: 'Last 90 days · Public dashboard members only · Listed once 3+ members watched · Viewing time is estimated',
     scopeSummary: 'Scope & methodology',
     unavailable: 'Community statistics are unavailable. Please refresh later.',
     method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
-    updated: 'Statistics updated',
+    updated: (time: string) => `Statistics calculated ${time}. This is not each member’s last import time.`,
+    rounding: 'Channels watched by fewer than 5 members show rounded hours and views.',
+    channelSignIn: 'Channel pages require sign-in.',
+    channelSignInLink: 'Sign in to view channels →',
     tourKicker: 'Product tour',
     tourTitle: 'What you get after signing in.',
-    tourNote: 'All screenshots use synthetic sample data.',
+    tourNote: 'Screenshots and previews use synthetic sample data. Screenshots show the Traditional Chinese interface.',
     tour: {
       channel: ['Channel exploration', 'Favorite creators and shared interests.', 'Open the live channel page ↗', 'Open the channel’s public page (real public statistics; the screenshot uses sample data)'],
       matching: ['Interest matching', 'Get to know people through shared topics. Requires sign-in and friend discovery on both sides.', 'Sign in to explore matching ↗', 'Go to interest matching (sign-in required)'],
     } as Record<string, [string, string, string, string]>,
+    tourSignIn: ['Sign in to view channel pages →', 'Sign in to view channel pages (channel pages require sign-in)'],
+    tourAlt: {
+      channel: 'Channel page screenshot with synthetic sample data: Sound Room’s combined member views and hours, members’ most-watched videos, your statistics and monthly viewing time',
+      matching: 'Matching page screenshot with synthetic sample data: Alex and Mia’s match score, their viewing statistics side by side and shared channels',
+    } as Record<string, string>,
+    zoom: 'Enlarge screenshot', zoomAria: (title: string) => `Enlarge the ${title} screenshot`, zoomClose: 'Close',
+    mock: {
+      channel: { label: 'Synthetic sample: channel page preview', subscribers: '≈ 25,000 subscribers', stats: [['3', 'members'], ['64', 'views'], ['15.4h', 'est. hours']], list: 'Members’ most-watched videos', videos: [['One melody, three arrangements Vol. 4', '3.2h · 13 views'], ['One melody, three arrangements Vol. 3', '3.1h · 13 views'], ['One melody, three arrangements Vol. 2', '3.1h · 13 views']] },
+      matching: { label: 'Synthetic sample: matching page preview', you: 'You', them: 'Them', score: 'match', stats: [['Views', '380', '325'], ['Est. hours', '92', '78']], list: 'Shared channels', tags: ['Music', 'Learning'] },
+    },
     useKicker: 'What you can do',
     useTitle: 'Understand yourself. Find common ground.',
     uses: [
@@ -128,10 +166,23 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   };
   const action = heroAction(primaryAction, copy.cta, copy.closed);
   const closedNote = primaryAction ? '' : `<p class="lp-closed-note">${copy.closedNote}</p>`;
-  const sampleChannels: Array<[string, string, string]> = [['Open Lab', '#3d6f86', '15.4h'], ['Sound Room', '#a3424a', '12.8h'], ['Design Notes', '#5b5aa0', '9.6h']];
-  const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}</span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
+  // The route passes a dashboard link only to signed-in viewers.
+  const signedIn = Boolean(primaryAction) && !/href="\/signup"/.test(primaryAction);
+  // Synthetic sample, rendered as translated HTML at every width so its text
+  // stays readable (no scaled-down screenshot in the hero).
+  const sampleChannels: Array<[string, string, string, number]> = [['Open Lab', '#3d6f86', '15.4h', 100], ['Sound Room', '#a3424a', '12.8h', 83], ['Design Notes', '#5b5aa0', '9.6h', 62], ['Small Adventures', '#58714a', '7.1h', 46]];
+  const weekly = [6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 10, 8];
+  const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.weekly}</p><div class="lp-sample-bars" role="img" aria-label="${copy.sample.weeklyAria}">${weekly.map(value => `<i style="height:${Math.round(value / 11 * 100)}%"></i>`).join('')}</div><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours, share]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}<s style="width:${share}%" aria-hidden="true"></s></span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
   const deviceBar = (label: string) => `<div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${label}</span></div>`;
   const tour = [['channel', '/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d', 1422, 1506], ['matching', '/matches', 1480, 1636]] as const;
+  // Phone-width previews of the tour screenshots: the screenshots would be
+  // scaled to about a quarter of their size there.
+  const mocks: Record<string, string> = {
+    channel: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.channel.label}"><div class="lp-mock-head"><i style="background:#a3424a" aria-hidden="true">S</i><div><strong>Sound Room</strong><span>${copy.mock.channel.subscribers}</span></div></div><dl class="lp-sample-stats">${copy.mock.channel.stats.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl><p class="lp-sample-label">${copy.mock.channel.list}</p><ol class="lp-mock-list">${copy.mock.channel.videos.map(([title, meta]) => `<li><span>${title}</span><b>${meta}</b></li>`).join('')}</ol></div>`,
+    matching: `<div class="lp-sample lp-mock" role="group" aria-label="${copy.mock.matching.label}"><div class="lp-mock-pair"><div><i style="background:#a3424a" aria-hidden="true">A</i><strong>Alex</strong><span>${copy.mock.matching.you}</span></div><p class="lp-mock-score"><b>82%</b><span>${copy.mock.matching.score}</span></p><div><i style="background:#3d6f86" aria-hidden="true">M</i><strong>Mia</strong><span>${copy.mock.matching.them}</span></div></div><table class="lp-mock-compare"><tbody>${copy.mock.matching.stats.map(([label, a, b]) => `<tr><td>${a}</td><th scope="row">${label}</th><td>${b}</td></tr>`).join('')}</tbody></table><p class="lp-sample-label">${copy.mock.matching.list}</p><ol class="lp-mock-list">${[['Open Lab', '15.4h', '26.3h'], ['Design Notes', '15.2h', '26.1h'], ['Small Adventures', '15.2h', '26h']].map(([name, a, b]) => `<li><span>${name}</span><b>${a} · ${b}</b></li>`).join('')}</ol><p class="lp-sample-tags">${copy.mock.matching.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`,
+  };
+  const generatedAt = `<time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time>`;
+  const channelNote = signedIn ? '' : `<p class="lp-channel-note">${copy.channelSignIn} <a href="/signup">${copy.channelSignInLink}</a></p>`;
   return `<style>
   .lp{position:relative}
   .lp h1,.lp h2,.lp h3{margin:0}.lp p{color:var(--ink-2);line-height:1.7}
@@ -152,23 +203,33 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   .lp-hero-shot{margin:0;min-width:0}.lp-device{background:#121210;border:1px solid #47403e;border-radius:14px;box-shadow:0 35px 90px -30px #000c;overflow:hidden}
   .lp-device-bar{align-items:center;background:linear-gradient(180deg,#292522,#1b1917);border-bottom:1px solid #39332f;color:#b3aaa2;display:flex;font:12px ui-monospace,monospace;gap:16px;height:38px;padding:0 16px}
   .lp-mac-dots{display:flex;gap:6px}.lp-mac-dots i{background:#ff6058;border-radius:50%;display:block;height:8px;width:8px}.lp-mac-dots i:nth-child(2){background:#ffbd2e}.lp-mac-dots i:nth-child(3){background:#28c840}
-  .lp-screen{aspect-ratio:1.12;display:block;overflow:hidden}.lp-screen img{display:block;height:100%;object-fit:cover;object-position:50% 8%;width:100%}
-  .lp-shot-caption{align-items:center;display:flex;flex-wrap:wrap;font-size:13px;gap:6px 12px;margin-top:12px}.lp-shot-caption>span:not(.lp-badge){color:var(--muted)}.lp-shot-caption a{display:inline-flex;align-items:center;min-height:32px;font-weight:600}
+  .lp-shot-caption{align-items:center;display:flex;flex-wrap:wrap;font-size:13px;gap:6px 12px;margin-top:12px}.lp-shot-caption>span:not(.lp-badge){color:var(--muted)}.lp-shot-caption a{display:inline-flex;align-items:center;min-height:44px;font-weight:600}
   .lp-badge{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.4);border-radius:999px;color:#f5c95e;font-size:12px;font-weight:700;padding:2px 9px;white-space:nowrap}
-  .lp-sample{display:none;background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;padding:16px}
+  .lp-sample{background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;padding:16px}.lp-device .lp-sample{border:0;border-radius:0;padding:20px 22px 22px}
   .lp-sample-head{align-items:baseline;display:flex;justify-content:space-between}.lp-sample-head strong{font-size:17px}.lp-sample-head span{color:var(--muted);font-size:12px}
   .lp-sample-stats{display:grid;gap:8px;grid-template-columns:repeat(3,1fr);margin:12px 0 4px}.lp-sample-stats div{background:var(--raised);border-radius:10px;display:flex;flex-direction:column-reverse;padding:10px}.lp-sample-stats dd{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:0}.lp-sample-stats dt{color:var(--ink-2);font-size:12px}.lp-sample-stats div:first-child dd{color:var(--accent-text)}
   .lp p.lp-sample-label{color:var(--muted);font-size:12px;font-weight:700;margin:12px 0 6px}
-  .lp-sample-channels{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-sample-channels li{align-items:center;display:flex;font-size:14px;gap:10px}.lp-sample-channels i{border-radius:50%;color:#fff;display:grid;flex:0 0 28px;font-size:13px;font-style:normal;font-weight:700;height:28px;place-items:center}.lp-sample-channels span{flex:1}.lp-sample-channels b{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
+  .lp-sample-channels{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-sample-channels li{align-items:center;display:flex;font-size:14px;gap:10px}.lp-sample-channels i{border-radius:50%;color:#fff;display:grid;flex:0 0 28px;font-size:13px;font-style:normal;font-weight:700;height:28px;place-items:center}.lp-sample-channels span{flex:1;min-width:0}.lp-sample-channels s{background:var(--raised);border-radius:3px;display:block;height:4px;margin-top:4px;text-decoration:none}.lp-sample-channels b{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
   .lp p.lp-sample-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0}.lp-sample-tags span{background:#2a1919;border:1px solid #6d4141;border-radius:999px;color:#ffaaaa;font-size:13px;padding:3px 10px}
+  .lp-sample-bars{align-items:end;display:grid;gap:5px;grid-template-columns:repeat(12,1fr);height:64px}.lp-sample-bars i{background:linear-gradient(180deg,#e05a5a,#8f2d2d);border-radius:3px 3px 0 0;display:block}
+  .lp-mock{display:none}.lp-mock-head{align-items:center;display:flex;gap:12px}.lp-mock-head i,.lp-mock-pair i{border-radius:50%;color:#fff;display:grid;flex:0 0 44px;font-size:18px;font-style:normal;font-weight:700;height:44px;place-items:center;width:44px}.lp-mock-head strong{display:block;font-size:18px}.lp-mock-head span{color:var(--muted);font-size:13px}
+  .lp-mock-list{display:grid;gap:8px;list-style:none;margin:0;padding:0}.lp-mock-list li{align-items:baseline;border-bottom:1px solid var(--line);display:flex;font-size:14px;gap:10px;justify-content:space-between;padding-bottom:8px}.lp-mock-list b{color:var(--ink-2);flex:0 0 auto;font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}
+  .lp-mock-pair{align-items:center;display:grid;gap:8px;grid-template-columns:1fr auto 1fr;text-align:center}.lp-mock-pair>div{display:grid;justify-items:center;gap:2px}.lp-mock-pair strong{font-size:16px}.lp-mock-pair span{color:var(--muted);font-size:12px}.lp p.lp-mock-score{background:var(--accent);border-radius:50%;color:#fff;display:grid;height:72px;margin:0;place-content:center;text-align:center;width:72px}.lp-mock-score b{font-size:20px}.lp-mock-score span{font-size:12px}
+  .lp-mock-compare{border-collapse:collapse;font-variant-numeric:tabular-nums;margin:14px 0 2px;width:100%}.lp-mock-compare td,.lp-mock-compare th{border-bottom:1px solid var(--line);padding:8px 0}.lp-mock-compare td{font-size:16px;font-weight:700}.lp-mock-compare td:last-child{text-align:right}.lp-mock-compare th{color:var(--ink-2);font-size:12px;font-weight:600;text-align:center}
+  .lp-mock .lp-sample-tags{margin-top:12px}
+  .lp-zoom-open{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:14px;font-weight:600;margin-left:auto;min-height:44px;padding:8px 16px}.lp-zoom-open:hover{border-color:var(--ink-2)}
+  .lp-zoom{background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;color:var(--ink);max-height:94vh;max-width:min(1480px,96vw);padding:0;width:96vw}.lp-zoom::backdrop{background:rgba(0,0,0,.78)}
+  .lp-zoom-head{align-items:center;border-bottom:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;padding:8px 8px 8px 18px}.lp-zoom-head h3{font-size:16px}.lp-zoom-head button{background:var(--raised);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font:inherit;font-size:14px;min-height:44px;padding:8px 18px}
+  .lp-zoom-body{max-height:calc(94vh - 64px);overflow:auto}.lp-zoom-body img{display:block;height:auto;width:100%}.lp-zoom-body p{font-size:14px;margin:0;padding:12px 18px}
+  .lp-channel-note{font-size:14px;margin:10px 0 0}.lp-channel-note a{align-items:center;display:inline-flex;font-weight:600;min-height:44px}
   .lp-steps{counter-reset:lp-step;display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;margin:44px 0 0;padding:0}
   .lp-steps li{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;gap:14px;padding:18px}.lp-steps li::before{background:var(--raised);border-radius:50%;color:var(--accent-text);content:counter(lp-step);counter-increment:lp-step;display:grid;flex:0 0 32px;font-weight:700;height:32px;place-items:center}
   .lp-steps strong{display:block;font-size:15px}.lp-steps p{font-size:13px;line-height:1.6;margin:4px 0 0}
   .lp-community-scope{font-size:13px;margin:8px 0 0}
-  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp-updated{color:var(--muted);font-size:12px}
+  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp p.lp-updated{color:var(--muted);font-size:13px;margin:6px 0 0}
   .lp-empty{background:var(--surface);border:1px dashed var(--line-strong);border-radius:12px;padding:24px}
-  .lp-gallery-grid{display:grid;gap:28px;grid-template-columns:1fr 1fr;margin-top:28px}.lp-gallery-window{margin:0;min-width:0}.lp-gallery-image{aspect-ratio:1.2;display:block;overflow:hidden}.lp-gallery-image img{display:block;height:100%;object-fit:cover;object-position:50% 8%;width:100%}
-  .lp-gallery-window figcaption{margin-top:14px}.lp-gallery-window figcaption strong{display:block;font-size:17px}.lp-gallery-window figcaption>span{color:var(--ink-2);display:block;font-size:14px;margin-top:4px}.lp-gallery-window figcaption a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:40px}
+  .lp-gallery-grid{display:grid;gap:28px;grid-template-columns:1fr 1fr;margin-top:28px}.lp-gallery-window{margin:0;min-width:0}.lp-gallery-image{aspect-ratio:1.2;display:block;margin:0;overflow:hidden}.lp-gallery-image img{display:block;height:100%;object-fit:cover;object-position:50% 8%;width:100%}
+  .lp-gallery-window figcaption{align-items:flex-start;display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:14px}.lp-gallery-window figcaption>div{flex:1 1 260px}.lp-gallery-window figcaption strong{display:block;font-size:17px}.lp-gallery-window figcaption>span{color:var(--ink-2);display:block;font-size:14px;margin-top:4px}.lp-gallery-window figcaption a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}
   .lp-use-cases{display:grid;gap:16px;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;margin:26px 0 0;padding:0}.lp-use-cases li{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}.lp-use-cases .lp-kicker{color:var(--accent-text)}.lp-use-cases h3{font-size:19px;line-height:1.4;margin-top:8px}.lp-use-cases p{font-size:14px;margin:8px 0 0}
   .lp-start-grid{display:grid;gap:48px;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}.lp-start .lp-actions{margin-top:22px}
   .lp-faq h3{font-size:17px}.lp-faq details{border-bottom:1px solid var(--line)}.lp-faq details:first-of-type{border-top:1px solid var(--line);margin-top:10px}.lp-faq summary{align-items:center;cursor:pointer;display:flex;font-size:15px;font-weight:600;gap:12px;justify-content:space-between;min-height:52px;padding:8px 0}.lp-faq summary::after{color:var(--muted);content:"+";font-size:20px;font-weight:400}.lp-faq details[open] summary::after{content:"−"}.lp-faq details p{font-size:14px;margin:0 0 14px}.lp-faq .lp-privacy-link{display:inline-flex;align-items:center;font-size:14px;margin-top:10px;min-height:44px}
@@ -176,10 +237,10 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   @media(max-width:900px){.lp-hero-grid{gap:36px;grid-template-columns:1fr}.lp-hero-shot{max-width:680px}.lp-start-grid{gap:28px;grid-template-columns:1fr}}
   @media(max-width:750px){
     .lp-hero{padding-top:6px}.lp h1{font-size:clamp(30px,8.4vw,44px);margin-top:12px}.lp-intro{font-size:15px;margin-top:12px}.lp-actions{margin-top:20px}.lp-actions>a,.lp-actions>span{flex:1 1 auto}
-    .lp-hero-shot .lp-device{display:none}.lp-sample{display:block}
+    .lp-device .lp-sample{padding:16px}
     .lp-steps{gap:10px;grid-template-columns:1fr;margin-top:28px}.lp-steps li{padding:14px}
     .lp-section{margin-top:48px;padding-top:40px}
-    .lp-gallery-grid,.lp-use-cases{grid-template-columns:1fr}.lp-gallery-image{aspect-ratio:1.3}
+    .lp-gallery-grid,.lp-use-cases{grid-template-columns:1fr}.lp-gallery-image,.lp-zoom-open{display:none}.lp-mock{display:block}
   }
   @media(prefers-reduced-motion:reduce){.lp-actions>a{transition:none}}
   .site-header{position:sticky;top:0;z-index:100;background:rgba(13,13,12,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
@@ -187,18 +248,22 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   ${contributorStyles}
   </style><div class="lp">
   <section class="lp-hero" id="welcome" aria-labelledby="lp-title"><div class="lp-hero-grid"><div class="lp-title-block"><div class="lp-kicker">${copy.eyebrow}</div><h1 id="lp-title">${copy.title}</h1><p class="lp-intro">${copy.intro}</p><div class="lp-actions">${action}<a class="lp-secondary" href="#community">${copy.secondary}</a></div>${closedNote}<p class="lp-reassure">${copy.reassure}</p></div>
-  <figure class="lp-hero-shot"><div class="lp-device">${deviceBar('Dashboard / urtube')}<div class="lp-screen"><img src="/landing-assets/dashboard.png" width="1500" height="1520" loading="lazy" decoding="async" alt="${copy.shotAlt}"></div></div>${sample}<figcaption class="lp-shot-caption"><span class="lp-badge">${copy.sampleBadge}</span><span>${copy.sampleNote}</span><a href="${PUBLIC_EXAMPLE_HREF}" aria-label="${copy.publicAria}">${copy.publicLink}</a></figcaption></figure></div>
+  <figure class="lp-hero-shot"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${copy.sample.device} / urtube`)}${sample}</div><figcaption class="lp-shot-caption"><span class="lp-badge">${copy.sampleBadge}</span><span>${copy.sampleNote}</span><a href="${PUBLIC_EXAMPLE_HREF}" aria-label="${copy.publicAria}">${copy.publicLink}</a></figcaption></figure></div>
   <ol class="lp-steps" aria-label="${copy.stepsLabel}">${copy.steps.map(([title, text]) => `<li><div><strong>${title}</strong><p>${text}</p></div></li>`).join('')}</ol></section>
   <section id="community" class="lp-section lp-community" aria-labelledby="lp-community-title"><div class="lp-kicker">${copy.communityKicker}</div><h2 id="lp-community-title">${copy.communityTitle}</h2><p class="lp-community-scope">${copy.scope}</p>
-  ${stats.status === 'ready' ? `${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method}</p><p class="lp-updated">${copy.updated} <time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time></p></details>` : `<p class="lp-empty" role="status">${copy.unavailable}</p>`}</section>
+  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p></details>` : `<p class="lp-empty" role="status">${copy.unavailable}</p>`}</section>
   <section class="lp-section lp-gallery" id="product-screens" aria-labelledby="lp-tour-title"><div class="lp-kicker">${copy.tourKicker}</div><h2 id="lp-tour-title">${copy.tourTitle}</h2><p class="lp-section-note"><span class="lp-badge">${copy.sampleBadge}</span> ${copy.tourNote}</p>
-  <div class="lp-gallery-grid">${tour.map(([file, href, width, height]) => {
-    const [title, description, linkText, aria] = copy.tour[file];
-    return `<figure class="lp-gallery-window"><div class="lp-device">${deviceBar(`${title} / urtube`)}<a class="lp-gallery-image" href="${href}" tabindex="-1" aria-hidden="true"><img src="/landing-assets/${file}.png" width="${width}" height="${height}" loading="lazy" decoding="async" alt=""></a></div><figcaption><strong>${title}</strong><span>${description}</span><a href="${href}" aria-label="${aria}">${linkText}</a></figcaption></figure>`;
-  }).join('')}</div></section>
+  <div class="lp-gallery-grid">${tour.map(([file, realHref, width, height]) => {
+    const [title, description, realText, realAria] = copy.tour[file];
+    // Channel pages require sign-in; anonymous visitors are sent to sign-up
+    // with a label that says so instead of a link that bounces to Google.
+    const [href, linkText, aria] = file === 'channel' && !signedIn ? ['/signup', ...copy.tourSignIn] : [realHref, realText, realAria];
+    const src = `/landing-assets/${file}.png`;
+    return `<figure class="lp-gallery-window"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${title} / urtube`)}<div class="lp-gallery-image"><img src="${src}" width="${width}" height="${height}" loading="lazy" decoding="async" alt="${copy.tourAlt[file]}"></div>${mocks[file]}</div><figcaption><div><strong>${title}</strong><span>${description}</span><a href="${href}" aria-label="${aria}">${linkText}</a></div><button type="button" class="lp-zoom-open" data-zoom-src="${src}" data-zoom-title="${title}" data-zoom-alt="${copy.tourAlt[file]}" aria-haspopup="dialog" aria-label="${copy.zoomAria(title)}">${copy.zoom}</button></figcaption></figure>`;
+  }).join('')}</div><dialog class="lp-zoom" aria-labelledby="lp-zoom-title"><div class="lp-zoom-head"><h3 id="lp-zoom-title"></h3><button type="button" data-zoom-close>${copy.zoomClose}</button></div><div class="lp-zoom-body" tabindex="0"><img alt=""><p></p></div></dialog></section>
   <section class="lp-section lp-story" id="your-story" aria-labelledby="lp-use-title"><div class="lp-kicker">${copy.useKicker}</div><h2 id="lp-use-title">${copy.useTitle}</h2><ul class="lp-use-cases">${copy.uses.map(([kicker, title, text], index) => `<li><span class="lp-kicker">0${index + 1} / ${kicker}</span><h3>${title}</h3><p>${text}</p></li>`).join('')}</ul></section>
   <section class="lp-section lp-start" id="features" aria-labelledby="lp-start-title"><div class="lp-start-grid"><div><div class="lp-kicker">${copy.startKicker}</div><h2 id="lp-start-title">${copy.startTitle}</h2><div class="lp-actions">${action}</div>${closedNote}<p class="lp-reassure">${copy.reassure}</p></div>
   <div class="lp-faq"><h3>${copy.faqTitle}</h3>${copy.faq.map(([question, answer]) => `<details><summary>${question}</summary><p>${answer}</p></details>`).join('')}<a class="lp-privacy-link" href="/privacy">${copy.privacy}</a></div></div></section>
   ${contributorSection(stats.profiles ?? [], lang)}
-  <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div></div>${landingShelfScript}${contributorScript}`;
+  <div class="lp-links"><a href="https://github.com/skyhong2002/urtube.observe.tw" target="_blank" rel="noopener noreferrer">${copy.github}</a><a href="/privacy">${copy.privacy}</a></div></div>${landingShelfScript}${contributorScript}${zoomScript}`;
 }

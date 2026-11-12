@@ -94,8 +94,10 @@ test('landing and allowlisted screenshots are served through the production app'
     assert.ok(page.includes('你的 YouTube 人生'));
     assert.ok(page.includes('position:sticky;top:0'));
     assert.ok(!page.includes('/match-preview/landing/'));
+    // The hero sample is translated HTML; only the tour uses screenshots.
+    assert.ok(!page.includes('/landing-assets/dashboard.png'));
     for (const name of ['dashboard.png', 'channel.png', 'matching.png']) {
-      assert.ok(page.includes(`/landing-assets/${name}`));
+      if (name !== 'dashboard.png') assert.ok(page.includes(`/landing-assets/${name}`));
       const image = await app.request(`/landing-assets/${name}`);
       assert.equal(image.status, 200);
       assert.equal(image.headers.get('content-type'), 'image/png');
@@ -123,13 +125,19 @@ test('public profile projection reflects renames and revokes private identities'
 });
 
 
-test('product screenshots navigate to actual pages instead of image files', () => {
+test('product tour links point at pages the viewer can open, never at image files', () => {
  const data = { status: 'ready' as const, generatedAt: new Date().toISOString(), publicMembers: 0, activeMembers: 0, watches: 0, channels: 0, topChannels: [] };
- const page = landingContent('zh', '', data);
- assert.ok(page.includes('href="/skyhong.tw"'));
- assert.ok(page.includes('href="/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d"'));
- assert.ok(page.includes('href="/matches"'));
- assert.ok(!page.includes('href="/landing-assets/'));
+ const anonymous = landingContent('zh', '<a class="lp-primary" href="/signup">x</a>', data);
+ assert.ok(anonymous.includes('href="/skyhong.tw"'));
+ // Channel pages require sign-in, so anonymous visitors get a labelled sign-up link.
+ assert.ok(!anonymous.includes('href="/channel/'));
+ assert.match(anonymous, /<a href="\/signup" aria-label="[^"]*需要登入[^"]*">登入後查看頻道頁 →<\/a>/);
+ assert.ok(anonymous.includes('href="/matches"'));
+ assert.ok(!anonymous.includes('href="/landing-assets/'));
+ const closed = landingContent('en', '', data);
+ assert.ok(!closed.includes('href="/channel/'), 'signups closed is still anonymous');
+ const signedIn = landingContent('zh', '<a class="lp-primary" href="/alex">x</a>', data);
+ assert.ok(signedIn.includes('href="/channel/UCRIgIJQWuBJ0Cv_VlU3USNA?range=90d"'));
 });
 
 test('a slow refresh never holds the landing request and still enforces current visibility', async () => {

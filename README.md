@@ -31,13 +31,13 @@ Overview呈現常看的主題、頻道與興趣變化，搭配可播放的排行
 
 ### 最短使用流程
 
-1. 開啟正式站，選擇 **Sign up / sign in** 並使用自己的 Google 帳號；若服務暫停註冊，先從導覽列查看 **Example dashboard**。
+1. 開啟正式站，選擇 **Sign up / sign in** 並使用自己的 Google 帳號；若服務暫停註冊，先從導覽列查看 **Public member example**（公開會員實例）。
 2. 依引導設定使用者名稱；安裝擴充功能同步，或在 **Account** 的 Takeout 匯入區上傳 ZIP。
 3. 查看處理進度，再到私人儀表板確認洞察；公開影片資訊或模型尚未處理完時，結果可能不完整。
 4. 依首次使用引導確認配對設定，進入 **Matches**。私人帳號先選擇「加好友」，對方接受後可看總覽、洞察與 Blend；公開帳號可直接進行 Blend。
 5. 在 **Account** 管理資料與配對。新註冊帳號的儀表板預設私人，好友探索（配對）預設關閉；首次使用引導會先預覽開啟後他人可見的內容，儲存前不會公開任何資料。兩項設定彼此獨立，可隨時調整。
 
-請使用自己的 Google 帳號登入。Example dashboard 顯示的是實例擁有者允許公開的頁面；本機合成示範則使用虛構資料，見下方安裝指南。
+請使用自己的 Google 帳號登入。導覽列的 Public member example（公開會員實例）是實例擁有者允許公開的真實頁面；本機合成示範則使用虛構資料，見下方安裝指南。
 
 ## 系統架構
 
@@ -233,7 +233,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 
 - **正式作品：[https://urtube.observe.tw](https://urtube.observe.tw)**。
 - **評選影片：[觀看 Demo](https://youtu.be/DwJpR0RI4Vg)**。
-- 不登入可由首頁導覽開啟 Example dashboard；可重設的合成示範（含 v3 主題配對）使用 `npm run demo:matching`。
+- 不登入可由首頁導覽開啟 Public member example（公開會員實例，真實公開資料）；可重設的合成示範（含 v3 主題配對）使用 `npm run demo:matching`。
 - 展示操作與證據整理見 [Demo runbook](docs/demo-runbook.md)。
 
 ## 限制與未來工作

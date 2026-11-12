@@ -12,7 +12,11 @@ export function pickLang(
   return /(^|[,;\s])zh\b/i.test(acceptLanguage ?? '') ? 'zh' : 'en';
 }
 
-const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// One revision date for both privacy policy languages; update it with the
+// revision summaries in privacyIntro whenever a policy section changes.
+export const PRIVACY_UPDATED = '2026-11-12';
+
+const MONTHS_EN =['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // The published Chrome Web Store listing for the capture extension.
 export const WEB_STORE_URL = 'https://chromewebstore.google.com/detail/abjgkcmhdaboniinbadnapieidenacnc';
@@ -39,7 +43,10 @@ const en = {
   navRecap: 'Recap',
   navOnboarding: 'Setup',
   navSignup: 'Sign up / sign in',
-  navExample: 'Example dashboard',
+  // The anonymous nav links to a real member's public dashboard, not the
+  // synthetic sample on the home page, so the label says so.
+  navExample: 'Public member example',
+  navExampleAria: 'Public member example: a real member’s public dashboard (real public data, not synthetic sample data)',
   navBack: 'Back to dashboard',
 
   landingTitle: 'Your YouTube life,<br><em>remembered.</em>',
@@ -511,7 +518,7 @@ const en = {
   accountReferenceSave: "Save statistics preference",
   privacyLink: 'Privacy',
   privacyTitle: 'Privacy policy',
-  privacyIntro: "urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: 2026-09-28.",
+  privacyIntro: `urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: ${PRIVACY_UPDATED}. This revision adds the home page channel rankings and data retention and deletion sections, and explains which setting removes you from which ranking.`,
   // Plain language still needs complete collection, third-party processing and sharing disclosures.
   privacySections: [
   [
@@ -528,7 +535,7 @@ const en = {
   ],
   [
     "Friend discovery and public profiles",
-    "New accounts start with friend discovery and public profiles off. You can choose to enable either during setup or in Settings. Existing accounts keep their saved choices. Friend discovery lets members find you and send requests, and includes your viewing in channel rankings and combined statistics. Turning it off removes requests and friendships, and your ranking contributions on the next load. A public profile stays public until you change its sharing setting."
+    "New accounts start with friend discovery and public profiles off. You can choose to enable either during setup or in Settings. Existing accounts keep their saved choices. Friend discovery lets members find you and send requests, and includes your viewing in channel rankings and combined statistics. Turning it off removes requests and friendships, and removes your contributions to channel page and discovery rankings on the next load. It does not affect the home page channel rankings, which count public dashboards: to leave those, make your dashboard private. A public profile stays public until you change its sharing setting."
   ],
   [
     "Anonymous community statistics",
@@ -549,6 +556,10 @@ const en = {
   [
     "Export and deletion requests",
     "You can <a href=\"/account#account-export\">export your data</a> as a ZIP and <a href=\"/account#account-delete\">delete your account and data</a> yourself from the account page. If you cannot sign in, email <a href=\"mailto:me@skyhong.tw\">me@skyhong.tw</a> from your registered email address and our team will help."
+  ],
+  [
+    "Data retention and deletion",
+    "urtube does not set an expiry date on your imported records; they stay in your account until you delete it. Deleting your account immediately removes your account and sign-in sessions, your previous handles, your separate viewing-history database, and your discovery settings, friend requests, friendships and matching results. The service makes periodic full backups of its databases. Deleting your account does not remove copies already in those backups; they are deleted automatically once they pass the backup retention period, currently 3 days. Public YouTube video and channel information is kept in a shared cache that does not record which account requested it."
   ],
   [
     "Contact",
@@ -641,7 +652,8 @@ const zh: typeof en = {
   navRecap: '回顧',
   navOnboarding: '設定流程',
   navSignup: '註冊／登入',
-  navExample: '範例儀表板',
+  navExample: '公開會員實例',
+  navExampleAria: '公開會員實例：一位真實會員的公開儀表板（真實公開資料，不是合成範例）',
   navBack: '回到儀表板',
 
   landingTitle: '你的 YouTube 人生，<br><em>都記得。</em>',
@@ -1108,7 +1120,7 @@ const zh: typeof en = {
   accountReferenceSave: "儲存統計偏好",
   privacyLink: '隱私權',
   privacyTitle: '隱私權政策',
-  privacyIntro: "urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：2026-09-28。",
+  privacyIntro: `urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：${PRIVACY_UPDATED}。本次修訂新增「首頁頻道排行」與「資料保留與刪除」段落，並說明哪個設定會讓你退出哪一種排行。`,
   privacySections: [
   [
     "收集什麼",
@@ -1124,7 +1136,7 @@ const zh: typeof en = {
   ],
   [
     "好友探索與公開頁面",
-    "新帳號預設關閉好友探索與公開頁面。你可在引導設定或設定頁自行開啟；既有帳號保留已儲存的選擇。好友探索讓成員找到你並送出邀請，也會在頻道頁呈現你的觀看排行及合計統計。關閉好友探索會撤銷邀請與好友關係，並在下次載入移除排行貢獻。已公開的頁面仍會保持公開，可另行調整公開設定。"
+    "新帳號預設關閉好友探索與公開頁面。你可在引導設定或設定頁自行開啟；既有帳號保留已儲存的選擇。好友探索讓成員找到你並送出邀請，也會在頻道頁呈現你的觀看排行及合計統計。關閉好友探索會撤銷邀請與好友關係，並在下次載入移除你對頻道頁與探索相關排行的貢獻。它不影響依公開儀表板計入的首頁頻道排行；要退出首頁頻道排行，請把儀表板設為不公開。已公開的頁面仍會保持公開，可另行調整公開設定。"
   ],
   [
     "匿名社群統計",
@@ -1145,6 +1157,10 @@ const zh: typeof en = {
   [
     "資料匯出與刪除申請",
     "你可以從<a href=\"/account#account-export\">設定頁匯出資料</a>為 ZIP，也可以在<a href=\"/account#account-delete\">設定頁自行刪除帳號與資料</a>。若無法登入，請使用註冊時的電子郵件寄信至 <a href=\"mailto:me@skyhong.tw\">me@skyhong.tw</a>，由團隊協助處理。"
+  ],
+  [
+    "資料保留與刪除",
+    "urtube 不會替你匯入的紀錄設定到期日；紀錄會保留在帳號中，直到你刪除帳號。刪除帳號會立即移除帳號與登入工作階段、你用過的舊帳號名稱、你獨立的觀看紀錄資料庫，以及好友探索設定、好友邀請、好友關係與配對結果。服務會定期完整備份資料庫；刪除帳號不會移除已存在備份中的副本，這些備份會在超過備份保留期限（目前為 3 天）後自動刪除。公開的 YouTube 影片與頻道資訊存放在共用快取中，快取不會記錄是哪個帳號查詢的。"
   ],
   [
     "聯絡方式",

@@ -87,12 +87,12 @@ const styles = `
   .site-brand small{color:var(--muted);display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
   .site-nav{display:flex;gap:4px;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none}
   .site-nav::-webkit-scrollbar{display:none}
-  .site-nav a{border-radius:999px;color:var(--ink-2);flex:0 0 auto;font-size:13px;font-weight:600;padding:7px 13px;text-decoration:none;white-space:nowrap}
+  .site-nav a{align-items:center;border-radius:999px;color:var(--ink-2);display:inline-flex;flex:0 0 auto;font-size:13px;font-weight:600;min-height:44px;padding:7px 14px;text-decoration:none;white-space:nowrap}
   .site-nav a:hover{background:var(--raised);color:var(--ink)}
   .site-nav a[aria-current=page]{background:var(--ink);color:#111}
   .site-main{margin:0 auto;max-width:1180px;padding:26px 22px 90px}
   .site-footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;margin:0 auto;max-width:1180px;padding:24px 22px 54px}
-  .site-footer a{display:inline-block;padding:4px 0}
+  .site-footer a{align-items:center;display:inline-flex;min-height:44px;min-width:44px;padding:0 4px;vertical-align:middle}
 
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
   .section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-top:18px;padding:22px 24px}
@@ -163,6 +163,8 @@ export interface ShellNavItem {
   label: string;
   href: string;
   active?: boolean;
+  // Accessible name when the visible label needs more context.
+  ariaLabel?: string;
 }
 
 export type PrimaryNavActive = 'signup' | 'example' | 'dashboard' | 'channels' | 'matches' | 'account';
@@ -195,7 +197,7 @@ export function primaryNav(lang: Lang, options: PrimaryNavOptions = {}): ShellNa
   }
   return [
     { label: t.navSignup, href: '/signup', active: options.active === 'signup' },
-    { label: t.navExample, href: options.exampleHref ?? '/', active: options.active === 'example' },
+    { label: t.navExample, href: options.exampleHref ?? '/', active: options.active === 'example', ariaLabel: t.navExampleAria },
     language,
   ];
 }
@@ -207,7 +209,7 @@ export function shell(rawTitle: string, body: string, nav: ShellNavItem[] = [], 
   const processingAccount = nav.some(item => item.href === '/account')
     ? nav.find(item => item.label === t.navDashboard)?.href.split('?')[0] ?? '' : '';
   const links = nav.map((item) =>
-    `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}>${html(item.label)}</a>`
+    `<a href="${html(item.href)}"${item.active ? ' aria-current="page"' : ''}${item.ariaLabel ? ` aria-label="${html(item.ariaLabel)}"` : ''}>${html(item.label)}</a>`
   ).join('');
   // Query-free canonical (?range/?sort/?lang/?key variants all collapse onto
   // the bare path). Error pages pass nothing and get no canonical.
