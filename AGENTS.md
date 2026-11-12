@@ -68,6 +68,22 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 
 # Main branch workflow
 
+- On 2026-11-13 the user approved four backend changes. (1) A landing-page
+  freshness band: the share of public dashboard members whose archive got
+  new watch records (MAX youtube_watch_events.imported_at) in the last 7 UTC
+  days, shown only as none/few/about-quarter/about-half/most (<1/4, 1/4-<1/2,
+  1/2-<3/4, >=3/4) and hidden below MIN_FRESHNESS_MEMBERS = 3 public members
+  (src/youtube/community.ts). No count, member or import time leaves the
+  provider or is logged; membership is rechecked per request via the
+  existing cache key. (2) Takeout ZIPs up to 2 GB (TAKEOUT_MAX_ARCHIVE_MB),
+  streamed to a temporary file deleted after the import, sent in chunks above
+  90 MB (Cloudflare's 100 MB body limit); only history entries are inflated
+  (250 MB bound) and one upload/import runs per process. (3) /healthz
+  `version` from the URTUBE_REVISION build arg (CI passes github.sha), other
+  fields and status codes unchanged. (4) /landing-assets/*.png removed.
+  Consent, caches, matching, provider budgets and MIN_RANKED_MEMBERS are
+  unchanged; this does not authorize further backend changes.
+
 - On 2026-11-12 the user approved a minimum of three distinct public members
   for a channel to appear in the landing page's community channel rankings
   (MIN_RANKED_MEMBERS in src/youtube/community.ts). Totals keep counting

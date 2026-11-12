@@ -1,11 +1,19 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import * as cheerio from 'cheerio';
 import { unzipSync, type UnzipFileInfo } from 'fflate';
 import { encryptPrivateValue } from './crypto.js';
+import { extractZipEntries } from './zip-file.js';
 import type { YoutubeParsedArchive, YoutubeSearchInput, YoutubeWatchInput } from './types.js';
 
-export const MAX_YOUTUBE_ARCHIVE_BYTES = 100 * 1024 * 1024;
-const MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
+// Defaults; the site and ingest take theirs from config.takeout. The ZIP is
+// read from disk (parseYoutubeArchiveFile), so its size costs disk, not
+// memory. Only the history entries are inflated, into memory, so they keep
+// the original 250 MiB bound.
+export const MAX_YOUTUBE_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_YOUTUBE_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
+const MAX_UNCOMPRESSED_BYTES = MAX_YOUTUBE_UNCOMPRESSED_BYTES;
 // Takeout localizes folder names (e.g. "觀看記錄" instead of "history") but keeps
 // the file names in English, so match on the file name alone.
 const WATCH_JSON_SUFFIX = '/watch-history.json';
@@ -329,13 +337,13 @@ export function parseYoutubeArchive(
   if (secret.length < 32) throw new Error('YOUTUBE_PRIVATE_DATA_KEY must contain at least 32 characters');
   const maxArchiveBytes = limits.maxArchiveBytes ?? MAX_YOUTUBE_ARCHIVE_BYTES;
   const maxUncompressedBytes = limits.maxUncompressedBytes ?? MAX_UNCOMPRESSED_BYTES;
-  if (archive.byteLength > maxArchiveBytes) throw new Error('YouTube archive exceeds compressed size limit');
+  if (archive.byteLength > maxArchiveBytes) throw new Error(COMPRESSED_LIMIT);
   let declaredBytes = 0;
   const files = unzipSync(archive, {
     filter(file: UnzipFileInfo) {
       if (!safeArchiveEntry(file.name)) return false;
       declaredBytes += file.originalSize;
-      if (declaredBytes > maxUncompressedBytes) throw new Error('YouTube archive exceeds uncompressed size limit');
+      if (declaredBytes > maxUncompressedBytes) throw new Error(UNCOMPRESSED_LIMIT);
       return true;
     },
   });
@@ -343,7 +351,49 @@ export function parseYoutubeArchive(
   // inflated as well, so a forged header cannot exceed the limit.
   let inflatedBytes = 0;
   for (const bytes of Object.values(files)) inflatedBytes += bytes.byteLength;
-  if (inflatedBytes > maxUncompressedBytes) throw new Error('YouTube archive exceeds uncompressed size limit');
+  if (inflatedBytes > maxUncompressedBytes) throw new Error(UNCOMPRESSED_LIMIT);
+  return parseArchiveEntries(files, secret, source, createHash('sha256').update(archive).digest('hex'));
+}
+
+const COMPRESSED_LIMIT = 'YouTube archive exceeds compressed size limit';
+const UNCOMPRESSED_LIMIT = 'YouTube archive exceeds uncompressed size limit';
+
+// The same as parseYoutubeArchive for a ZIP on disk, which is never loaded
+// whole: only its directory and the selected history entries are read
+// (src/youtube/zip-file.ts). archiveHash, when the caller already hashed the
+// file while receiving it, saves reading it once more; it must be the
+// SHA-256 of the whole file, the same identity parseYoutubeArchive records.
+export async function parseYoutubeArchiveFile(
+  path: string,
+  secret: string,
+  source: YoutubeParsedArchive['source'] = 'takeout',
+  limits: YoutubeArchiveLimits & { archiveHash?: string } = {},
+): Promise<YoutubeParsedArchive> {
+  if (secret.length < 32) throw new Error('YOUTUBE_PRIVATE_DATA_KEY must contain at least 32 characters');
+  const maxArchiveBytes = limits.maxArchiveBytes ?? MAX_YOUTUBE_ARCHIVE_BYTES;
+  const maxUncompressedBytes = limits.maxUncompressedBytes ?? MAX_UNCOMPRESSED_BYTES;
+  if ((await stat(path)).size > maxArchiveBytes) throw new Error(COMPRESSED_LIMIT);
+  const files = await extractZipEntries(path, {
+    select: safeArchiveEntry,
+    maxUncompressedBytes,
+    limitError: () => new Error(UNCOMPRESSED_LIMIT),
+  });
+  const archiveHash = limits.archiveHash ?? await hashFile(path);
+  return parseArchiveEntries(files, secret, source, archiveHash);
+}
+
+async function hashFile(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path, { highWaterMark: 1024 * 1024 })) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
+function parseArchiveEntries(
+  files: Record<string, Uint8Array>,
+  secret: string,
+  source: YoutubeParsedArchive['source'],
+  archiveHash: string,
+): YoutubeParsedArchive {
   let watches: YoutubeWatchInput[] = [];
   let searches: YoutubeSearchInput[] = [];
   for (const [name, bytes] of Object.entries(files)) {
@@ -362,10 +412,5 @@ export function parseYoutubeArchive(
   if (!watches.length && !searches.length) {
     throw new Error('Archive contains no recognized YouTube watch or search history');
   }
-  return {
-    archiveHash: createHash('sha256').update(archive).digest('hex'),
-    source,
-    watches,
-    searches,
-  };
+  return { archiveHash, source, watches, searches };
 }

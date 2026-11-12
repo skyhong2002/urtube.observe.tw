@@ -62,7 +62,7 @@ test('site forms and the Takeout upload stop streaming oversized bodies', async 
 
     const upload = await app.request('/account/takeout', {
       method: 'POST', body: 'x',
-      headers: { cookie, origin: new URL(config.publicBaseUrl).origin, 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(200 * 1024 * 1024) },
+      headers: { cookie, origin: new URL(config.publicBaseUrl).origin, 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(config.takeout.maxArchiveBytes + 2 * 1024 * 1024) },
     });
     assert.equal(upload.status, 413);
     assert.match(await upload.text(), /<html/i, 'signed-in users get the account page with the error');

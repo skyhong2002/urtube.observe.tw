@@ -2,7 +2,7 @@ import { html } from './pages.js';
 import { contributorSection, contributorScript, contributorStyles } from './landing-contributors.js';
 import { landingChannelShelf, landingShelfStyles, landingShelfScript } from './landing-channels.js';
 import { messages, type Lang } from './i18n.js';
-import type { CommunityStats } from '../youtube/community.js';
+import type { CommunityStats, RecentImports } from '../youtube/community.js';
 
 // Public example linked from the landing page. It is a real member's public
 // dashboard, so copy must never present it as the synthetic sample data shown
@@ -21,7 +21,8 @@ function heroAction(primaryAction: string, label: string, closed: string): strin
 // Community statistics calculated longer ago than this are flagged as a
 // delayed calculation. The provider recomputes every few minutes, so this only
 // appears when a recalculation stalls; it says nothing about how recently
-// members imported, which the front end does not know.
+// members imported. That is the separate recentImports band, which shows only
+// the share of public members with new records (src/youtube/community.ts).
 export const COMMUNITY_STALE_MS = 3_600_000;
 
 export function landingContent(lang: Lang, primaryAction: string, stats: CommunityStats, now = Date.now()): string {
@@ -59,6 +60,16 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
     estimate: '觀看時間怎麼估計：擴充功能有實測時，直接採用實測時間；其他紀錄取影片長度與到下一次觀看或搜尋的間隔中較短者（有播放位置時也會參考）；只有日期的紀錄最多算 10 分鐘；缺少片長或無法判斷何時結束的紀錄算 0。因此估計值可能比實際觀看時間多或少，不同成員的匯入方式也會影響結果。',
     updated: (time: string) => `統計計算於 ${time}，不代表各成員最後匯入時間。`,
+    recentImports: {
+      label: '近 7 天有新匯入',
+      none: '沒有公開成員',
+      few: '少數公開成員（未滿 1/4）',
+      'about-quarter': '約四分之一公開成員（1/4 至未滿半數）',
+      'about-half': '約半數公開成員（半數至未滿 3/4）',
+      most: '多數公開成員（3/4 以上）',
+      'too-few-members': '成員太少，不顯示',
+      note: '只顯示分級，不顯示人數或任何成員的匯入時間。',
+    } as Record<RecentImports | 'label' | 'note', string>,
     coverage: '排行與總數涵蓋公開成員各自已匯入的期間；成員不一定持續匯入，因此可能不含最近的觀看。',
     stale: '統計計算延遲',
     staleNote: '統計超過 1 小時沒有重新計算，數字可能落後。這只反映統計的重新計算，不反映成員最後匯入的時間。',
@@ -125,6 +136,16 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
     estimate: 'How watch time is estimated: when the browser extension measured a view, that time is used. Otherwise a view counts the shorter of the video’s length and the time until the next view or search (a saved playback position is also considered); views recorded only by date count at most 10 minutes; views with no known length, or no way to tell when they ended, count as zero. Estimates can be higher or lower than the time actually watched, and depend on how each member imported their history.',
     updated: (time: string) => `Statistics calculated ${time}. This is not each member’s last import time.`,
+    recentImports: {
+      label: 'New imports in the last 7 days',
+      none: 'no public members',
+      few: 'a few public members (under a quarter)',
+      'about-quarter': 'about a quarter of public members (a quarter to under half)',
+      'about-half': 'about half of public members (half to under three quarters)',
+      most: 'most public members (three quarters or more)',
+      'too-few-members': 'too few members to show',
+      note: 'Shown as a band only, never a count or any member’s import time.',
+    } as Record<RecentImports | 'label' | 'note', string>,
     coverage: 'Rankings and totals cover whatever period each public member has imported. Members do not always keep importing, so recent viewing may be missing.',
     stale: 'Statistics calculation delayed',
     staleNote: 'Statistics have not been recalculated for over an hour, so the numbers may lag behind. This reflects only the recalculation, not when members last imported.',
@@ -194,6 +215,9 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   };
   const generatedAt = `<time datetime="${html(stats.generatedAt)}">${html(new Date(stats.generatedAt).toLocaleString(zh ? 'zh-TW' : 'en-US', { timeZone: 'Asia/Taipei', hour12: false }))} (UTC+8)</time>`;
   const channelNote = signedIn ? '' : `<p class="lp-channel-note">${copy.channelSignIn} <a href="/signup">${copy.channelSignInLink}</a></p>`;
+  // Absent (unavailable) bands print nothing; the calculation time stays.
+  const recentImports = stats.recentImports && copy.recentImports[stats.recentImports]
+    ? `<p class="lp-updated lp-recent-imports" data-band="${html(stats.recentImports)}">${copy.recentImports.label}${zh ? '：' : ': '}<strong>${copy.recentImports[stats.recentImports]}</strong>${zh ? '。' : '.'}${stats.recentImports === 'too-few-members' ? '' : `${zh ? '' : ' '}${copy.recentImports.note}`}</p>` : '';
   // Freshness: the calculation time is all the front end knows. Flag results
   // that are over an hour old (a fallback to the last result) or missing.
   const generatedMs = Date.parse(stats.generatedAt);
@@ -243,7 +267,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   .lp-steps li{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;gap:14px;padding:18px}.lp-steps li::before{background:var(--raised);border-radius:50%;color:var(--accent-text);content:counter(lp-step);counter-increment:lp-step;display:grid;flex:0 0 32px;font-weight:700;height:32px;place-items:center}
   .lp-steps strong{display:block;font-size:15px}.lp-steps p{font-size:13px;line-height:1.6;margin:4px 0 0}
   .lp-community-scope{font-size:13px;margin:8px 0 0}
-  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp p.lp-updated,.lp p.lp-coverage{color:var(--muted);font-size:13px;margin:6px 0 0}.lp p.lp-stale{color:var(--ink-2);font-size:13px;margin:10px 0 0}.lp-stale-badge{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.4);border-radius:999px;color:#f5c95e;font-size:12px;font-weight:700;padding:2px 9px;white-space:nowrap}
+  .lp-more-stats{border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin:18px 0 0;padding:4px 0}.lp-more-stats summary{align-items:center;color:var(--ink-2);cursor:pointer;display:flex;font-size:14px;min-height:44px;width:fit-content}.lp-more-stats summary:hover{color:var(--ink)}.lp-method{font-size:13px;max-width:850px}.lp p.lp-updated,.lp p.lp-coverage{color:var(--muted);font-size:13px;margin:6px 0 0}.lp-recent-imports strong{color:var(--ink-2);font-weight:600}.lp p.lp-stale{color:var(--ink-2);font-size:13px;margin:10px 0 0}.lp-stale-badge{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.4);border-radius:999px;color:#f5c95e;font-size:12px;font-weight:700;padding:2px 9px;white-space:nowrap}
   .lp-empty{background:var(--surface);border:1px dashed var(--line-strong);border-radius:12px;padding:24px}
   .lp-gallery-grid{display:grid;gap:28px;grid-template-columns:1fr 1fr;margin-top:28px}.lp-gallery-window{display:flex;flex-direction:column;margin:0;min-width:0}.lp-gallery-window .lp-device{flex:1}
   .lp-gallery-window figcaption{align-items:flex-start;display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:14px}.lp-gallery-window figcaption>div{flex:1 1 260px}.lp-gallery-window figcaption strong{display:block;font-size:17px}.lp-gallery-window figcaption span{color:var(--ink-2);display:block;font-size:14px;margin-top:4px}.lp-gallery-window figcaption a{align-items:center;display:inline-flex;font-size:14px;font-weight:600;min-height:44px}
@@ -276,7 +300,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   <figure class="lp-hero-shot"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${copy.sample.device} / urtube`)}${sample}</div><figcaption class="lp-shot-caption"><span class="lp-badge">${copy.sampleBadge}</span><span>${copy.sampleNote}</span><a href="${PUBLIC_EXAMPLE_HREF}" aria-label="${copy.publicAria}">${copy.publicLink}</a></figcaption></figure></div>
   <ol class="lp-steps" aria-label="${copy.stepsLabel}">${copy.steps.map(([title, text]) => `<li><div><strong>${title}</strong><p>${text}</p></div></li>`).join('')}</ol></section>
   <section id="community" class="lp-section lp-community" aria-labelledby="lp-community-title"><div class="lp-kicker">${copy.communityKicker}</div><h2 id="lp-community-title">${copy.communityTitle}</h2><p class="lp-community-scope">${copy.scope}</p>
-  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${staleNote}<p class="lp-coverage">${copy.coverage}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p><p class="lp-method">${copy.estimate}</p></details>` : `<p class="lp-empty" role="status">${staleBadge} ${copy.unavailable}</p>`}</section>
+  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${recentImports}${staleNote}<p class="lp-coverage">${copy.coverage}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p><p class="lp-method">${copy.estimate}</p></details>` : `<p class="lp-empty" role="status">${staleBadge} ${copy.unavailable}</p>`}</section>
   <section class="lp-section lp-gallery" id="product-screens" aria-labelledby="lp-tour-title"><div class="lp-kicker">${copy.tourKicker}</div><h2 id="lp-tour-title">${copy.tourTitle}</h2><p class="lp-section-note"><span class="lp-badge">${copy.sampleBadge}</span> ${copy.tourNote}</p>
   <div class="lp-gallery-grid">${tour.map(([file, realHref]) => {
     const [title, description, realText, realAria] = copy.tour[file];

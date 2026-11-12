@@ -151,7 +151,7 @@ test('no link an anonymous visitor sees on public pages bounces to Google sign-i
       assert.ok(hrefs.length > 3, `${page} has links`);
       for (const href of hrefs) {
         const path = href.split('#')[0]!;
-        if (!path || checked.has(path) || path.startsWith('/landing-assets/') || path === '/favicon.svg') continue;
+        if (!path || checked.has(path) || path === '/favicon.svg') continue;
         checked.add(path);
         // The Google button on /signup is the one intended entry to OAuth.
         if (path === '/auth/google') { assert.ok(page.startsWith('/signup'), `${page} links straight to OAuth`); continue; }

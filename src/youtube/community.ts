@@ -14,11 +14,53 @@ export interface CommunityStats {
   topWatchedChannels?: CommunityChannel[];
   topDurationChannels?: CommunityChannel[];
   topChannels: CommunityChannel[];
+  // Share of public members with new watch records in the last 7 days, as a
+  // band only (see recentImportsBand). Absent while unavailable.
+  recentImports?: RecentImports;
 }
 interface Member { id: number; dashboardPublic: boolean; handle?: string; displayName?: string }
 interface Source<T extends Member> {
   listUsers(): T[];
-  repositoryFor(user: T): { youtubeChannelTotals(range: '90d', now: Date): YoutubeChannelSummary[] | Promise<YoutubeChannelSummary[]> };
+  repositoryFor(user: T): {
+    youtubeChannelTotals(range: '90d', now: Date): YoutubeChannelSummary[] | Promise<YoutubeChannelSummary[]>;
+    // When the newest watch record was written into this archive (an ISO
+    // time, or only its UTC day from a durable copy), or null if none.
+    lastWatchImportAt(): string | null | Promise<string | null>;
+  };
+}
+
+// Home page data freshness: how many public dashboard members had new watch
+// records written (Takeout, data portability, extension history or capture)
+// in the last RECENT_IMPORT_DAYS days. Approved by the user on 2026-11-13.
+//
+// Only a band leaves this module: never a count, a member, or a time. Bands
+// over r = recent members / public members (integer arithmetic, no rounding):
+//   none           r = 0
+//   few            0 < r < 1/4
+//   about-quarter  1/4 <= r < 1/2
+//   about-half     1/2 <= r < 3/4
+//   most           r >= 3/4
+// With fewer than MIN_FRESHNESS_MEMBERS public members nothing is shown
+// ("too-few-members"). Days are compared as UTC dates, so a record written
+// on the UTC date seven days before now still counts (up to 8 days).
+export const RECENT_IMPORT_DAYS = 7;
+export const MIN_FRESHNESS_MEMBERS = 3;
+export const RECENT_IMPORT_BANDS = ['none', 'few', 'about-quarter', 'about-half', 'most'] as const;
+export type RecentImportsBand = typeof RECENT_IMPORT_BANDS[number];
+export type RecentImports = RecentImportsBand | 'too-few-members';
+
+export function recentImportsBand(recent: number, members: number): RecentImports {
+  if (members < MIN_FRESHNESS_MEMBERS) return 'too-few-members';
+  if (recent <= 0) return 'none';
+  if (recent * 4 < members) return 'few';
+  if (recent * 2 < members) return 'about-quarter';
+  if (recent * 4 < members * 3) return 'about-half';
+  return 'most';
+}
+
+function importedRecently(value: string | null, now: number): boolean {
+  const day = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : '';
+  return day !== '' && day >= new Date(now - RECENT_IMPORT_DAYS * 86_400_000).toISOString().slice(0, 10);
 }
 
 // Only public archives contribute. Recheck membership on EVERY request so a
@@ -51,7 +93,17 @@ export function communityStatsProvider<T extends Member>(source: Source<T>, cloc
     try {
       const value: CommunityStats = { ...empty, status: 'ready', publicMembers: members.length, profiles };
       const channels = new Map<string, CommunityChannel>();
-      const totals = await Promise.all(members.map(user => source.repositoryFor(user).youtubeChannelTotals('90d', new Date(now))));
+      // A member whose last import cannot be read makes the band unavailable
+      // rather than miscounted; the rankings are still shown.
+      const repositories = members.map(user => source.repositoryFor(user));
+      const lastImports = Promise.all(repositories.map(repository => Promise.resolve()
+        .then(() => repository.lastWatchImportAt())
+        .then(value => importedRecently(value, now), () => undefined)));
+      const totals = await Promise.all(repositories.map(repository => repository.youtubeChannelTotals('90d', new Date(now))));
+      const recent = await lastImports;
+      if (recent.every(value => value !== undefined)) {
+        value.recentImports = recentImportsBand(recent.filter(Boolean).length, members.length);
+      }
       for (const rows of totals) {
         const memberChannels = new Set<string>();
         let watches = 0;

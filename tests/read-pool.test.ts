@@ -53,6 +53,9 @@ test('reads on the pool equal the same reads on this thread', async () => {
     const updatedAt = await readMethodOffThread(repository, path, 'youtubeReferenceDataUpdatedAt');
     assert.ok(updatedAt);
     assert.equal(updatedAt, repository.youtubeReferenceDataUpdatedAt(), 'reference freshness reads on the pool');
+    const lastImport = await readMethodOffThread(repository, path, 'youtubeLastWatchImportAt');
+    assert.ok(lastImport);
+    assert.equal(lastImport, repository.youtubeLastWatchImportAt(), 'landing freshness reads on the pool');
     await assert.rejects(readOffThread(repository, join(root, 'missing.sqlite'), 'popularity', { range: 'all', now: new Date().toISOString() }), /./);
   } finally {
     repository.close();

@@ -14,7 +14,7 @@ export function pickLang(
 
 // One revision date for both privacy policy languages; update it with the
 // revision summaries in privacyIntro whenever a policy section changes.
-export const PRIVACY_UPDATED = '2026-11-12';
+export const PRIVACY_UPDATED = '2026-11-13';
 
 const MONTHS_EN =['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -489,12 +489,18 @@ const en = {
   ],
   accountTakeoutFile: 'Google Takeout ZIP',
   accountTakeoutSubmit: 'Import Takeout archive',
-  accountTakeoutLimit: "Maximum ZIP size: 100 MB.",
+  // limit is the configured maximum, e.g. "2 GB" (archiveLimitLabel).
+  accountTakeoutLimit: (limit: string) => `Maximum ZIP size: ${limit}. If Google split your export into several ZIPs, upload them one at a time; only the one with your watch history is needed.`,
   accountTakeoutSuccess: (watchesSeen: number, watchesInserted: number, searchesSeen: number, searchesInserted: number) =>
     `Import complete: ${watchesInserted} of ${watchesSeen} watch records and ${searchesInserted} of ${searchesSeen} searches were new.`,
   accountTakeoutNext: "Your records are saved. Figures will update as video information and interest analysis become available.",
   accountTakeoutChooseZip: 'Choose the original Google Takeout .zip file.',
-  accountTakeoutTooLarge: 'The Takeout ZIP exceeds the 100 MB upload limit. If it already contains only YouTube history, import with the Chrome extension instead. It reads your YouTube History page, so older history and exact viewing times may be incomplete.',
+  accountTakeoutTooLarge: (limit: string) => `The Takeout ZIP exceeds the ${limit} upload limit. In Google Takeout, select only YouTube history, or set the file size to ${limit} or less so Google splits the export into smaller ZIPs, then upload the one with your watch history.`,
+  accountTakeoutBusy: 'The server is importing another Takeout archive. Wait a few minutes, then upload yours again.',
+  accountTakeoutNoSpace: 'The server does not have enough temporary space for this file right now. Please upload it later.',
+  accountTakeoutUploadExpired: 'The upload did not finish or has expired. Choose the file and upload it again.',
+  accountTakeoutUploadProgress: 'Uploading… {percent}%',
+  accountTakeoutUploadFailed: 'The upload was interrupted. Check your connection and upload the file again.',
   accountTakeoutStorageLimit: 'This archive has reached its storage limit.',
   accountTakeoutUnavailable: "Import is currently unavailable. Try again later or contact us.",
   accountTakeoutFailed: (detail: string) => `Takeout import failed: ${detail}`,
@@ -528,7 +534,7 @@ const en = {
   accountReferenceSave: "Save statistics preference",
   privacyLink: 'Privacy',
   privacyTitle: 'Privacy policy',
-  privacyIntro: `urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: ${PRIVACY_UPDATED}. This revision adds the home page channel rankings, data retention and deletion, and images and scripts from other services sections, and explains which setting removes you from which ranking.`,
+  privacyIntro: `urtube helps you meet people through shared viewing interests. This page explains how the website and the urtube YouTube Capture Chrome extension collect and use data. Last updated: ${PRIVACY_UPDATED}. This revision adds the recent-import band to the home page channel rankings section and explains how long an uploaded Takeout ZIP is kept. The 2026-11-12 revision added the home page channel rankings, data retention and deletion, and images and scripts from other services sections, and explains which setting removes you from which ranking.`,
   // Plain language still needs complete collection, third-party processing and sharing disclosures.
   privacySections: [
   [
@@ -557,7 +563,7 @@ const en = {
   ],
   [
     "Home page channel rankings",
-    "The home page combines the last 90 days of members with a public dashboard. A channel is listed only after at least three of these members watched it; totals still count everyone. Making your dashboard private removes your viewing from these figures on the next load."
+    "The home page combines the last 90 days of members with a public dashboard. A channel is listed only after at least three of these members watched it; totals still count everyone. Making your dashboard private removes your viewing from these figures on the next load. The home page also shows how many of these members had new watch records imported in the last 7 days, only as a band (none, under a quarter, a quarter to under half, half to under three quarters, three quarters or more), never as a count or anyone's import time, and not at all when fewer than three members have a public dashboard."
   ],
   [
     "The Chrome extension",
@@ -573,7 +579,7 @@ const en = {
   ],
   [
     "Data retention and deletion",
-    "urtube does not set an expiry date on your imported records; they stay in your account until you delete it. Deleting your account immediately removes your account and sign-in sessions, your previous handles, your separate viewing-history database, and your discovery settings, friend requests, friendships and matching results. The service makes periodic full backups of its databases. Deleting your account does not remove copies already in those backups; they are deleted automatically once they pass the backup retention period, currently 3 days. Public YouTube video and channel information is kept in a shared cache that does not record which account requested it."
+    "urtube does not set an expiry date on your imported records; they stay in your account until you delete it. An uploaded Takeout ZIP is stored on the server only while it is imported: it is deleted as soon as the import finishes or fails, and an interrupted upload within about an hour. Only the watch and search history read from it is kept. Deleting your account immediately removes your account and sign-in sessions, your previous handles, your separate viewing-history database, and your discovery settings, friend requests, friendships and matching results. The service makes periodic full backups of its databases. Deleting your account does not remove copies already in those backups; they are deleted automatically once they pass the backup retention period, currently 3 days. Public YouTube video and channel information is kept in a shared cache that does not record which account requested it."
   ],
   [
     "Contact",
@@ -1102,12 +1108,17 @@ const zh: typeof en = {
   ],
   accountTakeoutFile: 'Google Takeout ZIP',
   accountTakeoutSubmit: '匯入 Takeout 檔案',
-  accountTakeoutLimit: "ZIP 檔案上限 100 MB。",
+  accountTakeoutLimit: (limit: string) => `ZIP 檔案上限 ${limit}。Google 把匯出分成多個 ZIP 時，可以逐一上傳；只有含觀看紀錄的那一個是必要的。`,
   accountTakeoutSuccess: (watchesSeen: number, watchesInserted: number, searchesSeen: number, searchesInserted: number) =>
     `匯入完成：${watchesSeen} 筆觀看中新增 ${watchesInserted} 筆，${searchesSeen} 筆搜尋中新增 ${searchesInserted} 筆。`,
   accountTakeoutNext: "紀錄已儲存，影片資訊與興趣分析更新後，數字也會隨之更新。",
   accountTakeoutChooseZip: '請選擇 Google Takeout 下載的原始 .zip 檔。',
-  accountTakeoutTooLarge: 'Takeout ZIP 超過 100 MB 上傳限制。如果已經只匯出 YouTube 歷史記錄，請改用 Chrome 擴充功能匯入；它從 YouTube 紀錄頁讀取，較舊的紀錄與確切觀看時間可能不完整。',
+  accountTakeoutTooLarge: (limit: string) => `Takeout ZIP 超過 ${limit} 上傳限制。請在 Google Takeout 只選 YouTube 歷史記錄，或把檔案大小設為 ${limit} 以下，讓 Google 分割成較小的 ZIP，再上傳含觀看紀錄的那一個。`,
+  accountTakeoutBusy: '伺服器正在匯入另一份 Takeout 檔案，請過幾分鐘再上傳。',
+  accountTakeoutNoSpace: '伺服器暫存空間目前不足，請稍後再上傳。',
+  accountTakeoutUploadExpired: '上傳未完成或已逾時，請重新選擇檔案上傳。',
+  accountTakeoutUploadProgress: '上傳中… {percent}%',
+  accountTakeoutUploadFailed: '上傳中斷，請確認網路連線後重新上傳。',
   accountTakeoutStorageLimit: '這個檔案館已達儲存空間上限。',
   accountTakeoutUnavailable: "目前無法匯入資料，請稍後再試或聯絡我們。",
   accountTakeoutFailed: (detail: string) => `Takeout 匯入失敗：${detail}`,
@@ -1140,7 +1151,7 @@ const zh: typeof en = {
   accountReferenceSave: "儲存統計偏好",
   privacyLink: '隱私權',
   privacyTitle: '隱私權政策',
-  privacyIntro: `urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：${PRIVACY_UPDATED}。本次修訂新增「首頁頻道排行」、「資料保留與刪除」與「其他服務的圖片與腳本」段落，並說明哪個設定會讓你退出哪一種排行。`,
+  privacyIntro: `urtube 透過觀看興趣幫助你認識合拍的人。本頁說明網站與 Chrome 擴充功能「urtube YouTube Capture」收集及使用哪些資料。最後更新：${PRIVACY_UPDATED}。本次修訂新增「首頁頻道排行」中近 7 天匯入比例的分級說明，以及上傳的 Takeout ZIP 保留多久。2026-11-12 的修訂新增「首頁頻道排行」、「資料保留與刪除」與「其他服務的圖片與腳本」段落，並說明哪個設定會讓你退出哪一種排行。`,
   privacySections: [
   [
     "收集什麼",
@@ -1168,7 +1179,7 @@ const zh: typeof en = {
   ],
   [
     "首頁頻道排行",
-    "首頁合計公開儀表板成員近 90 天的觀看。頻道至少要有三位這類成員看過才會列入排行；總數仍計入所有人。把儀表板改為不公開後，下次載入就會從這些數字移除你的觀看。"
+    "首頁合計公開儀表板成員近 90 天的觀看。頻道至少要有三位這類成員看過才會列入排行；總數仍計入所有人。把儀表板改為不公開後，下次載入就會從這些數字移除你的觀看。首頁也會顯示這些成員中，近 7 天有新觀看紀錄匯入的比例，只以分級呈現（沒有、未滿 1/4、1/4 至未滿半數、半數至未滿 3/4、3/4 以上），不顯示人數或任何人的匯入時間；公開儀表板成員少於三位時不顯示。"
   ],
   [
     "Chrome 擴充功能",
@@ -1184,7 +1195,7 @@ const zh: typeof en = {
   ],
   [
     "資料保留與刪除",
-    "urtube 不會替你匯入的紀錄設定到期日；紀錄會保留在帳號中，直到你刪除帳號。刪除帳號會立即移除帳號與登入工作階段、你用過的舊帳號名稱、你獨立的觀看紀錄資料庫，以及好友探索設定、好友邀請、好友關係與配對結果。服務會定期完整備份資料庫；刪除帳號不會移除已存在備份中的副本，這些備份會在超過備份保留期限（目前為 3 天）後自動刪除。公開的 YouTube 影片與頻道資訊存放在共用快取中，快取不會記錄是哪個帳號查詢的。"
+    "urtube 不會替你匯入的紀錄設定到期日；紀錄會保留在帳號中，直到你刪除帳號。上傳的 Takeout ZIP 只在匯入期間暫存於伺服器：匯入完成或失敗後立即刪除，中斷的上傳約一小時內刪除；只保留從中讀取的觀看與搜尋紀錄。刪除帳號會立即移除帳號與登入工作階段、你用過的舊帳號名稱、你獨立的觀看紀錄資料庫，以及好友探索設定、好友邀請、好友關係與配對結果。服務會定期完整備份資料庫；刪除帳號不會移除已存在備份中的副本，這些備份會在超過備份保留期限（目前為 3 天）後自動刪除。公開的 YouTube 影片與頻道資訊存放在共用快取中，快取不會記錄是哪個帳號查詢的。"
   ],
   [
     "聯絡方式",

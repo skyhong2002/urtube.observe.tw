@@ -9,7 +9,7 @@ import { forceHttps } from './https-redirect.js';
 import { outliveProxyKeepAlive } from './origin-server.js';
 import { importArchive } from './archive-import.js';
 import { completeYoutubeOAuth, youtubeOAuthAuthorizationUrl } from './youtube/portability.js';
-import { MAX_YOUTUBE_ARCHIVE_BYTES } from './youtube/takeout.js';
+import { sweepStaleTakeoutUploads, TakeoutUploads, UploadBusy, UploadNoSpace, UploadTooLarge, type SpooledArchive } from './takeout-upload.js';
 import { normalizeYoutubeCapture } from './youtube/capture.js';
 import { normalizeYoutubeBackfillBatch, normalizeYoutubeHistoryBatch } from './youtube/history-sync.js';
 import { normalizeYoutubeProgressBatch } from './youtube/progress.js';
@@ -24,8 +24,14 @@ function bearer(auth: string | undefined): string {
   return auth?.startsWith('Bearer ') ? auth.slice(7) : '';
 }
 
-export function createIngestApp(registry: UserRegistry): Hono {
+export function createIngestApp(registry: UserRegistry, services: { takeoutUploads?: TakeoutUploads } = {}): Hono {
   const ingestHits = new Map<number, number[]>();
+  // The ZIP streams to a temporary file, deleted after the import.
+  const takeoutUploads = services.takeoutUploads ?? new TakeoutUploads({
+    tempDirectory: config.takeout.tempDirectory,
+    maxArchiveBytes: config.takeout.maxArchiveBytes,
+    concurrency: config.takeout.uploadConcurrency,
+  });
 
   // Any per-user capture token (or the legacy env capture token) identifies
   // the calling user; the admin INGEST_TOKEN additionally maps to the
@@ -68,7 +74,7 @@ export function createIngestApp(registry: UserRegistry): Hono {
   app.get('/healthz', (c) => {
     const configured = Boolean(config.ingestToken || config.youtube.captureToken || registry.listUsers().length);
     return c.json(
-      { status: configured ? 'healthy' : 'unhealthy', service: 'urtube-ingest' },
+      { status: configured ? 'healthy' : 'unhealthy', service: 'urtube-ingest', version: config.revision },
       configured ? 200 : 503
     );
   });
@@ -85,20 +91,27 @@ export function createIngestApp(registry: UserRegistry): Hono {
     if (!['application/zip', 'application/octet-stream'].includes(contentType ?? '')) {
       return c.json({ error: 'Upload the Takeout ZIP as application/zip' }, 415);
     }
+    let archive: SpooledArchive | undefined;
     try {
-      const archive = await readLimitedBody(c.req.raw, MAX_YOUTUBE_ARCHIVE_BYTES);
+      archive = await takeoutUploads.receiveBody(c.req.raw);
       // A slow sender must not retain credentials revoked during upload.
       const current = adminContext(c.req.header('authorization'));
       if (!current || current.user.id !== context.user.id) return c.json({ error: 'Unauthorized' }, 401);
       context = current;
       const result = await importArchive(context.repository, {
-        databasePath: registry.databasePathFor(context.user), archive, dataKey: context.dataKey, source: 'takeout',
+        databasePath: registry.databasePathFor(context.user), archivePath: archive.path, archiveHash: archive.sha256,
+        dataKey: context.dataKey, source: 'takeout',
+        limits: { maxArchiveBytes: takeoutUploads.maxArchiveBytes, maxUncompressedBytes: config.takeout.maxUncompressedBytes },
       });
       registry.markCrystalDirty(context.user);
       return c.json({ ok: true, user: context.user.handle, ...result, totals: context.repository.youtubeCounts() }, 201);
     } catch (error) {
-      if (error instanceof PayloadTooLarge) return c.json({ error: 'YouTube archive exceeds compressed size limit' }, 413);
+      if (error instanceof UploadTooLarge) return c.json({ error: 'YouTube archive exceeds compressed size limit' }, 413);
+      if (error instanceof UploadBusy) return c.json({ error: 'Another Takeout import is in progress; retry later' }, 429);
+      if (error instanceof UploadNoSpace) return c.json({ error: 'Not enough temporary space for this archive' }, 507);
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    } finally {
+      await archive?.cleanup();
     }
   });
   app.get('/api/ingest/youtube/capture/status', (c) => {
@@ -255,6 +268,12 @@ export function createIngestApp(registry: UserRegistry): Hono {
 if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   if (config.youtube.captureToken || config.ingestToken) registry.ensureDefaultUser();
+  // Takeout files left by a process that stopped mid-upload.
+  const sweepTakeout = () => void sweepStaleTakeoutUploads(config.takeout.tempDirectory).then((removed) => {
+    if (removed) console.log(`removed ${removed} abandoned Takeout upload(s)`);
+  });
+  sweepTakeout();
+  setInterval(sweepTakeout, 15 * 60_000).unref();
   const app = createIngestApp(registry);
   outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => console.log(`urtube ingest listening on :${info.port}`)));
 }

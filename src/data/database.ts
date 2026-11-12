@@ -1663,6 +1663,18 @@ export class Repository {
     };
   }
 
+  // When the newest watch record was first written into this archive, from
+  // any source: Takeout, data portability, extension history or a capture.
+  // imported_at is set once, when a row is inserted (re-imports and capture
+  // updates keep it), so it moves only when new watch records arrive. Unlike
+  // youtube_imports it also covers captures, and unlike the metadata times
+  // in youtubeReferenceDataUpdatedAt it is not advanced by the worker.
+  // Unindexed MAX(): a full scan, so it runs on the read pool.
+  youtubeLastWatchImportAt(): string | null {
+    const row = this.db.prepare('SELECT MAX(imported_at) latest FROM youtube_watch_events').get() as { latest: string | null };
+    return row.latest;
+  }
+
   youtubeReferenceDataUpdatedAt(): string | null {
     const row = this.db.prepare(`
       SELECT MAX(updated_at) updated_at FROM (

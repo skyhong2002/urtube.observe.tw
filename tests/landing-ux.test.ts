@@ -120,7 +120,8 @@ test('signup explains import choices and privacy defaults without changing the G
     const checklist = $('.ob-checklist').text();
     if (lang === 'en') {
       for (const phrase of [/takes a while/, /Private by default/, /friend discovery is off/, /Nothing goes public automatically/, /export/, /delete/]) assert.match(checklist, phrase);
-      assert.match($('.ob-methods').text(), /100 MB/);
+      assert.match($('.ob-methods').text(), /up to 2 GB each/);
+      assert.doesNotMatch($('.ob-methods').text(), /100 MB/);
     } else {
       for (const phrase of [/需要一點時間/, /預設私人/, /好友探索關閉/, /不會自動公開/, /匯出/, /刪除/]) assert.match(checklist, phrase);
     }
@@ -331,11 +332,16 @@ test('the synthetic previews share one set of numbers and Chinese copy uses one 
 
 test('an oversized Takeout ZIP gets a next step instead of repeating the export advice', async () => {
   const { messages } = await import('../src/output/i18n.js');
-  assert.match(messages('en').accountTakeoutTooLarge, /Chrome extension instead/);
-  assert.match(messages('zh').accountTakeoutTooLarge, /改用 Chrome 擴充功能/);
-  for (const message of [messages('en').accountTakeoutTooLarge, messages('zh').accountTakeoutTooLarge]) {
-    assert.doesNotMatch(message, /try again|後再試/);
+  // The 100 MB limit and its "use the extension instead" fallback are gone.
+  assert.match(messages('en').accountTakeoutTooLarge('2 GB'), /exceeds the 2 GB upload limit/);
+  assert.match(messages('en').accountTakeoutTooLarge('2 GB'), /splits the export into smaller ZIPs/);
+  assert.match(messages('zh').accountTakeoutTooLarge('2 GB'), /超過 2 GB 上傳限制/);
+  for (const message of [messages('en').accountTakeoutTooLarge('2 GB'), messages('zh').accountTakeoutTooLarge('2 GB')]) {
+    assert.doesNotMatch(message, /try again|後再試|100 MB|extension|擴充功能/);
   }
-  assert.match(load(signupStartPage('', 'en'))('#import-methods').text(), /still larger with only history selected, use the extension instead/);
-  assert.match(load(signupStartPage('', 'zh'))('#import-methods').text(), /仍超過上限時，改用擴充功能/);
+  assert.match(messages('en').accountTakeoutLimit('2 GB'), /^Maximum ZIP size: 2 GB\. .*one at a time/);
+  assert.match(messages('zh').accountTakeoutLimit('2 GB'), /^ZIP 檔案上限 2 GB。.*逐一上傳/);
+  assert.match(load(signupStartPage('', 'en'))('#import-methods').text(), /upload them one at a time; only the one with your watch history is needed/);
+  assert.match(load(signupStartPage('', 'zh'))('#import-methods').text(), /每個上限 2 GB）。Google 分成多個 ZIP 時，可以逐一上傳/);
+  for (const lang of ['en', 'zh'] as const) assert.doesNotMatch(load(signupStartPage('', lang))('#import-methods').text(), /100 MB|改用擴充功能|use the extension instead/);
 });

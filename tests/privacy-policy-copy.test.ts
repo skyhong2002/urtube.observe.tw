@@ -5,7 +5,7 @@ import { messages, PRIVACY_UPDATED } from '../src/output/i18n.js';
 import { UserRegistry } from '../src/users.js';
 
 test('privacy policy shares one revision date and summary across languages', () => {
-  assert.equal(PRIVACY_UPDATED, '2026-11-12');
+  assert.equal(PRIVACY_UPDATED, '2026-11-13');
   const en = messages('en');
   const zh = messages('zh');
   assert.ok(en.privacyIntro.includes(`Last updated: ${PRIVACY_UPDATED}.`));
@@ -13,6 +13,8 @@ test('privacy policy shares one revision date and summary across languages', () 
   assert.match(en.privacyIntro, /This revision adds/);
   assert.match(zh.privacyIntro, /本次修訂新增/);
   for (const t of [en, zh]) assert.doesNotMatch(t.privacyIntro, /2026-09-28/);
+  assert.match(en.privacyIntro, /recent-import band/);
+  assert.match(zh.privacyIntro, /近 7 天匯入比例/);
   assert.equal(en.privacySections.length, zh.privacySections.length);
 });
 
@@ -59,4 +61,14 @@ test('privacy policy states retention and deletion scope without promising backu
   // Update both the copy and this test if that setting changes.
   assert.match(en, /backup retention period, currently 3 days/);
   assert.match(zh, /備份保留期限（目前為 3 天）/);
+});
+
+test('privacy policy describes the recent-import band, its threshold and the temporary Takeout file', () => {
+  const section = (lang: 'en' | 'zh', title: string) => messages(lang).privacySections.find(([heading]) => heading === title)?.[1] ?? '';
+  const en = section('en', 'Home page channel rankings');
+  for (const phrase of [/last 7 days/, /only as a band/, /under a quarter/, /three quarters or more/, /never as a count or anyone's import time/, /fewer than three members/]) assert.match(en, phrase);
+  const zh = section('zh', '首頁頻道排行');
+  for (const phrase of [/近 7 天/, /只以分級呈現/, /未滿 1\/4/, /3\/4 以上/, /不顯示人數或任何人的匯入時間/, /少於三位時不顯示/]) assert.match(zh, phrase);
+  assert.match(section('en', 'Data retention and deletion'), /deleted as soon as the import finishes or fails/);
+  assert.match(section('zh', '資料保留與刪除'), /匯入完成或失敗後立即刪除/);
 });

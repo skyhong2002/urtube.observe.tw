@@ -116,6 +116,8 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/skyhong2002/urtube.observe.tw:${{ github.sha }}
+          build-args: |
+            URTUBE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/skyhong2002/urtube.observe.tw
             org.opencontainers.image.revision=${{ github.sha }}

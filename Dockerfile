@@ -14,12 +14,17 @@ RUN npm ci --omit=dev
 
 COPY tsconfig.json ./
 COPY src ./src
-COPY public/landing ./public/landing
 COPY scripts ./scripts
 COPY chrome-extension ./chrome-extension
 COPY favicon.svg og.png ./
 # Released images carry the project licence and third-party notices.
 COPY LICENSE THIRD_PARTY_NOTICES.md ./
+
+# The commit this image was built from, reported by /healthz. CI passes
+# github.sha; local builds without it report "unknown". Declared after the
+# source copies so a new revision does not invalidate the dependency layer.
+ARG URTUBE_REVISION=unknown
+ENV URTUBE_REVISION=$URTUBE_REVISION
 
 EXPOSE 3000
 

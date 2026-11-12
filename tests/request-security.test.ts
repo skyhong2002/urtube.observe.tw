@@ -6,6 +6,8 @@ import { createIngestApp } from '../src/ingest.js';
 import { matchingRoutes } from '../src/matching-v3/routes.js';
 import { settings } from '../src/matching-v3/model.js';
 import { bodyLimit, PayloadTooLarge, privateResponses, readLimitedBody, sameOriginWrites } from '../src/request-security.js';
+import { tmpdir } from 'node:os';
+import { TakeoutUploads } from '../src/takeout-upload.js';
 import { UserRegistry } from '../src/users.js';
 
 const origin = new URL(config.publicBaseUrl).origin;
@@ -126,21 +128,22 @@ test('ingest authenticates before reading and enforces each existing payload lim
   const registry = new UserRegistry(':memory:');
   try {
     const user = registry.createUser('security-ingest', 'Synthetic');
-    const app = createIngestApp(registry);
+    // The Takeout limit is configurable (2 GB by default); 512 KiB here.
+    const app = createIngestApp(registry, { takeoutUploads: new TakeoutUploads({ tempDirectory: tmpdir(), maxArchiveBytes: 512 * 1024, concurrency: 1 }) });
     for (const [route, kib, error] of [
       ['capture', 16, 'Capture payload exceeds 16 KiB'],
       ['progress', 96, 'Progress payload exceeds 96 KiB'],
       ['backfill', 256, 'Backfill payload exceeds 256 KiB'],
       ['history', 256, 'History payload exceeds 256 KiB'],
-      ['takeout', 100 * 1024, 'YouTube archive exceeds compressed size limit'],
+      ['takeout', 512, 'YouTube archive exceeds compressed size limit'],
     ] as const) {
       const path = '/api/ingest/youtube/' + route;
       const unauthorized = streamRequest([new Uint8Array(20_000)], {}, path);
       assert.equal((await app.request(unauthorized.request)).status, 401, route);
       assert.equal(unauthorized.state().reads, 0);
       await unauthorized.request.body!.cancel();
-      // Reuse a 1 KiB chunk to exercise the 100 MiB ZIP boundary without a
-      // giant fixture allocation. The rejected request never enters parsing.
+      // Reuse a 1 KiB chunk to exercise each boundary without a giant
+      // fixture allocation. The rejected request never enters parsing.
       const chunks = Array<Uint8Array>(kib).fill(new Uint8Array(1024));
       const streamed = streamRequest([...chunks, new Uint8Array(1), new Uint8Array(1)], {
         authorization: `Bearer ${user.captureToken}`, 'content-type': route === 'takeout' ? 'application/zip' : 'application/json', 'content-length': '1',

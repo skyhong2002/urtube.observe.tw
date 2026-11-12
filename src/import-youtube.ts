@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
 import { Repository } from './data/database.js';
-import { parseYoutubeArchive } from './youtube/takeout.js';
+import { parseYoutubeArchiveFile } from './youtube/takeout.js';
 
 const input = process.argv[2];
 if (!input) {
@@ -11,8 +10,10 @@ if (!input) {
 } else {
   const repository = new Repository(config.databasePath);
   try {
-    const archive = readFileSync(resolve(input));
-    const parsed = parseYoutubeArchive(archive, config.youtube.privateDataKey, 'takeout');
+    // Read from disk: only the history entries are inflated (src/youtube/zip-file.ts).
+    const parsed = await parseYoutubeArchiveFile(resolve(input), config.youtube.privateDataKey, 'takeout', {
+      maxArchiveBytes: config.takeout.maxArchiveBytes, maxUncompressedBytes: config.takeout.maxUncompressedBytes,
+    });
     const result = repository.ingestYoutubeArchive(parsed);
     console.log(JSON.stringify({ ok: true, ...result, totals: repository.youtubeCounts() }, null, 2));
   } finally {

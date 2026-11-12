@@ -84,7 +84,7 @@ import { stageTimer, watchEventLoop } from './timing.js';
 import { computeTagLean, fetchTagLists, type TagLeanData } from './youtube/taglists.js';
 import { tagLeanSection } from './output/taglean.js';
 import { referencePopulation as buildReferencePopulation, type ReferenceContribution } from './youtube/reference-population.js';
-import { MAX_YOUTUBE_ARCHIVE_BYTES } from './youtube/takeout.js';
+import { archiveLimitLabel, sweepStaleTakeoutUploads, TakeoutUploads, UploadBusy, UploadNoSpace, UploadNotFound, UploadRejected, UploadTooLarge } from './takeout-upload.js';
 import { DEFAULT_HANDLE, timingSafeEquals, UserRegistry, type MatchableCrystal, type User } from './users.js';
 import {
   MATCHING_CANDIDATE_POOL_LIMIT,
@@ -177,7 +177,7 @@ const PUBLIC_REFRESH_MS = 60 * 60_000;
 type DurableShape = Pick<DurableRead, 'version' | 'project' | 'valid'>;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const same = (value: unknown) => value;
-const DURABLE: Record<'dashboard' | 'channels' | 'tagLean' | 'crystalShifts' | 'popularity' | 'counts' | 'metadata' | 'referenceUpdated', DurableShape> = {
+const DURABLE: Record<'dashboard' | 'channels' | 'tagLean' | 'crystalShifts' | 'popularity' | 'counts' | 'metadata' | 'referenceUpdated' | 'lastWatchImport', DurableShape> = {
   // Individual recent watches (titles, URLs, exact times) are never written.
   dashboard: { version: 'dashboard:1', project: (value) => ({ ...(value as YoutubeDashboardData), recent: [] }),
     valid: (value) => isRecord(value) && isRecord(value.stats) && Array.isArray(value.daily) && Array.isArray(value.topChannels)
@@ -192,6 +192,9 @@ const DURABLE: Record<'dashboard' | 'channels' | 'tagLean' | 'crystalShifts' | '
   metadata: { version: 'metadata-processing:1', project: same, valid: isRecord },
   // Shown by day only; the exact latest-activity time is not kept.
   referenceUpdated: { version: 'reference-updated:1', project: (value) => typeof value === 'string' ? value.slice(0, 10) : null,
+    valid: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) },
+  // Landing page freshness band: kept by day only, like referenceUpdated.
+  lastWatchImport: { version: 'last-watch-import:1', project: (value) => typeof value === 'string' ? value.slice(0, 10) : null,
     valid: (value) => value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) },
 };
 // staleFor 0 (the owner, key holders): current data, no durable copy read or
@@ -215,6 +218,12 @@ function cachedChannelTotalsFor(registry: UserRegistry, user: User, range: Youtu
   const repository = registry.repositoryFor(user);
   return cachedReadAsync(repository, `channels:${range}`, () => readMethodOffThread(repository, registry.databasePathFor(user),
     'youtubeChannelTotals', range, new Date()), undefined, { ...readOptions(registry, user, staleFor, DURABLE.channels), memory });
+}
+// The newest watch record's write time (src/youtube/community.ts freshness).
+function cachedLastWatchImportFor(registry: UserRegistry, user: User, staleFor = 0): Promise<string | null> {
+  const repository = registry.repositoryFor(user);
+  return cachedReadAsync(repository, 'last-watch-import', () => readMethodOffThread(repository, registry.databasePathFor(user),
+    'youtubeLastWatchImportAt'), undefined, readOptions(registry, user, staleFor, DURABLE.lastWatchImport));
 }
 // One account's leanings against the tag lists. Cached instead of its input:
 // an Insights page needs 14 contributors' leanings, and their full channel
@@ -257,6 +266,7 @@ interface AppServices {
   loadTagLists: () => Promise<TagListSnapshot>;
   avatarService: Pick<AvatarService, 'avatarFor'>;
   loadChannelMetadata: (channelId: string) => Promise<YoutubeChannelMetadata | null>;
+  takeoutUploads: TakeoutUploads;
 }
 
 export function createApp(registry: UserRegistry, services: Partial<AppServices> = {}): Hono {
@@ -285,26 +295,22 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     return entry.result;
   };
   const smallBodyLimit = bodyLimit({ maxSize: 1024 * 1024 });
+  // Takeout ZIPs stream to temporary files; one upload at a time by default.
+  const takeoutUploads = services.takeoutUploads ?? new TakeoutUploads({
+    tempDirectory: config.takeout.tempDirectory,
+    maxArchiveBytes: config.takeout.maxArchiveBytes,
+    concurrency: config.takeout.uploadConcurrency,
+  });
   app.use('*', securityHeaders(true));
   app.use('*', privateResponses());
   app.use('*', forceHttps());
   app.use('*', sameOriginWrites(config.publicBaseUrl));
   app.use('/account/profile', bodyLimit({ maxSize: 100_000 }));
-  // Multipart framing adds a little overhead around the ZIP itself. The
-  // limit applies while streaming, so a missing Content-Length no longer
-  // lets the runtime buffer an oversized upload before it is rejected.
-  app.use('/account/takeout', bodyLimit({
-    maxSize: MAX_YOUTUBE_ARCHIVE_BYTES + 1024 * 1024,
-    onError: (c) => {
-      const me = sessionUser(c);
-      c.header('Cache-Control', 'no-store');
-      if (!me) return c.text('Payload Too Large', 413);
-      const lang = langOf(c);
-      return c.html(accountPage(me, accountStateFor(me, { takeoutError: messages(lang).accountTakeoutTooLarge }), lang), 413);
-    },
-  }));
   // Every other form on the site is small; cap them all.
-  app.use('*', async (c, next) => c.req.path === '/account/takeout' || /^\/(?:api\/)?matching-v3(?:\/|$)/.test(c.req.path) ? next() : smallBodyLimit(c, next));
+  // Takeout uploads (the form and its chunks) enforce their own limits while
+  // streaming to disk (src/takeout-upload.ts).
+  const streamedUpload = (path: string) => path === '/account/takeout' || /^\/account\/takeout\/upload\/[^/]+\/chunk$/.test(path);
+  app.use('*', async (c, next) => streamedUpload(c.req.path) || /^\/(?:api\/)?matching-v3(?:\/|$)/.test(c.req.path) ? next() : smallBodyLimit(c, next));
   app.use('*', async (c, next) => {
     if (c.req.method === 'GET' || c.req.method === 'HEAD') {
       const url = new URL(c.req.url);
@@ -706,8 +712,12 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     // background work for the read pool.
     // Not kept in memory: the provider keeps its small result, and 24 full
     // channel lists held between visits were swapped out (see cachedTagLeanFor).
-    repositoryFor: (user: User) => ({ youtubeChannelTotals: () => withReadPriority({ background: true },
-      () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS, false)) }),
+    repositoryFor: (user: User) => ({
+      youtubeChannelTotals: () => withReadPriority({ background: true },
+        () => cachedChannelTotalsFor(registry, user, '90d', PUBLIC_STALE_MS, false)),
+      lastWatchImportAt: () => withReadPriority({ background: true },
+        () => cachedLastWatchImportFor(registry, user, PUBLIC_STALE_MS)),
+    }),
   });
   app.get('/', async (c) => {
     const stats = await publicCommunityStats();
@@ -720,21 +730,6 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
     c.header('Cache-Control', 'no-store');
     const title = lang === 'zh' ? '你的 YouTube 人生，都記得。' : 'Your YouTube life, remembered.';
     return c.html(shell(title, landingContent(lang, primaryAction, stats), siteNav(c, lang), '', lang, '/'));
-  });
-
-  // Only these public, user-supplied product screenshots can be served.
-  const landingImages = new Map<string, Buffer>();
-  app.get('/landing-assets/:name', (c) => {
-    const name = c.req.param('name');
-    if (!['dashboard.png', 'channel.png', 'matching.png'].includes(name)) return c.notFound();
-    let data = landingImages.get(name);
-    if (!data) {
-      data = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'public', 'landing', name));
-      landingImages.set(name, data);
-    }
-    c.header('Content-Type', 'image/png');
-    c.header('Cache-Control', 'public, max-age=3600');
-    return c.body(new Uint8Array(data));
   });
 
   // The brand mark, served for browser tabs and OG scrapers.
@@ -1489,42 +1484,44 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
   // Browser-friendly Takeout import: same parser and idempotent ingest as
   // the API endpoint, but authenticated by the login session. It lives behind
   // a progressive-disclosure panel on /account so the extension remains the
-  // uncomplicated default path.
+  // uncomplicated default path. The ZIP either arrives in this form or, when
+  // larger than a proxied request may be, was sent beforehand in chunks
+  // (/account/takeout/upload) and this form names that upload.
   app.post('/account/takeout', async (c) => {
     const me = sessionUser(c);
-    if (!me) return c.redirect('/signup');
+    if (!me) {
+      void c.req.raw.body?.cancel().catch(() => {});
+      return c.redirect('/signup');
+    }
     const lang = langOf(c);
     const t = messages(lang);
-    const renderError = (error: string, status: 400 | 413 | 507 = 400) => {
+    const renderError = (error: string, status: 400 | 413 | 429 | 507 = 400) => {
+      void c.req.raw.body?.cancel().catch(() => {});
       c.header('Cache-Control', 'no-store');
       return c.html(accountPage(me, accountStateFor(me, { takeoutError: error }), lang), status);
     };
     if (registry.databaseBytesFor(me) >= config.maxUserDatabaseBytes) {
       return renderError(t.accountTakeoutStorageLimit, 507);
     }
-    const contentLength = Number(c.req.header('content-length') ?? 0);
-    // Multipart framing adds a little overhead around the ZIP itself. Reject
-    // obviously oversized bodies before asking the runtime to buffer them.
-    if (contentLength > MAX_YOUTUBE_ARCHIVE_BYTES + 1024 * 1024) {
-      return renderError(t.accountTakeoutTooLarge, 413);
-    }
     if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data')) {
       return renderError(t.accountTakeoutChooseZip);
     }
+    let archive;
     try {
-      const form = await c.req.formData();
-      const upload = form.get('takeout');
-      if (!upload || typeof upload === 'string' || !upload.name.toLowerCase().endsWith('.zip')) {
-        return renderError(t.accountTakeoutChooseZip);
-      }
-      if (upload.size > MAX_YOUTUBE_ARCHIVE_BYTES) {
-        return renderError(t.accountTakeoutTooLarge, 413);
-      }
+      const form = await takeoutUploads.receiveMultipart(c.req.raw, 'takeout', name => name.toLowerCase().endsWith('.zip'));
+      archive = form.file ?? (form.fields.upload ? await takeoutUploads.complete(me.id, form.fields.upload) : undefined);
+      // A file posted directly wins over a named session, which is dropped.
+      if (form.file && form.fields.upload) void takeoutUploads.cancel(me.id, form.fields.upload).catch(() => {});
+    } catch (error) {
+      return renderError(...takeoutUploadError(error, lang));
+    }
+    if (!archive) return renderError(t.accountTakeoutChooseZip);
+    try {
       const dataKey = registry.dataKeyFor(me);
       if (!dataKey) return renderError(t.accountTakeoutUnavailable);
-      const archive = new Uint8Array(await upload.arrayBuffer());
       const result = await importArchive(registry.repositoryFor(me), {
-        databasePath: registry.databasePathFor(me), archive, dataKey, source: 'takeout',
+        databasePath: registry.databasePathFor(me), archivePath: archive.path, archiveHash: archive.sha256, dataKey, source: 'takeout',
+        limits: { maxArchiveBytes: takeoutUploads.maxArchiveBytes, maxUncompressedBytes: config.takeout.maxUncompressedBytes },
       });
       registry.markCrystalDirty(me);
       clearReadCaches();
@@ -1535,7 +1532,68 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       }), lang));
     } catch (error) {
       return renderError(presentationError(error, lang, 'takeout'));
+    } finally {
+      await archive.cleanup();
     }
+  });
+
+  function takeoutUploadError(error: unknown, lang: Lang): [string, 400 | 413 | 429 | 507] {
+    const t = messages(lang);
+    if (error instanceof UploadTooLarge) return [t.accountTakeoutTooLarge(archiveLimitLabel(takeoutUploads.maxArchiveBytes)), 413];
+    if (error instanceof UploadBusy) return [t.accountTakeoutBusy, 429];
+    if (error instanceof UploadNoSpace) return [t.accountTakeoutNoSpace, 507];
+    if (error instanceof UploadNotFound) return [t.accountTakeoutUploadExpired, 400];
+    if (error instanceof UploadRejected) {
+      return [/incomplete|offset|chunk/i.test(error.message) ? t.accountTakeoutUploadExpired : t.accountTakeoutChooseZip, 400];
+    }
+    return [presentationError(error, lang, 'takeout'), 400];
+  }
+
+  // Chunked Takeout upload (src/takeout-upload.ts): start, then each chunk in
+  // order. JSON in and out; the import itself runs on the form submission.
+  const takeoutUploadJson = (c: Context, error: unknown) => {
+    void c.req.raw.body?.cancel().catch(() => {});
+    const [message, status] = takeoutUploadError(error, langOf(c));
+    c.header('Cache-Control', 'no-store');
+    return c.json({ error: message }, error instanceof UploadNotFound ? 404 : status);
+  };
+  app.post('/account/takeout/upload', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.json({ error: 'Sign in required' }, 401);
+    const t = messages(langOf(c));
+    c.header('Cache-Control', 'no-store');
+    if (registry.databaseBytesFor(me) >= config.maxUserDatabaseBytes) return c.json({ error: t.accountTakeoutStorageLimit }, 507);
+    let body: { size?: unknown; name?: unknown };
+    try { body = await c.req.json(); } catch { return c.json({ error: t.accountTakeoutChooseZip }, 400); }
+    if (typeof body.name !== 'string' || !body.name.toLowerCase().endsWith('.zip')) return c.json({ error: t.accountTakeoutChooseZip }, 400);
+    try {
+      return c.json(await takeoutUploads.start(me.id, Number(body.size)), 201);
+    } catch (error) {
+      return takeoutUploadJson(c, error);
+    }
+  });
+  app.post('/account/takeout/upload/:id/chunk', async (c) => {
+    const me = sessionUser(c);
+    if (!me) {
+      void c.req.raw.body?.cancel().catch(() => {});
+      return c.json({ error: 'Sign in required' }, 401);
+    }
+    const offset = Number(c.req.query('offset'));
+    if (!Number.isSafeInteger(offset) || offset < 0) return takeoutUploadJson(c, new UploadRejected('Unexpected chunk offset'));
+    try {
+      const progress = await takeoutUploads.appendChunk(me.id, c.req.param('id'), offset, c.req.raw);
+      c.header('Cache-Control', 'no-store');
+      return c.json(progress);
+    } catch (error) {
+      return takeoutUploadJson(c, error);
+    }
+  });
+  app.post('/account/takeout/upload/:id/cancel', async (c) => {
+    const me = sessionUser(c);
+    if (!me) return c.json({ error: 'Sign in required' }, 401);
+    await takeoutUploads.cancel(me.id, c.req.param('id'));
+    c.header('Cache-Control', 'no-store');
+    return c.body(null, 204);
   });
 
   app.post('/account/export', async (c) => {
@@ -1816,6 +1874,7 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
 
   // Healthy whenever the database answers: a freshly deployed, still-empty
   // instance must pass health checks before any data migration happens.
+  // version is the image's commit SHA (URTUBE_REVISION), or "unknown".
   app.get('/healthz', (c) => {
     try {
       const user = registry.ensureDefaultUser();
@@ -1824,11 +1883,13 @@ export function createApp(registry: UserRegistry, services: Partial<AppServices>
       return c.json({
         status: 'healthy',
         service: 'urtube',
+        version: config.revision,
       });
     } catch {
       return c.json({
         status: 'unhealthy',
         service: 'urtube',
+        version: config.revision,
       }, 503);
     }
   });
@@ -2021,6 +2082,13 @@ if (process.env.NODE_ENV !== 'test') {
   const registry = new UserRegistry(process.env.USERS_DATABASE_PATH ?? './data/users.sqlite');
   registry.repairArchivesOnOpen = false;
   registry.ensureDefaultUser();
+  // Takeout files left by a process that stopped mid-upload (sessions live in
+  // memory), checked at start and then every 15 minutes.
+  const sweepTakeout = () => void sweepStaleTakeoutUploads(config.takeout.tempDirectory).then((removed) => {
+    if (removed) console.log(`removed ${removed} abandoned Takeout upload(s)`);
+  });
+  sweepTakeout();
+  setInterval(sweepTakeout, 15 * 60_000).unref();
   const app = createApp(registry);
   outliveProxyKeepAlive(serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`urtube listening on :${info.port}`);

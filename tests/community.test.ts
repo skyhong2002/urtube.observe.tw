@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { communityStatsProvider, MIN_RANKED_MEMBERS } from '../src/youtube/community.js';
+import { communityStatsProvider, MIN_FRESHNESS_MEMBERS, MIN_RANKED_MEMBERS, RECENT_IMPORT_DAYS, recentImportsBand } from '../src/youtube/community.js';
+import { Repository } from '../src/data/database.js';
+import type { YoutubeParsedArchive } from '../src/youtube/types.js';
 import { landingContent } from '../src/output/landing.js';
 const id = 'UC' + 'a'.repeat(22);
 const otherId = 'UC' + 'b'.repeat(22);
@@ -12,7 +14,7 @@ test('public-only aggregates deduplicate members and revoke visibility without w
   const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: (u) => {
     read.push(u.id);
     assert.notEqual(u.id, 3);
-    return { youtubeChannelTotals: (range, now) => {
+    return { lastWatchImportAt: () => null, youtubeChannelTotals: (range, now) => {
       assert.equal(range, '90d');
       assert.equal(now.toISOString(), '2026-09-05T00:00:00.000Z');
       return u.id === 1 ? [row(id, 2), row(id, 3), row(null, 4)] : u.id === 2 ? [row(id, 1), row(otherId, 100)] : [row(id, 1), row(otherId, 1)];
@@ -43,7 +45,7 @@ test('public-only aggregates deduplicate members and revoke visibility without w
 test('failed queries hide partial totals and do not serve stale data', async () => {
   let fail = false;
   let now = 0;
-  const provider = communityStatsProvider({ listUsers: () => [{ id: 1, dashboardPublic: true }], repositoryFor: () => ({ youtubeChannelTotals: () => { if (fail) throw new Error('unavailable'); return [row(id, 1)]; } }) }, () => now);
+  const provider = communityStatsProvider({ listUsers: () => [{ id: 1, dashboardPublic: true }], repositoryFor: () => ({ lastWatchImportAt: () => null, youtubeChannelTotals: () => { if (fail) throw new Error('unavailable'); return [row(id, 1)]; } }) }, () => now);
   assert.equal((await provider()).status, 'ready');
   fail = true; now = 300001;
   assert.deepEqual((await provider()).topChannels, []);
@@ -53,7 +55,7 @@ test('failed queries hide partial totals and do not serve stale data', async () 
 });
 
 test('channel names are escaped and empty/unavailable states do not invent metrics', async () => {
-  const provider = communityStatsProvider({ listUsers: () => [1, 2, 3].map(id => ({ id, dashboardPublic: true })), repositoryFor: () => ({ youtubeChannelTotals: () => [row(id, 1, '<script>alert(1)</script>')] }) });
+  const provider = communityStatsProvider({ listUsers: () => [1, 2, 3].map(id => ({ id, dashboardPublic: true })), repositoryFor: () => ({ lastWatchImportAt: () => null, youtubeChannelTotals: () => [row(id, 1, '<script>alert(1)</script>')] }) });
   const stats = await provider();
   const page = landingContent('zh', '', stats);
   assert.ok(page.includes('&lt;script&gt;'));
@@ -68,7 +70,7 @@ test('channel names are escaped and empty/unavailable states do not invent metri
 
 test('duration and watch-count shelves rank independently and revoke both projections', async () => {
   const members = [1, 2, 3].map(id => ({ id, dashboardPublic: true }));
-  const provider = communityStatsProvider({ listUsers: () => members, repositoryFor: () => ({ youtubeChannelTotals: () => [
+  const provider = communityStatsProvider({ listUsers: () => members, repositoryFor: () => ({ lastWatchImportAt: () => null, youtubeChannelTotals: () => [
     { ...row(id, 2), estimatedWatchSeconds: 7200 },
     { ...row(otherId, 100), estimatedWatchSeconds: 600 },
   ] }) });
@@ -81,7 +83,7 @@ test('duration and watch-count shelves rank independently and revoke both projec
   assert.deepEqual((await provider()).topWatchedChannels, []);
 });
 
-test('landing and allowlisted screenshots are served through the production app', async () => {
+test('the landing page is served and the retired screenshot route is gone', async () => {
   const { createApp } = await import('../src/index.js');
   const { UserRegistry } = await import('../src/users.js');
   const registry = new UserRegistry(':memory:');
@@ -94,17 +96,17 @@ test('landing and allowlisted screenshots are served through the production app'
     assert.ok(page.includes('你的 YouTube 人生'));
     assert.ok(page.includes('position:sticky;top:0'));
     assert.ok(!page.includes('/match-preview/landing/'));
-    // The hero sample and the tour are translated HTML; the page references no
-    // screenshots, but the allowlisted assets are still served.
+    // The hero sample and the tour are translated HTML; no screenshots remain.
     assert.ok(!page.includes('/landing-assets/'));
-    for (const name of ['dashboard.png', 'channel.png', 'matching.png']) {
+    for (const name of ['dashboard.png', 'channel.png', 'matching.png', '.env', 'missing.png']) {
       const image = await app.request(`/landing-assets/${name}`);
-      assert.equal(image.status, 200);
-      assert.equal(image.headers.get('content-type'), 'image/png');
-      assert.deepEqual([...new Uint8Array(await image.arrayBuffer()).slice(0, 8)], [137,80,78,71,13,10,26,10]);
+      assert.equal(image.status, 404, name);
+      assert.notEqual(image.headers.get('content-type'), 'image/png', name);
     }
-    assert.equal((await app.request('/landing-assets/.env')).status, 404);
-    assert.equal((await app.request('/landing-assets/missing.png')).status, 404);
+    // The files themselves were removed from the repository and the image.
+    const { existsSync, readFileSync } = await import('node:fs');
+    assert.equal(existsSync(new URL('../public/landing', import.meta.url)), false);
+    assert.doesNotMatch(readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8'), /public\/landing/);
   } finally { registry.close(); }
 });
 
@@ -114,7 +116,7 @@ test('public profile projection reflects renames and revokes private identities'
     { id: 1, dashboardPublic: true, handle: 'alice', displayName: 'Alice' },
     { id: 2, dashboardPublic: false, handle: 'private-user', displayName: 'Private Person' },
   ];
-  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: () => ({ youtubeChannelTotals: () => [] }) });
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: () => ({ lastWatchImportAt: () => null, youtubeChannelTotals: () => [] }) });
   assert.deepEqual((await provider()).profiles, [{ handle: 'alice', displayName: 'Alice' }]);
   assert.ok(!landingContent('zh', '', (await provider())).includes('private-user'));
   users[0].displayName = 'New Alice';
@@ -148,7 +150,7 @@ test('a slow refresh never holds the landing request and still enforces current 
   let now = 0;
   let calls = 0;
   let release!: () => void;
-  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: (u) => ({ youtubeChannelTotals: () => {
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: (u) => ({ lastWatchImportAt: () => null, youtubeChannelTotals: () => {
     calls++;
     return calls <= 2 ? [row(u.id === 1 ? id : otherId, 1)]
       : new Promise(resolve => { release = () => resolve([row(u.id === 1 ? id : otherId, 5)]); });
@@ -205,7 +207,7 @@ test('rankings list only channels watched by at least three public members; tota
   const rows: Record<number, ReturnType<typeof row>[]> = {
     1: [row(id, 1), row(otherId, 50), row(third, 500)], 2: [row(id, 1), row(otherId, 50)], 3: [row(id, 1)], 4: [row(id, 1)],
   };
-  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: u => ({ youtubeChannelTotals: () => rows[u.id] }) });
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: u => ({ lastWatchImportAt: () => null, youtubeChannelTotals: () => rows[u.id] }) });
   const stats = await provider();
   for (const shelf of [stats.topChannels, stats.topWatchedChannels ?? [], stats.topDurationChannels ?? []]) {
     assert.deepEqual(shelf.map(x => [x.id, x.members]), [[id, 4]]);
@@ -214,4 +216,190 @@ test('rankings list only channels watched by at least three public members; tota
   assert.equal(stats.watches, 604);
   users[2].dashboardPublic = false; users[3].dashboardPublic = false;
   assert.deepEqual((await provider()).topChannels, []);
+});
+
+// Data freshness band (approved 2026-11-13): the share of public members with
+// new watch records in the last 7 days, as a band only.
+test('recent-import bands have exact boundaries and need three public members', () => {
+  assert.equal(RECENT_IMPORT_DAYS, 7);
+  assert.equal(MIN_FRESHNESS_MEMBERS, 3);
+  const cases: Array<[number, number, string]> = [
+    [0, 0, 'too-few-members'], [2, 2, 'too-few-members'], [1, 1, 'too-few-members'],
+    [0, 3, 'none'], [1, 3, 'about-quarter'], [2, 3, 'about-half'], [3, 3, 'most'],
+    [1, 4, 'about-quarter'], [2, 4, 'about-half'], [3, 4, 'most'], [4, 4, 'most'],
+    [1, 5, 'few'], [2, 5, 'about-quarter'], [3, 5, 'about-half'], [4, 5, 'most'],
+    [0, 100, 'none'], [1, 100, 'few'], [24, 100, 'few'], [25, 100, 'about-quarter'], [49, 100, 'about-quarter'],
+    [50, 100, 'about-half'], [74, 100, 'about-half'], [75, 100, 'most'], [100, 100, 'most'],
+  ];
+  for (const [recent, members, band] of cases) assert.equal(recentImportsBand(recent, members), band, `${recent}/${members}`);
+});
+
+const freshNow = Date.parse('2026-11-13T12:00:00Z');
+function freshnessSource(imports: Record<number, string | null>, users: Array<{ id: number; dashboardPublic: boolean }>) {
+  const reads: number[] = [];
+  return {
+    reads,
+    source: { listUsers: () => users, repositoryFor: (u: { id: number }) => ({
+      youtubeChannelTotals: () => [row(id, 1)],
+      lastWatchImportAt: () => { reads.push(u.id); return imports[u.id] ?? null; },
+    }) },
+  };
+}
+
+test('only public members count toward the band, and the 7-day window compares UTC days', async () => {
+  const users = [1, 2, 3, 4, 5].map(id => ({ id, dashboardPublic: id !== 5 }));
+  const imports: Record<number, string | null> = {
+    1: '2026-11-06T00:00:00.000Z', // the UTC day seven days before now: counts
+    2: '2026-11-05T23:59:59.999Z', // the day before: does not
+    3: '2026-11-06', // a durable copy keeps the day only
+    4: null, // nothing imported yet
+    5: '2026-11-13T11:00:00.000Z', // private: never read, never counted
+  };
+  const { source, reads } = freshnessSource(imports, users);
+  const stats = await communityStatsProvider(source, () => freshNow)();
+  assert.equal(stats.publicMembers, 4);
+  assert.equal(stats.recentImports, 'about-half', '2 of 4 public members');
+  assert.ok(!reads.includes(5), 'a private member’s archive is not read');
+  // Nothing but the band leaves the provider.
+  assert.deepEqual(Object.keys(stats).filter(key => /import/i.test(key)), ['recentImports']);
+  assert.doesNotMatch(JSON.stringify(stats), /2026-11-0[56]/);
+  imports[4] = 'garbage';
+  assert.equal((await communityStatsProvider(source, () => freshNow)()).recentImports, 'about-half', 'an unparseable time is not recent');
+});
+
+test('fewer than three public members show no band; going private applies on the next request', async () => {
+  const users = [1, 2, 3].map(id => ({ id, dashboardPublic: true }));
+  const recent = '2026-11-12T00:00:00.000Z';
+  const { source, reads } = freshnessSource({ 1: recent, 2: recent, 3: null }, users);
+  const provider = communityStatsProvider(source, () => freshNow);
+  assert.equal((await provider()).recentImports, 'about-half');
+  users[2].dashboardPublic = false;
+  const after = await provider();
+  assert.equal(after.publicMembers, 2);
+  assert.equal(after.recentImports, 'too-few-members');
+  const zh = landingContent('zh', '', after, freshNow);
+  assert.match(zh, /近 7 天有新匯入：<strong>成員太少，不顯示<\/strong>/);
+  assert.doesNotMatch(zh, /半數/);
+  assert.match(landingContent('en', '', after, freshNow), /New imports in the last 7 days: <strong>too few members to show<\/strong>/);
+  // Private member 3 was read only while public.
+  assert.equal(reads.filter(user => user === 3).length, 1);
+  users[0].dashboardPublic = false;
+  users[1].dashboardPublic = false;
+  const none = await provider();
+  assert.equal(none.recentImports, 'too-few-members');
+});
+
+test('the band is cached under the membership key and recomputed when membership changes', async () => {
+  const users = [1, 2, 3, 4].map(id => ({ id, dashboardPublic: true, handle: `m${id}`, displayName: `M${id}` }));
+  const imports: Record<number, string | null> = { 1: '2026-11-13T00:00:00Z', 2: null, 3: null, 4: null };
+  const { source, reads } = freshnessSource(imports, users);
+  let now = freshNow;
+  const provider = communityStatsProvider(source, () => now);
+  const first = await provider();
+  assert.equal(first.recentImports, 'about-quarter');
+  assert.equal(reads.length, 4);
+  // Same members within the cache lifetime: the cached result, no new reads.
+  imports[2] = imports[3] = imports[4] = '2026-11-13T00:00:00Z';
+  assert.equal(await provider(), first);
+  assert.equal(reads.length, 4);
+  // A membership change is a new key: recomputed at once, without the private member.
+  users[0].dashboardPublic = false;
+  const changed = await provider();
+  assert.equal(changed.recentImports, 'most', '3 of 3 remaining public members');
+  assert.deepEqual(reads.slice(4).sort(), [2, 3, 4]);
+  // A rename changes the public profile projection, and so the key, too.
+  users[1].displayName = 'Renamed';
+  await provider();
+  assert.equal(reads.length, 10);
+  // After the cache lifetime the same members are read again.
+  now += 300_001;
+  await provider();
+  assert.equal(reads.length, 13);
+});
+
+test('an unreadable last import hides only the band', async () => {
+  const users = [1, 2, 3].map(id => ({ id, dashboardPublic: true }));
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: u => ({
+    youtubeChannelTotals: () => [row(id, 1)],
+    lastWatchImportAt: () => { if (u.id === 2) throw new Error('unavailable'); return '2026-11-13'; },
+  }) }, () => freshNow);
+  const stats = await provider();
+  assert.equal(stats.status, 'ready');
+  assert.equal(stats.recentImports, undefined);
+  assert.equal(stats.topChannels[0].id, id);
+  const page = landingContent('zh', '', stats, freshNow);
+  assert.doesNotMatch(page, /近 7 天有新匯入/);
+  assert.match(page, /不代表各成員最後匯入時間/);
+});
+
+test('the landing page shows the band beside the calculation time in both languages', () => {
+  const base = { status: 'ready' as const, generatedAt: new Date(freshNow).toISOString(), publicMembers: 4, activeMembers: 4, watches: 0, channels: 0, topChannels: [] };
+  const labels: Record<string, [RegExp, RegExp]> = {
+    none: [/沒有公開成員/, /no public members/],
+    few: [/少數公開成員（未滿 1\/4）/, /a few public members \(under a quarter\)/],
+    'about-quarter': [/約四分之一公開成員/, /about a quarter of public members/],
+    'about-half': [/約半數公開成員/, /about half of public members/],
+    most: [/多數公開成員（3\/4 以上）/, /most public members \(three quarters or more\)/],
+  };
+  for (const [band, [zh, en]] of Object.entries(labels)) {
+    const stats = { ...base, recentImports: band as never };
+    const zhPage = landingContent('zh', '', stats, freshNow);
+    assert.match(zhPage, /<p class="lp-updated">統計計算於 .*?不代表各成員最後匯入時間。<\/p><p class="lp-updated lp-recent-imports"[^>]*>近 7 天有新匯入：<strong>/);
+    assert.match(zhPage, zh);
+    assert.match(zhPage, /只顯示分級，不顯示人數或任何成員的匯入時間/);
+    const enPage = landingContent('en', '', stats, freshNow);
+    assert.match(enPage, /This is not each member’s last import time\.<\/p><p class="lp-updated lp-recent-imports"[^>]*>New imports in the last 7 days: <strong>/);
+    assert.match(enPage, en);
+  }
+  // Unavailable statistics show neither the time nor a band.
+  assert.doesNotMatch(landingContent('zh', '', { ...base, status: 'unavailable', recentImports: 'most' }, freshNow), /近 7 天有新匯入/);
+});
+
+test('the last watch import time moves only when new watch records are written', () => {
+  const repository = new Repository(':memory:');
+  try {
+    assert.equal(repository.youtubeLastWatchImportAt(), null);
+    const watch = (eventId: string, videoId: string, watchedAt: string) => ({
+      eventId, videoId, title: 'Synthetic', url: `https://www.youtube.com/watch?v=${videoId}`, channelId: id, channelTitle: 'Synthetic channel',
+      channelUrl: '', watchedAt, actualWatchedSeconds: null, activityType: 'video' as const,
+    });
+    const archive = (hash: string, watches: ReturnType<typeof watch>[]): YoutubeParsedArchive => ({ archiveHash: hash, source: 'takeout', searches: [], watches });
+    const first = archive('fresh-1', [watch('e1', 'AAAAAAAAAA1', '2026-01-01T00:00:00Z')]);
+    repository.ingestYoutubeArchive(first, '2026-11-01T00:00:00.000Z');
+    assert.equal(repository.youtubeLastWatchImportAt(), '2026-11-01T00:00:00.000Z');
+    // Re-importing the same records later writes nothing new.
+    repository.ingestYoutubeArchive({ ...first, archiveHash: 'fresh-2' }, '2026-11-12T00:00:00.000Z');
+    assert.equal(repository.youtubeLastWatchImportAt(), '2026-11-01T00:00:00.000Z');
+    // Old viewing imported now is a new import: the write time counts, not the watch time.
+    repository.ingestYoutubeArchive(archive('fresh-3', [watch('e2', 'AAAAAAAAAA2', '2020-01-01T00:00:00Z')]), '2026-11-12T00:00:00.000Z');
+    assert.equal(repository.youtubeLastWatchImportAt(), '2026-11-12T00:00:00.000Z');
+  } finally { repository.close(); }
+});
+
+test('the production landing page computes the band from public archives only', async () => {
+  const { createApp } = await import('../src/index.js');
+  const { UserRegistry } = await import('../src/users.js');
+  const { clearReadCaches } = await import('../src/data/read-cache.js');
+  clearReadCaches();
+  const registry = new UserRegistry(':memory:');
+  try {
+    const members = ['fresh-a', 'fresh-b', 'fresh-c', 'fresh-d'].map(handle => registry.createUser(handle, handle));
+    for (const user of members) registry.setDashboardPublic(user.handle, true);
+    registry.setDashboardPublic('fresh-d', false);
+    const recent = new Date().toISOString();
+    // A recent import by one public member and by the private member.
+    for (const user of [members[0], members[3]]) {
+      registry.repositoryFor(user).ingestYoutubeArchive({ archiveHash: `fresh-${user.id}`, source: 'takeout', searches: [], watches: [{
+        eventId: `fresh-${user.id}`, videoId: 'AAAAAAAAAA1', title: 'Synthetic', url: 'https://www.youtube.com/watch?v=AAAAAAAAAA1',
+        channelId: id, channelTitle: 'Synthetic channel', channelUrl: '', watchedAt: recent, actualWatchedSeconds: 60, activityType: 'video',
+      }] }, recent);
+    }
+    const app = createApp(registry);
+    const page = await (await app.request('/?lang=en')).text();
+    assert.match(page, /data-band="about-quarter"/, '1 of 3 public members');
+    registry.setDashboardPublic('fresh-c', false);
+    const fewer = await (await app.request('/?lang=zh')).text();
+    assert.match(fewer, /data-band="too-few-members"/);
+    assert.match(fewer, /成員太少，不顯示/);
+  } finally { registry.close(); }
 });

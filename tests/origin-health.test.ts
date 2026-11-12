@@ -4,6 +4,9 @@ import test from 'node:test';
 import { createApp } from '../src/index.js';
 import { EVENT_LOOP_DELAY_WINDOW_MS, EventLoopLagProbe, nextEventLoopDelay } from '../src/ops-status.js';
 import { ORIGIN_KEEP_ALIVE_TIMEOUT_MS, outliveProxyKeepAlive } from '../src/origin-server.js';
+import { readFileSync } from 'node:fs';
+import { config, parseRevision } from '../src/config.js';
+import { createIngestApp } from '../src/ingest.js';
 import { UserRegistry } from '../src/users.js';
 import { runYoutubeWorkerCycle, type YoutubeWorkerSteps } from '../src/youtube-worker.js';
 
@@ -25,6 +28,41 @@ test('healthz answers from a schema probe without exposing archive counts', asyn
   } finally {
     registry.close();
   }
+});
+
+test('healthz reports the injected build revision, or "unknown", without changing other fields', async () => {
+  // The test environment injects no URTUBE_REVISION.
+  assert.equal(config.revision, 'unknown');
+  const registry = new UserRegistry(':memory:');
+  try {
+    const response = await createApp(registry).request('/healthz');
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: 'healthy', service: 'urtube', version: 'unknown' });
+    const ingest = await createIngestApp(registry).request('/healthz');
+    const body = await ingest.json() as Record<string, unknown>;
+    assert.equal(body.service, 'urtube-ingest');
+    assert.equal(body.version, 'unknown');
+    // A broken database still answers 503 with the same fields.
+    const broken = new UserRegistry(':memory:');
+    const app = createApp(broken);
+    broken.close();
+    const failing = await app.request('/healthz');
+    assert.equal(failing.status, 503);
+    assert.deepEqual(await failing.json(), { status: 'unhealthy', service: 'urtube', version: 'unknown' });
+  } finally {
+    registry.close();
+  }
+  const sha = 'a695366' + '0'.repeat(33);
+  assert.equal(parseRevision(sha), sha);
+  assert.equal(parseRevision(` ${sha.toUpperCase()}\n`), sha);
+  assert.equal(parseRevision('a695366'), 'a695366');
+  for (const value of [undefined, '', 'unknown', 'main', 'abc', '<script>', sha + '0']) assert.equal(parseRevision(value), 'unknown');
+  // The image takes the revision as a build argument and CI passes the commit.
+  const dockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
+  assert.match(dockerfile, /^ARG URTUBE_REVISION=unknown$/m);
+  assert.match(dockerfile, /^ENV URTUBE_REVISION=\$URTUBE_REVISION$/m);
+  const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /build-args: \|\n\s+URTUBE_REVISION=\$\{\{ github\.sha \}\}/);
 });
 
 test('event-loop delay keeps the worst recent stall until its window expires', () => {

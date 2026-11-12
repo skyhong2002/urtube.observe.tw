@@ -156,6 +156,8 @@ JS
 | `SIGNUP_ENABLED`、`MAX_USERS`、`MAX_USER_DATABASE_MB` | 範例預設關閉註冊、最多 25 人、每人 512 MiB；上方本機初始化開啟註冊。可依實例容量調整。 |
 | `DATABASE_PATH`、`USERS_DATABASE_PATH` | 未設定時為 `./data/urtube.sqlite`、`./data/users.sqlite`，其他帳號資料在 `./data/users/`。各服務須從同一專案目錄啟動。 |
 | `AI_TIMEOUT_MS`、`AI_CONCURRENCY` | 預設單次 60 秒、最多 4 個模型請求併發；依實際服務調整並留意用量。 |
+| `TAKEOUT_MAX_ARCHIVE_MB`、`TAKEOUT_MAX_UNCOMPRESSED_MB`、`TAKEOUT_UPLOAD_CONCURRENCY`、`TAKEOUT_TEMP_DIR` | Takeout ZIP 上限預設 2048 MB，串流寫入暫存檔（預設系統暫存目錄，匯入後即刪除）；只解壓觀看／搜尋紀錄，解壓後上限 250 MB；每個程序同時 1 個上傳／匯入。暫存目錄需容得下最大的 ZIP。 |
+| `URTUBE_REVISION` | 映像建置時注入的 commit SHA（CI 以 build-arg 傳入），`/healthz` 的 `version` 會回報；未注入時為 `unknown`。 |
 
 完整設定見 [`.env.example`](.env.example)。Google 的設定步驟與條款見 [OAuth Web server 指南](https://developers.google.com/identity/protocols/oauth2/web-server)、[YouTube API 啟用指南](https://developers.google.com/youtube/v3/getting-started)及 [Data Portability 前置作業](https://developers.google.com/data-portability)。
 
@@ -221,7 +223,7 @@ Compose 會啟動四個服務，資料存於 `urtube-data` volume，備份預設
 | 無法 Google 登入／redirect mismatch | 比對 `.env` 的 origin、Google Console callback 與瀏覽器實際網址；確認測試帳號、client ID／secret 與註冊設定。 |
 | `EADDRINUSE` | app／ingest 分別使用 3000／3001；Compose 使用 18080／18081。先確認連接埠沒有其他服務。 |
 | AI／metadata 沒進度 | 確認 worker 運作、API key、模型名稱、endpoint、配額與 timeout；依畫面的失敗／重試狀態排查。 |
-| Takeout 被拒絕 | 使用包含觀看歷史的原始 ZIP，瀏覽器上傳上限 100 MiB；依錯誤訊息檢查格式與帳號儲存容量。 |
+| Takeout 被拒絕 | 使用包含觀看歷史的原始 ZIP，每個上限 2 GB（`TAKEOUT_MAX_ARCHIVE_MB`）；超過 90 MB 的檔案由瀏覽器分段上傳。Google 分割成多個 ZIP 時逐一上傳，只有含 watch-history 的那個是必要的。依錯誤訊息檢查格式、帳號儲存容量與暫存空間；429 表示另一個匯入進行中。 |
 | 看不到配對人選 | 檢查配對開關、匯入與處理進度，以及近期觀看資料是否充足；公開帳號可直接進行 Blend。 |
 | readiness 503 | 查看 `/readyz` 的各項結果、worker heartbeat 與備份狀態，不只看網站是否能打開。 |
 

@@ -14,7 +14,8 @@ export function presentationError(error: unknown, lang: Lang, context: 'login' |
     return t('無法完成帳號設定，請確認輸入內容後再試一次。', 'Account setup could not be completed. Check your details and try again.');
   }
   if (context === 'takeout') {
-    if (message === 'Archive contains no recognized YouTube watch or search history') return t('檔案中找不到 YouTube 歷史紀錄，請確認匯出項目。', 'No YouTube history was found in the archive. Check the data selected for export.');
+    // A split export keeps the history in one of its ZIPs only.
+    if (message === 'Archive contains no recognized YouTube watch or search history') return t('檔案中找不到 YouTube 歷史紀錄，請確認匯出項目。Takeout 分成多個 ZIP 時，觀看紀錄只在其中一個，請上傳含 watch-history 檔案的那一個。', 'No YouTube history was found in the archive. Check the data selected for export. If Google split your export into several ZIPs, the history is in only one of them: upload the one with the watch-history file.');
     if (message === 'YouTube archive exceeds compressed size limit' || message === 'YouTube archive exceeds uncompressed size limit') return t('檔案內容過大，請只匯出 YouTube 歷史紀錄後再試。', 'The archive contents are too large. Export only YouTube history and try again.');
     return t('無法讀取這份檔案，請確認是 Google Takeout 原始 ZIP 後再試。', 'This archive could not be read. Check that it is the original Google Takeout ZIP and try again.');
   }

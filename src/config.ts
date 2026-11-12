@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 
 const port = Number(process.env.PORT ?? 3000);
@@ -19,6 +20,22 @@ const maxUserDatabaseMb = Number(process.env.MAX_USER_DATABASE_MB ?? 512);
 const ingestRequestsPerMinute = Number(process.env.INGEST_REQUESTS_PER_MINUTE ?? 300);
 const backupIntervalHours = Number(process.env.BACKUP_INTERVAL_HOURS ?? 24);
 const backupRetentionDays = Number(process.env.BACKUP_RETENTION_DAYS ?? 30);
+// Takeout uploads stream to a temporary file (src/takeout-upload.ts), so the
+// ZIP size is bounded by disk, not memory. 2 GB matches Google Takeout's
+// default split size. Only the watch/search history inside is inflated, into
+// memory, and that is bounded separately (zip bomb protection).
+const takeoutMaxArchiveMb = Number(process.env.TAKEOUT_MAX_ARCHIVE_MB ?? 2048);
+const takeoutMaxUncompressedMb = Number(process.env.TAKEOUT_MAX_UNCOMPRESSED_MB ?? 250);
+// Uploads (and the imports that follow them) in flight per process. Each
+// import may hold up to TAKEOUT_MAX_UNCOMPRESSED_MB of history in memory.
+const takeoutUploadConcurrency = Number(process.env.TAKEOUT_UPLOAD_CONCURRENCY ?? 1);
+// Injected at image build time (Dockerfile ARG, CI passes github.sha).
+// Anything that is not a commit SHA is reported as "unknown".
+export function parseRevision(value: string | undefined): string {
+  const trimmed = value?.trim() ?? '';
+  return /^[0-9a-f]{7,40}$/i.test(trimmed) ? trimmed.toLowerCase() : 'unknown';
+}
+const revision = parseRevision(process.env.URTUBE_REVISION);
 const aiClassificationEnabled = /^(1|true|yes)$/i.test(
   process.env.AI_CLASSIFICATION_ENABLED ?? ''
 );
@@ -41,12 +58,17 @@ for (const [name, value] of [
   ['INGEST_REQUESTS_PER_MINUTE', ingestRequestsPerMinute],
   ['BACKUP_INTERVAL_HOURS', backupIntervalHours],
   ['BACKUP_RETENTION_DAYS', backupRetentionDays],
+  ['TAKEOUT_MAX_ARCHIVE_MB', takeoutMaxArchiveMb],
+  ['TAKEOUT_MAX_UNCOMPRESSED_MB', takeoutMaxUncompressedMb],
+  ['TAKEOUT_UPLOAD_CONCURRENCY', takeoutUploadConcurrency],
 ] as const) {
   if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
 }
 
 export const config = {
   port,
+  // Commit SHA of the running image, or "unknown" when not injected.
+  revision,
   databasePath: process.env.DATABASE_PATH ?? './data/urtube.sqlite',
   publicBaseUrl,
   ingestToken,
@@ -100,6 +122,12 @@ export const config = {
   },
   opsStatusDirectory: process.env.OPS_STATUS_DIRECTORY
     ?? dirname(process.env.DATABASE_PATH ?? './data/urtube.sqlite'),
+  takeout: {
+    maxArchiveBytes: takeoutMaxArchiveMb * 1024 * 1024,
+    maxUncompressedBytes: takeoutMaxUncompressedMb * 1024 * 1024,
+    uploadConcurrency: takeoutUploadConcurrency,
+    tempDirectory: process.env.TAKEOUT_TEMP_DIR || tmpdir(),
+  },
   backup: {
     directory: process.env.URTUBE_BACKUP_DIRECTORY ?? '/backups',
     intervalHours: backupIntervalHours,

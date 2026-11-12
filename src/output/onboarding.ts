@@ -8,7 +8,8 @@ import { processingVisibilitySetting } from './processing-visibility.js';
 import { v3ProcessingNotice, v3ProcessingStyles } from './v3-processing.js';
 import type { V3ProcessingStatus } from '../youtube/v3-processing.js';
 import { sharingPreview, sharingPreviewScript, sharingPreviewStyles } from './sharing-preview.js';
-import { MAX_YOUTUBE_ARCHIVE_BYTES } from '../youtube/takeout.js';
+import { config } from '../config.js';
+import { archiveLimitLabel } from '../takeout-upload.js';
 import { uploadFeedbackScript } from './form-feedback.js';
 
 export const formStyles = `
@@ -91,17 +92,22 @@ function signupPrepSummary(lang: Lang): string {
   return `<div class="ob-prep-summary"><p>${t.importPrepSummary(takeout)}</p><p class="ob-prep-links"><a href="#import-methods">${lang === 'zh' ? '看兩種方式的準備 ↓' : 'What each method needs ↓'}</a></p></div>`;
 }
 
+// Files up to this size are posted in the form itself; larger ones are sent
+// in chunks first (src/takeout-upload.ts), because Cloudflare refuses request
+// bodies over 100 MB.
+const DIRECT_UPLOAD_BYTES = 90 * 1024 * 1024;
+
 // Preparation notes describe the existing flow; they do not change OAuth or
 // the defaults it creates (private account, discovery off).
 function signupPreparation(lang: Lang): string {
   const zh = lang === 'zh';
-  const maxMb = Math.round(MAX_YOUTUBE_ARCHIVE_BYTES / 1024 / 1024);
+  const limit = archiveLimitLabel(config.takeout.maxArchiveBytes);
   const methods: Array<[string, string, string[]]> = zh ? [
     ['Chrome 擴充功能', '建議 · 會持續同步', ['需要桌機版 Chrome，並登入要分析的 YouTube 帳號。', '需開啟 YouTube 觀看紀錄。', '第一次掃描時，請保持 YouTube 紀錄分頁開啟直到完成。']],
-    ['Google Takeout', '一次匯入 · 補齊舊紀錄', ['在 Google Takeout 只選 YouTube 紀錄，格式選 HTML、壓縮檔選 ZIP。', `Google 準備檔案可能需要數小時以上；之後上傳原始 ZIP（上限 ${maxMb} MB）。只選紀錄仍超過上限時，改用擴充功能，但較舊的紀錄可能不完整。`, '包含較舊的紀錄與確切觀看時間。']],
+    ['Google Takeout', '一次匯入 · 補齊舊紀錄', ['在 Google Takeout 只選 YouTube 紀錄，格式選 HTML、壓縮檔選 ZIP。', `Google 準備檔案可能需要數小時以上；之後上傳原始 ZIP（每個上限 ${limit}）。Google 分成多個 ZIP 時，可以逐一上傳；只有含觀看紀錄的那一個是必要的。`, '包含較舊的紀錄與確切觀看時間。']],
   ] : [
     ['Chrome extension', 'Recommended · keeps syncing', ['Needs desktop Chrome signed in to the YouTube account you want to analyze.', 'YouTube watch history must be turned on.', 'Keep the YouTube History tab open until the first scan finishes.']],
-    ['Google Takeout', 'One-time import · older history', ['In Google Takeout, select only YouTube history, in HTML format, as a ZIP.', `Google can take hours or longer to prepare it. Upload the original ZIP (up to ${maxMb} MB). If it is still larger with only history selected, use the extension instead; older history may be incomplete.`, 'Adds older history with exact viewing times.']],
+    ['Google Takeout', 'One-time import · older history', ['In Google Takeout, select only YouTube history, in HTML format, as a ZIP.', `Google can take hours or longer to prepare it. Upload the original ZIP (up to ${limit} each). If Google splits the export into several ZIPs, upload them one at a time; only the one with your watch history is needed.`, 'Adds older history with exact viewing times.']],
   ];
   const checklist = zh ? [
     '<strong>需要一點時間：</strong>擴充功能的第一次掃描，以及 Takeout ZIP 的上傳與匯入完成前，請保持該分頁開啟；匯入完成後，興趣分析會在背景進行，這時可以先離開，之後再回來。',
@@ -237,10 +243,11 @@ export function accountPage(user: User, state: AccountPageState = {}, lang: Lang
       <p>${t.accountTakeoutPara}</p>
       <ol class="ob-steps">${t.accountTakeoutSteps.map((step) => `<li>${step}</li>`).join('')}</ol>
       ${takeoutFeedback}
-      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form" data-takeout-form data-max-bytes="${MAX_YOUTUBE_ARCHIVE_BYTES}" data-invalid-file="${html(t.accountTakeoutChooseZip)}" data-too-large="${html(t.accountTakeoutTooLarge)}" data-uploading="${lang === 'zh' ? '匯入中…' : 'Importing…'}" data-wait="${lang === 'zh' ? '正在上傳並匯入紀錄，請保持此頁開啟。完成後會顯示結果。' : 'Uploading and importing your history. Keep this page open until the result appears.'}">
+      <form method="post" action="/account/takeout" enctype="multipart/form-data" class="ob-form" data-takeout-form data-max-bytes="${config.takeout.maxArchiveBytes}" data-direct-max="${Math.min(DIRECT_UPLOAD_BYTES, config.takeout.maxArchiveBytes)}" data-chunk-start="/account/takeout/upload" data-progress="${html(t.accountTakeoutUploadProgress)}" data-upload-failed="${html(t.accountTakeoutUploadFailed)}" data-invalid-file="${html(t.accountTakeoutChooseZip)}" data-too-large="${html(t.accountTakeoutTooLarge(archiveLimitLabel(config.takeout.maxArchiveBytes)))}" data-uploading="${lang === 'zh' ? '匯入中…' : 'Importing…'}" data-wait="${lang === 'zh' ? '正在上傳並匯入紀錄，請保持此頁開啟。完成後會顯示結果。' : 'Uploading and importing your history. Keep this page open until the result appears.'}">
         <label for="takeout">${t.accountTakeoutFile}</label>
         <input id="takeout" name="takeout" type="file" accept=".zip,application/zip,application/x-zip-compressed" required aria-describedby="takeout-limit takeout-status">
-        <p class="ob-help" id="takeout-limit">${t.accountTakeoutLimit}</p>
+        <input type="hidden" name="upload" value="">
+        <p class="ob-help" id="takeout-limit">${t.accountTakeoutLimit(archiveLimitLabel(config.takeout.maxArchiveBytes))}</p>
         <button type="submit">${t.accountTakeoutSubmit}</button>
       </form>
       <p id="takeout-status" role="status" aria-live="polite"></p>

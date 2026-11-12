@@ -3,6 +3,8 @@ import test from 'node:test';
 import { config } from '../src/config.js';
 import { createApp } from '../src/index.js';
 import { settings } from '../src/matching-v3/model.js';
+import { tmpdir } from 'node:os';
+import { TakeoutUploads } from '../src/takeout-upload.js';
 import { UserRegistry } from '../src/users.js';
 
 const origin = new URL(config.publicBaseUrl).origin;
@@ -16,7 +18,8 @@ test('site-wide origin checks protect consent and session writes before body han
     const app = createApp(registry);
     for (const headers of [{}, { origin: 'null' }, { origin: 'https://foreign.invalid' }, { origin, 'sec-fetch-site': 'cross-site' }]) {
       for (const path of ['/account/visibility', '/account/matching', '/account/reference-population', '/account/export', '/account/delete',
-        '/account/rotate', '/account/takeout', '/onboarding', '/signup', '/logout', '/extension-setup/token', '/matches/request']) {
+        '/account/rotate', '/account/takeout', '/account/takeout/upload', '/account/takeout/upload/x/chunk', '/account/takeout/upload/x/cancel',
+        '/onboarding', '/signup', '/logout', '/extension-setup/token', '/matches/request']) {
         const response = await app.request(path, {
           method: 'POST', headers: { cookie, ...headers, 'content-type': 'application/x-www-form-urlencoded' },
           body: 'dashboardPublic=1&matchingOptIn=1&referenceOptIn=1',
@@ -43,14 +46,17 @@ test('site body guards enforce actual lengths while retaining the current form a
   try {
     const user = registry.createUser('body-fixture', 'Synthetic');
     const cookie = `urtube_session=${registry.createSession(user)}`;
-    const app = createApp(registry, { matchingV3: { settings: settings({ MATCHING_V3_ENABLED: 'true' }), compute: {
+    // The Takeout limit is configurable (2 GB by default); a small one keeps
+    // the streamed fixture small. Framing allowance: 1 MiB, as before.
+    const takeoutUploads = new TakeoutUploads({ tempDirectory: tmpdir(), maxArchiveBytes: 64 * 1024, concurrency: 1 });
+    const app = createApp(registry, { takeoutUploads, matchingV3: { settings: settings({ MATCHING_V3_ENABLED: 'true' }), compute: {
       cluster: async () => { throw new Error('unexpected compute'); },
       compare: async () => { throw new Error('unexpected compute'); },
     } } });
     for (const [path, maxSize, type] of [
       ['/account/profile', 100_000, 'application/x-www-form-urlencoded'],
       ['/account/visibility', 1024 * 1024, 'application/x-www-form-urlencoded'],
-      ['/account/takeout', 101 * 1024 * 1024, 'multipart/form-data; boundary=synthetic'],
+      ['/account/takeout', 64 * 1024 + 1024 * 1024, 'multipart/form-data; boundary=synthetic'],
       ['/api/matching-v3/preferences', 32 * 1024, 'application/json'],
     ] as const) {
       let bytes = 0, cancelled = false;
@@ -112,7 +118,8 @@ test('public health probes omit operational details while status requires an all
     t.mock.method(repository, 'youtubeCounts', () => { throw new Error('health must not aggregate archives'); });
     const health = await app.request('/healthz');
     assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), { status: 'healthy', service: 'urtube' });
+    // version is the image's commit SHA (approved 2026-11-13), not operational state.
+    assert.deepEqual(await health.json(), { status: 'healthy', service: 'urtube', version: config.revision });
     const readiness = await app.request('/readyz');
     const ready = await readiness.json() as { status: string; checks: Record<string, boolean> };
     assert.deepEqual(Object.keys(ready).sort(), ['checks', 'status']);
@@ -121,7 +128,7 @@ test('public health probes omit operational details while status requires an all
     t.mock.method(repository, 'ping', () => { throw new Error('synthetic-private-database-path'); });
     const unhealthy = await app.request('/healthz');
     assert.equal(unhealthy.status, 503);
-    assert.deepEqual(await unhealthy.json(), { status: 'unhealthy', service: 'urtube' });
+    assert.deepEqual(await unhealthy.json(), { status: 'unhealthy', service: 'urtube', version: config.revision });
     const notReady = await app.request('/readyz');
     assert.equal(notReady.status, 503);
     assert.equal((await notReady.json() as { checks: { databases: boolean } }).checks.databases, false);
