@@ -294,3 +294,12 @@ test('community statistics explain their coverage and flag delayed updates', () 
     assert.equal(invalid('.lp-stale').length, 1);
   }
 });
+
+test('sign-up says which import steps need the tab open and when leaving is fine', () => {
+  const zh = signupStartPage('', 'zh');
+  const en = signupStartPage('', 'en');
+  assert.match(zh, /第一次掃描，以及 Takeout ZIP 的上傳與匯入完成前，請保持該分頁開啟/);
+  assert.match(zh, /興趣分析會在背景進行，這時可以先離開/);
+  assert.match(en, /keep the tab open until the extension(&#39;|')s first scan, or the Takeout upload and import, finishes/);
+  assert.match(en, /interest analysis runs in the background, so you can leave/);
+});

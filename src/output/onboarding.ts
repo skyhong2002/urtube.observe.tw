@@ -104,12 +104,12 @@ function signupPreparation(lang: Lang): string {
     ['Google Takeout', 'One-time import · older history', ['In Google Takeout, select only YouTube history, in HTML format, as a ZIP.', `Google can take hours or longer to prepare it. Upload the original ZIP (up to ${maxMb} MB).`, 'Adds older history with exact viewing times.']],
   ];
   const checklist = zh ? [
-    '<strong>需要一點時間：</strong>匯入與興趣分析依紀錄多寡需要等待，可以先離開，之後再回來。',
+    '<strong>需要一點時間：</strong>擴充功能的第一次掃描，以及 Takeout ZIP 的上傳與匯入完成前，請保持該分頁開啟；匯入完成後，興趣分析會在背景進行，這時可以先離開，之後再回來。',
     '<strong>預設私人：</strong>新帳號不公開，好友探索關閉。',
     '<strong>不會自動公開：</strong>匯入資料或預覽分享畫面都不會改變設定，要分享時由你自己開啟。',
     '<strong>隨時帶走或刪除：</strong>可在設定下載 ZIP 匯出，或永久刪除帳號與紀錄。',
   ] : [
-    '<strong>It takes a while:</strong> importing and interest analysis depend on how much history you have. You can leave and come back.',
+    '<strong>It takes a while:</strong> keep the tab open until the extension\'s first scan, or the Takeout upload and import, finishes. After that, interest analysis runs in the background, so you can leave and come back.',
     '<strong>Private by default:</strong> new accounts are not public, and friend discovery is off.',
     '<strong>Nothing goes public automatically:</strong> importing or previewing sharing never changes your settings. You decide when to share.',
     '<strong>Take it with you:</strong> download a ZIP export or permanently delete your account and history from Settings.',
