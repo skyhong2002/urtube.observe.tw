@@ -535,6 +535,10 @@ const en = {
     "You may separately contribute channel-category percentages to help compare viewing habits. Each person has equal weight, and results require comparable data from at least five consenting members. Statistics exclude names, watch history and matching records. You can withdraw in Settings anytime."
   ],
   [
+    "Home page channel rankings",
+    "The home page combines the last 90 days of members with a public dashboard. A channel is listed only after at least three of these members watched it; totals still count everyone. Making your dashboard private removes your viewing from these figures on the next load."
+  ],
+  [
     "The Chrome extension",
     "The extension records your viewing time on YouTube, opens Google My Activity to read your records during sync, and sends them to urtube. Your connection code and pending records are saved in your Chrome profile."
   ],
@@ -1125,6 +1129,10 @@ const zh: typeof en = {
   [
     "匿名社群統計",
     "你可以另外選擇提供頻道分類比例，協助比較觀看習慣。每人比重相同，至少五位已同意的成員有可比較資料才會顯示結果。統計不包含姓名、觀看紀錄或配對資料，可隨時在設定頁撤回。"
+  ],
+  [
+    "首頁頻道排行",
+    "首頁合計公開儀表板成員近 90 天的觀看。頻道至少要有三位這類成員看過才會列入排行；總數仍計入所有人。把儀表板改為不公開後，下次載入就會從這些數字移除你的觀看。"
   ],
   [
     "Chrome 擴充功能",

@@ -68,6 +68,11 @@ Original user instruction: 「只是之後撰寫前端時不要修改到後端�
 
 # Main branch workflow
 
+- On 2026-11-12 the user approved a minimum of three distinct public members
+  for a channel to appear in the landing page's community channel rankings
+  (MIN_RANKED_MEMBERS in src/youtube/community.ts). Totals keep counting
+  everyone; consent, caches, matching and provider budgets are unchanged.
+
 - On 2026-10-22, after the remaining backend changes in PRs #93–#96 were
   explained, the user delegated deciding, integrating, testing, pushing and
   closing all four PRs, plus pruning their branches. Port useful remaining

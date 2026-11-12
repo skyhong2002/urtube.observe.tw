@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { communityStatsProvider } from '../src/youtube/community.js';
+import { communityStatsProvider, MIN_RANKED_MEMBERS } from '../src/youtube/community.js';
 import { landingContent } from '../src/output/landing.js';
 const id = 'UC' + 'a'.repeat(22);
 const otherId = 'UC' + 'b'.repeat(22);
 const row = (channelId: string | null, watches: number, name = 'Channel') => ({ channelId, watches, name, estimatedWatchSeconds: watches * 60, thumbnailUrl: '' });
 
 test('public-only aggregates deduplicate members and revoke visibility without waiting for cache TTL', async () => {
-  const users = [{ id: 1, dashboardPublic: true }, { id: 2, dashboardPublic: true }, { id: 3, dashboardPublic: false }];
+  const users = [{ id: 1, dashboardPublic: true }, { id: 2, dashboardPublic: true }, { id: 3, dashboardPublic: false }, { id: 4, dashboardPublic: true }, { id: 5, dashboardPublic: true }];
   const read: number[] = [];
   const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: (u) => {
     read.push(u.id);
@@ -15,27 +15,27 @@ test('public-only aggregates deduplicate members and revoke visibility without w
     return { youtubeChannelTotals: (range, now) => {
       assert.equal(range, '90d');
       assert.equal(now.toISOString(), '2026-09-05T00:00:00.000Z');
-      return u.id === 1 ? [row(id, 2), row(id, 3), row(null, 4)] : [row(id, 1), row(otherId, 100)];
+      return u.id === 1 ? [row(id, 2), row(id, 3), row(null, 4)] : u.id === 2 ? [row(id, 1), row(otherId, 100)] : [row(id, 1), row(otherId, 1)];
     } };
   } }, () => Date.parse('2026-09-05T00:00:00Z'));
   const stats = await provider();
-  assert.equal(stats.publicMembers, 2);
-  assert.equal(stats.activeMembers, 2);
-  assert.equal(stats.watches, 110);
+  assert.equal(stats.publicMembers, 4);
+  assert.equal(stats.activeMembers, 4);
+  assert.equal(stats.watches, 114);
   assert.equal(stats.channels, 2);
-  assert.equal(stats.estimatedWatchSeconds, 110 * 60);
+  assert.equal(stats.estimatedWatchSeconds, 114 * 60);
   assert.equal(stats.topWatchedChannels?.[0].id, otherId);
-  assert.deepEqual(stats.topChannels.map(x => [x.id, x.members]), [[id, 2], [otherId, 1]]);
+  assert.deepEqual(stats.topChannels.map(x => [x.id, x.members]), [[id, 4], [otherId, 3]]);
   assert.equal((await provider()), stats);
-  assert.deepEqual(read, [1, 2]);
+  assert.deepEqual(read, [1, 2, 4, 5]);
   users[0].dashboardPublic = false;
   const after = await provider();
-  assert.equal(after.publicMembers, 1);
-  assert.equal(after.watches, 101);
-  assert.equal(after.estimatedWatchSeconds, 101 * 60);
-  assert.equal(after.topWatchedChannels?.find(x => x.id === id)?.members, 1);
+  assert.equal(after.publicMembers, 3);
+  assert.equal(after.watches, 105);
+  assert.equal(after.estimatedWatchSeconds, 105 * 60);
+  assert.equal(after.topWatchedChannels?.find(x => x.id === id)?.members, 3);
   assert.equal(after.topChannels[0].id, otherId);
-  users.splice(1, 1);
+  users.splice(1);
   assert.equal((await provider()).publicMembers, 0);
   assert.deepEqual((await provider()).topChannels, []);
 });
@@ -53,7 +53,7 @@ test('failed queries hide partial totals and do not serve stale data', async () 
 });
 
 test('channel names are escaped and empty/unavailable states do not invent metrics', async () => {
-  const provider = communityStatsProvider({ listUsers: () => [{ id: 1, dashboardPublic: true }], repositoryFor: () => ({ youtubeChannelTotals: () => [row(id, 1, '<script>alert(1)</script>')] }) });
+  const provider = communityStatsProvider({ listUsers: () => [1, 2, 3].map(id => ({ id, dashboardPublic: true })), repositoryFor: () => ({ youtubeChannelTotals: () => [row(id, 1, '<script>alert(1)</script>')] }) });
   const stats = await provider();
   const page = landingContent('zh', '', stats);
   assert.ok(page.includes('&lt;script&gt;'));
@@ -67,16 +67,16 @@ test('channel names are escaped and empty/unavailable states do not invent metri
 
 
 test('duration and watch-count shelves rank independently and revoke both projections', async () => {
-  const member = { id: 1, dashboardPublic: true };
-  const provider = communityStatsProvider({ listUsers: () => [member], repositoryFor: () => ({ youtubeChannelTotals: () => [
+  const members = [1, 2, 3].map(id => ({ id, dashboardPublic: true }));
+  const provider = communityStatsProvider({ listUsers: () => members, repositoryFor: () => ({ youtubeChannelTotals: () => [
     { ...row(id, 2), estimatedWatchSeconds: 7200 },
     { ...row(otherId, 100), estimatedWatchSeconds: 600 },
   ] }) });
   const value = await provider();
   assert.equal(value.topDurationChannels?.[0].id, id);
   assert.equal(value.topWatchedChannels?.[0].id, otherId);
-  assert.equal(value.topDurationChannels?.[0].estimatedWatchSeconds, 7200);
-  member.dashboardPublic = false;
+  assert.equal(value.topDurationChannels?.[0].estimatedWatchSeconds, 3 * 7200);
+  for (const member of members) member.dashboardPublic = false;
   assert.deepEqual((await provider()).topDurationChannels, []);
   assert.deepEqual((await provider()).topWatchedChannels, []);
 });
@@ -184,4 +184,23 @@ test('the sitemap lists only public dashboards and is revalidated on every fetch
     assert.doesNotMatch(body, /sitemap-public/);
     assert.equal((await app.request('/sitemap-public')).status, 404);
   } finally { registry.close(); }
+});
+
+test('rankings list only channels watched by at least three public members; totals count everyone', async () => {
+  assert.equal(MIN_RANKED_MEMBERS, 3);
+  const third = 'UC' + 'c'.repeat(22);
+  const users = [1, 2, 3, 4].map(id => ({ id, dashboardPublic: true }));
+  // id: watched by all four; otherId: by two; third: by one member only.
+  const rows: Record<number, ReturnType<typeof row>[]> = {
+    1: [row(id, 1), row(otherId, 50), row(third, 500)], 2: [row(id, 1), row(otherId, 50)], 3: [row(id, 1)], 4: [row(id, 1)],
+  };
+  const provider = communityStatsProvider({ listUsers: () => users, repositoryFor: u => ({ youtubeChannelTotals: () => rows[u.id] }) });
+  const stats = await provider();
+  for (const shelf of [stats.topChannels, stats.topWatchedChannels ?? [], stats.topDurationChannels ?? []]) {
+    assert.deepEqual(shelf.map(x => [x.id, x.members]), [[id, 4]]);
+  }
+  assert.equal(stats.channels, 3);
+  assert.equal(stats.watches, 604);
+  users[2].dashboardPublic = false; users[3].dashboardPublic = false;
+  assert.deepEqual((await provider()).topChannels, []);
 });

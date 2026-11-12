@@ -30,6 +30,12 @@ interface Source<T extends Member> {
 // minutes (2026-10-23), longer than the cache lifetime, so the landing page
 // never answered. One refresh runs at a time; a request waits at most waitMs,
 // then gets the last result for the same members or the "unavailable" state.
+// A channel enters the public rankings only when at least this many distinct
+// public members watched it in the window, so a ranked channel cannot be tied
+// back to one person. Totals (watches, channels, time) still count everyone.
+// Approved by the user on 2026-11-12.
+export const MIN_RANKED_MEMBERS = 3;
+
 export function communityStatsProvider<T extends Member>(source: Source<T>, clock = () => Date.now(), waitMs = 2000) {
   let cache: { key: string; at: number; value: CommunityStats } | undefined;
   type Run = { key: string; value?: Promise<CommunityStats> };
@@ -66,9 +72,10 @@ export function communityStatsProvider<T extends Member>(source: Source<T>, cloc
         if (watches > 0) value.activeMembers++;
       }
       value.channels = channels.size;
-      value.topChannels = [...channels.values()].sort((a, b) => b.members - a.members || b.watches - a.watches || a.id.localeCompare(b.id)).slice(0, 8);
-      value.topWatchedChannels = [...channels.values()].sort((a, b) => b.watches - a.watches || (b.estimatedWatchSeconds ?? 0) - (a.estimatedWatchSeconds ?? 0) || a.id.localeCompare(b.id)).slice(0, 30);
-      value.topDurationChannels = [...channels.values()].sort((a, b) => (b.estimatedWatchSeconds ?? 0) - (a.estimatedWatchSeconds ?? 0) || b.watches - a.watches || a.id.localeCompare(b.id)).slice(0, 30);
+      const ranked = [...channels.values()].filter(channel => channel.members >= MIN_RANKED_MEMBERS);
+      value.topChannels = [...ranked].sort((a, b) => b.members - a.members || b.watches - a.watches || a.id.localeCompare(b.id)).slice(0, 8);
+      value.topWatchedChannels = [...ranked].sort((a, b) => b.watches - a.watches || (b.estimatedWatchSeconds ?? 0) - (a.estimatedWatchSeconds ?? 0) || a.id.localeCompare(b.id)).slice(0, 30);
+      value.topDurationChannels = [...ranked].sort((a, b) => (b.estimatedWatchSeconds ?? 0) - (a.estimatedWatchSeconds ?? 0) || b.watches - a.watches || a.id.localeCompare(b.id)).slice(0, 30);
       if (pending === run) cache = { key: run.key, at: now, value };
       return value;
     } catch {
