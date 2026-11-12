@@ -19,6 +19,14 @@ const CAMP_COLORS: Record<string, string> = {
   white: '#98958c',
   red: '#d03b3b',
 };
+// Direct labels on the spectrum bar: dark ink where white would fall below
+// 4.5:1 on the camp colour (blue, green, gray), white on red.
+const CAMP_INK: Record<string, string> = {
+  blue: '#111',
+  green: '#111',
+  white: '#111',
+  red: '#fff',
+};
 const CONTENT_COLOR = '#d03b3b';
 
 const tagLeanStyles = `
@@ -31,7 +39,7 @@ const tagLeanStyles = `
   .tl-dot{border-radius:50%;display:inline-block;flex:none;height:10px;width:10px}
   .tl-stack{display:flex;gap:2px;height:26px;margin:4px 0 14px}
   .tl-stack i{border-radius:4px;display:block;height:100%;min-width:3px;position:relative}
-  .tl-stack i b{color:#fff;font-size:12px;font-weight:700;left:8px;line-height:26px;overflow:hidden;position:absolute;text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap}
+  .tl-stack i b{color:var(--camp-ink,#fff);font-size:12px;font-weight:700;left:8px;line-height:26px;overflow:hidden;position:absolute;white-space:nowrap}
 
   .tl-rows{display:grid;gap:11px;margin-top:6px}
   .tl-row{align-items:center;display:grid;gap:10px;grid-template-columns:112px minmax(0,1fr) 128px}
@@ -47,6 +55,7 @@ const tagLeanStyles = `
   .tl-channel{align-items:center;border-radius:8px;display:grid;gap:8px;grid-template-columns:24px minmax(0,1fr) 46px;padding:4px 4px 4px 0}
   .tl-channel img,.tl-channel-avatar{background:var(--raised);border-radius:50%;color:var(--ink-2);display:grid;font-size:12px;font-weight:700;height:24px;object-fit:cover;place-items:center;width:24px}
   .tl-channel-name{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tl-channel-name a{display:inline-block;line-height:24px;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
   .tl-channel-name a{color:var(--ink);text-decoration:none}.tl-channel-name a:hover{color:var(--accent-text)}
   .tl-channel-hours{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
   .tl-empty{color:var(--muted);font-size:12px}
@@ -243,7 +252,7 @@ export function tagLeanSection(
       .filter((group) => group.estimatedWatchSeconds > 0)
       .map((group) => {
         const share = pct(group.estimatedWatchSeconds, politicalSeconds);
-        return `<i style="background:${CAMP_COLORS[group.key]};flex-basis:${share.toFixed(2)}%" data-tip="${pctLabel(share)}" data-tip-label="${html(`${t.tagGroups[group.key]} · ${hours(group.estimatedWatchSeconds)}`)}">${share >= 14 ? `<b>${html(t.tagGroups[group.key])} ${pctLabel(share)}</b>` : ''}</i>`;
+        return `<i style="background:${CAMP_COLORS[group.key]};--camp-ink:${CAMP_INK[group.key]};flex-basis:${share.toFixed(2)}%" data-tip="${pctLabel(share)}" data-tip-label="${html(`${t.tagGroups[group.key]} · ${hours(group.estimatedWatchSeconds)}`)}">${share >= 14 ? `<b>${html(t.tagGroups[group.key])} ${pctLabel(share)}</b>` : ''}</i>`;
       }).join('')}</div>`
     : `<p class="tl-empty">${t.tagLeanEmpty}</p>`;
 

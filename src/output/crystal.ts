@@ -6,6 +6,7 @@ import { html, primaryNav, shell, type ShellNavItem } from './pages.js';
 // Shifts are polarity, so they wear the diverging pair: warm red up, cool
 // blue down (never good/bad status colors — more attention isn't "good").
 const crystalStyles = `
+  .cx-json{display:inline-block;line-height:24px}
   .cx-shifts{display:grid;gap:8px;grid-template-columns:1fr}
   .cx-shift{align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:11px;display:flex;gap:12px;padding:10px 12px}
   .cx-shift-delta{font-size:13px;font-variant-numeric:tabular-nums;font-weight:700;min-width:62px}
@@ -57,7 +58,7 @@ export function shiftsSection(crystal: YoutubeCrystalShiftSection & Pick<Youtube
   const rows = crystal.shifts.slice(0, 12).map((shift) => shiftRow(shift, t)).join('');
   return `<style>${crystalStyles}</style>
     <section class="section"><div class="section-head"><h2>${t.whatChanged}</h2>
-    <span>${t.changedSub(crystal.windowDays)}${volume} · <a href="/u/${html(crystal.handle)}/crystal.json">crystal.json</a></span></div>
+    <span>${t.changedSub(crystal.windowDays)}${volume} · <a class="cx-json" href="/u/${html(crystal.handle)}/crystal.json">crystal.json</a></span></div>
     ${rows ? `<div class="cx-shifts">${rows}</div>` : `<p class="muted">${t.noShifts}</p>`}</section>`;
 }
 

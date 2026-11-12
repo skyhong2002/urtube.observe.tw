@@ -27,7 +27,7 @@ export const formStyles = `
   .ob-form textarea{min-height:82px;resize:vertical}
   .ob-form input[type=file]{background:var(--raised);border:1px dashed var(--line-strong);border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;padding:14px 12px;width:100%}
   .ob-form input:focus{border-color:var(--accent);outline:2px solid rgba(208,59,59,.3)}
-  .ob-check{align-items:center;color:var(--ink-2);display:flex;font-size:13px;gap:8px;margin-top:6px}
+  .ob-check{align-items:center;color:var(--ink-2);display:flex;font-size:13px;gap:8px;margin-top:6px;min-height:44px}
   .ob-check input{accent-color:var(--accent)}
   .ob-form button{background:var(--accent);border:1px solid var(--accent);border-radius:999px;color:#fff;cursor:pointer;font:inherit;font-weight:700;margin-top:14px;padding:11px 16px}
   .ob-form button:hover{background:#b02f2f}

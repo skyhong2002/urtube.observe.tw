@@ -6,15 +6,26 @@
 // executable, or install one with `npx playwright-core install chromium`.
 //
 // URTUBE_LAYOUT_SUMMARY=1 prints header and page heights per page and width;
-// URTUBE_LAYOUT_SCREENSHOTS=<dir> also saves full-page screenshots.
+// URTUBE_LAYOUT_SCREENSHOTS=<dir> also saves full-page screenshots, and
+// URTUBE_LAYOUT_HTML=<dir> the rendered HTML of each page.
 //
 // Pages are rendered from synthetic data only: the landing page from a made-up
 // CommunityStats object; /signup, /privacy and a 404 through the app with an
-// empty in-memory database; and the signed-in pages (dashboard, /matches,
-// /account and each onboarding step) through the app with made-up members in
-// an in-memory registry and test sessions. Nothing touches the network; every
-// request is answered from memory and anything else is aborted.
+// empty in-memory database; and the signed-in pages (dashboard with and
+// without finished analysis, insights, history, recap, a channel page,
+// /matches, /account, extension setup and each onboarding step) through the
+// app with made-up members, videos, topics and interest profiles in an
+// in-memory registry and test sessions. Every <details> on a page is opened
+// before it is measured.
+//
+// Nothing touches the network. The browser's requests are answered from
+// memory and anything for another origin is aborted; on the server side the
+// app gets synthetic channel tag lists, avatars, channel metadata and a
+// compute stub, and global fetch is replaced by one that refuses and records
+// any outbound request. The run prints how many requests were intercepted and
+// fails if the app tried to reach the network.
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import { after, before, describe, test } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { createApp } from '../../src/index.js';
@@ -23,8 +34,12 @@ import { landingContent } from '../../src/output/landing.js';
 import { primaryNav, shell, type ShellNavItem } from '../../src/output/pages.js';
 import { UserRegistry, type User } from '../../src/users.js';
 import type { CommunityChannel, CommunityStats } from '../../src/youtube/community.js';
+import { GENRES, settings as matchingV3Settings, version as matchingV3Version, type Profile } from '../../src/matching-v3/model.js';
+import type { Compute } from '../../src/matching-v3/compute.js';
 import { MATCHING_TAXONOMY } from '../../src/youtube/matching.js';
 import { REGISTRY_CRYSTAL_VERSION, type RegistryMatchingCrystal } from '../../src/youtube/registry-crystal.js';
+import { TAG_POLICY, type TagListSnapshot } from '../../src/youtube/taglists.js';
+import type { YoutubeVideoMetadata } from '../../src/youtube/types.js';
 
 const ORIGIN = 'http://layout.test';
 // 751 and 760 sit between the landing page's sticky breakpoint and the
@@ -62,8 +77,8 @@ const fresh = stats(new Date(NOW - 5 * 60_000).toISOString());
 const delayed = stats(new Date(NOW - 2 * 3600_000).toISOString());
 
 const PUBLIC_KINDS = ['home', 'home-signed-in', 'home-delayed', 'signup', 'privacy', '404'] as const;
-const SIGNED_IN_KINDS = ['dashboard', 'matches', 'account', 'onboarding-setup', 'onboarding-processing', 'onboarding-consent'] as const;
-type PageKind = typeof PUBLIC_KINDS[number] | typeof SIGNED_IN_KINDS[number] | 'regression-long-label' | 'regression-small-button';
+const SIGNED_IN_KINDS = ['dashboard', 'dashboard-unavailable', 'insights', 'history', 'recap', 'channel', 'matches', 'account', 'extension-setup', 'onboarding-setup', 'onboarding-processing', 'onboarding-consent'] as const;
+type PageKind = typeof PUBLIC_KINDS[number] | typeof SIGNED_IN_KINDS[number] | 'regression-long-label' | 'regression-small-button' | 'regression-hidden-details';
 interface Rendered { kind: PageKind; lang: Lang; status: number; body: string }
 
 function landing(lang: Lang, signedIn: boolean, data: CommunityStats, nav?: ShellNavItem[]): string {
@@ -76,9 +91,13 @@ function landing(lang: Lang, signedIn: boolean, data: CommunityStats, nav?: Shel
   return shell(lang === 'zh' ? '你的 YouTube 人生，都記得。' : 'Your YouTube life, remembered.', landingContent(lang, action, data, NOW), navItems, '', lang, '/');
 }
 
-// Synthetic members for the signed-in pages. Channel and video names are made
-// up; watch times are spread over the last 90 days before the test runs.
+// Synthetic members for the signed-in pages. Channel, video, tag and topic
+// names are made up; watch times are spread over the months before the test
+// runs.
 const syntheticChannels = ['Open Lab', 'Sound Room', 'Design Notes', 'Small Adventures', '料理研究所 Kitchen Lab', 'Science Hour'];
+const syntheticChannelId = (index: number) => 'UClayout' + String(index).padStart(16, '0');
+const syntheticTags = [['synth', 'modular', 'live set'], ['piano', 'ambient'], ['typography', 'layout', 'grid'], ['hiking', 'trail'], ['recipe', '料理', 'noodles'], ['physics', 'space', 'telescope']];
+const syntheticCategories = ['28', '10', '27', '19', '26', '28'];
 
 function seedHistory(registry: UserRegistry, user: User, count: number): void {
   const start = Date.now();
@@ -87,7 +106,7 @@ function seedHistory(registry: UserRegistry, user: User, count: number): void {
     source: 'takeout',
     watches: Array.from({ length: count }, (_, index) => {
       const channel = index % syntheticChannels.length;
-      const channelId = 'UClayout' + String(channel).padStart(16, '0');
+      const channelId = syntheticChannelId(channel);
       const videoId = 'LAYOUT' + String(index).padStart(5, '0');
       return {
         eventId: `layout-${user.handle}-${index}`,
@@ -106,6 +125,96 @@ function seedHistory(registry: UserRegistry, user: User, count: number): void {
   });
 }
 
+// Finished analysis for a member: video information for every watched video
+// and channel, personal topics, and a complete interest profile. This is the
+// state most members see, with the densest charts.
+function seedAnalysis(registry: UserRegistry, user: User, count: number, v3Version: string): void {
+  const repository = registry.repositoryFor(user);
+  const metadataHash = (index: number) => `layout-metadata-${index}`;
+  const videos: YoutubeVideoMetadata[] = Array.from({ length: count }, (_, index) => {
+    const channel = index % syntheticChannels.length;
+    const videoId = 'LAYOUT' + String(index).padStart(5, '0');
+    return {
+      videoId,
+      title: `Synthetic video ${index + 1} about ${syntheticChannels[channel]}`,
+      channelId: syntheticChannelId(channel),
+      channelTitle: syntheticChannels[channel]!,
+      description: 'Synthetic description.',
+      tags: syntheticTags[channel]!,
+      thumbnailUrl: '',
+      // A mix of short-form, regular and long videos.
+      durationSeconds: index % 5 === 0 ? 45 : index % 7 === 0 ? 5400 : 600 + (index * 53) % 1200,
+      publishedAt: new Date(Date.now() - (index * 17 + 400) * 3600_000).toISOString(),
+      categoryId: syntheticCategories[channel]!,
+      availability: 'available',
+      isLivestream: index % 11 === 0,
+      viewCount: 1000 * (index + 1) ** 2,
+      metadataHash: metadataHash(index),
+    };
+  });
+  repository.upsertYoutubeVideoMetadata(videos);
+  repository.upsertYoutubeChannelMetadata(syntheticChannels.map((name, index) => ({
+    channelId: syntheticChannelId(index), name, thumbnailUrl: '',
+    statistics: { subscriberCount: 5000 * 10 ** (index % 4), hiddenSubscriberCount: false, videoCount: 120 + index, viewCount: 2_000_000 * (index + 1), publishedAt: '2015-03-01T00:00:00Z', topicCategories: [] },
+  })));
+  const topics = repository.replaceYoutubeTaxonomy([
+    ['science-explainers', 'Science explainers'], ['ambient-music', 'Ambient music'], ['graphic-design', 'Graphic design'],
+    ['outdoor-trips', 'Outdoor trips'], ['home-cooking', 'Home cooking 家常料理'],
+  ].map(([slug, name]) => ({ version: 1, slug: slug!, name: name!, description: `Synthetic topic: ${name}` })));
+  for (const video of videos) {
+    const channel = syntheticChannels.indexOf(video.channelTitle!);
+    repository.saveYoutubeVideoTopics(video.videoId, [{ topicId: topics[channel % topics.length]!.id, rank: 1, confidence: 0.9 }], 'layout-test', 'layout-test', video.metadataHash);
+  }
+  const store = registry.matchingV3Store();
+  const genres = Object.fromEntries(GENRES.map((genre, index) => [genre, {
+    status: 'ready' as const, videoCount: 12 + index * 3, retainedCoverage: 0.8, totalMass: 1,
+    clusters: [0, 1].map(cluster => ({
+      centroid: [0.1 * cluster, 0.2], mass: 0.5, share: cluster ? 0.4 : 0.6,
+      tags: syntheticTags.slice(cluster * 3, cluster * 3 + 3).flat().map((text, rank) => ({ text, count: 9 - rank, generatedCount: 0 })),
+    })),
+  }]));
+  const profile: Profile = {
+    version: v3Version, sourceFingerprint: `layout-${user.handle}`, builtAt: new Date().toISOString(),
+    complete: true, processedVideos: count, totalVideos: count, genres,
+  } as Profile;
+  store.schedule(user.id, profile.sourceFingerprint, profile.version);
+  const job = store.claim()!;
+  store.finish(job, profile);
+  store.savePreferences(user.id, { genres: ['Music', 'Education'], topics: [] });
+}
+
+// Channel tag lists that /insights would otherwise download.
+const tagListSnapshot: TagListSnapshot = {
+  lists: {
+    news: new Set([syntheticChannelId(5)]), editorial: new Set([syntheticChannelId(2)]), editorialShows: new Set([syntheticChannelId(2)]),
+    blue: new Set([syntheticChannelId(0)]), green: new Set([syntheticChannelId(1)]), white: new Set(), red: new Set(),
+  },
+  provenance: {
+    sourceUrl: 'https://tag-lists.layout.test/channels', sourceUpdatedAt: '2026-11-11 08:00:00',
+    fetchedAt: '2026-11-11T08:00:01.000Z', membershipVersion: 'sha256:layout', policyVersion: TAG_POLICY.version,
+    policyUrl: TAG_POLICY.url, reportUrl: TAG_POLICY.reportUrl,
+  },
+};
+
+const syntheticAvatar = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#8a6d5a"/></svg>');
+const offlineCompute: Compute = {
+  ready: async () => false,
+  cluster: async () => { throw new Error('layout test: compute is offline'); },
+  compare: async () => { throw new Error('layout test: compute is offline'); },
+};
+
+// Outbound requests the app tried to make while rendering. Global fetch is
+// replaced for the duration of the run; nothing may leave the process.
+const blockedServerRequests: string[] = [];
+const realFetch = globalThis.fetch;
+function refuseNetwork(): void {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+    blockedServerRequests.push(url.host);
+    throw new Error(`layout test: outbound request to ${url.host} refused`);
+  }) as typeof fetch;
+}
+
 function eligibleCrystal(shares: [string, number][]): RegistryMatchingCrystal {
   const name = (key: string) => MATCHING_TAXONOMY.topics.find(topic => topic.key === key)?.name ?? key;
   return {
@@ -122,10 +231,11 @@ function eligibleCrystal(shares: [string, number][]): RegistryMatchingCrystal {
 
 // Signed-in pages, rendered by the app for made-up members in an in-memory
 // registry. Returns the session cookie each page is requested with.
-function signedInFixture(registry: UserRegistry): Record<typeof SIGNED_IN_KINDS[number], { path: string; cookie: string }> {
+function signedInFixture(registry: UserRegistry, v3Version: string): Record<typeof SIGNED_IN_KINDS[number], { path: string; cookie: string }> {
   const session = (user: User) => `urtube_session=${registry.createSession(user)}`;
   const member = registry.createUser('layout-member', 'Alex Sample Member');
   seedHistory(registry, member, 120);
+  seedAnalysis(registry, member, 120, v3Version);
   registry.upsertMatchingCrystal(member, eligibleCrystal([['music', 0.5], ['gaming', 0.3], ['education', 0.2]]));
   registry.completeOnboarding(member.handle, true, 'topics_and_channel', true);
   for (const [handle, name, shares] of [['layout-mia', 'Mia Sample', [['music', 0.6], ['education', 0.4]]], ['layout-sam', 'Sam Sample With A Longer Display Name', [['gaming', 0.7], ['music', 0.3]]]] as const) {
@@ -134,6 +244,11 @@ function signedInFixture(registry: UserRegistry): Record<typeof SIGNED_IN_KINDS[
     registry.upsertMatchingCrystal(friend, eligibleCrystal(shares.map(([key, share]) => [key, share])));
     registry.completeOnboarding(friend.handle, true, 'topics_and_channel', true);
   }
+  // A member whose analysis has not run: video information and interest
+  // analysis are unavailable, so the processing notice reports a problem.
+  const waiting = registry.createUser('layout-waiting', 'Waiting Sample Member');
+  seedHistory(registry, waiting, 120);
+  registry.completeOnboarding(waiting.handle, true, 'topics_and_channel', true);
   const fresh = registry.createUser('layout-new', 'New Sample');
   const processing = registry.createUser('layout-processing', 'Processing Sample');
   seedHistory(registry, processing, 20);
@@ -143,19 +258,33 @@ function signedInFixture(registry: UserRegistry): Record<typeof SIGNED_IN_KINDS[
   const memberCookie = session(registry.userByHandle(member.handle)!);
   return {
     dashboard: { path: `/${member.handle}`, cookie: memberCookie },
+    'dashboard-unavailable': { path: `/${waiting.handle}`, cookie: session(registry.userByHandle(waiting.handle)!) },
+    insights: { path: `/${member.handle}/insights`, cookie: memberCookie },
+    history: { path: `/${member.handle}/history`, cookie: memberCookie },
+    recap: { path: `/${member.handle}/recap`, cookie: memberCookie },
+    channel: { path: `/channel/${syntheticChannelId(0)}`, cookie: memberCookie },
     matches: { path: '/matches', cookie: memberCookie },
     account: { path: '/account', cookie: memberCookie },
+    'extension-setup': { path: '/extension-setup', cookie: memberCookie },
     'onboarding-setup': { path: '/onboarding', cookie: session(fresh) },
     'onboarding-processing': { path: '/onboarding', cookie: session(processing) },
     'onboarding-consent': { path: '/onboarding', cookie: session(consent) },
   };
 }
 
-async function renderAll(): Promise<Map<string, Rendered>> {
+// The registry and app stay open while the browser runs so member avatars can
+// be served from memory.
+async function renderAll(): Promise<{ pages: Map<string, Rendered>; app: ReturnType<typeof createApp>; registry: UserRegistry }> {
   const pages = new Map<string, Rendered>();
   const registry = new UserRegistry(':memory:');
-  const app = createApp(registry);
-  const signedIn = signedInFixture(registry);
+  const v3 = matchingV3Settings({ MATCHING_V3_ENABLED: 'true' });
+  const app = createApp(registry, {
+    matchingV3: { settings: v3, compute: offlineCompute },
+    loadTagLists: async () => tagListSnapshot,
+    avatarService: { avatarFor: async () => ({ body: syntheticAvatar, contentType: 'image/svg+xml', source: 'fallback' }) },
+    loadChannelMetadata: async () => null,
+  });
+  const signedIn = signedInFixture(registry, matchingV3Version(v3));
   for (const lang of LANGS) {
     const add = (kind: PageKind, status: number, body: string) => pages.set(`/${kind}/${lang}`, { kind, lang, status, body });
     add('home', 200, landing(lang, false, fresh));
@@ -167,7 +296,7 @@ async function renderAll(): Promise<Map<string, Rendered>> {
     }
     for (const kind of SIGNED_IN_KINDS) {
       const { path, cookie } = signedIn[kind];
-      const response = await app.request(`${path}?lang=${lang}`, { headers: { cookie } });
+      const response = await app.request(`${path}${path.includes('?') ? '&' : '?'}lang=${lang}`, { headers: { cookie } });
       add(kind, response.status, await response.text());
     }
   }
@@ -179,14 +308,18 @@ async function renderAll(): Promise<Map<string, Rendered>> {
   // Negative control: a 40px-tall button must fail the 44px control check.
   const small = landing('en', false, fresh).replace('</style>', '.lp-hero .lp-actions>a{min-height:0;padding-block:8px;height:40px}</style>');
   pages.set('/regression-small-button/en', { kind: 'regression-small-button', lang: 'en', status: 200, body: small });
-  registry.close();
-  return pages;
+  // Negative control: problems inside a closed <details> and a focusable
+  // element without a name must both be caught.
+  const hidden = landing('en', false, fresh).replace('</main>', '<details><summary>More</summary><button type="button" style="height:30px;min-height:0">Tiny</button><span style="font-size:9px">Fine print</span></details><div class="regression-unnamed" tabindex="0" style="width:48px;height:48px"></div><p style="opacity:.35">Faint text</p></main>');
+  pages.set('/regression-hidden-details/en', { kind: 'regression-hidden-details', lang: 'en', status: 200, body: hidden });
+  return { pages, app, registry };
 }
 
 interface Report {
   failures: string[];
   headerHeight: number;
   docHeight: number;
+  contrastUnchecked: number;
   google?: { height: number; lines: number };
 }
 
@@ -254,8 +387,10 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
     }
     for (const entry of small) failures.push(`text below ${minFont}px: ${entry}`);
 
-    // 3b. Text contrast against the composited background (WCAG AA). Text
-    //     over an image or gradient is skipped: its background is not a colour.
+    // 3b. Text contrast against the composited background (WCAG AA), with the
+    //     opacity of the text and its ancestors applied to the ink. Text over
+    //     an image or gradient has no single background colour: it is counted
+    //     as unchecked and reported in the summary, not passed silently.
     const parseColor = (value: string): [number, number, number, number] | null => {
       const match = value.match(/rgba?\(([^)]+)\)/);
       if (!match) return null;
@@ -283,18 +418,23 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
       for (const layer of layers.reverse()) base = over(layer, base);
       return base;
     };
+    const effectiveOpacity = (element: Element) => {
+      let opacity = 1;
+      for (let node: Element | null = element; node; node = node.parentElement) opacity *= parseFloat(getComputedStyle(node).opacity);
+      return opacity;
+    };
     const lowContrast = new Set<string>();
+    let contrastUnchecked = 0;
     const contrastWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = contrastWalker.nextNode(); node; node = contrastWalker.nextNode()) {
       if (!node.textContent?.trim()) continue;
       const parent = node.parentElement;
       if (!parent || parent.closest('script,style,noscript,[aria-hidden="true"],[aria-disabled="true"],:disabled') || !visible(parent)) continue;
       const style = getComputedStyle(parent);
-      if (parseFloat(style.opacity) < 1) continue;
       const background = backgroundOf(parent);
       const ink = parseColor(style.color);
-      if (!background || !ink) continue;
-      const text = over(ink, background);
+      if (!background || !ink) { contrastUnchecked++; continue; }
+      const text = over([ink[0], ink[1], ink[2], ink[3] * effectiveOpacity(parent)], background);
       const [light, dark] = [luminance(text), luminance(background)].sort((a, b) => b - a);
       const ratio = (light! + 0.05) / (dark! + 0.05);
       const size = parseFloat(style.fontSize);
@@ -311,7 +451,16 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
     const filled = (style: CSSStyleDeclaration) => (parseColor(style.backgroundColor)?.[3] ?? 0) > 0
       || style.backgroundImage !== 'none'
       || ['Top', 'Right', 'Bottom', 'Left'].some(side => parseFloat(style.getPropertyValue(`border-${side.toLowerCase()}-width`)) > 0 && style.getPropertyValue(`border-${side.toLowerCase()}-style`) !== 'none');
-    const targets = document.querySelectorAll('a[href],button,summary,input:not([type=hidden]),select,textarea,[tabindex]:not([tabindex="-1"])');
+    const targets = document.querySelectorAll('a[href],button,summary,input:not([type=hidden]),select,textarea,[tabindex]:not([tabindex="-1"]),[role=button],[role=tab]');
+    const nameOf = (element: Element): string => {
+      const labelledBy = element.getAttribute('aria-labelledby');
+      const fromIds = labelledBy ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent ?? '').join(' ') : '';
+      const id = element.id;
+      return (element.getAttribute('aria-label') || fromIds || (element as HTMLElement).innerText || element.textContent || element.getAttribute('title')
+        || [...element.querySelectorAll('img[alt]')].map(image => image.getAttribute('alt')).join(' ')
+        || (id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : '') || element.closest('label')?.textContent
+        || element.getAttribute('placeholder') || (element.matches('input[type=submit],input[type=button]') ? (element as HTMLInputElement).value : '') || '').trim();
+    };
     for (const target of targets) {
       if (!visible(target) || target.classList.contains('skip-link')) continue;
       // A checkbox or radio is operated through its label.
@@ -320,10 +469,12 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
       const textLink = target.tagName === 'A' && !target.closest('.site-header') && !filled(getComputedStyle(target));
       const min = textLink ? minInline : minControl;
       if (rect.height < min - 0.5 || rect.width < min - 0.5) failures.push(`${textLink ? 'text link' : 'control'} below ${min}px: ${describe(box)} ${Math.round(rect.width)}×${Math.round(rect.height)}`);
+      // Everything reachable by keyboard has an accessible name.
+      if (target.getAttribute('tabindex') !== '-1' && !nameOf(target)) failures.push(`focusable element without a name: ${describe(target)}`);
     }
 
     // 5. The page's main call to action is on the first screen.
-    const ctaSelector = { home: '.lp-hero .lp-primary', 'home-signed-in': '.lp-hero .lp-primary', 'home-delayed': '.lp-hero .lp-primary', 'regression-long-label': '.lp-hero .lp-primary', 'regression-small-button': '.lp-hero .lp-primary', signup: 'a.ob-google', '404': 'main a[href="/"]', privacy: 'main h1', dashboard: 'main h1', matches: 'main h1', account: 'main h1', 'onboarding-setup': 'main h1', 'onboarding-processing': 'main h1', 'onboarding-consent': 'main h1' }[kind];
+    const ctaSelector = { home: '.lp-hero .lp-primary', 'home-signed-in': '.lp-hero .lp-primary', 'home-delayed': '.lp-hero .lp-primary', 'regression-long-label': '.lp-hero .lp-primary', 'regression-small-button': '.lp-hero .lp-primary', signup: 'a.ob-google', '404': 'main a[href="/"]', privacy: 'main h1', 'regression-hidden-details': '.lp-hero .lp-primary', dashboard: 'main h1', 'dashboard-unavailable': 'main h1', insights: 'main h1', history: 'main h1', recap: 'main h1', channel: 'main h1', 'extension-setup': 'main h1', matches: 'main h1', account: 'main h1', 'onboarding-setup': 'main h1', 'onboarding-processing': 'main h1', 'onboarding-consent': 'main h1' }[kind];
     const cta = document.querySelector(ctaSelector);
     if (!cta) failures.push(`missing call to action ${ctaSelector}`);
     else {
@@ -349,7 +500,7 @@ async function inspect(page: Page, kind: PageKind): Promise<Report> {
     // The delayed state names what is delayed: the calculation.
     if (kind === 'home-delayed' && !document.querySelector('.lp-stale')) failures.push('delayed statistics badge missing');
 
-    return { failures, headerHeight: Math.round(headerHeight), docHeight: document.documentElement.scrollHeight, google };
+    return { failures, headerHeight: Math.round(headerHeight), docHeight: document.documentElement.scrollHeight, contrastUnchecked, google };
   }, { kind, minFont: MIN_FONT_PX, minControl: MIN_CONTROL_PX, minInline: MIN_INLINE_LINK_PX, minContrast: MIN_CONTRAST, minLargeContrast: MIN_LARGE_CONTRAST, phoneHeaderMax: PHONE_HEADER_MAX });
 }
 
@@ -388,14 +539,24 @@ async function tabOrder(page: Page): Promise<string[]> {
 describe('page layout in a real browser', () => {
   let browser: Browser;
   let pages: Map<string, Rendered>;
+  let app: ReturnType<typeof createApp>;
+  let registry: UserRegistry;
   const summary: string[] = [];
+  // Browser requests answered from memory, answered 404, or aborted.
+  const network = { served: 0, avatars: 0, missing: 0, aborted: 0, abortedHosts: new Set<string>() };
 
   before(async () => {
-    pages = await renderAll();
+    refuseNetwork();
+    ({ pages, app, registry } = await renderAll());
+    if (process.env.URTUBE_LAYOUT_HTML) {
+      for (const [path, rendered] of pages) writeFileSync(`${process.env.URTUBE_LAYOUT_HTML}/${path.slice(1).replace('/', '-')}.html`, rendered.body);
+    }
     browser = await chromium.launch({ executablePath: process.env.URTUBE_LAYOUT_CHROMIUM || undefined });
   });
   after(async () => {
     await browser?.close();
+    registry?.close();
+    globalThis.fetch = realFetch;
     if (process.env.URTUBE_LAYOUT_SUMMARY) console.log(summary.join('\n'));
   });
 
@@ -404,15 +565,27 @@ describe('page layout in a real browser', () => {
     // tsx keeps function names with an `__name` helper that only exists in
     // Node; give the page a no-op copy so evaluated callbacks run.
     await context.addInitScript('globalThis.__name = (fn) => fn;');
-    await context.route('**/*', route => {
+    await context.route('**/*', async route => {
       const url = new URL(route.request().url());
       const rendered = url.origin === ORIGIN ? pages.get(url.pathname) : undefined;
-      if (rendered) return route.fulfill({ status: rendered.status, contentType: 'text/html; charset=utf-8', body: rendered.body });
-      if (url.origin === ORIGIN) return route.fulfill({ status: 404, body: '' });
+      if (rendered) { network.served++; return route.fulfill({ status: rendered.status, contentType: 'text/html; charset=utf-8', body: rendered.body }); }
+      if (url.origin === ORIGIN && url.pathname.startsWith('/avatar/')) {
+        network.avatars++;
+        const response = await app.request(url.pathname);
+        return route.fulfill({ status: response.status, contentType: response.headers.get('content-type') ?? 'application/octet-stream', body: Buffer.from(await response.arrayBuffer()) });
+      }
+      if (url.origin === ORIGIN) { network.missing++; return route.fulfill({ status: 404, body: '' }); }
+      network.aborted++;
+      network.abortedHosts.add(url.host);
       return route.abort();
     });
     const page = await context.newPage();
     await page.goto(ORIGIN + path, { waitUntil: 'load' });
+    // Measure collapsed content too: open every <details> first.
+    await page.evaluate(() => new Promise<void>(resolve => {
+      for (const details of document.querySelectorAll('details')) details.open = true;
+      requestAnimationFrame(() => resolve());
+    }));
     return page;
   }
 
@@ -439,7 +612,7 @@ describe('page layout in a real browser', () => {
               const tops = order.map(entry => Number(entry.split('@')[1]!.split(',')[0]));
               if (tops.some((top, index) => index > 0 && top < tops[index - 1]! - 8)) problems.push(`${width}px: keyboard focus jumps back up in the header: ${order.join(' → ')}`);
             }
-            summary.push(`${kind}\t${lang}\t${width}\theader=${report.headerHeight}\tpage=${report.docHeight}${report.google ? `\tgoogle=${report.google.height}px/${report.google.lines} line(s)` : ''}`);
+            summary.push(`${kind}\t${lang}\t${width}\theader=${report.headerHeight}\tpage=${report.docHeight}\tcontrast-unchecked=${report.contrastUnchecked}${report.google ? `\tgoogle=${report.google.height}px/${report.google.lines} line(s)` : ''}`);
           } finally {
             await page.context().close();
           }
@@ -459,6 +632,18 @@ describe('page layout in a real browser', () => {
     }
   });
 
+  test('negative control: content in a closed <details>, an unnamed focusable element and faded text are caught', async () => {
+    const page = await open(390, '/regression-hidden-details/en');
+    try {
+      const report = await inspect(page, 'regression-hidden-details');
+      for (const expected of [/control below 44px: <button> "Tiny"/, /text below 12px: 9px <span> "Fine print"/, /focusable element without a name: <div\.regression-unnamed>/, /text contrast below AA: [\d.]+:1 <p> "Faint text"/]) {
+        assert.ok(report.failures.some(failure => expected.test(failure)), `expected ${expected}, got ${JSON.stringify(report.failures)}`);
+      }
+    } finally {
+      await page.context().close();
+    }
+  });
+
   test('negative control: a 40px button is caught', async () => {
     const page = await open(390, '/regression-small-button/en');
     try {
@@ -467,5 +652,12 @@ describe('page layout in a real browser', () => {
     } finally {
       await page.context().close();
     }
+  });
+
+  // Runs last. Browser requests for other origins were aborted, never sent;
+  // the app itself must not have tried to reach the network at all.
+  test('no request leaves the test', () => {
+    console.log(`network: ${network.served} pages and ${network.avatars} avatars served from memory, ${network.missing} other same-origin requests answered 404, ${network.aborted} requests to other origins aborted${network.abortedHosts.size ? ` (${[...network.abortedHosts].sort().join(', ')})` : ''}, ${blockedServerRequests.length} outbound requests attempted by the app`);
+    assert.deepEqual(blockedServerRequests, [], 'the app tried to reach the network');
   });
 });

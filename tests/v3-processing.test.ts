@@ -145,3 +145,25 @@ test('v3 display job read includes the actual version and phase without exposing
     assert.equal(store.processingStatus(2), null);
   } finally { db.close(); }
 });
+
+test('v3 notice leads a stopped or failing state with one conclusion and folds the facts into details', () => {
+  const strip = (value: string) => value.replace(/<script>[\s\S]*?<\/script>/g, '');
+  const paused = describeV3Processing({ ...input, enabled: false, metadataEnabled: false,
+    metadata: { videos: 120, videosPendingMetadata: 120, channelsPendingMetadata: 6 } });
+  for (const [lang, conclusion, facts] of [
+    ['en', /<p class="yt-v3-summary">Some processing is paused for now and will resume on its own\. You don’t need to do anything; your imported history is kept\.<\/p><details class="yt-v3-more"><summary>Processing details<\/summary>/, /0 \/ 120 videos checked[\s\S]*6 channels awaiting refresh[\s\S]*updates are unavailable[\s\S]*data-processing-monitor[\s\S]*<\/details>/],
+    ['zh', /<p class="yt-v3-summary">部分資料處理目前暫停，恢復後會自動繼續。你不需要做任何事，已匯入的紀錄都會保留。<\/p><details class="yt-v3-more"><summary>處理細節<\/summary>/, /0 \/ 120 部影片已查詢[\s\S]*6 個頻道待更新[\s\S]*影片資訊更新暫不可用[\s\S]*data-processing-monitor[\s\S]*<\/details>/],
+  ] as const) {
+    const owner = strip(v3ProcessingNotice(paused, lang, { ownerDetails: true }));
+    assert.match(owner, conclusion);
+    assert.match(owner, facts);
+  }
+  const failed = strip(v3ProcessingNotice(describeV3Processing({ ...input, job: { ...job, state: 'failed' } }), 'en', { ownerDetails: true }));
+  assert.match(failed, /yt-v3-summary">Analysis ran into a problem\. You don’t need to do anything; finished results stay available\./);
+  assert.equal(failed.match(/problem/g)?.length, 1, 'the failure is said once, not repeated in the details');
+  const retry = strip(v3ProcessingNotice(describeV3Processing({ ...input, job: { ...job, state: 'queued', attempts: 1, retryAt: 2000 } }), 'zh', { ownerDetails: true }));
+  assert.match(retry, /分析暫時遇到問題，會自動重試。你不需要做任何事/);
+  // Healthy or in-progress work keeps its facts in view, and visitors see one line.
+  assert.doesNotMatch(v3ProcessingNotice(describeV3Processing(input), 'en', { ownerDetails: true }), /yt-v3-summary|yt-v3-more/);
+  assert.doesNotMatch(v3ProcessingNotice(paused, 'en'), /yt-v3-summary|yt-v3-more/);
+});

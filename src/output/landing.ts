@@ -50,13 +50,14 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     sampleNote: '畫面為合成範例，人名、頻道與數字皆為虛構。',
     publicLink: '查看公開成員實例 ↗',
     publicAria: '查看公開成員實例：Sky Hong 的公開儀表板（真實公開資料，不是上方的合成範例）',
-    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板', device: '儀表板', weekly: '每週觀看時數', weeklyStart: '12 週前', weeklyEnd: '本週', weeklyAria: (values: number[]) => `每週觀看時數長條圖，合成範例，從 12 週前到本週依序為 ${values.join('、')} 小時，最少 ${Math.min(...values)} 小時、最多 ${Math.max(...values)} 小時` },
+    sample: { range: '近 90 天', hours: '觀看時數', videos: '影片', channels: '頻道', top: '常看頻道', topics: '興趣主題', tags: ['料理', '設計', '旅行', '音樂', '科學'], label: '合成範例儀表板', device: '儀表板', weekly: '每週觀看時數', weeklyStart: '11 週前', weeklyEnd: '本週', weeklyAria: (values: number[]) => `每週觀看時數長條圖，合成範例，從 11 週前到本週依序為 ${values.join('、')} 小時，最少 ${Math.min(...values)} 小時、最多 ${Math.max(...values)} 小時` },
     communityKicker: '社群 · 近 90 天',
     communityTitle: '大家最近在看什麼？',
     scope: '近 90 天已匯入的紀錄 · 僅計入公開儀表板成員 · 至少 3 位成員看過才上榜 · 觀看時間為估計值',
     scopeSummary: '統計範圍與計算方式',
     unavailable: '社群統計暫時無法載入，請稍後重新整理。',
     method: '依公開成員近 90 天已匯入的紀錄計算，重複觀看會分別計次，觀看時間為估計值。設定變更後，統計可能稍後更新。',
+    estimate: '觀看時間怎麼估計：擴充功能有實測時，直接採用實測時間；其他紀錄取影片長度與到下一次觀看或搜尋的間隔中較短者（有播放位置時也會參考）；只有日期的紀錄最多算 10 分鐘；缺少片長或無法判斷何時結束的紀錄算 0。因此估計值可能比實際觀看時間多或少，不同成員的匯入方式也會影響結果。',
     updated: (time: string) => `統計計算於 ${time}，不代表各成員最後匯入時間。`,
     coverage: '排行與總數涵蓋公開成員各自已匯入的期間；成員不一定持續匯入，因此可能不含最近的觀看。',
     stale: '統計計算延遲',
@@ -115,13 +116,14 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
     sampleNote: 'Synthetic example: names, channels and numbers are made up.',
     publicLink: 'See a real public member dashboard ↗',
     publicAria: 'View a public member’s dashboard: Sky Hong’s public page (real public data, not the synthetic sample above)',
-    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard', device: 'Dashboard', weekly: 'Hours per week', weeklyStart: '12 weeks ago', weeklyEnd: 'This week', weeklyAria: (values: number[]) => `Bar chart of hours watched per week, synthetic sample, from 12 weeks ago to this week: ${values.join(', ')} hours; lowest ${Math.min(...values)}, highest ${Math.max(...values)}` },
+    sample: { range: 'Last 90 days', hours: 'hours watched', videos: 'videos', channels: 'channels', top: 'Top channels', topics: 'Interests', tags: ['Cooking', 'Design', 'Travel', 'Music', 'Science'], label: 'Synthetic sample dashboard', device: 'Dashboard', weekly: 'Hours per week', weeklyStart: '11 weeks ago', weeklyEnd: 'This week', weeklyAria: (values: number[]) => `Bar chart of hours watched per week, synthetic sample, from 11 weeks ago to this week: ${values.join(', ')} hours; lowest ${Math.min(...values)}, highest ${Math.max(...values)}` },
     communityKicker: 'Community · 90 days',
     communityTitle: 'What are people watching?',
     scope: 'Imported records from the last 90 days · Public dashboard members only · Listed once 3+ members watched · Viewing time is estimated',
     scopeSummary: 'Scope & methodology',
     unavailable: 'Community statistics are unavailable. Please refresh later.',
     method: 'Based on public members’ imported records from the last 90 days. Repeated watches are counted separately and watch time is estimated. Changes to sharing settings may take a little time to appear.',
+    estimate: 'How watch time is estimated: when the browser extension measured a view, that time is used. Otherwise a view counts the shorter of the video’s length and the time until the next view or search (a saved playback position is also considered); views recorded only by date count at most 10 minutes; views with no known length, or no way to tell when they ended, count as zero. Estimates can be higher or lower than the time actually watched, and depend on how each member imported their history.',
     updated: (time: string) => `Statistics calculated ${time}. This is not each member’s last import time.`,
     coverage: 'Rankings and totals cover whatever period each public member has imported. Members do not always keep importing, so recent viewing may be missing.',
     stale: 'Statistics calculation delayed',
@@ -172,11 +174,12 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   // stays readable (no scaled-down screenshot in the hero).
   // One synthetic data set for every preview: Alex's channel hours in the
   // hero are the same hours shown for Alex in the matching preview, and the
-  // weekly bars add up to roughly the 92 hours in the hero totals.
+  // weekly bars add up to the 92 hours in the hero totals. Twelve weekly
+  // bars that end with this week start 11 weeks ago.
   const sampleChannels: Array<[string, string, string, number]> = [['Open Lab', '#3d6f86', '15.4h', 100], ['Sound Room', '#a3424a', '12.8h', 83], ['Design Notes', '#5b5aa0', '9.6h', 62], ['Small Adventures', '#58714a', '7.1h', 46]];
   const alexHours = new Map(sampleChannels.map(([name, , hours]) => [name, hours]));
   const sharedChannels = ([['Open Lab', '11.2h'], ['Design Notes', '14.5h'], ['Small Adventures', '6.3h']] as const).map(([name, mia]) => [name, alexHours.get(name)!, mia] as const);
-  const weekly = [6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 10, 8];
+  const weekly = [6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 11, 9];
   const weeklyMax = 12;
   const sample = `<div class="lp-sample" role="group" aria-label="${copy.sample.label}"><div class="lp-sample-head"><strong>Alex</strong><span>${copy.sample.range}</span></div><dl class="lp-sample-stats"><div><dt>${copy.sample.hours}</dt><dd>92</dd></div><div><dt>${copy.sample.videos}</dt><dd>380</dd></div><div><dt>${copy.sample.channels}</dt><dd>30</dd></div></dl><p class="lp-sample-label">${copy.sample.weekly}</p><div class="lp-sample-chart"><div class="lp-sample-scale" aria-hidden="true">${[10, 5, 0].map(value => `<span style="bottom:${value / weeklyMax * 100}%">${value}${value ? 'h' : ''}</span>`).join('')}</div><div class="lp-sample-bars" role="img" aria-label="${copy.sample.weeklyAria(weekly)}">${weekly.map(value => `<i style="height:${Math.round(value / weeklyMax * 100)}%"></i>`).join('')}</div></div><p class="lp-sample-axis" aria-hidden="true"><span>${copy.sample.weeklyStart}</span><span>${copy.sample.weeklyEnd}</span></p><p class="lp-sample-label">${copy.sample.top}</p><ol class="lp-sample-channels">${sampleChannels.map(([name, color, hours, share]) => `<li><i style="background:${color}" aria-hidden="true">${name[0]}</i><span>${name}<s style="width:${share}%" aria-hidden="true"></s></span><b>${hours}</b></li>`).join('')}</ol><p class="lp-sample-label lp-sample-topics">${copy.sample.topics}</p><p class="lp-sample-tags">${copy.sample.tags.map(tag => `<span>${tag}</span>`).join('')}</p></div>`;
   const deviceBar = (label: string) => `<div class="lp-device-bar"><span class="lp-mac-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${label}</span></div>`;
@@ -273,7 +276,7 @@ export function landingContent(lang: Lang, primaryAction: string, stats: Communi
   <figure class="lp-hero-shot"><div class="lp-device">${deviceBar(`${copy.sampleBadge} · ${copy.sample.device} / urtube`)}${sample}</div><figcaption class="lp-shot-caption"><span class="lp-badge">${copy.sampleBadge}</span><span>${copy.sampleNote}</span><a href="${PUBLIC_EXAMPLE_HREF}" aria-label="${copy.publicAria}">${copy.publicLink}</a></figcaption></figure></div>
   <ol class="lp-steps" aria-label="${copy.stepsLabel}">${copy.steps.map(([title, text]) => `<li><div><strong>${title}</strong><p>${text}</p></div></li>`).join('')}</ol></section>
   <section id="community" class="lp-section lp-community" aria-labelledby="lp-community-title"><div class="lp-kicker">${copy.communityKicker}</div><h2 id="lp-community-title">${copy.communityTitle}</h2><p class="lp-community-scope">${copy.scope}</p>
-  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${staleNote}<p class="lp-coverage">${copy.coverage}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p></details>` : `<p class="lp-empty" role="status">${staleBadge} ${copy.unavailable}</p>`}</section>
+  ${stats.status === 'ready' ? `<p class="lp-updated">${copy.updated(generatedAt)}</p>${staleNote}<p class="lp-coverage">${copy.coverage}</p>${channelNote}${landingChannelShelf(stats.topDurationChannels ?? [], 'duration', lang, signedIn)}${landingChannelShelf(stats.topWatchedChannels ?? [], 'watches', lang, signedIn)}<details class="lp-more-stats"><summary>${copy.scopeSummary}</summary><p class="lp-method">${copy.method} ${copy.rounding}</p><p class="lp-method">${copy.estimate}</p></details>` : `<p class="lp-empty" role="status">${staleBadge} ${copy.unavailable}</p>`}</section>
   <section class="lp-section lp-gallery" id="product-screens" aria-labelledby="lp-tour-title"><div class="lp-kicker">${copy.tourKicker}</div><h2 id="lp-tour-title">${copy.tourTitle}</h2><p class="lp-section-note"><span class="lp-badge">${copy.sampleBadge}</span> ${copy.tourNote}</p>
   <div class="lp-gallery-grid">${tour.map(([file, realHref]) => {
     const [title, description, realText, realAria] = copy.tour[file];

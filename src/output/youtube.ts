@@ -114,11 +114,11 @@ export function radialClock(
     return `<line${hour % 6 === 0 ? ' class="yt-rhythm-major"' : ''} x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
   }).join('');
   const sectors = values.map((value, hour) => value > 0
-    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" tabindex="0" data-tip="${html(hourLabel(hour))}" data-tip-label="${html(tip(hour, value))}"></path>`
+    ? `<path class="yt-rhythm-sector" d="${radialSector(hour, value, max)}" data-tip="${html(hourLabel(hour))}" data-tip-label="${html(tip(hour, value))}"></path>`
     : '').join('');
   return `<figure class="yt-rhythm-clock"${panel ? ` data-rhythm-panel="${html(panel)}"` : ''}><svg viewBox="0 0 300 300" role="img" aria-label="${html(ariaLabel)}">
     <g class="yt-rhythm-spokes">${spokes}</g>${sectors}<circle cx="150" cy="150" r="3"></circle>
-    <g class="yt-rhythm-hours"><text x="150" y="13">00</text><text x="289" y="154">06</text><text x="150" y="297">12</text><text x="11" y="154">18</text></g>
+    <g class="yt-rhythm-hours" aria-hidden="true"><text x="150" y="12">00</text><text x="287" y="155">06</text><text x="150" y="298">12</text><text x="13" y="155">18</text></g>
     </svg><figcaption>${label}</figcaption></figure>`;
 }
 
@@ -242,7 +242,7 @@ function watchTimeSection(data: YoutubeDashboardData, t: Messages): string {
     const amounts = values(bar);
     const tip = `${labels.total} ${hours(bar.estimatedWatchSeconds)} · ` + categories.map((key) => `${labels[key]} ${hours(amounts[key])}`).join(' · ');
     const segments = categories.map((key) => `<i class="yt-watch-${key}" style="height:${(bar.estimatedWatchSeconds ? amounts[key] / bar.estimatedWatchSeconds * 100 : 0).toFixed(3)}%"></i>`).join('');
-    return `<div class="yt-short-absolute-col" tabindex="0" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${(bar.estimatedWatchSeconds / max * 100).toFixed(3)}%">${segments}</span></div>`;
+    return `<div class="yt-short-absolute-col" data-tip="${html(bar.label)}" data-tip-label="${html(tip)}"><span style="height:${(bar.estimatedWatchSeconds / max * 100).toFixed(3)}%">${segments}</span></div>`;
   }).join('');
   const rows = bars.map((bar) => {
     const amounts = values(bar);
@@ -454,7 +454,7 @@ export const rhythmClockStyles = `
   .yt-rhythm-clock{margin:0;min-width:0;text-align:center}.yt-rhythm-clock[hidden]{display:none}.yt-rhythm-clock svg{display:block;margin:auto;max-width:420px;overflow:visible;width:100%}
   .yt-rhythm-spokes line{stroke:var(--line-strong);stroke-width:1}.yt-rhythm-spokes .yt-rhythm-major{stroke:var(--muted);stroke-width:1.4}
   .yt-rhythm-sector{fill:var(--accent);outline:none;transition:fill .15s}.yt-rhythm-sector:hover,.yt-rhythm-sector:focus{fill:#e66767}
-  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:8px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
+  .yt-rhythm-clock circle{fill:var(--ink)}.yt-rhythm-hours{fill:var(--muted);font-size:14px;font-variant-numeric:tabular-nums}.yt-rhythm-hours text{text-anchor:middle}
   .yt-rhythm-clock figcaption{color:var(--ink-2);font-size:12px;font-weight:700;letter-spacing:.08em;margin-top:5px;text-transform:uppercase}
   .yt-rhythm-quality{align-items:flex-start;background:rgba(208,59,59,.08);border:1px solid rgba(230,103,103,.28);border-radius:12px;display:flex;gap:12px;margin:0 0 20px;padding:14px 16px}
   .yt-rhythm-quality-mark{align-items:center;background:var(--accent);border-radius:50%;color:#fff;display:flex;flex:0 0 24px;font-size:13px;font-weight:800;height:24px;justify-content:center}
@@ -462,7 +462,7 @@ export const rhythmClockStyles = `
   .yt-rhythm-quality-blocking{align-items:center;justify-content:center;margin-bottom:0;min-height:260px;padding:32px}.yt-rhythm-quality-blocking>div{max-width:680px}.yt-rhythm-quality-blocking strong{font-size:17px}.yt-rhythm-quality-blocking p{font-size:13px;margin-top:7px}
 
   .yt-metric-toggle{background:var(--raised);border:1px solid var(--line);border-radius:999px;display:flex;padding:2px}
-  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:12px;font-weight:700;padding:6px 11px}
+  .yt-metric-toggle button{background:transparent;border:0;border-radius:999px;color:var(--muted);cursor:pointer;font:inherit;font-size:12px;font-weight:700;min-height:44px;padding:6px 12px}
   .yt-metric-toggle button[aria-pressed=true]{background:var(--ink);color:#111}
 `;
 

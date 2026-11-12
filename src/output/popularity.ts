@@ -55,7 +55,7 @@ export const popularityStyles = `
   .yt-popularity-bars li{align-items:center;display:grid;gap:10px;grid-template-columns:96px minmax(0,1fr) 92px;font-size:12px}
   .yt-popularity-bars li>span:first-child{color:var(--ink-2)}
   .yt-popularity-bars li>span:last-child{color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right}
-  .yt-popularity-bars small{color:var(--muted);margin-left:6px}
+  .yt-popularity-bars small{color:var(--muted);font-size:12px;margin-left:6px}
   .yt-popularity-bars .yt-mix-track i{background:var(--accent);border-radius:4px;min-width:0}
   .yt-popularity details{color:var(--ink-2);font-size:13px;margin-top:18px}
   .yt-popularity summary{cursor:pointer;width:fit-content}

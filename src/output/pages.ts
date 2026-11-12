@@ -84,7 +84,7 @@ const styles = `
   .site-main[data-loading]::before{background:var(--accent);content:'';height:3px;left:0;position:fixed;right:0;top:0;z-index:100}
   [data-navigation-status]{position:fixed;right:12px;bottom:12px;background:var(--surface);border-radius:6px;color:var(--ink);font-size:12px;z-index:100}
   [data-navigation-status]:not(:empty){padding:8px 12px}
-  code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;padding:1px 5px}
+  code{background:var(--raised);border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:max(12px,.92em);padding:1px 5px}
 
   .site-header{align-items:center;display:flex;gap:24px;justify-content:space-between;padding:18px max(22px,calc((100% - 1180px)/2))}
   .site-brand{align-items:center;color:var(--ink);display:flex;flex:0 0 auto;gap:11px;min-height:44px;text-decoration:none}
@@ -111,7 +111,7 @@ const styles = `
   .viz-tip strong{color:var(--ink);display:block;font-size:13px}
   details.viz-table{color:var(--ink-2);font-size:12px;margin-top:12px}
   details.viz-table summary{color:var(--muted);cursor:pointer;font-size:12px}
-  details.viz-table table{border-collapse:collapse;margin-top:8px}
+  details.viz-table table{border-collapse:collapse;display:block;margin-top:8px;max-width:100%;overflow-x:auto}
   details.viz-table td,details.viz-table th{border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;padding:4px 14px 4px 0;text-align:left}
 
   .yt-profile{align-items:flex-start;display:flex;gap:18px;margin:14px 0 22px}
@@ -128,7 +128,8 @@ const styles = `
   .yt-profile-copy h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.05;margin:2px 0 4px}
   .yt-profile-meta{color:var(--muted);font-size:12px}.yt-profile-meta a{color:var(--ink-2);display:inline-flex;align-items:center;min-height:44px;padding:9px 16px;margin-top:8px;border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);text-decoration:none;font-weight:600}
   h1 .h1-scope{color:var(--muted);font-size:.42em;font-style:normal;font-weight:600;letter-spacing:0;margin-left:8px;vertical-align:.22em;white-space:nowrap}
-  .yt-range{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding:2px 0}
+  /* Wrap rather than scroll sideways: on a phone every range stays in view. */
+  .yt-range{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;padding:2px 0}
   .yt-range a{align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:999px;color:var(--ink-2);display:inline-flex;flex:0 0 auto;font-size:12px;font-weight:600;min-height:44px;padding:7px 14px;text-decoration:none;white-space:nowrap}
   .yt-range a:hover{border-color:var(--line-strong);color:var(--ink)}
   .yt-range a[aria-current=page]{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -142,8 +143,10 @@ const styles = `
 `;
 
 // One floating tooltip for every chart on the page: any element carrying
-// data-tip (value) / data-tip-label shows it on hover and keyboard focus.
-// Tooltips enhance — every value they show is also in text or a table view.
+// data-tip (value) / data-tip-label shows it on hover, and on keyboard focus
+// where the element is itself focusable. Tooltips enhance — every value they
+// show is also in text or a table view, so individual bars and sectors are
+// not tab stops: keyboard and screen-reader users read the table instead.
 const tooltipScript = `(()=>{
   const tip=document.createElement('div');tip.className='viz-tip';tip.setAttribute('role','status');document.body.append(tip);
   let current=null;

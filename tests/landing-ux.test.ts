@@ -319,7 +319,11 @@ test('the synthetic previews share one set of numbers and Chinese copy uses one 
     for (const [name, hours] of matching) assert.equal(hours, hero.get(name), `${lang}: ${name} hours match the hero sample`);
     // The weekly chart has a value scale and states every week's value.
     assert.deepEqual(page('.lp-sample-scale span').map((_, item) => page(item).text()).get(), ['10h', '5h', '0']);
-    assert.match(page('.lp-sample-bars').attr('aria-label')!, /6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 10, 8|6、4、7、9、5、8、11、7、6、9、10、8/);
+    assert.match(page('.lp-sample-bars').attr('aria-label')!, /6, 4, 7, 9, 5, 8, 11, 7, 6, 9, 11, 9|6、4、7、9、5、8、11、7、6、9、11、9/);
+    // Twelve weekly bars ending this week add up to the hero's hours.
+    const bars = page('.lp-sample-bars').attr('aria-label')!.match(/\d+(?:[,、] ?\d+){11}/)![0].split(/[,、] ?/).map(Number);
+    assert.equal(bars.reduce((sum, value) => sum + value, 0), Number(page('.lp-sample-stats dd').first().text()));
+    assert.match(page('.lp-sample').text(), /11 weeks ago|11 週前/);
   }
   const zh = landingContent('zh', anonymous('開始 →'), stats, freshNow);
   assert.doesNotMatch(zh + primaryNav('zh').map(item => `${item.label}${item.ariaLabel ?? ''}`).join(''), /會員/);
