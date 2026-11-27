@@ -1219,6 +1219,34 @@ function previouslySynced() {
   });
 }
 
+test('browser startup retries an interrupted daily sync from its last checkpoint', async () => {
+  const network = networkFor([TOKEN_A, 'synthetic-a']);
+  const fake = fakeChrome({
+    captureSettings: { ...accountA, enabled: true, autoSync: true },
+    lifelogSyncStatus: {
+      state: 'running', stage: 'progress', syncId: 'interrupted-sync',
+      observedAt: previousSyncAt, lastSuccessAt: previousSyncAt, lastEventAt: previousSyncAt,
+      historyTabId: 17,
+    },
+    historyImportStatus: {
+      state: 'running', mode: 'incremental', scanId: 'interrupted-progress',
+      observedAt: previousSyncAt, parentSyncId: 'interrupted-sync', tabId: 17,
+    },
+  });
+  await startWorker(fake, network);
+  await fake.lists.startup[0]();
+  await settle();
+
+  const start = fake.tabMessages.find(({ message }) => message.type === 'start-activity-sync');
+  assert.ok(start, 'startup starts a new activity scan');
+  assert.notEqual(start.message.syncId, 'interrupted-sync');
+  assert.equal(start.message.since, new Date(Date.parse(previousSyncAt) - 2 * 60 * 60_000).toISOString());
+  assert.equal(fake.data.lifelogSyncStatus.lastSuccessAt, previousSyncAt);
+  assert.equal(fake.data.historyImportStatus.state, 'cancelled');
+  assert.equal(fake.data.historyImportStatus.tabId, null);
+  assert.deepEqual(fake.removedTabs, []);
+});
+
 for (const failure of [401, 403, 'offline']) {
   test(`sync preflight ${failure} replaces old completion and recovers only after a real sync`, async () => {
     const network = networkFor([TOKEN_A, 'synthetic-a']);
