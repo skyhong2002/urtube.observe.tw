@@ -1560,15 +1560,25 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  const startupAt = new Date().toISOString();
+  await storageReady;
+  const resumeDeepHistory = await withStatusLock(async () => {
+    const stored = await chrome.storage.local.get([HISTORY_STATUS_KEY, LIFELOG_STATUS_KEY]);
+    const fromPreviousSession = (status) =>
+      status?.state === 'running' && (!status.observedAt || status.observedAt < startupAt);
+    const history = fromPreviousSession(stored[HISTORY_STATUS_KEY]) ? stored[HISTORY_STATUS_KEY] : {};
+    const lifelog = fromPreviousSession(stored[LIFELOG_STATUS_KEY]) ? stored[LIFELOG_STATUS_KEY] : {};
+    const stopped = stopRunningWork(history, lifelog);
+    // Tab IDs from the previous browser session may have been reused.
+    const patch = {};
+    if (stopped.history !== history) patch[HISTORY_STATUS_KEY] = stopped.history;
+    if (stopped.lifelog !== lifelog) patch[LIFELOG_STATUS_KEY] = stopped.lifelog;
+    if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+    return history.mode === 'deep';
+  });
   await ensureAlarms();
-  const stored = await chrome.storage.local.get(HISTORY_STATUS_KEY);
-  const history = stored[HISTORY_STATUS_KEY] ?? {};
-  if (history.state === 'running' && history.mode === 'deep') {
-    await closeActivitySyncTab(history.tabId);
-    await historyStatus({ state: 'error', tabId: null, lastError: 'Browser restarted; resuming saved history segments.' });
-    void startDeepHistoryImport().catch(() => {});
-  }
   void flushQueue();
+  if (resumeDeepHistory) await startDeepHistoryImport().catch(() => {});
   void maybeStartLifelogSync();
   void checkExtensionUpdate();
 });
